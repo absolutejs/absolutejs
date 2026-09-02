@@ -1,7 +1,7 @@
 # AbsoluteJS iOS and TestFlight macOS test runbook
 
 This runbook validates the iOS release path shipped in
-`@absolutejs/absolute@0.20.0-beta.62` and
+`@absolutejs/absolute@0.20.0-beta.63` and
 `@absolutejs/deploy@0.24.0`. It covers a signed local IPA, an internal
 TestFlight upload, retry behavior, and installation on an iPhone or iPad.
 
@@ -42,7 +42,8 @@ cloned repository root, which contains this repository's `package.json`,
 ```sh
 git clone https://github.com/absolutejs/absolutejs.git
 cd absolutejs
-git checkout f7e9034690878ef1295cb0a238fe97830dc9e38f
+git checkout main
+git pull --ff-only origin main
 bun install --frozen-lockfile
 xcodebuild -version
 xcrun simctl list runtimes
@@ -54,30 +55,39 @@ If the repository was already cloned, use this instead:
 ```sh
 cd /absolute/path/to/the/absolutejs-clone
 git fetch origin
-git checkout f7e9034690878ef1295cb0a238fe97830dc9e38f
+git checkout main
+git pull --ff-only origin main
 bun install --frozen-lockfile
 bun run test:native:ios
 ```
 
 Do not run Track A from the directory containing this downloaded Markdown file,
 from `mobile/ios`, from `App.xcworkspace`, or from another application. The
-command runs two suites. A normal successful result ends with ten passing tests:
+command runs two suites. A normal successful result ends with eleven passing tests:
 six development-lifecycle checks covering cold/warm native startup, React HMR,
 CSS HMR, relaunch, server reconnect, and a native rebuild; then four production
 bundle checks covering ordinary-link traversal across React, Angular, Vue,
 Svelte, HTML, and HTMX, the hashed local HTML script, termination/relaunch, and
-an installed embedded-bundle upgrade that retains application data. The first
-run can take several minutes while Xcode builds each app.
+an installed embedded-bundle upgrade that retains application data, followed by
+a fifth production check for signed OTA activation, automatic watchdog rollback,
+quarantine/no-redownload, a corrected release, and process-termination recovery.
+The first run can take several minutes while Xcode builds each app.
 
 Return these Track A results:
 
 - [ ] The complete terminal output from `bun run test:native:ios`.
+- [ ] The output of `git rev-parse HEAD` so the tested framework revision is
+  unambiguous.
 - [ ] The output of `bun --version` and `xcodebuild -version`.
 - [ ] If a test fails, the test name and the files under
   `.absolutejs/mobile-native-conformance/ios-artifacts` or
   `.absolutejs/mobile-native-conformance/ios-embedded-artifacts`. Do not return
   signing credentials, Apple account details, device identifiers, or unrelated
   logs.
+- [ ] Confirm
+  `.absolutejs/mobile-native-conformance/ios-embedded-artifacts/ios-update-conformance.json`
+  exists and has `false` for `brokenReleaseRedownloaded` plus `true` for
+  `localStorage`, `processDeathRecovered`, and `timeoutRecovered`.
 
 After Track A, continue with Track B only if the staging application checkout
 and Apple access were supplied.
@@ -1871,6 +1881,9 @@ bun run test:native:ios
 
 To rerun only one suite while diagnosing a failure, use
 `bun run test:native:ios:lifecycle` or `bun run test:native:ios:bundle`. The
+signed-update slice alone is `bun run test:native:ios:updates`. It generates an
+ephemeral test key and disposable releases; no signing secret or external update
+service is required. The
 production suite uses a bounded test-only reporter inside the generated fixture
 bundle to observe the real Capacitor WebView; that reporter is never added to
 application or published runtime code. The gate intentionally runs only on
@@ -2238,7 +2251,7 @@ source change and build a new content-addressed release instead.
 - Mac architecture:
 - Xcode version:
 - Bun version:
-- AbsoluteJS version: 0.20.0-beta.62
+- AbsoluteJS version: 0.20.0-beta.63
 - Auth version: 0.75.6
 - Dispatch version: 0.9.0
 - Sync version: 2.31.0

@@ -3524,6 +3524,16 @@ readable result is written to
 Run only this slice with `bun run test:native:android:updates`; it remains part of
 the complete `bun run test:native:android` path through the bundle suite.
 
+The matching iOS Simulator harness is now implemented in the embedded-bundle
+suite. It uses the same ephemeral signing and four-release sequence, observes the
+real Capacitor WebView through the bounded test reporter, polls the app's durable
+UserDefaults update state, and uses `simctl terminate` only after the failing
+release is pending. It writes
+`.absolutejs/mobile-native-conformance/ios-embedded-artifacts/ios-update-conformance.json`.
+Run the focused slice with `bun run test:native:ios:updates`; macOS/Xcode execution
+and the broader native Auth/Sync checklist remain part of the partner acceptance
+run rather than being claimed from this Linux host.
+
 `@absolutejs/deploy` owns the adjacent immutable BlobStore registry, staged
 channel/fallback state, anonymous cohort selection, compatible-runtime
 resolution, CORS-constrained HTTP delivery, promotion, and rollback. The core

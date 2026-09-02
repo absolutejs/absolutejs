@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
+import { generateKeyPairSync } from 'node:crypto';
+import { cp, mkdir, readFile, rm, unlink, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import config from '../fixtures/mobile-native-conformance/absolute.config';
 import { findFreePort } from '../../src/cli/utils';
@@ -12,7 +13,10 @@ import {
 } from '../../src/mobile/iosSimulatorController';
 import { applyAbsoluteNativeDeepLinks } from '../../src/mobile/nativeDeepLinks';
 import { applyAbsoluteNativeDeviceCapabilities } from '../../src/mobile/nativeDeviceCapabilities';
+import { applyAbsoluteNativeUpdates } from '../../src/mobile/nativeUpdates';
 import { sanitizeNativeReportText } from '../../src/mobile/nativeTestReport';
+import { buildAbsoluteMobileUpdate } from '../../src/mobile/updateSigning';
+import type { AbsoluteMobileClientManifest } from '../../src/mobile/transport';
 
 const ENABLED = process.env.ABSOLUTE_TEST_NATIVE_IOS === '1';
 const describeNative = ENABLED ? describe : describe.skip;
@@ -29,6 +33,12 @@ const ARTIFACT_ROOT = resolve(
 	PROJECT_ROOT,
 	'.absolutejs/mobile-native-conformance/ios-embedded-artifacts'
 );
+const UPDATE_ROOT = resolve(
+	PROJECT_ROOT,
+	'.absolutejs/mobile-native-conformance/ios-updates'
+);
+const UPDATE_STATE_KEY = 'absolute.mobile.update.state.v1';
+const UPDATE_PATH_PREFIX = '/__absolute/mobile/updates/production/';
 const CAPACITOR_CONFIG_PATH = resolve(PROJECT_ROOT, 'capacitor.config.ts');
 const REPORTER_FILE = 'absolute-ios-conformance.js';
 const TIMEOUT_MS = 60_000;
@@ -48,6 +58,32 @@ type IosEmbeddedObservation = {
 	navigationMethod: string | null;
 	sequence: number;
 	storageValue: string | null;
+	updateResults: IosUpdateResult[];
+};
+
+type IosUpdateResult = {
+	durationMs?: number;
+	kind: string;
+	reason?: string;
+	releaseId?: string;
+};
+
+type BuiltUpdate = Awaited<ReturnType<typeof buildAbsoluteMobileUpdate>>;
+type BuildNativeUpdateOptions = { broken?: boolean; createdAt: string };
+type IosUpdateConformanceReport = {
+	durationMs: number;
+	releases: {
+		brokenInterrupted: string;
+		brokenTimeout: string;
+		corrected: string;
+		healthy: string;
+	};
+	state: {
+		brokenReleaseRedownloaded: boolean;
+		localStorage: boolean;
+		processDeathRecovered: boolean;
+		timeoutRecovered: boolean;
+	};
 };
 
 let backend: ReturnType<typeof Bun.serve> | undefined;
@@ -59,6 +95,11 @@ let ios: AbsoluteIosDevSession;
 let originalCapacitorConfig: string | undefined;
 let command: IosEmbeddedCommand = { sequence: 0 };
 let observation: IosEmbeddedObservation | undefined;
+let updatePrivateKey = '';
+let updatePublicKey = '';
+let offeredUpdate: string | undefined;
+const servedUpdates = new Map<string, BuiltUpdate>();
+const updateFileRequests = new Map<string, number>();
 
 const mobileConfig = () => {
 	if (!config.mobile) throw new Error('Native mobile fixture is invalid.');
@@ -66,7 +107,13 @@ const mobileConfig = () => {
 	return normalizeAbsoluteMobileConfig(
 		{
 			...config.mobile,
-			server: { productionOrigin: `http://localhost:${port}` }
+			server: { productionOrigin: `http://localhost:${port}` },
+			updates: {
+				bootTimeoutMs: 5_000,
+				channel: 'production',
+				manifestUrl: `http://localhost:${port}${UPDATE_PATH_PREFIX}update.json`,
+				publicKeys: { 'native-conformance': updatePublicKey }
+			}
 		},
 		PROJECT_ROOT
 	);
@@ -89,7 +136,9 @@ const runPrepare = async () => {
 			cwd: PROJECT_ROOT,
 			env: {
 				...Bun.env,
-				ABSOLUTE_NATIVE_CONFORMANCE_ORIGIN: `http://localhost:${port}`
+				ABSOLUTE_NATIVE_CONFORMANCE_ORIGIN: `http://localhost:${port}`,
+				ABSOLUTE_NATIVE_CONFORMANCE_UPDATE_MANIFEST: `http://localhost:${port}${UPDATE_PATH_PREFIX}update.json`,
+				ABSOLUTE_NATIVE_CONFORMANCE_UPDATE_PUBLIC_KEY: updatePublicKey
 			},
 			stderr: 'inherit',
 			stdout: 'inherit'
@@ -141,6 +190,62 @@ const corsJson = (value: unknown, status = 200) =>
 		status
 	});
 
+const nativeUpdateResponse = async (request: Request) => {
+	const url = new URL(request.url);
+	if (!url.pathname.startsWith(UPDATE_PATH_PREFIX)) return undefined;
+	const relativePath = url.pathname.slice(UPDATE_PATH_PREFIX.length);
+	const headers: HeadersInit = {
+		'access-control-allow-headers':
+			request.headers.get('access-control-request-headers') ??
+			'x-absolute-mobile-app,x-absolute-mobile-channel,x-absolute-mobile-installation,x-absolute-mobile-release,x-absolute-mobile-runtime',
+		'access-control-allow-methods': 'GET,OPTIONS',
+		'access-control-allow-origin': '*',
+		'cache-control': 'no-store'
+	};
+	if (request.method === 'OPTIONS')
+		return new Response(null, { headers, status: 204 });
+	if (relativePath === 'update.json') {
+		if (!offeredUpdate) return new Response(null, { headers, status: 204 });
+		const update = servedUpdates.get(offeredUpdate);
+		if (!update)
+			return new Response('Unknown update.', { headers, status: 404 });
+
+		return new Response(JSON.stringify(update.manifest), {
+			headers: { ...headers, 'content-type': 'application/json' }
+		});
+	}
+	const separator = relativePath.indexOf('/files/');
+	if (separator < 1)
+		return new Response('Unknown update path.', { headers, status: 404 });
+	const releaseId = relativePath.slice(0, separator);
+	const update = servedUpdates.get(releaseId);
+	if (!update)
+		return new Response('Unknown update.', { headers, status: 404 });
+	let filePath: string;
+	try {
+		filePath = relativePath
+			.slice(separator + '/files/'.length)
+			.split('/')
+			.map(decodeURIComponent)
+			.join('/');
+	} catch {
+		return new Response('Invalid update path.', { headers, status: 400 });
+	}
+	if (!update.manifest.files.some(({ path }) => path === filePath))
+		return new Response('Unknown update file.', { headers, status: 404 });
+	const file = Bun.file(
+		resolve(update.outputDirectory, 'files', ...filePath.split('/'))
+	);
+	if (!(await file.exists()))
+		return new Response('Missing update file.', { headers, status: 404 });
+	updateFileRequests.set(
+		releaseId,
+		(updateFileRequests.get(releaseId) ?? 0) + 1
+	);
+
+	return new Response(file, { headers });
+};
+
 const proxyCompiledBackend = async (request: Request) => {
 	const target = new URL(request.url);
 	target.hostname = '127.0.0.1';
@@ -171,7 +276,8 @@ const snapshot = () => ({
 	location: location.pathname,
 	navigationMethod,
 	sequence: lastSequence,
-	storageValue: localStorage.getItem(storageKey)
+	storageValue: localStorage.getItem(storageKey),
+	updateResults: Reflect.get(globalThis, Symbol.for('absolutejs.mobile.update.results')) ?? []
 });
 const applyCommand = (next) => {
 	if (!next || !Number.isInteger(next.sequence) || next.sequence <= lastSequence) return;
@@ -213,6 +319,45 @@ addEventListener('pageshow', tick);
 void tick();
 `;
 
+const buildNativeUpdate = async (
+	marker: string,
+	options: BuildNativeUpdateOptions
+) => {
+	const source = resolve(UPDATE_ROOT, 'sources', marker);
+	await rm(source, { force: true, recursive: true });
+	await cp(project.config.bundleDirectory, source, { recursive: true });
+	await writeFile(join(source, REPORTER_FILE), reporterSource(marker));
+	if (options.broken) {
+		await writeFile(
+			join(source, 'index.html'),
+			'<!doctype html><title>Broken update fixture</title><p>Broken update fixture</p>\n'
+		);
+	}
+	const clientManifest: AbsoluteMobileClientManifest = JSON.parse(
+		await readFile(
+			join(
+				project.config.bundleDirectory,
+				'absolute-mobile-manifest.json'
+			),
+			'utf8'
+		)
+	);
+	const update = await buildAbsoluteMobileUpdate({
+		appId: project.config.appId,
+		bundleDirectory: source,
+		channel: 'production',
+		classification: 'bug-fix',
+		createdAt: new Date(options.createdAt),
+		keyId: 'native-conformance',
+		outputDirectory: resolve(UPDATE_ROOT, 'releases'),
+		privateKey: updatePrivateKey,
+		runtimeFingerprint: clientManifest.nativeRuntime
+	});
+	servedUpdates.set(update.manifest.releaseId, update);
+
+	return update;
+};
+
 const installReporter = async (build: string, injectIndex: boolean) => {
 	const { bundleDirectory } = mobileConfig();
 	await writeFile(
@@ -233,6 +378,34 @@ const issueCommand = (next: Omit<IosEmbeddedCommand, 'sequence'>) => {
 	command = { ...next, sequence: command.sequence + 1 };
 };
 
+const parseUpdateResult = (value: unknown): IosUpdateResult | null => {
+	if (typeof value !== 'object' || value === null) return null;
+	const kind = Reflect.get(value, 'kind');
+	if (typeof kind !== 'string') return null;
+	const durationMs = Reflect.get(value, 'durationMs');
+	const reason = Reflect.get(value, 'reason');
+	const releaseId = Reflect.get(value, 'releaseId');
+
+	return {
+		...(typeof durationMs === 'number' && Number.isFinite(durationMs)
+			? { durationMs }
+			: {}),
+		kind: kind.slice(0, 100),
+		...(typeof reason === 'string' ? { reason: reason.slice(0, 100) } : {}),
+		...(typeof releaseId === 'string'
+			? { releaseId: releaseId.slice(0, 100) }
+			: {})
+	};
+};
+
+const parseUpdateResults = (value: unknown) =>
+	Array.isArray(value)
+		? value
+				.map(parseUpdateResult)
+				.filter((result): result is IosUpdateResult => result !== null)
+				.slice(-8)
+		: [];
+
 const waitForObservation = async (
 	label: string,
 	predicate: (value: IosEmbeddedObservation) => boolean
@@ -248,6 +421,119 @@ const waitForObservation = async (
 	);
 };
 
+const waitForUpdateResult = (
+	build: string,
+	kind: string,
+	releaseId: string,
+	reason?: string
+) =>
+	waitForObservation(
+		`${kind} result for ${releaseId}`,
+		(value) =>
+			value.build === build &&
+			value.updateResults.some(
+				(result) =>
+					result.kind === kind &&
+					result.releaseId === releaseId &&
+					(reason === undefined || result.reason === reason)
+			)
+	);
+
+const requireIosCommand = (args: string[], label: string) => {
+	const result = Bun.spawnSync(args);
+	if (result.exitCode !== 0) {
+		throw new Error(
+			`${label} failed: ${result.stderr.toString().trim() || result.stdout.toString().trim()}`
+		);
+	}
+
+	return result.stdout.toString().trim();
+};
+
+let iosDataContainer: string | undefined;
+const parseEncodedUpdateState = (encoded: string) => {
+	try {
+		let state: unknown = JSON.parse(encoded);
+		if (typeof state === 'string') state = JSON.parse(state);
+
+		return typeof state === 'object' && state !== null
+			? (state as Record<string, unknown>)
+			: {};
+	} catch {
+		return {};
+	}
+};
+
+const readIosUpdateState = async () => {
+	if (ios.targetKind !== 'simulator')
+		throw new Error(
+			'iOS OTA process-recovery conformance requires the Simulator.'
+		);
+	const liveDefaults = Bun.spawnSync([
+		project.xcrun,
+		'simctl',
+		'spawn',
+		ios.udid,
+		'defaults',
+		'read',
+		project.config.appId,
+		UPDATE_STATE_KEY
+	]);
+	if (liveDefaults.exitCode === 0)
+		return parseEncodedUpdateState(liveDefaults.stdout.toString().trim());
+	iosDataContainer ??= requireIosCommand(
+		[
+			project.xcrun,
+			'simctl',
+			'get_app_container',
+			ios.udid,
+			project.config.appId,
+			'data'
+		],
+		'iOS data-container lookup'
+	);
+	const preferences = join(
+		iosDataContainer,
+		'Library',
+		'Preferences',
+		`${project.config.appId}.plist`
+	);
+	const converted = Bun.spawnSync([
+		'/usr/bin/plutil',
+		'-convert',
+		'json',
+		'-o',
+		'-',
+		preferences
+	]);
+	if (converted.exitCode !== 0) return {};
+	const plist: unknown = JSON.parse(converted.stdout.toString());
+	if (typeof plist !== 'object' || plist === null) return {};
+	const encoded = Reflect.get(plist, UPDATE_STATE_KEY);
+	if (typeof encoded !== 'string') return {};
+
+	return parseEncodedUpdateState(encoded);
+};
+
+const waitForIosPendingUpdate = async (releaseId: string) => {
+	const deadline = Date.now() + TIMEOUT_MS;
+	while (Date.now() < deadline) {
+		if ((await readIosUpdateState()).pendingRelease === releaseId) return;
+		await Bun.sleep(100);
+	}
+
+	throw new Error(
+		`iOS did not persist pending mobile update ${releaseId} before the watchdog deadline.`
+	);
+};
+
+const terminateIosApp = () => {
+	requireIosCommand(
+		[project.xcrun, 'simctl', 'terminate', ios.udid, project.config.appId],
+		'iOS process termination'
+	);
+};
+
 const navigate = async (route: string, expectedText: string) => {
 	issueCommand({ route });
 	const result = await waitForObservation(
@@ -260,7 +546,11 @@ const navigate = async (route: string, expectedText: string) => {
 	expect(result.navigationMethod).toBe('existing-link');
 };
 
-const nativeTest = (name: string, operation: () => Promise<void>) =>
+const nativeTest = (
+	name: string,
+	operation: () => Promise<void>,
+	timeoutMs = 300_000
+) =>
 	test(
 		name,
 		async () => {
@@ -296,7 +586,7 @@ const nativeTest = (name: string, operation: () => Promise<void>) =>
 				throw error;
 			}
 		},
-		300_000
+		timeoutMs
 	);
 
 describeNative('real Capacitor iOS embedded-bundle conformance', () => {
@@ -305,6 +595,16 @@ describeNative('real Capacitor iOS embedded-bundle conformance', () => {
 			CAPACITOR_CONFIG_PATH,
 			'utf8'
 		).catch(() => undefined);
+		const updateKeys = generateKeyPairSync('ec', {
+			namedCurve: 'prime256v1'
+		});
+		updatePrivateKey = updateKeys.privateKey
+			.export({ format: 'pem', type: 'pkcs8' })
+			.toString();
+		updatePublicKey = updateKeys.publicKey
+			.export({ format: 'der', type: 'spki' })
+			.toString('base64');
+		await rm(UPDATE_ROOT, { force: true, recursive: true });
 		port = await findFreePort();
 		await runPrepare();
 		await installReporter('build-1', true);
@@ -313,6 +613,8 @@ describeNative('real Capacitor iOS embedded-bundle conformance', () => {
 			port,
 			fetch: async (request) => {
 				const url = new URL(request.url);
+				const updateResponse = await nativeUpdateResponse(request);
+				if (updateResponse) return updateResponse;
 				if (url.pathname !== '/__absolute/ios-conformance')
 					return proxyCompiledBackend(request);
 				if (request.method === 'OPTIONS') return corsJson(null, 204);
@@ -348,7 +650,10 @@ describeNative('real Capacitor iOS embedded-bundle conformance', () => {
 					storageValue:
 						typeof next.storageValue === 'string'
 							? next.storageValue.slice(0, 500)
-							: null
+							: null,
+					updateResults: parseUpdateResults(
+						Reflect.get(next, 'updateResults')
+					)
 				};
 
 				return corsJson({ accepted: true });
@@ -367,6 +672,7 @@ describeNative('real Capacitor iOS embedded-bundle conformance', () => {
 		await applyAbsoluteNativeDeviceCapabilities(PROJECT_ROOT, mobile, [
 			'ios'
 		]);
+		await applyAbsoluteNativeUpdates(mobile, ['ios']);
 		ios = await startAbsoluteIosDevSession({
 			embeddedBundle: true,
 			port,
@@ -403,6 +709,10 @@ describeNative('real Capacitor iOS embedded-bundle conformance', () => {
 		backend?.stop(true);
 		compiledBackend?.kill();
 		await compiledBackend?.exited.catch(() => undefined);
+		offeredUpdate = undefined;
+		servedUpdates.clear();
+		updateFileRequests.clear();
+		await rm(UPDATE_ROOT, { force: true, recursive: true });
 		if (originalCapacitorConfig === undefined)
 			await unlink(CAPACITOR_CONFIG_PATH).catch(() => undefined);
 		else await writeFile(CAPACITOR_CONFIG_PATH, originalCapacitorConfig);
@@ -498,5 +808,142 @@ describeNative('real Capacitor iOS embedded-bundle conformance', () => {
 				await writeFile(projectPath, projectSource);
 			}
 		}
+	);
+
+	nativeTest(
+		'activates, rolls back, quarantines, and process-recovers signed web updates',
+		async () => {
+			issueCommand({ route: '/react', storageValue: 'ota-survives' });
+			await waitForObservation(
+				'pre-update durable storage marker',
+				(value) =>
+					value.sequence === command.sequence &&
+					value.location === '/react' &&
+					value.storageValue === 'ota-survives'
+			);
+			await Bun.sleep(5_000);
+			const [healthy, brokenTimeout, corrected, brokenInterrupted] =
+				await Promise.all([
+					buildNativeUpdate('healthy', {
+						createdAt: '2026-09-02T00:00:11.000Z'
+					}),
+					buildNativeUpdate('broken-timeout', {
+						broken: true,
+						createdAt: '2026-09-02T00:00:12.000Z'
+					}),
+					buildNativeUpdate('corrected', {
+						createdAt: '2026-09-02T00:00:13.000Z'
+					}),
+					buildNativeUpdate('broken-interrupted', {
+						broken: true,
+						createdAt: '2026-09-02T00:00:14.000Z'
+					})
+				]);
+			const startedAt = performance.now();
+
+			offeredUpdate = healthy.manifest.releaseId;
+			observation = undefined;
+			await ios.relaunch();
+			const activated = await waitForUpdateResult(
+				'healthy',
+				'activated',
+				healthy.manifest.releaseId
+			);
+			expect(activated.storageValue).toBe('ota-survives');
+
+			offeredUpdate = brokenTimeout.manifest.releaseId;
+			observation = undefined;
+			await ios.relaunch();
+			const timeoutRecovery = await waitForUpdateResult(
+				'healthy',
+				'rolled-back',
+				brokenTimeout.manifest.releaseId,
+				'boot-timeout'
+			);
+			expect(
+				timeoutRecovery.updateResults.find(
+					(result) =>
+						result.kind === 'rolled-back' &&
+						result.releaseId === brokenTimeout.manifest.releaseId
+				)?.durationMs
+			).toBeNumber();
+			expect(timeoutRecovery.storageValue).toBe('ota-survives');
+			const brokenTimeoutRequests =
+				updateFileRequests.get(brokenTimeout.manifest.releaseId) ?? 0;
+			expect(brokenTimeoutRequests).toBeGreaterThan(0);
+
+			observation = undefined;
+			await ios.relaunch();
+			await waitForUpdateResult(
+				'healthy',
+				'quarantined',
+				brokenTimeout.manifest.releaseId
+			);
+			await Bun.sleep(1_000);
+			expect(
+				updateFileRequests.get(brokenTimeout.manifest.releaseId) ?? 0
+			).toBe(brokenTimeoutRequests);
+
+			offeredUpdate = corrected.manifest.releaseId;
+			observation = undefined;
+			await ios.relaunch();
+			const correctedActivation = await waitForUpdateResult(
+				'corrected',
+				'activated',
+				corrected.manifest.releaseId
+			);
+			expect(correctedActivation.storageValue).toBe('ota-survives');
+
+			offeredUpdate = brokenInterrupted.manifest.releaseId;
+			observation = undefined;
+			await ios.relaunch();
+			await waitForIosPendingUpdate(brokenInterrupted.manifest.releaseId);
+			terminateIosApp();
+			await ios.relaunch();
+			const processRecovery = await waitForUpdateResult(
+				'corrected',
+				'rolled-back',
+				brokenInterrupted.manifest.releaseId,
+				'boot-interrupted'
+			);
+			expect(
+				processRecovery.updateResults.find(
+					(result) =>
+						result.kind === 'rolled-back' &&
+						result.releaseId ===
+							brokenInterrupted.manifest.releaseId
+				)?.durationMs
+			).toBeNumber();
+			expect(processRecovery.storageValue).toBe('ota-survives');
+			const state = await readIosUpdateState();
+			expect(state.activeRelease).toBe(corrected.manifest.releaseId);
+			expect(state.pendingRelease).toBeUndefined();
+			expect(state.quarantinedReleases).toContain(
+				brokenInterrupted.manifest.releaseId
+			);
+
+			const report: IosUpdateConformanceReport = {
+				durationMs: Math.round(performance.now() - startedAt),
+				releases: {
+					brokenInterrupted: brokenInterrupted.manifest.releaseId,
+					brokenTimeout: brokenTimeout.manifest.releaseId,
+					corrected: corrected.manifest.releaseId,
+					healthy: healthy.manifest.releaseId
+				},
+				state: {
+					brokenReleaseRedownloaded: false,
+					localStorage: true,
+					processDeathRecovered: true,
+					timeoutRecovered: true
+				}
+			};
+			await mkdir(ARTIFACT_ROOT, { recursive: true });
+			await writeFile(
+				resolve(ARTIFACT_ROOT, 'ios-update-conformance.json'),
+				`${JSON.stringify(report, null, 2)}\n`
+			);
+			offeredUpdate = undefined;
+		},
+		900_000
 	);
 });

@@ -226,11 +226,11 @@ CORS.
 
 ## Native conformance
 
-On an Android development machine with AbsoluteJS's emulator prerequisites
-installed, run:
+On a development machine with the platform prerequisites installed, run either:
 
 ```bash
 bun run test:native:android:updates
+bun run test:native:ios:updates
 ```
 
 The test builds and signs its own isolated releases with an ephemeral key, serves
@@ -241,6 +241,13 @@ It also verifies that native Auth, Sync's durable outbox, and local storage rema
 intact. The test leaves a JSON result at
 `.absolutejs/mobile-native-conformance/embedded-artifacts/android-update-conformance.json`;
 on failure the same directory receives sanitized diagnostics and a screenshot.
+
+The iOS command runs the equivalent signed sequence in a real Simulator, verifies
+the native UserDefaults watchdog state, terminates the app with `simctl` only after
+activation is pending, and checks local-storage continuity. Its result is
+`.absolutejs/mobile-native-conformance/ios-embedded-artifacts/ios-update-conformance.json`.
+The iOS suite requires macOS and Xcode and is included in
+`bun run test:native:ios`.
 
 ## Current limitations
 

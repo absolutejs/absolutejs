@@ -293,12 +293,12 @@
 	"main": "./dist/index.js",
 	"name": "@absolutejs/absolute",
 	"optionalDependencies": {
-		"@absolutejs/native-darwin-arm64": "0.20.0-beta.62",
-		"@absolutejs/native-darwin-x64": "0.20.0-beta.62",
-		"@absolutejs/native-linux-arm64": "0.20.0-beta.62",
-		"@absolutejs/native-linux-x64": "0.20.0-beta.62",
-		"@absolutejs/native-windows-arm64": "0.20.0-beta.62",
-		"@absolutejs/native-windows-x64": "0.20.0-beta.62"
+		"@absolutejs/native-darwin-arm64": "0.20.0-beta.63",
+		"@absolutejs/native-darwin-x64": "0.20.0-beta.63",
+		"@absolutejs/native-linux-arm64": "0.20.0-beta.63",
+		"@absolutejs/native-linux-x64": "0.20.0-beta.63",
+		"@absolutejs/native-windows-arm64": "0.20.0-beta.63",
+		"@absolutejs/native-windows-x64": "0.20.0-beta.63"
 	},
 	"overrides": {
 		"@sinclair/typebox": "0.34.52",
@@ -465,6 +465,7 @@
 		"test:native:ios": "bun run test:native:ios:lifecycle && bun run test:native:ios:bundle",
 		"test:native:ios:bundle": "ABSOLUTE_TEST_NATIVE_IOS=1 bun test tests/native/ios-embedded-bundle-conformance.test.ts",
 		"test:native:ios:lifecycle": "ABSOLUTE_TEST_NATIVE_IOS=1 bun test tests/native/ios-lifecycle-conformance.test.ts",
+		"test:native:ios:updates": "ABSOLUTE_TEST_NATIVE_IOS=1 bun test tests/native/ios-embedded-bundle-conformance.test.ts -t 'signed web updates'",
 		"test:packed-compile": "bun run scripts/testPackedCompile.ts",
 		"test:unit": "bun test --max-concurrency 1 tests/unit",
 		"typecheck": "bun run src/cli/index.ts typecheck --config example/absolute.config.ts",
@@ -515,7 +516,7 @@
 			]
 		}
 	},
-	"version": "0.20.0-beta.62",
+	"version": "0.20.0-beta.63",
 	"workspaces": [
 		"tests/fixtures/*",
 		"tests/fixtures/_packages/*"
