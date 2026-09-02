@@ -68,6 +68,7 @@ let nativeAuthUserInfoRequests = 0;
 let nativeSyncConnections = 0;
 let nativeSyncTicketsIssued = 0;
 let nativeSyncTicketsConsumed = 0;
+let nativeNavigationFailures = 0;
 type CompatibilityGeneration = 'current' | 'n+1' | 'n+2' | 'n+3' | 'rollback';
 
 let compatibilityGeneration: CompatibilityGeneration = 'current';
@@ -92,6 +93,13 @@ type NativeFragmentBoundary = {
 	safeAction: string | null;
 	scriptExecuted: boolean;
 	unsafeAction: string | null;
+};
+
+type NativeFailedMigrationState = {
+	code: string;
+	state: string;
+	storedVersion?: number;
+	targetVersion?: number;
 };
 
 type SigningJwk = JsonWebKey & {
@@ -558,24 +566,53 @@ const syncAndroidEmbeddedBundle = async () => {
 		);
 };
 
-const waitForText = (text: string) =>
+const waitForText = (text: string, timeoutMs = TIMEOUT_MS) =>
 	webview.waitFor<boolean>(
 		`document.body?.innerText?.includes(${JSON.stringify(text)}) === true`,
-		{ timeoutMs: TIMEOUT_MS }
+		{ timeoutMs }
+	);
+
+const waitForNavigationReady = (path: string, timeoutMs = TIMEOUT_MS) =>
+	webview.waitFor<boolean>(
+		`document.body?.hasAttribute('data-absolute-mobile-page-active') === true && document.body?.hasAttribute('data-absolute-mobile-navigation-pending') === false && history.state?.path === ${JSON.stringify(path)}`,
+		{ timeoutMs }
 	);
 
 const navigate = async (path: string, expectedText: string) => {
-	const clicked = await webview.evaluate<boolean>(`(() => {
+	const clicked = await webview.evaluate<{
+		active: boolean;
+		clicked: boolean;
+		intercepted: boolean;
+	}>(`(() => {
+		const active = document.body?.hasAttribute('data-absolute-mobile-page-active') === true;
 		const anchor = [...document.querySelectorAll('a[href]')].find((candidate) => {
 			try { return new URL(candidate.href).pathname === ${JSON.stringify(path)}; }
 			catch { return false; }
 		});
-		if (!(anchor instanceof HTMLAnchorElement)) return false;
-		anchor.click();
-		return true;
+		if (!(anchor instanceof HTMLAnchorElement)) return { active, clicked: false, intercepted: false };
+		const event = new MouseEvent('click', { bubbles: true, cancelable: true, view: window });
+		anchor.dispatchEvent(event);
+		return { active, clicked: true, intercepted: event.defaultPrevented };
 	})()`);
-	expect(clicked).toBe(true);
-	await waitForText(expectedText);
+	expect(clicked.clicked).toBe(true);
+	expect(clicked.intercepted).toBe(true);
+	try {
+		await waitForText(expectedText);
+		await waitForNavigationReady(path);
+	} catch (cause) {
+		const state = await webview.evaluate(`(() => ({
+			bodyText: document.body?.innerText ?? '',
+			error: document.querySelector('#absolute-mobile-navigation-error')?.textContent ?? null,
+			history: history.state,
+			location: location.href,
+			pending: document.body?.hasAttribute('data-absolute-mobile-navigation-pending') ?? false,
+			title: document.title
+		}))()`);
+		throw new Error(
+			`Android navigation to ${path} did not render ${expectedText}: ${JSON.stringify({ diagnostics: webview.diagnostics.slice(-10), state })}`,
+			{ cause }
+		);
+	}
 };
 
 const openNativeRoute = async (path: string, expectedText: string) => {
@@ -585,10 +622,12 @@ const openNativeRoute = async (path: string, expectedText: string) => {
 		anchor.textContent = ${JSON.stringify(expectedText)};
 		document.body.appendChild(anchor);
 		anchor.click();
+		anchor.remove();
 		return true;
 	})()`);
 	expect(opened).toBe(true);
 	await waitForText(expectedText);
+	await waitForNavigationReady(path);
 };
 
 const ensureNativeAuthSyncAcceptance = async () => {
@@ -855,6 +894,22 @@ describeNative('real Capacitor Android embedded-bundle conformance', () => {
 			},
 			fetch: async (request, server) => {
 				const url = new URL(request.url);
+				const navigationDelay = Number(
+					url.searchParams.get('absoluteTestDelay')
+				);
+				if (Number.isFinite(navigationDelay) && navigationDelay > 0)
+					await Bun.sleep(navigationDelay);
+				if (
+					url.searchParams.get('absoluteTestFailure') === 'once' &&
+					nativeNavigationFailures === 0
+				) {
+					nativeNavigationFailures += 1;
+
+					return new Response('Temporary navigation failure.', {
+						headers: { 'access-control-allow-origin': '*' },
+						status: 503
+					});
+				}
 				const mobilePageId = request.headers.get(
 					'x-absolute-mobile-page-id'
 				);
@@ -932,8 +987,28 @@ describeNative('real Capacitor Android embedded-bundle conformance', () => {
 				'absolutejs.auth.',
 				'absolutejs.sync.'
 			].map((prefix) => globalThis.Capacitor.Plugins.AbsoluteSecureStorage.clear({ prefix })))`);
-			await webview.evaluate(`location.replace('/react')`);
-			await waitForText('AbsoluteJS + React');
+			let readyError: unknown;
+			for (let attempt = 0; attempt < 3; attempt += 1) {
+				await webview.evaluate(`location.replace('/react')`);
+				try {
+					await waitForText('AbsoluteJS + React', 20_000);
+					await waitForNavigationReady('/react', 20_000);
+					readyError = undefined;
+					break;
+				} catch (error) {
+					readyError = error;
+					if (attempt === 2) break;
+					await webview.close().catch(() => undefined);
+					await android.relaunch();
+					webview = await attachAbsoluteAndroidWebView({
+						adb: project.adb,
+						appId: mobile.appId,
+						serial: android.serial,
+						timeoutMs: TIMEOUT_MS
+					});
+				}
+			}
+			if (readyError) throw readyError;
 		} catch (error) {
 			await mkdir(ARTIFACT_ROOT, { recursive: true });
 			const documentState = await webview
@@ -1015,7 +1090,7 @@ describeNative('real Capacitor Android embedded-bundle conformance', () => {
 	);
 
 	nativeTest(
-		'enhances framework-neutral app shell, tabs, sheet, and back behavior',
+		'enhances mobile UI and keeps navigation transactional under native races',
 		async () => {
 			await openNativeRoute('/native-ui', 'AbsoluteJS mobile UI');
 			expect(
@@ -1039,6 +1114,121 @@ describeNative('real Capacitor Android embedded-bundle conformance', () => {
 			const handled = !dispatchEvent(new CustomEvent('absolute:back-request', { cancelable: true }));
 			return handled && document.querySelector('#mobile-ui-sheet')?.hasAttribute('open') === false && document.activeElement?.id === 'open-sheet';
 		})()`)
+			).toBe(true);
+			const preparedState = await webview.evaluate<boolean>(`(() => {
+			const input = document.querySelector('#mobile-ui-input');
+			const password = document.querySelector('#mobile-ui-password');
+			if (!(input instanceof HTMLInputElement) || !(password instanceof HTMLInputElement)) return false;
+			input.value = 'restored navigation value';
+			password.value = 'must disappear';
+			input.focus();
+			window.scrollTo(0, 180);
+			return window.scrollY > 0;
+			})()`);
+			expect(preparedState).toBe(true);
+			await openNativeRoute('/react', 'AbsoluteJS + React');
+			await webview.evaluate(
+				`(() => { setTimeout(() => history.back(), 0); return true; })()`
+			);
+			await waitForText('AbsoluteJS mobile UI');
+			await waitForNavigationReady('/native-ui');
+			await webview.waitFor<boolean>(
+				`document.querySelector('#mobile-ui-input')?.value === 'restored navigation value'`,
+				{ timeoutMs: TIMEOUT_MS }
+			);
+			expect(
+				await webview.evaluate<boolean>(`(() => {
+				const input = document.querySelector('#mobile-ui-input');
+				const password = document.querySelector('#mobile-ui-password');
+				return input?.value === 'restored navigation value' && password?.value === 'never retained by navigation' && document.activeElement === input && window.scrollY > 0;
+			})()`)
+			).toBe(true);
+
+			await openNativeRoute('/react', 'AbsoluteJS + React');
+			expect(
+				await webview.evaluate<boolean>(`(() => {
+				const slow = document.createElement('a');
+				slow.href = '/native-ui?absoluteTestDelay=1200';
+				document.body.append(slow);
+				const latest = document.createElement('a');
+				latest.href = '/svelte';
+				document.body.append(latest);
+				slow.click();
+				latest.click();
+				slow.remove();
+				latest.remove();
+				return true;
+			})()`)
+			).toBe(true);
+			await waitForText('AbsoluteJS + Svelte');
+			await waitForNavigationReady('/svelte');
+			await Bun.sleep(1_400);
+			expect(
+				await webview.evaluate<boolean>(
+					`document.body.innerText.includes('AbsoluteJS + Svelte') && history.state?.path === '/svelte'`
+				)
+			).toBe(true);
+
+			await openNativeRoute('/react', 'AbsoluteJS + React');
+			expect(
+				await webview.evaluate<boolean>(`(() => {
+				const slow = document.createElement('a');
+				slow.href = '/native-ui?absoluteTestDelay=1200';
+				document.body.append(slow);
+				slow.click();
+				slow.remove();
+				return true;
+			})()`)
+			).toBe(true);
+			await webview.waitFor<boolean>(
+				`document.body.hasAttribute('data-absolute-mobile-navigation-pending')`,
+				{ timeoutMs: TIMEOUT_MS }
+			);
+			expect(
+				await webview.evaluate<boolean>(`(() => {
+				const back = document.createElement('a');
+				back.href = '/react';
+				back.dataset.absoluteLink = 'back';
+				document.body.append(back);
+				back.click();
+				back.remove();
+				return true;
+			})()`)
+			).toBe(true);
+			await Bun.sleep(1_400);
+			await waitForNavigationReady('/react');
+			expect(
+				await webview.evaluate<boolean>(
+					`document.body.innerText.includes('AbsoluteJS + React') && !document.body.hasAttribute('data-absolute-mobile-navigation-pending') && history.state?.path === '/react'`
+				)
+			).toBe(true);
+
+			nativeNavigationFailures = 0;
+			await webview.evaluate(`(() => {
+			const failed = document.createElement('a');
+			failed.href = '/native-ui?absoluteTestFailure=once';
+				document.body.append(failed);
+				failed.click();
+				failed.remove();
+			})()`);
+			await webview.waitFor<boolean>(
+				`document.querySelector('#absolute-mobile-navigation-error button')?.textContent === 'Retry'`,
+				{ timeoutMs: TIMEOUT_MS }
+			);
+			expect(
+				await webview.evaluate<boolean>(
+					`document.body.innerText.includes('AbsoluteJS + React') && history.state?.path === '/react'`
+				)
+			).toBe(true);
+			await webview.evaluate(
+				`document.querySelector('#absolute-mobile-navigation-error button')?.click()`
+			);
+			await waitForText('AbsoluteJS mobile UI');
+			await waitForNavigationReady('/native-ui?absoluteTestFailure=once');
+			expect(
+				await webview.evaluate<boolean>(
+					`history.state?.path === '/native-ui?absoluteTestFailure=once' && !document.querySelector('#absolute-mobile-navigation-error')`
+				)
 			).toBe(true);
 		}
 	);
@@ -1590,14 +1780,26 @@ describeNative('real Capacitor Android embedded-bundle conformance', () => {
 					serial: android.serial,
 					afterInstall: async () => {
 						await webview.close();
-						await android.relaunch();
-						webview = await attachAbsoluteAndroidWebView({
-							adb: project.adb,
-							appId: project.config.appId,
-							serial: android.serial,
-							timeoutMs: TIMEOUT_MS
-						});
-						await waitForText('AbsoluteJS + React');
+						let readyError: unknown;
+						for (let attempt = 0; attempt < 3; attempt += 1) {
+							await android.relaunch();
+							try {
+								webview = await attachAbsoluteAndroidWebView({
+									adb: project.adb,
+									appId: project.config.appId,
+									serial: android.serial,
+									timeoutMs: TIMEOUT_MS
+								});
+								await waitForText('AbsoluteJS + React');
+								await waitForNavigationReady('/react');
+								readyError = undefined;
+								break;
+							} catch (error) {
+								readyError = error;
+								await webview?.close().catch(() => undefined);
+							}
+						}
+						if (readyError) throw readyError;
 						await openNativeRoute(
 							'/native-auth-sync',
 							'AbsoluteJS Native Auth + Sync'
@@ -1787,14 +1989,10 @@ describeNative('real Capacitor Android embedded-bundle conformance', () => {
 					`Reflect.get(globalThis, Symbol.for('absolutejs.mobile.sync.schema-state'))?.state === 'failed'`,
 					{ timeoutMs: TIMEOUT_MS }
 				);
-				const failedAttempt = await webview.evaluate<{
-					code: string;
-					state: string;
-					storedVersion?: number;
-					targetVersion?: number;
-				}>(
-					`Reflect.get(globalThis, Symbol.for('absolutejs.mobile.sync.schema-state'))`
-				);
+				const failedAttempt =
+					await webview.evaluate<NativeFailedMigrationState>(
+						`Reflect.get(globalThis, Symbol.for('absolutejs.mobile.sync.schema-state'))`
+					);
 				expect(failedAttempt).toEqual({
 					code: 'INVALID_PLAN',
 					state: 'failed'

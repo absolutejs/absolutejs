@@ -3300,6 +3300,22 @@ The remaining decisions that materially affect the public API are:
 6. **HTTP package:** Should the canonical request API publish as
    `@absolutejs/http`, or remain a core client subpath until its contract stabilizes?
 
+## Current transactional navigation checkpoint
+
+The Capacitor and Expo WebView shell now treats route navigation as a transaction.
+The trusted page request receives an AbortSignal, newer destinations cancel older
+loads, and page disposal/activation is serialized across framework boundaries.
+Push/replace history is written only after activation succeeds. A load failure
+keeps the current page interactive with an accessible retry action, while a failed
+Back/Forward load rolls the browser history pointer back to the visible entry.
+
+History entries carry only an opaque entry ID, index, and route path. Form values,
+focus, disclosure state, and scroll positions are held in process memory for
+Back/Forward restoration; password, file, hidden, payment-card, one-time-code, and
+explicitly excluded subtrees are never captured. Process death clears transient
+route state by design. Durable offline state remains the responsibility of the
+principal-partitioned, encrypted `@absolutejs/sync` layer.
+
 ## Current native background-sync checkpoint
 
 The Capacitor v1 implementation now includes the finite v1 push/pull protocol,

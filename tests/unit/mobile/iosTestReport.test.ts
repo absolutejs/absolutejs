@@ -53,7 +53,7 @@ describe('iOS partner test report', () => {
 			xcodeVersion: 'Xcode 16.4'
 		});
 		expect(report.overallResult).toBe('INCOMPLETE');
-		expect(report.manualChecks).toHaveLength(82);
+		expect(report.manualChecks).toHaveLength(88);
 		expect(report.manualChecks.map(({ id }) => id)).toEqual(
 			expect.arrayContaining([
 				'ADAPT-01',
@@ -61,7 +61,9 @@ describe('iOS partner test report', () => {
 				'ADAPT-03',
 				'ADAPT-04',
 				'MOBILE-UI-01',
-				'MOBILE-UI-05'
+				'MOBILE-UI-05',
+				'NAV-LIFE-01',
+				'NAV-LIFE-06'
 			])
 		);
 		expect(

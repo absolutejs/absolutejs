@@ -743,4 +743,28 @@ describe('Android emulator development controller', () => {
 			false
 		);
 	});
+
+	test('reconnects and retries once when Android installation loses ADB', async () => {
+		const { project } = await createProject();
+		const commands: string[][] = [];
+		let installationAttempts = 0;
+		const session = await startAbsoluteAndroidDevSession({
+			capture: readyCapture,
+			port: 3033,
+			project,
+			run: async (command) => {
+				commands.push(command);
+				if (!command.includes('install')) return 0;
+				installationAttempts += 1;
+
+				return installationAttempts === 1 ? 1 : 0;
+			}
+		});
+
+		expect(installationAttempts).toBe(2);
+		expect(
+			commands.some((command) => command.includes('wait-for-device'))
+		).toBe(true);
+		await session.close();
+	});
 });

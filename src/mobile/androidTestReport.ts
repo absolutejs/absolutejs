@@ -48,6 +48,14 @@ const MANUAL_CHECKS = [
 				`Complete framework-neutral mobile UI runbook check MOBILE-UI-${String(index + 1).padStart(2, '0')}.`
 			] as const
 	),
+	...Array.from(
+		{ length: 6 },
+		(_, index) =>
+			[
+				`NAV-LIFE-${String(index + 1).padStart(2, '0')}`,
+				`Complete transactional navigation runbook check NAV-LIFE-${String(index + 1).padStart(2, '0')}.`
+			] as const
+	),
 	['CAP-01', 'Complete automatic device-capability provisioning checks.'],
 	[
 		'SYSUI-01',

@@ -34,10 +34,14 @@ const manifest: AbsoluteMobileClientManifest = {
 
 describe('mobile canonical transport', () => {
 	test('targets the deployed backend with the embedded page identity', () => {
+		const controller = new AbortController();
 		const request = createAbsoluteMobilePageRequest(
 			manifest,
 			'/account/Ada?tab=profile',
-			{ headers: { authorization: 'Bearer mobile-token' } }
+			{
+				headers: { authorization: 'Bearer mobile-token' },
+				signal: controller.signal
+			}
 		);
 
 		expect(request.url).toBe(
@@ -52,6 +56,8 @@ describe('mobile canonical transport', () => {
 		expect(
 			request.headers.get(MOBILE_PAGE_REQUEST_HEADERS.pageBundle)
 		).toBe('bundle-account');
+		controller.abort();
+		expect(request.signal.aborted).toBe(true);
 	});
 
 	test('maps only configured HTTPS and custom-scheme deep links', () => {

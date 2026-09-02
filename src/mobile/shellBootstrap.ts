@@ -24,9 +24,23 @@ import {
 	type AbsoluteMobileNavigationDirection,
 	type AbsoluteMobileUiPrimitives
 } from './uiPrimitives';
+import {
+	createAbsoluteMobileNavigationCoordinator,
+	type AbsoluteMobileNavigationRequest
+} from './navigationLifecycle';
+import {
+	captureAbsoluteMobileDocumentState,
+	createAbsoluteMobileHistoryEntry,
+	readAbsoluteMobileHistoryEntry,
+	resetAbsoluteMobileDocumentState,
+	restoreAbsoluteMobileDocumentState,
+	type AbsoluteMobileDocumentSnapshot,
+	type AbsoluteMobileHistoryEntry
+} from './navigationState';
 
 const MANIFEST_PATH = './absolute-mobile-manifest.json';
 const STATUS_ID = 'absolute-mobile-status';
+const NAVIGATION_ERROR_ID = 'absolute-mobile-navigation-error';
 
 type AbsoluteViewTransition = {
 	finished: Promise<void>;
@@ -56,40 +70,28 @@ const currentNavigationPath = () => {
 		: `${location.pathname}${location.search}${location.hash}`;
 };
 
-const pushNavigationHistory = (path: string) => {
+const historyUrl = (path: string) => {
 	if (!Reflect.get(globalThis, '__absoluteExpoBridge')) {
-		history.pushState({ absoluteMobile: true }, '', path);
-
-		return;
+		return path;
 	}
 	const url = new URL(location.href);
 	url.search = '';
 	url.hash = '';
 	url.searchParams.set('absolutePath', path);
-	history.pushState({ absoluteMobile: true }, '', url.href);
-	const bridge: unknown = Reflect.get(globalThis, '__absoluteExpoBridge');
-	if (
-		typeof bridge === 'object' &&
-		bridge !== null &&
-		typeof Reflect.get(bridge, 'setPath') === 'function'
-	) {
-		Reflect.get(bridge, 'setPath').call(bridge, path);
-	}
+
+	return url.href;
 };
 
-const replaceNavigationHistory = (path: string) => {
-	const state: { absoluteMobile: boolean } = { absoluteMobile: true };
-	if (!Reflect.get(globalThis, '__absoluteExpoBridge')) {
-		history.replaceState(state, '', path);
-
-		return;
-	}
-	const url = new URL(location.href);
-	url.search = '';
-	url.hash = '';
-	url.searchParams.set('absolutePath', path);
-	history.replaceState(state, '', url.href);
-	notifyExpoNavigationPath(path);
+const writeNavigationHistory = (
+	entry: AbsoluteMobileHistoryEntry,
+	mode: 'push' | 'replace'
+) => {
+	history[mode === 'push' ? 'pushState' : 'replaceState'](
+		entry,
+		'',
+		historyUrl(entry.path)
+	);
+	notifyExpoNavigationPath(entry.path);
 };
 
 const notifyExpoNavigationPath = (path: string) => {
@@ -180,6 +182,38 @@ const renderStatus = (
 	adaptiveShell?.refreshDocument();
 };
 
+const clearNavigationFailure = () => {
+	document.getElementById(NAVIGATION_ERROR_ID)?.remove();
+};
+
+const renderNavigationFailure = (message: string, retry: () => void) => {
+	clearNavigationFailure();
+	const error = document.createElement('aside');
+	error.id = NAVIGATION_ERROR_ID;
+	error.dataset.absoluteMobileNavigationError = '';
+	error.setAttribute('role', 'alert');
+	error.style.cssText =
+		'position:fixed;z-index:2147483646;inset:auto max(1rem,var(--absolute-safe-area-inset-right,0px)) max(1rem,var(--absolute-safe-area-inset-bottom,0px)) max(1rem,var(--absolute-safe-area-inset-left,0px));display:flex;align-items:center;justify-content:space-between;gap:1rem;box-sizing:border-box;padding:.75rem 1rem;border:1px solid color-mix(in srgb,CanvasText 24%,transparent);border-radius:.75rem;background:Canvas;color:CanvasText;box-shadow:0 .5rem 2rem color-mix(in srgb,CanvasText 20%,transparent)';
+	const text = document.createElement('span');
+	text.textContent = message;
+	const button = document.createElement('button');
+	button.type = 'button';
+	button.textContent = 'Retry';
+	button.addEventListener('click', retry, { once: true });
+	error.append(text, button);
+	document.body.append(error);
+};
+
+const markNavigationPending = (pending: boolean) => {
+	if (pending) {
+		document.body.dataset.absoluteMobileNavigationPending = '';
+		document.body.setAttribute('aria-busy', 'true');
+	} else {
+		delete document.body.dataset.absoluteMobileNavigationPending;
+		document.body.removeAttribute('aria-busy');
+	}
+};
+
 const renderPageTarget = () => {
 	document.title = 'AbsoluteJS';
 	document.head.innerHTML =
@@ -228,18 +262,22 @@ const installLocalPageStyle = (
 	document.head.appendChild(link);
 };
 
-const navigate = async (
-	manifest: AbsoluteMobileClientManifest,
-	path: string,
-	historyMode: 'none' | 'push' | 'replace',
-	fetchImpl?: AbsoluteMobileFetch
-) => {
-	const hadActivePage =
-		document.body.dataset.absoluteMobilePageActive !== undefined;
-	if (!hadActivePage) renderStatus('Loading…');
-	const envelope = await fetchAbsoluteMobilePage(manifest, path, {
-		...(fetchImpl ? { fetch: fetchImpl } : {})
+const waitForDocumentPaint = () =>
+	new Promise<void>((resolve) => {
+		if (typeof requestAnimationFrame !== 'function') {
+			setTimeout(resolve, 0);
+
+			return;
+		}
+		requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
 	});
+
+const commitNavigation = async (
+	manifest: AbsoluteMobileClientManifest,
+	envelope: unknown,
+	hadActivePage: boolean
+) => {
+	if (!hadActivePage) renderStatus('Loading…');
 	let activation:
 		| Awaited<ReturnType<typeof activateAbsoluteMobilePage>>
 		| undefined;
@@ -286,12 +324,16 @@ const navigate = async (
 	if (activation.kind === 'upgrade-required') {
 		renderStatus('This app version must be updated to continue.', 'update');
 
-		return;
+		return false;
 	}
+	// Framework bootstraps may resolve their module-level ready promise before
+	// React/Vue/Svelte has committed DOM. Publish shell readiness after paint so
+	// focus, history, and a following disposal observe the committed document.
+	await waitForDocumentPaint();
 	document.body.dataset.absoluteMobilePageActive = '';
 	adaptiveShell?.refreshDocument();
-	if (historyMode === 'push') pushNavigationHistory(path);
-	else if (historyMode === 'replace') replaceNavigationHistory(path);
+
+	return true;
 };
 
 const openExternalLink = (anchor: HTMLAnchorElement, event: MouseEvent) => {
@@ -319,7 +361,8 @@ const installAnchorNavigation = (
 		path: string,
 		direction?: AbsoluteMobileNavigationDirection,
 		replace?: boolean
-	) => void
+	) => void,
+	onBack: () => boolean
 ) => {
 	const handleClick = (event: MouseEvent) => {
 		if (!(event.target instanceof Element)) return;
@@ -328,7 +371,7 @@ const installAnchorNavigation = (
 		const intent = readAbsoluteMobileLinkIntent(anchor);
 		if (intent.kind === 'back') {
 			event.preventDefault();
-			if (!uiPrimitives?.requestBack()) history.back();
+			if (!uiPrimitives?.requestBack() && !onBack()) history.back();
 
 			return;
 		}
@@ -410,37 +453,6 @@ const installDeepLinks = async (
 	return listener;
 };
 
-const navigateWithFailureState = async (
-	manifest: AbsoluteMobileClientManifest,
-	path: string,
-	historyMode: 'none' | 'push' | 'replace',
-	direction: AbsoluteMobileNavigationDirection,
-	from: string,
-	reinstallBrowserNavigation: () => void,
-	fetchImpl?: AbsoluteMobileFetch
-) => {
-	let completed = false;
-	try {
-		document.documentElement.dataset.absoluteNavigationDirection =
-			direction;
-		await navigate(manifest, path, historyMode, fetchImpl);
-		completed = true;
-	} catch (error) {
-		console.error('[Absolute Mobile] Navigation failed:', error);
-		renderStatus(
-			document.documentElement.dataset.absoluteNetwork === 'offline'
-				? 'You are offline. Reconnect to load this page.'
-				: 'Unable to load this page. Check your connection and retry.',
-			'error'
-		);
-	} finally {
-		// Trusted HTML/HTMX documents use document.open(), which clears window
-		// event listeners. Rebind after every activation and failure state.
-		reinstallBrowserNavigation();
-	}
-	if (completed) uiPrimitives?.navigate({ direction, from, to: path });
-};
-
 export const startAbsoluteMobileShell = async (
 	options: AbsoluteMobileShellOptions = {}
 ) => {
@@ -451,6 +463,13 @@ export const startAbsoluteMobileShell = async (
 	uiPrimitives = installAbsoluteMobileUiPrimitives();
 	const manifest = await readManifest();
 	let activePath = initialNavigationPath(manifest.entry);
+	let activeEntry =
+		readAbsoluteMobileHistoryEntry(history.state) ??
+		createAbsoluteMobileHistoryEntry(activePath, 0);
+	if (activeEntry.path !== activePath) {
+		activeEntry = createAbsoluteMobileHistoryEntry(activePath, 0);
+	}
+	writeNavigationHistory(activeEntry, 'replace');
 	const auth =
 		manifest.auth && options.createAuth
 			? await options.createAuth(manifest.auth, {
@@ -463,21 +482,126 @@ export const startAbsoluteMobileShell = async (
 	if (auth) options.connectPush?.(auth);
 	if (auth && manifest.sync?.socketTickets)
 		options.installSync?.(auth, manifest.sync);
+	const snapshots = new Map<string, AbsoluteMobileDocumentSnapshot>();
+	const targetEntries = new WeakMap<
+		AbsoluteMobileNavigationRequest,
+		AbsoluteMobileHistoryEntry
+	>();
+	let suppressNextPop = false;
+	let hasActivePage = false;
 	let removeAnchorNavigation: () => void = () => undefined;
-	const handlePopState = () => {
+	const coordinator = createAbsoluteMobileNavigationCoordinator<unknown>({
+		commit: async (envelope, request) => {
+			if (hasActivePage) {
+				snapshots.set(
+					activeEntry.entryId,
+					captureAbsoluteMobileDocumentState()
+				);
+			}
+			document.documentElement.dataset.absoluteNavigationDirection =
+				request.direction;
+			try {
+				const previouslyActive = hasActivePage;
+				hasActivePage = false;
+				hasActivePage = await commitNavigation(
+					manifest,
+					envelope,
+					previouslyActive
+				);
+			} finally {
+				// Static HTML/HTMX activation replaces the document body. Rebind the
+				// shell-owned listeners after every attempted commit.
+				reinstallBrowserNavigation();
+			}
+		},
+		load: (request, signal) =>
+			fetchAbsoluteMobilePage(manifest, request.path, {
+				fetch: applicationFetch,
+				signal
+			}),
+		onFailure: (error, phase, request) => {
+			console.error('[Absolute Mobile] Navigation failed:', error);
+			markNavigationPending(false);
+			const targetEntry = targetEntries.get(request);
+			if (targetEntry && targetEntry.index !== activeEntry.index) {
+				suppressNextPop = true;
+				history.go(activeEntry.index - targetEntry.index);
+			}
+			const message =
+				document.documentElement.dataset.absoluteNetwork === 'offline'
+					? 'You are offline. Reconnect to load this page.'
+					: 'Unable to load this page. Check your connection and retry.';
+			if (phase === 'load' && hasActivePage) {
+				renderNavigationFailure(message, () => {
+					if (targetEntry) {
+						history.go(targetEntry.index - activeEntry.index);
+					} else void coordinator.navigate(request);
+				});
+			} else renderStatus(message, 'error');
+		},
+		onStart: () => {
+			clearNavigationFailure();
+			markNavigationPending(true);
+		},
+		onSuccess: (request) => {
+			let nextEntry = targetEntries.get(request);
+			if (request.historyMode === 'push') {
+				nextEntry = createAbsoluteMobileHistoryEntry(
+					request.path,
+					activeEntry.index + 1
+				);
+				writeNavigationHistory(nextEntry, 'push');
+			} else if (request.historyMode === 'replace') {
+				nextEntry = createAbsoluteMobileHistoryEntry(
+					request.path,
+					activeEntry.index
+				);
+				writeNavigationHistory(nextEntry, 'replace');
+			}
+			nextEntry ??= activeEntry;
+			activeEntry = nextEntry;
+			activePath = request.path;
+			markNavigationPending(false);
+			clearNavigationFailure();
+			const snapshot = snapshots.get(activeEntry.entryId);
+			if (snapshot) restoreAbsoluteMobileDocumentState(snapshot);
+			else if (request.historyMode !== 'none')
+				resetAbsoluteMobileDocumentState();
+			uiPrimitives?.navigate({
+				direction: request.direction,
+				from: request.from,
+				to: request.path
+			});
+		}
+	});
+	const cancelPendingNavigation = () => {
+		if (!coordinator.cancelPending()) return false;
+		markNavigationPending(false);
+		clearNavigationFailure();
+
+		return true;
+	};
+	const handlePopState = (event: PopStateEvent) => {
 		const path = currentNavigationPath();
-		const from = activePath;
-		activePath = path;
+		if (suppressNextPop) {
+			suppressNextPop = false;
+			notifyExpoNavigationPath(activePath);
+
+			return;
+		}
+		const targetEntry =
+			readAbsoluteMobileHistoryEntry(event.state) ??
+			createAbsoluteMobileHistoryEntry(path, activeEntry.index - 1);
 		notifyExpoNavigationPath(path);
-		void navigateWithFailureState(
-			manifest,
-			path,
-			'none',
-			'back',
-			from,
-			reinstallBrowserNavigation,
-			applicationFetch
-		);
+		const request: AbsoluteMobileNavigationRequest = {
+			direction:
+				targetEntry.index > activeEntry.index ? 'forward' : 'back',
+			from: activePath,
+			historyMode: 'none',
+			path
+		};
+		targetEntries.set(request, targetEntry);
+		void coordinator.navigate(request);
 	};
 	const reinstallBrowserNavigation = () => {
 		removeAnchorNavigation();
@@ -485,7 +609,11 @@ export const startAbsoluteMobileShell = async (
 		uiPrimitives?.dispose();
 		uiPrimitives = installAbsoluteMobileUiPrimitives();
 		uiPrimitives.refreshDocument(activePath);
-		removeAnchorNavigation = installAnchorNavigation(manifest, onNavigate);
+		removeAnchorNavigation = installAnchorNavigation(
+			manifest,
+			onNavigate,
+			cancelPendingNavigation
+		);
 		addEventListener('popstate', handlePopState);
 	};
 	const onNavigate = (
@@ -493,31 +621,28 @@ export const startAbsoluteMobileShell = async (
 		direction: AbsoluteMobileNavigationDirection = 'forward',
 		replace = false
 	) => {
-		const from = activePath;
-		activePath = path;
-		void navigateWithFailureState(
-			manifest,
-			path,
-			replace ? 'replace' : 'push',
+		if (path === activePath && !replace && hasActivePage) return;
+		void coordinator.navigate({
 			direction,
-			from,
-			reinstallBrowserNavigation,
-			applicationFetch
-		);
+			from: activePath,
+			historyMode: replace ? 'replace' : 'push',
+			path
+		});
 	};
-	await navigateWithFailureState(
-		manifest,
-		activePath,
-		'none',
-		'replace',
-		activePath,
-		reinstallBrowserNavigation,
-		applicationFetch
-	);
+	// Capture taps before the first page activation completes. A user may interact
+	// as soon as framework content paints, which can precede its ready promise.
+	reinstallBrowserNavigation();
+	await coordinator.navigate({
+		direction: 'replace',
+		from: activePath,
+		historyMode: 'none',
+		path: activePath
+	});
 	await installDeepLinks(manifest, onNavigate, auth?.redirectUri);
 	try {
 		await App.addListener('backButton', ({ canGoBack }) => {
 			if (uiPrimitives?.requestBack()) return;
+			if (cancelPendingNavigation()) return;
 			if (canGoBack) history.back();
 			else void App.exitApp();
 		});

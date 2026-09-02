@@ -75,6 +75,7 @@ test('provisions account-bound native durability and lifecycle without page wiri
 	});
 	expect(storeOptions?.protection?.prepare).toBeFunction();
 	expect(await runtime?.socketTicket?.()).toBe('ticket');
+	await new Promise((resolve) => setTimeout(resolve, 0));
 	expect(backgroundConfiguration).toEqual({
 		clientId: 'native-client',
 		endpoint: 'https://app.example/__absolute/sync/background',
@@ -82,7 +83,6 @@ test('provisions account-bound native durability and lifecycle without page wiri
 		issuer: 'https://app.example',
 		namespace: 'principal-a'
 	});
-	await new Promise((resolve) => setTimeout(resolve, 0));
 	expect(schemaStates).toEqual([
 		{ state: 'preparing' },
 		{
@@ -143,6 +143,98 @@ test('provisions account-bound native durability and lifecycle without page wiri
 	dispose();
 	dispose();
 	expect(principalListenerRemoved).toBe(1);
+});
+
+test('configures native background sync only after foreground schema preparation', async () => {
+	let resolveSchema: (() => void) | undefined;
+	const calls: string[] = [];
+	const store = createMemorySyncLocalStore();
+	store.getSchemaStatus = () =>
+		new Promise((resolve) => {
+			resolveSchema = () =>
+				resolve({
+					minimumCompatibleVersion: 1,
+					state: 'ready',
+					storedVersion: 1,
+					targetVersion: 1
+				});
+		});
+	const dispose = installAbsoluteMobileShellSync(
+		{
+			clientId: 'native-client',
+			fetch,
+			issuer: 'https://app.example',
+			principal: { namespace: 'principal-a' },
+			redirectUri: 'com.example.app://auth/callback',
+			onPrincipalChange: () => () => undefined,
+			socketTicket: async () => 'ticket'
+		},
+		{
+			background: {
+				endpoint: 'https://app.example/__absolute/sync/background',
+				intervalMinutes: 15
+			},
+			socketTickets: true,
+			storageSchema: {
+				components: [{ id: '@absolutejs/app', version: 1 }]
+			}
+		},
+		{
+			configureBackground: async () => {
+				calls.push('background');
+			},
+			createStore: () => store,
+			installLifecycle: async () => () => undefined,
+			reportSchemaState: (state) => calls.push(`schema:${state.state}`)
+		}
+	);
+
+	await Promise.resolve();
+	expect(calls).toEqual(['schema:preparing']);
+	resolveSchema?.();
+	await new Promise((resolve) => setTimeout(resolve, 0));
+	expect(calls).toEqual(['schema:preparing', 'schema:ready', 'background']);
+	dispose();
+});
+
+test('does not configure native background sync when schema preparation fails', async () => {
+	let backgroundConfigurations = 0;
+	const store = createMemorySyncLocalStore();
+	store.getSchemaStatus = async () =>
+		Promise.reject(new Error('schema failed'));
+	const dispose = installAbsoluteMobileShellSync(
+		{
+			clientId: 'native-client',
+			fetch,
+			issuer: 'https://app.example',
+			principal: { namespace: 'principal-a' },
+			redirectUri: 'com.example.app://auth/callback',
+			onPrincipalChange: () => () => undefined,
+			socketTicket: async () => 'ticket'
+		},
+		{
+			background: {
+				endpoint: 'https://app.example/__absolute/sync/background',
+				intervalMinutes: 15
+			},
+			socketTickets: true,
+			storageSchema: {
+				components: [{ id: '@absolutejs/app', version: 1 }]
+			}
+		},
+		{
+			configureBackground: async () => {
+				backgroundConfigurations += 1;
+			},
+			createStore: () => store,
+			installLifecycle: async () => () => undefined,
+			reportSchemaState: () => undefined
+		}
+	);
+
+	await new Promise((resolve) => setTimeout(resolve, 0));
+	expect(backgroundConfigurations).toBe(0);
+	dispose();
 });
 
 test('reports only typed schema failure evidence from native migration errors', async () => {

@@ -57,6 +57,9 @@ describe('Android native test report', () => {
 			report.manualChecks.filter(({ id }) => id.startsWith('MOBILE-UI-'))
 		).toHaveLength(5);
 		expect(
+			report.manualChecks.filter(({ id }) => id.startsWith('NAV-LIFE-'))
+		).toHaveLength(6);
+		expect(
 			report.manualChecks.find(({ id }) => id === 'UPGRADE-01')
 		).toBeDefined();
 		expect(

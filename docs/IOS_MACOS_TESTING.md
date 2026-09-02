@@ -1272,6 +1272,35 @@ mobile component.
   WebView must not become an external website. Return to the app and confirm the
   route remains interactive.
 
+### Transactional navigation acceptance
+
+Continue from `/native-ui`. These checks apply to Capacitor and Expo WebView
+routes. Run the matching Expo-native route cancellation check where noted.
+
+- [ ] `NAV-LIFE-01` Rapidly choose two different route links. Confirm only the
+  second destination becomes active, its tab/history entry is correct, and the
+  first response cannot replace it later.
+- [ ] `NAV-LIFE-02` Begin a deliberately slow route load and immediately use
+  Back. The pending request must cancel, the visible route must remain
+  interactive, and no extra history entry may appear.
+- [ ] `NAV-LIFE-03` Disconnect networking while viewing a loaded route and choose
+  another route. Confirm the loaded route stays visible and interactive, an
+  accessible retry banner appears, and reconnecting plus **Retry** completes one
+  history entry.
+- [ ] `NAV-LIFE-04` Enter a distinct value in **State preservation fixture**,
+  focus it, scroll the main region, follow **React**, and go Back. Confirm the
+  value, focus, and scroll position return. The password fixture must reset to
+  its authored default and must not appear in logs or reports.
+- [ ] `NAV-LIFE-05` Traverse Back and Forward repeatedly across React, HTML,
+  Svelte, Vue, Angular, and `/native-ui`. Confirm direction is correct, framework
+  roots do not overlap, and each successful destination produces exactly one
+  history entry. Repeat a parameter change on an Expo-native replacement route
+  and confirm its older trusted-server request is cancelled.
+- [ ] `NAV-LIFE-06` Put a transient value in the fixture, terminate the app
+  process, and relaunch. The app must launch coherently without restoring the
+  transient form value. Confirm durable application state still restores through
+  Auth/Sync rather than browser history.
+
 ### Automatic device-capability provisioning acceptance
 
 Add an application page using the provider-neutral surface only:
@@ -2260,6 +2289,12 @@ versus expected behavior. Do not report exact coordinates.
 | MOBILE-UI-03 |  | focus / Done / Escape / backdrop / Android Back: |  |
 | MOBILE-UI-04 |  | sheet-first Back / route Back / input state: |  |
 | MOBILE-UI-05 |  | Capacitor / Expo external browser handoff: |  |
+| NAV-LIFE-01 |  | rapid navigation / latest destination: |  |
+| NAV-LIFE-02 |  | Back during load / no history drift: |  |
+| NAV-LIFE-03 |  | offline failure / retained route / retry: |  |
+| NAV-LIFE-04 |  | form / focus / scroll / sensitive exclusion: |  |
+| NAV-LIFE-05 |  | Back/Forward / frameworks / Expo cancellation: |  |
+| NAV-LIFE-06 |  | process death / transient reset / durable Sync: |  |
 | HTTPS-01 |  | mkcert / CA trust / load / HMR: |  |
 | EXPO-01 |  | generated CNG ownership / clean prebuild: |  |
 | EXPO-02 |  | Simulator CA trust / HTTPS load / native build: |  |

@@ -109,6 +109,10 @@ describe('experimental Expo project', () => {
 		);
 		expect(nativeRouteRuntime).toContain('x-absolute-mobile-app-build');
 		expect(nativeRouteRuntime).toContain('ABSOLUTE_MOBILE_MANIFEST');
+		expect(nativeRouteRuntime).toContain('new AbortController()');
+		expect(nativeRouteRuntime).toContain('controller.signal');
+		expect(nativeRouteRuntime).toContain('return () => controller.abort()');
+		expect(nativeRouteRuntime).toContain('if (!controller.signal.aborted)');
 		expect(nativeRouteRuntime).not.toContain('absoluteExpoAuth');
 		expect(packageSource).toContain('expo-dev-client');
 		expect(webAssets).toContain('absolute prepare');

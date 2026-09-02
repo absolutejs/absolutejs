@@ -7,7 +7,11 @@ export const NativeUiAcceptance = () => (
 			</button>
 		</header>
 		<main data-absolute-app-main>
-			<section data-absolute-navigation-stack id="mobile-ui-stack">
+			<section
+				data-absolute-navigation-stack
+				id="mobile-ui-stack"
+				style={{ minHeight: '140vh' }}
+			>
 				<h2>Navigation stack</h2>
 				<p>
 					This standard HTML is enhanced by the framework-neutral
@@ -20,6 +24,12 @@ export const NativeUiAcceptance = () => (
 						id="mobile-ui-input"
 					/>
 				</label>
+				<input
+					aria-label="Credential restoration exclusion fixture"
+					defaultValue="never retained by navigation"
+					id="mobile-ui-password"
+					type="password"
+				/>
 				<p>
 					<a
 						data-absolute-link="back"

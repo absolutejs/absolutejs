@@ -54,4 +54,14 @@ void startAbsoluteMobileShell({ createAuth: createAbsoluteMobileShellAuth, insta
 	expect(source).toContain('absolute_sync_metadata');
 	expect(source).toContain('networkStatusChange');
 	expect(source).toContain('absolute:sync-status');
+	expect(source).toContain('absolute-mobile-navigation-error');
+	expect(source).toContain('absoluteMobileNavigationPending');
+	expect(source).toContain('AbortController');
+	expect(source).toContain('entryId');
+	const shellSource = await Bun.file(
+		join(PROJECT_ROOT, 'src/mobile/shellBootstrap.ts')
+	).text();
+	expect(shellSource).toContain(
+		'path === activePath && !replace && hasActivePage'
+	);
 });

@@ -51,6 +51,7 @@ export type AbsoluteMobileClientManifest = {
 export type AbsoluteMobileTransportOptions = {
 	fetch?: AbsoluteMobileFetch;
 	headers?: HeadersInit;
+	signal?: AbortSignal;
 };
 
 const pageForPathname = (
@@ -106,7 +107,11 @@ export const createAbsoluteMobilePageRequest = (
 	);
 	headers.set(MOBILE_PAGE_REQUEST_HEADERS.runtime, manifest.runtime);
 
-	return new Request(url, { headers, method: 'GET' });
+	return new Request(url, {
+		headers,
+		method: 'GET',
+		...(options.signal ? { signal: options.signal } : {})
+	});
 };
 
 export const fetchAbsoluteMobilePage = async (

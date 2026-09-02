@@ -59,6 +59,14 @@ const MANUAL_CHECKS = [
 			] as const
 	),
 	...Array.from(
+		{ length: 6 },
+		(_, index) =>
+			[
+				`NAV-LIFE-${String(index + 1).padStart(2, '0')}`,
+				`Complete transactional navigation runbook check NAV-LIFE-${String(index + 1).padStart(2, '0')}.`
+			] as const
+	),
+	...Array.from(
 		{ length: 10 },
 		(_, index) =>
 			[

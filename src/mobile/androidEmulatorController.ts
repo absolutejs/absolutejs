@@ -34,6 +34,7 @@ import { getDurationString } from '../utils/getDurationString';
 
 const ANDROID_BOOT_TIMEOUT_MS = 180_000;
 const ANDROID_BOOT_POLL_MS = 1_000;
+const ANDROID_CAPTURE_TIMEOUT_MS = 10_000;
 const DEV_JOURNAL_FORMAT = 1;
 const NATIVE_CACHE_FORMAT = 1;
 const HASH_RADIX = 16;
@@ -264,7 +265,8 @@ const captureCommand = (
 			cwd: options.cwd,
 			env: options.env,
 			stderr: 'pipe',
-			stdout: 'pipe'
+			stdout: 'pipe',
+			timeout: ANDROID_CAPTURE_TIMEOUT_MS
 		});
 
 		return {
@@ -1489,20 +1491,40 @@ const ensureAndroidDebugApp = async (options: EnsureAndroidDebugAppOptions) => {
 	);
 	throwIfAborted(options.signal);
 	options.transition('installing');
-	await requireSuccess(
-		[
-			options.project.adb,
-			'-s',
-			options.serial,
-			'install',
-			'-r',
-			'-d',
-			installPath
-		],
-		'Android app installation',
-		options.run,
-		{ env: options.env, signal: options.signal }
-	);
+	const installCommand = [
+		options.project.adb,
+		'-s',
+		options.serial,
+		'install',
+		'-r',
+		'-d',
+		installPath
+	];
+	let installExitCode = await options.run(installCommand, {
+		env: options.env,
+		signal: options.signal
+	});
+	throwIfAborted(options.signal);
+	if (installExitCode !== 0) {
+		options.log(
+			'Android app installation lost its ADB transport; reconnecting and retrying once.'
+		);
+		await requireSuccess(
+			[options.project.adb, '-s', options.serial, 'wait-for-device'],
+			'Android device reconnection',
+			options.run,
+			{ env: options.env, signal: options.signal }
+		);
+		installExitCode = await options.run(installCommand, {
+			env: options.env,
+			signal: options.signal
+		});
+		throwIfAborted(options.signal);
+	}
+	if (installExitCode !== 0)
+		throw new Error(
+			`Android app installation failed (exit ${installExitCode}).`
+		);
 	const updated = androidInstalledPackageIdentity(
 		options.project,
 		options.serial,

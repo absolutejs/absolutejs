@@ -80,6 +80,9 @@ Android Back is coordinated at the shell boundary:
 2. Otherwise the embedded route history goes back.
 3. At the root, Capacitor or the Expo host exits according to Android behavior.
 
+Route loads, history writes, scroll, focus, and memory-only form restoration are
+covered by the [transactional navigation lifecycle](./MOBILE_NAVIGATION_LIFECYCLE.md).
+
 ## Navigation and events
 
 The shell records `forward`, `back`, or `replace` on

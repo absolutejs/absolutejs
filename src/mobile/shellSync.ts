@@ -147,26 +147,41 @@ export const installAbsoluteMobileShellSync = (
 		options.configureBackground ?? configureCapacitorBackgroundSync;
 	const clearBackground =
 		options.clearBackground ?? (() => AbsoluteBackgroundSync.clear());
+	let schemaReady = Promise.resolve(true);
 	if (store?.getSchemaStatus) {
 		reportSchemaState({ state: 'preparing' });
-		void store
+		schemaReady = store
 			.getSchemaStatus()
-			.then(reportSchemaState)
-			.catch((error) => reportSchemaState(schemaFailureState(error)));
+			.then((state) => {
+				reportSchemaState(state);
+
+				return true;
+			})
+			.catch((error) => {
+				reportSchemaState(schemaFailureState(error));
+
+				return false;
+			});
 	}
 	if (namespace && config) {
-		void configureBackground({
-			clientId: auth.clientId,
-			endpoint: config.background.endpoint,
-			intervalMinutes: config.background.intervalMinutes,
-			issuer: auth.issuer,
-			namespace
-		}).catch((error) =>
-			console.error(
-				'[Absolute Mobile] Background Sync configuration failed:',
-				error
-			)
-		);
+		void schemaReady
+			.then((ready) => {
+				if (!ready) return undefined;
+
+				return configureBackground({
+					clientId: auth.clientId,
+					endpoint: config.background.endpoint,
+					intervalMinutes: config.background.intervalMinutes,
+					issuer: auth.issuer,
+					namespace
+				});
+			})
+			.catch((error) =>
+				console.error(
+					'[Absolute Mobile] Background Sync configuration failed:',
+					error
+				)
+			);
 	} else {
 		void clearBackground().catch(() => undefined);
 	}

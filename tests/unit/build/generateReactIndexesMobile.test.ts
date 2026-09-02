@@ -36,7 +36,10 @@ describe('generated React mobile entry', () => {
 			'if (window.__SSR_DIRTY__ || shouldClientRender)'
 		);
 		expect(source).toContain('root = createRoot(container)');
-		expect(source).toContain("document.getElementById('root')");
+		expect(source).toContain(
+			"const container = typeof document !== 'undefined' ? document : null"
+		);
+		expect(source).not.toContain("document.getElementById('root')");
 		expect(source).toContain('window.__ABSOLUTE_PAGE_DISPOSE__');
 		expect(source).toContain(
 			"import { prepareBrowserTranslationHydration } from '@absolutejs/absolute/client'"
