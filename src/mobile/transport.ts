@@ -37,10 +37,16 @@ export type AbsoluteMobileClientManifest = {
 	deviceCapabilities: string[];
 	entry: string;
 	format: typeof ABSOLUTE_MOBILE_CLIENT_MANIFEST_FORMAT;
+	nativeRuntime: string;
 	pages: AbsoluteMobileClientPage[];
 	productionOrigin: string;
 	routes: AbsoluteMobileCompatibilityRoute[];
 	runtime: string;
+	updates?: {
+		channel: string;
+		manifestUrl: string;
+		publicKeys: Record<string, string>;
+	};
 	sync?: {
 		socketTickets: true;
 		background: { endpoint: string; intervalMinutes: number };

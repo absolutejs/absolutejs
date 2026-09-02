@@ -172,6 +172,7 @@ describe('Capacitor local web bundle', () => {
 			config,
 			deviceCapabilities: optionalDeviceCapabilities,
 			projectRoot: packageProjectRoot,
+			runtimeFingerprint: 'a'.repeat(64),
 			sync: true,
 			syncSchema: {
 				components: [
@@ -353,7 +354,8 @@ describe('Capacitor local web bundle', () => {
 			buildDirectory,
 			config,
 			deviceCapabilities: noDeviceCapabilities,
-			projectRoot: packageProjectRoot
+			projectRoot: packageProjectRoot,
+			runtimeFingerprint: 'a'.repeat(64)
 		});
 
 		expect(manifest.pages.map(({ framework }) => framework).sort()).toEqual(
@@ -409,7 +411,8 @@ describe('Capacitor local web bundle', () => {
 					root
 				),
 				deviceCapabilities: noDeviceCapabilities,
-				projectRoot: packageProjectRoot
+				projectRoot: packageProjectRoot,
+				runtimeFingerprint: 'a'.repeat(64)
 			})
 		).rejects.toThrow('does not yet support ember');
 	});

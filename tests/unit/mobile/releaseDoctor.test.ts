@@ -57,6 +57,7 @@ const writeReleaseBundle = async (
 				deviceCapabilities: ['keyboard', 'systemBars'],
 				entry: '/',
 				format: 1,
+				nativeRuntime: 'a'.repeat(64),
 				pages: [
 					{
 						bundleHash,

@@ -22,6 +22,7 @@ test('published build ships linkable native shell modules', async () => {
 		'shellBootstrap.js',
 		'uiPrimitives.js',
 		'shellAuth.js',
+		'shellUpdate.js',
 		'shellExpoDevices.js',
 		'shellExpoAuth.js',
 		'shellExpoSync.js',
@@ -33,6 +34,7 @@ test('published build ships linkable native shell modules', async () => {
 		entry,
 		`import { startAbsoluteMobileShell } from ${JSON.stringify(join(mobile, 'shellBootstrap.js'))};
 import { createAbsoluteMobileShellAuth } from ${JSON.stringify(join(mobile, 'shellAuth.js'))};
+import { installAbsoluteMobileShellUpdates } from ${JSON.stringify(join(mobile, 'shellUpdate.js'))};
 import { createAbsoluteExpoBridgeFetch, installAbsoluteExpoWebDeviceAdapter } from ${JSON.stringify(join(mobile, 'shellExpoDevices.js'))};
 import { createAbsoluteExpoShellAuth } from ${JSON.stringify(join(mobile, 'shellExpoAuth.js'))};
 import { installAbsoluteExpoShellSync } from ${JSON.stringify(join(mobile, 'shellExpoSync.js'))};
@@ -41,6 +43,7 @@ installAbsoluteExpoWebDeviceAdapter();
 void createAbsoluteExpoBridgeFetch;
 void createAbsoluteExpoShellAuth;
 void installAbsoluteExpoShellSync;
+void installAbsoluteMobileShellUpdates;
 void startAbsoluteMobileShell({ createAuth: createAbsoluteMobileShellAuth, installSync: installAbsoluteMobileShellSync });
 `
 	);

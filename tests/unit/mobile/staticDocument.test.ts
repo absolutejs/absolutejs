@@ -75,6 +75,7 @@ describe('mobile static documents', () => {
 			deviceCapabilities: [],
 			entry: '/',
 			format: 1,
+			nativeRuntime: 'a'.repeat(64),
 			pages: [page],
 			productionOrigin: 'https://api.example.com',
 			routes: [],

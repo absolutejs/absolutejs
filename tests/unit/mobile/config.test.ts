@@ -1,7 +1,43 @@
 import { describe, expect, test } from 'bun:test';
+import { generateKeyPairSync } from 'node:crypto';
 import { normalizeAbsoluteMobileConfig } from '../../../src/mobile/config';
 
 describe('mobile config normalization', () => {
+	test('normalizes a signed update channel without accepting private material', () => {
+		const { publicKey } = generateKeyPairSync('ec', {
+			namedCurve: 'prime256v1'
+		});
+		const encoded = publicKey
+			.export({ format: 'der', type: 'spki' })
+			.toString('base64');
+		const config = normalizeAbsoluteMobileConfig(
+			{
+				appId: 'com.example.product',
+				appName: 'Product',
+				server: { productionOrigin: 'https://api.example.com' },
+				updates: { publicKeys: { 'production-2026': encoded } }
+			},
+			'/workspace'
+		);
+
+		expect(config.updates).toEqual({
+			channel: 'production',
+			manifestUrl:
+				'https://api.example.com/__absolute/mobile/updates/production/update.json',
+			publicKeys: { 'production-2026': encoded }
+		});
+		expect(() =>
+			normalizeAbsoluteMobileConfig(
+				{
+					appId: 'com.example.product',
+					appName: 'Product',
+					server: { productionOrigin: 'https://api.example.com' },
+					updates: { publicKeys: {} }
+				},
+				'/workspace'
+			)
+		).toThrow('at least one key');
+	});
 	test('normalizes the Capacitor app without a route list', () => {
 		const config = normalizeAbsoluteMobileConfig(
 			{

@@ -135,6 +135,7 @@ export type AbsoluteMobileShellOptions = {
 		auth: AbsoluteMobileShellAuthRuntime,
 		config: NonNullable<AbsoluteMobileClientManifest['sync']>
 	) => void | (() => void);
+	installUpdates?: (manifest: AbsoluteMobileClientManifest) => Promise<void>;
 };
 
 let navigationGeneration = 0;
@@ -638,6 +639,7 @@ export const startAbsoluteMobileShell = async (
 		historyMode: 'none',
 		path: activePath
 	});
+	await options.installUpdates?.(manifest);
 	await installDeepLinks(manifest, onNavigate, auth?.redirectUri);
 	try {
 		await App.addListener('backButton', ({ canGoBack }) => {

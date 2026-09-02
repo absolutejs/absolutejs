@@ -16,6 +16,7 @@ const manifest: AbsoluteMobileClientManifest = {
 	deviceCapabilities: [],
 	entry: '/',
 	format: 1,
+	nativeRuntime: 'a'.repeat(64),
 	pages: [
 		{
 			bundleHash: 'bundle-account',

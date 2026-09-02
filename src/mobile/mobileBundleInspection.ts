@@ -20,8 +20,10 @@ export type MobileBundleInspection = {
 	pageCount?: number;
 	routeCount?: number;
 	runtime?: string;
+	nativeRuntime?: string;
 	status: 'invalid' | 'missing' | 'valid';
 	sync?: boolean;
+	updates?: boolean;
 };
 
 const MOBILE_FRAMEWORKS = new Set([
@@ -136,6 +138,12 @@ export const inspectAbsoluteMobileBundle = async (
 			);
 		const appBuild = requireString(value.appBuild, 'appBuild');
 		const runtime = requireString(value.runtime, 'runtime');
+		const nativeRuntime = requireString(
+			value.nativeRuntime,
+			'nativeRuntime'
+		);
+		if (!SHA256_PATTERN.test(nativeRuntime))
+			throw new TypeError('nativeRuntime must be a SHA-256 fingerprint.');
 		if (runtime !== String(ABSOLUTE_MOBILE_PAGE_PROTOCOL_VERSION))
 			throw new TypeError(
 				'runtime is not supported by this AbsoluteJS build.'
@@ -144,6 +152,13 @@ export const inspectAbsoluteMobileBundle = async (
 			value.deviceCapabilities,
 			'deviceCapabilities'
 		).sort();
+		if (
+			JSON.stringify(value.updates ?? null) !==
+			JSON.stringify(config.updates ?? null)
+		)
+			throw new TypeError(
+				'Embedded update trust configuration does not match mobile config.'
+			);
 		if (!Array.isArray(value.pages) || !Array.isArray(value.routes))
 			throw new TypeError('pages and routes must be arrays.');
 		const pageIds = new Set<string>();
@@ -234,11 +249,13 @@ export const inspectAbsoluteMobileBundle = async (
 			entryResolved,
 			frameworks: [...frameworks].sort(),
 			manifest,
+			nativeRuntime,
 			pageCount: value.pages.length,
 			routeCount: value.routes.length,
 			runtime,
 			status: 'valid',
-			sync: isObject(value.sync)
+			sync: isObject(value.sync),
+			updates: isObject(value.updates)
 		} satisfies MobileBundleInspection;
 	} catch (error) {
 		return {

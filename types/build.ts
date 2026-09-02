@@ -93,6 +93,15 @@ type MobileSharedConfig = {
 		/** Deployed AbsoluteJS origin used for page envelopes and API calls. */
 		productionOrigin: string;
 	};
+	/** Signed over-the-air web-bundle updates. Native capability changes still require a store build. */
+	updates?: {
+		/** Release channel. Defaults to `production`. */
+		channel?: string;
+		/** Exact signed-manifest URL. Defaults to the AbsoluteJS production origin. */
+		manifestUrl?: string;
+		/** ECDSA P-256 SPKI public keys, encoded as base64 DER and keyed by rotation ID. */
+		publicKeys: Readonly<Record<string, string>>;
+	};
 	/** Capacitor webDir output. Defaults to `.absolutejs/mobile/web`. */
 	bundleDirectory?: string;
 	nativeProject?: {

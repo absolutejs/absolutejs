@@ -1,4 +1,5 @@
 import { resolve } from 'node:path';
+import { createPublicKey } from 'node:crypto';
 import type { MobileConfig, MobilePlatform } from '../../types/build';
 
 export type NormalizedAbsoluteMobileConfig = {
@@ -18,12 +19,19 @@ export type NormalizedAbsoluteMobileConfig = {
 	platforms: MobilePlatform[];
 	productionOrigin: string;
 	pushAndroidGoogleServicesFile: string;
+	updates?: {
+		channel: string;
+		manifestUrl: string;
+		publicKeys: Record<string, string>;
+	};
 };
 
 const APP_ID_PATTERN = /^[A-Za-z][\w]*(?:\.[A-Za-z][\w]*)+$/;
 const SCHEME_PATTERN = /^[a-z][a-z0-9+.-]*$/;
 const APPLE_APP_ID_PREFIX_PATTERN = /^[A-Z0-9]{10}$/;
 const CERTIFICATE_FINGERPRINT_PATTERN = /^[0-9A-F]{64}$/;
+const UPDATE_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/u;
+const UPDATE_PUBLIC_KEY_PATTERN = /^[A-Za-z0-9+/]+={0,2}$/u;
 const HOSTNAME_PATTERN =
 	/^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)(?:\.(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?))*$/;
 const EXPO_RESERVED_ROUTE_PREFIXES = new Set([
@@ -195,6 +203,94 @@ const normalizeCertificateFingerprints = (
 		)
 	].sort();
 
+const normalizeUpdates = (
+	config: MobileConfig,
+	productionOrigin: string
+): NormalizedAbsoluteMobileConfig['updates'] => {
+	if (!config.updates) return undefined;
+	const channel = requireText(
+		config.updates.channel ?? 'production',
+		'mobile.updates.channel'
+	);
+	if (!UPDATE_NAME_PATTERN.test(channel))
+		throw new TypeError(
+			'mobile.updates.channel contains unsupported characters.'
+		);
+	const manifestUrl = new URL(
+		config.updates.manifestUrl ??
+			`/__absolute/mobile/updates/${encodeURIComponent(channel)}/update.json`,
+		`${productionOrigin}/`
+	);
+	const loopback =
+		manifestUrl.hostname === 'localhost' ||
+		manifestUrl.hostname === '127.0.0.1' ||
+		manifestUrl.hostname === '[::1]';
+	if (manifestUrl.protocol !== 'https:' && !loopback)
+		throw new TypeError(
+			'mobile.updates.manifestUrl must use HTTPS outside loopback development.'
+		);
+	if (manifestUrl.username || manifestUrl.password || manifestUrl.hash)
+		throw new TypeError(
+			'mobile.updates.manifestUrl cannot contain credentials or a fragment.'
+		);
+	const entries = Object.entries(config.updates.publicKeys).sort(
+		([left], [right]) => left.localeCompare(right)
+	);
+	if (entries.length === 0)
+		throw new TypeError(
+			'mobile.updates.publicKeys must contain at least one key.'
+		);
+	const publicKeys = Object.fromEntries(
+		entries.map(([keyId, key]) => {
+			if (!UPDATE_NAME_PATTERN.test(keyId))
+				throw new TypeError(
+					'mobile.updates.publicKeys contains an invalid key ID.'
+				);
+			const normalized = requireText(
+				key,
+				`mobile.updates.publicKeys.${keyId}`
+			);
+			if (!UPDATE_PUBLIC_KEY_PATTERN.test(normalized))
+				throw new TypeError(
+					`mobile.updates.publicKeys.${keyId} must be base64-encoded ECDSA P-256 SPKI DER.`
+				);
+			let decoded: Buffer;
+			try {
+				decoded = Buffer.from(normalized, 'base64');
+			} catch {
+				throw new TypeError(
+					`mobile.updates.publicKeys.${keyId} must be canonical base64.`
+				);
+			}
+			let keyType: string | undefined;
+			let namedCurve: string | undefined;
+			try {
+				const publicKey = createPublicKey({
+					format: 'der',
+					key: decoded,
+					type: 'spki'
+				});
+				keyType = publicKey.asymmetricKeyType;
+				namedCurve = publicKey.asymmetricKeyDetails?.namedCurve;
+			} catch {
+				keyType = undefined;
+			}
+			if (
+				decoded.toString('base64') !== normalized ||
+				keyType !== 'ec' ||
+				namedCurve !== 'prime256v1'
+			)
+				throw new TypeError(
+					`mobile.updates.publicKeys.${keyId} is not an ECDSA P-256 SPKI public key.`
+				);
+
+			return [keyId, normalized];
+		})
+	);
+
+	return { channel, manifestUrl: manifestUrl.href, publicKeys };
+};
+
 const validateExpoNativeRouteSegment = (
 	path: string,
 	segment: string,
@@ -316,6 +412,7 @@ export const normalizeAbsoluteMobileConfig = (
 			'mobile.deepLinks.scheme is not a valid URL scheme.'
 		);
 	}
+	const updates = normalizeUpdates(config, productionOrigin);
 
 	return {
 		androidCertificateFingerprints: normalizeCertificateFingerprints(
@@ -358,6 +455,7 @@ export const normalizeAbsoluteMobileConfig = (
 			config.pushNotifications?.android?.googleServicesFile ??
 				'google-services.json',
 			'mobile.pushNotifications.android.googleServicesFile'
-		)
+		),
+		...(updates ? { updates } : {})
 	};
 };

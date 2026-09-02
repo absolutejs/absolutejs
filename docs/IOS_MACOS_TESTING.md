@@ -1,7 +1,7 @@
 # AbsoluteJS iOS and TestFlight macOS test runbook
 
 This runbook validates the iOS release path shipped in
-`@absolutejs/absolute@0.20.0-beta.58` and
+`@absolutejs/absolute@0.20.0-beta.60` and
 `@absolutejs/deploy@0.24.0`. It covers a signed local IPA, an internal
 TestFlight upload, retry behavior, and installation on an iPhone or iPad.
 
@@ -2238,7 +2238,7 @@ source change and build a new content-addressed release instead.
 - Mac architecture:
 - Xcode version:
 - Bun version:
-- AbsoluteJS version: 0.20.0-beta.58
+- AbsoluteJS version: 0.20.0-beta.60
 - Auth version: 0.75.6
 - Dispatch version: 0.9.0
 - Sync version: 2.31.0
@@ -2427,10 +2427,23 @@ versus expected behavior. Do not report exact coordinates.
 | BGSYNC-01 |  | acknowledged/pulled counts: |  |
 | MIGRATE-01 |  | failed build / typed code: |  |
 | MIGRATE-02 |  | corrected build / schema versions / Auth / pending: |  |
+
 | REMOTE-01 |  | doctor/HMR/rebuild/cache: |  |
 | BUILD-01 |  | IPA path / release doctor: |  |
 | SHIP-01 |  | build number / processing / install: |  |
 | UPDATE-01 |  | retry reuse / next build: |  |
+| OTA-01 |  | embedded version N: |  |
+| OTA-02 |  | release ID / private-key exclusion: |  |
+| OTA-03 |  | N+1 activation without IPA: |  |
+| OTA-04 |  | confirmed update after relaunch: |  |
+| OTA-05 |  | Auth/Sync partition continuity: |  |
+| OTA-06 |  | tampered-file rejection / active release: |  |
+| OTA-07 |  | runtime mismatch / store-build diagnostic: |  |
+| OTA-08 |  | failed boot / next-launch rollback: |  |
+| OTA-09 |  | prior-release rollback: |  |
+| OTA-10 |  | embedded-bundle rollback: |  |
+| OTA-11 |  | missing-snapshot recovery: |  |
+| OTA-12 |  | request fields / credential exclusion: |  |
 
 - Signed IPA build: PASS / FAIL
 - App Store upload and processing: PASS / FAIL
@@ -2482,3 +2495,63 @@ versus expected behavior. Do not report exact coordinates.
 
 Do not include the `.p8` key, Issuer ID, JWTs, provisioning profiles, signing
 certificates, or full environment dumps in the report.
+
+## Signed mobile-update acceptance
+
+Run every command in this section from the **application repository root**: the
+directory containing the test application's `package.json` and
+`absolute.config.ts`. Do not run these commands from the AbsoluteJS framework
+repository, `mobile/ios`, Xcode's project directory, or `.absolutejs/mobile`.
+
+Before starting, follow `MOBILE_UPDATES.md` to configure a test-only ECDSA P-256
+public key and the trusted update handler. Keep the private PEM outside every
+repository and report archive. Start with a store-style build containing version
+N of the application and the configured public key:
+
+```bash
+pwd
+test -f package.json
+test -f absolute.config.ts
+bunx absolute mobile sync ios
+bunx absolute mobile build ios src/backend/server.ts
+```
+
+Install and launch that IPA through the existing physical-device steps in this
+document. Then make a visible page-only change that remains within the submitted
+test app purpose and build the update:
+
+```bash
+bunx absolute mobile update build src/backend/server.ts \
+  --classification bug-fix \
+  --key-id partner-test \
+  --signing-key "$HOME/.config/absolutejs/partner-mobile-update.pem" \
+  --within-submitted-purpose
+```
+
+Use the exact `Release:` path printed by that command:
+
+```bash
+bunx absolute mobile update publish ABSOLUTE_PRINTED_RELEASE_PATH \
+  --registry mobile.release.ts --rollout 1
+```
+
+Complete this checklist and include the IDs verbatim in the report:
+
+- [ ] `OTA-01` The original store build opens and shows version N before an update is published.
+- [ ] `OTA-02` The build output contains an `amu_…` release ID, `update.json`, and `files/`; the report does not contain the private key or its contents.
+- [ ] `OTA-03` The installed app downloads, activates, and shows the visible N+1 page change without installing another IPA.
+- [ ] `OTA-04` Fully terminate and reopen the app. N+1 remains active, proving the root was persisted only after a healthy page rendered.
+- [ ] `OTA-05` Auth restores, the current Sync principal/rows remain available, and no account-switch or pending-outbox data crosses principals after activation.
+- [ ] `OTA-06` Publish a file with one byte changed after signing. The app reports a failed update, remains on N+1, and does not partially activate it.
+- [ ] `OTA-07` Build an update after adding a native capability or changing the generated Sync schema. The installed N runtime receives no update; the CLI/registry reports a runtime mismatch requiring a store build.
+- [ ] `OTA-08` Publish a valid test bundle whose bootstrap throws before the first page can render. The failed launch is not persisted; terminate and reopen the app and confirm N+1 returns automatically.
+- [ ] `OTA-09` Promote a valid N+2 update to 100%, confirm it, then run `bunx absolute mobile update rollback --release amu_N_PLUS_1 --registry mobile.release.ts`. Reopen and confirm N+1.
+- [ ] `OTA-10` Run `bunx absolute mobile update rollback --registry mobile.release.ts`, reinstall/reopen as directed, and confirm the embedded store bundle N is the final recovery image.
+- [ ] `OTA-11` On a migrated/restored test device or by removing the confirmed snapshot only in a disposable test install, verify the generated iOS startup guard clears the dangling path and opens embedded N instead of a blank WebView.
+- [ ] `OTA-12` Confirm update requests send only app ID, channel, current release, anonymous installation UUID, and runtime fingerprint. They must not send cookies, bearer/refresh tokens, Sync data, page props, or a user identifier.
+
+For every row record: pass/fail, device model, iOS version, app build/version,
+embedded runtime fingerprint, previous and selected `amu_…` IDs, classification,
+rollout percentage, download/activation duration, and the redacted error code when
+applicable. Never attach the private PEM, Auth storage, SQLite/IndexedDB files,
+downloaded application data, or full device logs containing user content.

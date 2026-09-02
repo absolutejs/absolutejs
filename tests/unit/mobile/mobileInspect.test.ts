@@ -104,6 +104,7 @@ const fixture = async () => {
 			deviceCapabilities: ['clipboard', 'keyboard', 'systemBars'],
 			entry: '/',
 			format: 1,
+			nativeRuntime: 'a'.repeat(64),
 			pages: [
 				{
 					bundleHash,

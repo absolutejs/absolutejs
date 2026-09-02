@@ -25,6 +25,10 @@ import {
 	syncAbsoluteExpoWebAssets,
 	writeAbsoluteExpoProject
 } from './expoProject';
+import {
+	createAbsoluteMobileUpdateRuntimeDescriptor,
+	fingerprintAbsoluteMobileUpdateRuntime
+} from './updateRuntime';
 
 export type FinalizeAbsoluteMobileBuildOptions = {
 	buildDirectory: string;
@@ -163,6 +167,14 @@ export const finalizeAbsoluteMobileCompatibilityBuild = async (
 		options.projectRoot,
 		mobile.engine
 	);
+	const runtimeFingerprint = fingerprintAbsoluteMobileUpdateRuntime(
+		createAbsoluteMobileUpdateRuntimeDescriptor({
+			...(auth ? { auth } : {}),
+			config: mobile,
+			deviceCapabilities,
+			...(syncSchema ? { syncSchema } : {})
+		})
+	);
 	const usesPush =
 		deviceCapabilities.capabilities.includes('pushNotifications');
 	if (usesPush && !auth)
@@ -219,6 +231,7 @@ export const finalizeAbsoluteMobileCompatibilityBuild = async (
 		config: mobile,
 		deviceCapabilities,
 		projectRoot: options.projectRoot,
+		runtimeFingerprint,
 		...(sync ? { sync: true } : {}),
 		...(syncSchema
 			? { syncSchema: { components: syncSchema.components } }

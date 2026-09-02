@@ -1,4 +1,5 @@
 import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { createPublicKey } from 'node:crypto';
 import { join, relative, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import type { MobileConfig } from '../../../types/build';
@@ -15,6 +16,7 @@ import {
 import { applyAbsoluteNativeDeepLinks } from '../../mobile/nativeDeepLinks';
 import { applyAbsoluteNativeDeviceCapabilities } from '../../mobile/nativeDeviceCapabilities';
 import { applyAbsoluteNativeBackgroundSync } from '../../mobile/nativeBackgroundSync';
+import { applyAbsoluteNativeUpdates } from '../../mobile/nativeUpdates';
 import {
 	inspectAbsoluteMobileToolchain,
 	type AbsoluteMobileDoctorCheck
@@ -104,6 +106,16 @@ import {
 	renderAbsoluteMobileProjectInspection
 } from '../../mobile/mobileInspect';
 import { writeAbsoluteMobileGithubWorkflow } from '../../mobile/ciWorkflow';
+import {
+	buildAbsoluteMobileUpdate,
+	verifyAbsoluteMobileUpdateSignature
+} from '../../mobile/updateSigning';
+import {
+	loadAbsoluteMobileUpdatePublisher,
+	promoteAbsoluteMobileUpdate,
+	publishAbsoluteMobileUpdate,
+	rollbackAbsoluteMobileUpdate
+} from '../../mobile/updatePublisher';
 
 const NOT_FOUND = -1;
 
@@ -267,9 +279,14 @@ const packagesNeedingExactInstall = async (
 		)
 	).filter((spec): spec is string => spec !== undefined);
 
-const ensureCapacitorPackages = async (projectRoot: string, args: string[]) => {
+const ensureCapacitorPackages = async (
+	projectRoot: string,
+	args: string[],
+	mobile?: NormalizedAbsoluteMobileConfig
+) => {
 	const specs = [
 		...CAPACITOR_PACKAGE_SPECS,
+		...(mobile?.updates ? ['@capacitor/filesystem@8.1.3'] : []),
 		...(projectUsesAbsoluteSync(projectRoot)
 			? CAPACITOR_SYNC_PACKAGE_SPECS
 			: [])
@@ -680,7 +697,7 @@ const initialize = async (args: string[]) => {
 
 		return;
 	}
-	await ensureCapacitorPackages(projectRoot, args);
+	await ensureCapacitorPackages(projectRoot, args, mobile);
 	const generated = await writeAbsoluteCapacitorConfig(mobile, {
 		force: args.includes('--force'),
 		projectRoot
@@ -693,6 +710,7 @@ const initialize = async (args: string[]) => {
 	await applyAbsoluteNativeDeepLinks(mobile);
 	await applyAbsoluteNativeDeviceCapabilities(projectRoot, mobile);
 	await applyAbsoluteNativeBackgroundSync(projectRoot, mobile);
+	await applyAbsoluteNativeUpdates(mobile);
 };
 
 const sync = async (args: string[]) => {
@@ -725,7 +743,7 @@ const sync = async (args: string[]) => {
 
 		return;
 	}
-	await ensureCapacitorPackages(projectRoot, args);
+	await ensureCapacitorPackages(projectRoot, args, mobile);
 	const platform = args.find(
 		(value) => value === 'android' || value === 'ios'
 	);
@@ -738,6 +756,7 @@ const sync = async (args: string[]) => {
 	await applyAbsoluteNativeDeepLinks(mobile, platforms);
 	await applyAbsoluteNativeDeviceCapabilities(projectRoot, mobile, platforms);
 	await applyAbsoluteNativeBackgroundSync(projectRoot, mobile, platforms);
+	await applyAbsoluteNativeUpdates(mobile, platforms);
 };
 
 const associations = async (args: string[]) => {
@@ -933,6 +952,7 @@ const runReleaseDoctor = async (args: string[]) => {
 const mobileBuildServerEntry = (args: string[]) => {
 	const valueFlags = new Set([
 		'--channel',
+		'--classification',
 		'--config',
 		'--outdir',
 		'--play-name',
@@ -942,6 +962,8 @@ const mobileBuildServerEntry = (args: string[]) => {
 		'--play-track',
 		'--play-update-priority',
 		'--registry',
+		'--key-id',
+		'--signing-key',
 		'--remote',
 		'--testflight-group',
 		'--testflight-notes',
@@ -963,6 +985,209 @@ const mobileBuildServerEntry = (args: string[]) => {
 				!value.startsWith('-')
 		) ?? DEFAULT_SERVER_ENTRY
 	);
+};
+
+const requireUpdateClassification = (value?: string) => {
+	if (value === 'bug-fix' || value === 'content' || value === 'security')
+		return value;
+	throw new TypeError(
+		'mobile update build requires --classification bug-fix|content|security.'
+	);
+};
+
+const buildMobileUpdate = async (args: string[]) => {
+	const configPath = valueAfter(args, '--config');
+	const { mobile, projectRoot } = await loadMobile(configPath);
+	requireCapacitorEngine(mobile, 'mobile update build');
+	if (!mobile.updates)
+		throw new TypeError(
+			'mobile update build requires mobile.updates.publicKeys in absolute.config.ts.'
+		);
+	if (!args.includes('--within-submitted-purpose'))
+		throw new TypeError(
+			'mobile update build requires --within-submitted-purpose to attest that the update does not change the submitted app purpose.'
+		);
+	const classification = requireUpdateClassification(
+		valueAfter(args, '--classification')
+	);
+	const keyId = valueAfter(args, '--key-id');
+	if (!keyId || !mobile.updates.publicKeys[keyId])
+		throw new TypeError(
+			'mobile update build requires --key-id matching mobile.updates.publicKeys.'
+		);
+	const signingKeyPath = valueAfter(args, '--signing-key');
+	if (!signingKeyPath)
+		throw new TypeError(
+			'mobile update build requires --signing-key <private-key.pem>.'
+		);
+
+	const startedAt = performance.now();
+	let success = false;
+	try {
+		await start(
+			mobileBuildServerEntry(args),
+			valueAfter(args, '--web-outdir'),
+			configPath,
+			{ prepareOnly: true }
+		);
+		const embedded: unknown = JSON.parse(
+			await readFile(
+				join(mobile.bundleDirectory, 'absolute-mobile-manifest.json'),
+				'utf8'
+			)
+		);
+		const runtimeFingerprint = isRecord(embedded)
+			? embedded.nativeRuntime
+			: undefined;
+		if (
+			typeof runtimeFingerprint !== 'string' ||
+			!/^[a-f0-9]{64}$/u.test(runtimeFingerprint)
+		)
+			throw new TypeError(
+				'Prepared mobile bundle is missing its native runtime fingerprint.'
+			);
+		const privateKey = await readFile(resolve(projectRoot, signingKeyPath));
+		const configuredPublicKey = Buffer.from(
+			mobile.updates.publicKeys[keyId],
+			'base64'
+		);
+		const derivedPublicKey = createPublicKey(privateKey).export({
+			format: 'der',
+			type: 'spki'
+		});
+		if (!configuredPublicKey.equals(derivedPublicKey))
+			throw new TypeError(
+				`The private key does not match mobile.updates.publicKeys.${keyId}.`
+			);
+		const result = await buildAbsoluteMobileUpdate({
+			appId: mobile.appId,
+			bundleDirectory: mobile.bundleDirectory,
+			channel: mobile.updates.channel,
+			classification,
+			keyId,
+			outputDirectory:
+				valueAfter(args, '--outdir') ??
+				join(projectRoot, '.absolutejs', 'mobile', 'updates'),
+			privateKey,
+			runtimeFingerprint
+		});
+		verifyAbsoluteMobileUpdateSignature(result.manifest, derivedPublicKey);
+		success = true;
+		console.log(`Built signed mobile update ${result.manifest.releaseId}.`);
+		console.log(`Release: ${result.outputDirectory}`);
+		console.log(`Manifest: ${result.manifestPath}`);
+
+		return result;
+	} finally {
+		sendTelemetryEvent('mobile:update-build', {
+			classification: classification ?? 'invalid',
+			durationMs: Math.round(performance.now() - startedAt),
+			engine: mobile.engine,
+			success
+		});
+	}
+};
+
+const updateRollout = (args: string[], fallback?: number) => {
+	const value = valueAfter(args, '--rollout');
+	if (value === undefined) {
+		if (fallback !== undefined) return fallback;
+		throw new TypeError('This command requires --rollout <fraction>.');
+	}
+	const rollout = Number(value);
+	if (!Number.isFinite(rollout) || rollout <= 0 || rollout > 1)
+		throw new TypeError('--rollout must be greater than 0 and at most 1.');
+
+	return rollout;
+};
+
+const mobileUpdatePublisher = async (args: string[]) => {
+	const { projectRoot } = await loadMobile(valueAfter(args, '--config'));
+	const modulePath = valueAfter(args, '--registry') ?? 'mobile.release.ts';
+
+	return {
+		projectRoot,
+		publisher: await loadAbsoluteMobileUpdatePublisher(
+			projectRoot,
+			modulePath
+		)
+	};
+};
+
+const publishMobileUpdate = async (args: string[]) => {
+	const releaseDirectory = args.find((value, index) => {
+		if (value.startsWith('-')) return false;
+		const previous = args[index - 1];
+
+		return !['--config', '--registry', '--rollout'].includes(
+			previous ?? ''
+		);
+	});
+	if (!releaseDirectory)
+		throw new TypeError(
+			'mobile update publish requires a release directory.'
+		);
+	const { projectRoot, publisher } = await mobileUpdatePublisher(args);
+	const result = await publishAbsoluteMobileUpdate({
+		projectRoot,
+		publisher,
+		releaseDirectory,
+		rollout: updateRollout(args, 0.05)
+	});
+	console.log(
+		`${result.reused ? 'Reused' : 'Published'} mobile update ${result.releaseId} to ${result.channel} at ${Math.round(result.rollout * 100)}%.`
+	);
+
+	return result;
+};
+
+const promoteMobileUpdate = async (args: string[]) => {
+	const { mobile } = await loadMobile(valueAfter(args, '--config'));
+	if (!mobile.updates)
+		throw new TypeError(
+			'mobile update promote requires mobile.updates config.'
+		);
+	const releaseId = valueAfter(args, '--release');
+	if (!releaseId)
+		throw new TypeError(
+			'mobile update promote requires --release <release-id>.'
+		);
+	const { publisher } = await mobileUpdatePublisher(args);
+	const result = await promoteAbsoluteMobileUpdate({
+		appId: mobile.appId,
+		channel: mobile.updates.channel,
+		publisher,
+		releaseId,
+		rollout: updateRollout(args)
+	});
+	console.log(
+		`Promoted mobile update ${result.releaseId} to ${Math.round(result.rollout * 100)}%.`
+	);
+
+	return result;
+};
+
+const rollbackMobileUpdate = async (args: string[]) => {
+	const { mobile } = await loadMobile(valueAfter(args, '--config'));
+	if (!mobile.updates)
+		throw new TypeError(
+			'mobile update rollback requires mobile.updates config.'
+		);
+	const { publisher } = await mobileUpdatePublisher(args);
+	const releaseId = valueAfter(args, '--release');
+	const result = await rollbackAbsoluteMobileUpdate({
+		appId: mobile.appId,
+		channel: mobile.updates.channel,
+		publisher,
+		...(releaseId ? { releaseId } : {})
+	});
+	console.log(
+		result.releaseId
+			? `Rolled ${result.channel} back to ${result.releaseId}.`
+			: `Rolled ${result.channel} back to the embedded store build.`
+	);
+
+	return result;
 };
 
 const requireValueAfter = (args: string[], flag: string) => {
@@ -1235,6 +1460,7 @@ const prepareCapacitorIosReleaseProject = async (
 	await applyAbsoluteNativeDeepLinks(mobile, ['ios']);
 	await applyAbsoluteNativeDeviceCapabilities(projectRoot, mobile, ['ios']);
 	await applyAbsoluteNativeBackgroundSync(projectRoot, mobile, ['ios']);
+	await applyAbsoluteNativeUpdates(mobile, ['ios']);
 };
 
 const prepareIosReleaseProject = (
@@ -2947,6 +3173,26 @@ export const runMobile = async (args: string[]) => {
 
 		return;
 	}
+	if (command === 'update' && args[1] === 'build') {
+		await buildMobileUpdate(args.slice(2));
+
+		return;
+	}
+	if (command === 'update' && args[1] === 'publish') {
+		await publishMobileUpdate(args.slice(2));
+
+		return;
+	}
+	if (command === 'update' && args[1] === 'promote') {
+		await promoteMobileUpdate(args.slice(2));
+
+		return;
+	}
+	if (command === 'update' && args[1] === 'rollback') {
+		await rollbackMobileUpdate(args.slice(2));
+
+		return;
+	}
 	if (command === 'publish' && args[1] === 'android') {
 		await publishAndroid(args.slice(2));
 
@@ -2959,6 +3205,6 @@ export const runMobile = async (args: string[]) => {
 	}
 
 	throw new TypeError(
-		'Usage: absolute mobile <pair mac <name> <user@host> [--port n] [--workspace path] | remotes [inspect [name] [--json] | clean [name] --yes | --json] | unpair mac <name> | init [--no-native] [--force] | sync [ios|android] | inspect [--json] [--require-bundle] | associations [--outdir dir] [--verify] | ci github [server-entry] [--publish] [--registry module] [--secret-env NAME] [--output path] [--force] [--json] | doctor [ios|android|release [ios|android]] [--remote name] [--json|--fix [--yes]] | build <android|ios> [server-entry] [--remote name] [--outdir dir] [--web-outdir dir] [--unsigned] | publish android [server-entry] [--registry module] [--channel name] [--play-track track] [--play-status completed|draft|halted|in-progress] [--play-rollout fraction] [--play-name name] [--play-notes language=text] [--play-update-priority 0..5] [--play-hold-review] [--play-cancel-existing-review] [--outdir dir] [--web-outdir dir] [--unsigned] | publish ios [server-entry] [--remote name] [--registry module] [--channel name] [--testflight-group name-or-id] [--testflight-notes locale=text] [--testflight-submit-review] [--outdir dir] [--web-outdir dir] [--unsigned] | test android [--route path] [--wait-for-hmr] [--report [dir]] [--timeout ms] [--port n] [--serial id] [--artifacts dir] [--json] | test ios [--device identifier [--remote name] | --udid id] [--wait-for-hmr] [--report [dir]] [--timeout ms] [--port n] [--artifacts dir] [--json]> [--config path]'
+		'Usage: absolute mobile <pair mac <name> <user@host> [--port n] [--workspace path] | remotes [inspect [name] [--json] | clean [name] --yes | --json] | unpair mac <name> | init [--no-native] [--force] | sync [ios|android] | inspect [--json] [--require-bundle] | associations [--outdir dir] [--verify] | ci github [server-entry] [--publish] [--registry module] [--secret-env NAME] [--output path] [--force] [--json] | doctor [ios|android|release [ios|android]] [--remote name] [--json|--fix [--yes]] | build <android|ios> [server-entry] [--remote name] [--outdir dir] [--web-outdir dir] [--unsigned] | update build [server-entry] --classification bug-fix|content|security --key-id id --signing-key path --within-submitted-purpose [--outdir dir] [--web-outdir dir] | update publish <release-directory> [--rollout fraction] [--registry module] | update promote --release id --rollout fraction [--registry module] | update rollback [--release id] [--registry module] | publish android [server-entry] [--registry module] [--channel name] [--play-track track] [--play-status completed|draft|halted|in-progress] [--play-rollout fraction] [--play-name name] [--play-notes language=text] [--play-update-priority 0..5] [--play-hold-review] [--play-cancel-existing-review] [--outdir dir] [--web-outdir dir] [--unsigned] | publish ios [server-entry] [--remote name] [--registry module] [--channel name] [--testflight-group name-or-id] [--testflight-notes locale=text] [--testflight-submit-review] [--outdir dir] [--web-outdir dir] [--unsigned] | test android [--route path] [--wait-for-hmr] [--report [dir]] [--timeout ms] [--port n] [--serial id] [--artifacts dir] [--json] | test ios [--device identifier [--remote name] | --udid id] [--wait-for-hmr] [--report [dir]] [--timeout ms] [--port n] [--artifacts dir] [--json]> [--config path]'
 	);
 };
