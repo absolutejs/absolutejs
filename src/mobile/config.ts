@@ -17,6 +17,12 @@ export type NormalizedAbsoluteMobileConfig = {
 	expoSdkVersion?: 57;
 	iosVersion?: string;
 	nativeProjectDirectory: string;
+	observability?: {
+		endpoint: string;
+		environment?: string;
+		project: string;
+		sampleRate: number;
+	};
 	platforms: MobilePlatform[];
 	productionOrigin: string;
 	pushAndroidGoogleServicesFile: string;
@@ -186,6 +192,54 @@ const normalizeIosVersion = (value: string | undefined) => {
 	}
 
 	return normalized;
+};
+
+const normalizeObservability = (
+	config: MobileConfig,
+	productionOrigin: string
+): NormalizedAbsoluteMobileConfig['observability'] => {
+	if (!config.observability) return undefined;
+	const project = requireText(
+		config.observability.project,
+		'mobile.observability.project'
+	);
+	if (project.length > 255)
+		throw new TypeError(
+			'mobile.observability.project must not exceed 255 characters.'
+		);
+	const environment = config.observability.environment?.trim();
+	if (environment !== undefined && (!environment || environment.length > 64))
+		throw new TypeError(
+			'mobile.observability.environment must contain 1 through 64 characters.'
+		);
+	const sampleRate = config.observability.sampleRate ?? 1;
+	if (!Number.isFinite(sampleRate) || sampleRate < 0 || sampleRate > 1)
+		throw new TypeError(
+			'mobile.observability.sampleRate must be between 0 and 1.'
+		);
+	const route = config.observability.route ?? '/api/observability/errors';
+	if (!route.startsWith('/') || route.startsWith('//'))
+		throw new TypeError(
+			'mobile.observability.route must be a root-relative trusted-server path.'
+		);
+	const endpoint = new URL(route, `${productionOrigin}/`);
+	if (
+		endpoint.origin !== productionOrigin ||
+		endpoint.username ||
+		endpoint.password ||
+		endpoint.hash ||
+		endpoint.search
+	)
+		throw new TypeError(
+			'mobile.observability.route must remain on productionOrigin and cannot contain credentials, a query, or a fragment.'
+		);
+
+	return {
+		endpoint: endpoint.href,
+		...(environment ? { environment } : {}),
+		project,
+		sampleRate
+	};
 };
 
 const normalizeCertificateFingerprints = (
@@ -513,6 +567,7 @@ export const normalizeAbsoluteMobileConfig = (
 		);
 	}
 	const updates = normalizeUpdates(config, productionOrigin, projectRoot);
+	const observability = normalizeObservability(config, productionOrigin);
 
 	return {
 		androidCertificateFingerprints: normalizeCertificateFingerprints(
@@ -548,6 +603,7 @@ export const normalizeAbsoluteMobileConfig = (
 					: 'mobile'),
 			'mobile.nativeProject.directory'
 		),
+		...(observability ? { observability } : {}),
 		platforms: normalizePlatforms(config.platforms),
 		productionOrigin,
 		pushAndroidGoogleServicesFile: resolveProjectPath(

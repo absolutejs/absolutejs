@@ -8,6 +8,7 @@
 	},
 	"dependencies": {
 		"@absolutejs/auth": "0.75.0",
+		"@absolutejs/beacon": "0.7.0-beta.4",
 		"@absolutejs/devices": "0.7.0",
 		"@absolutejs/devices-capacitor": "0.8.0",
 		"@absolutejs/devices-expo": "0.0.2",
@@ -25,6 +26,7 @@
 		"@tailwindcss/oxide": "^4.1.0",
 		"exact-mirror": "1.2.4",
 		"typebox": "1.3.16",
+		"web-vitals": "6.0.0",
 		"zustand": "^5.0.12"
 	},
 	"description": "A fullstack meta-framework for building web applications with TypeScript",
@@ -294,12 +296,12 @@
 	"main": "./dist/index.js",
 	"name": "@absolutejs/absolute",
 	"optionalDependencies": {
-		"@absolutejs/native-darwin-arm64": "0.20.0-beta.65",
-		"@absolutejs/native-darwin-x64": "0.20.0-beta.65",
-		"@absolutejs/native-linux-arm64": "0.20.0-beta.65",
-		"@absolutejs/native-linux-x64": "0.20.0-beta.65",
-		"@absolutejs/native-windows-arm64": "0.20.0-beta.65",
-		"@absolutejs/native-windows-x64": "0.20.0-beta.65"
+		"@absolutejs/native-darwin-arm64": "0.20.0-beta.66",
+		"@absolutejs/native-darwin-x64": "0.20.0-beta.66",
+		"@absolutejs/native-linux-arm64": "0.20.0-beta.66",
+		"@absolutejs/native-linux-x64": "0.20.0-beta.66",
+		"@absolutejs/native-windows-arm64": "0.20.0-beta.66",
+		"@absolutejs/native-windows-x64": "0.20.0-beta.66"
 	},
 	"overrides": {
 		"@sinclair/typebox": "0.34.52",
@@ -517,7 +519,7 @@
 			]
 		}
 	},
-	"version": "0.20.0-beta.65",
+	"version": "0.20.0-beta.66",
 	"workspaces": [
 		"tests/fixtures/*",
 		"tests/fixtures/_packages/*"

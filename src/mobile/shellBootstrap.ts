@@ -37,6 +37,10 @@ import {
 	type AbsoluteMobileDocumentSnapshot,
 	type AbsoluteMobileHistoryEntry
 } from './navigationState';
+import {
+	installAbsoluteMobileShellObservability,
+	type AbsoluteMobileObservabilityEngine
+} from './shellObservability';
 
 const MANIFEST_PATH = './absolute-mobile-manifest.json';
 const STATUS_ID = 'absolute-mobile-status';
@@ -122,6 +126,7 @@ export type AbsoluteMobileShellPrincipal = {
 };
 
 export type AbsoluteMobileShellOptions = {
+	engine?: AbsoluteMobileObservabilityEngine;
 	createFetch?: (
 		manifest: AbsoluteMobileClientManifest
 	) => AbsoluteMobileFetch;
@@ -479,6 +484,11 @@ export const startAbsoluteMobileShell = async (
 			: undefined;
 	const applicationFetch =
 		auth?.fetch ?? options.createFetch?.(manifest) ?? globalThis.fetch;
+	const observability = installAbsoluteMobileShellObservability(
+		manifest,
+		options.engine ?? 'capacitor',
+		applicationFetch
+	);
 	installAbsoluteMobileShellHttp(manifest.productionOrigin, applicationFetch);
 	if (auth) options.connectPush?.(auth);
 	if (auth && manifest.sync?.socketTickets)
@@ -521,6 +531,10 @@ export const startAbsoluteMobileShell = async (
 				signal
 			}),
 		onFailure: (error, phase, request) => {
+			observability?.captureException(error, {
+				path: request.path,
+				phase: `navigation-${phase}`
+			});
 			console.error('[Absolute Mobile] Navigation failed:', error);
 			markNavigationPending(false);
 			const targetEntry = targetEntries.get(request);

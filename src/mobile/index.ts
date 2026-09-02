@@ -41,6 +41,7 @@ export * from './releasePublisher';
 export * from './routeMetadataTransform';
 export * from './routeMatcher';
 export * from './shellHttp';
+export * from './shellObservability';
 export * from './transport';
 export * from './uiPrimitives';
 export * from './updateClient';

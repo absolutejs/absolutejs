@@ -293,7 +293,9 @@ const buildShellBootstrap = async (
 	const adapterInstall = capacitor
 		? `installCapacitorDeviceAdapterIfNative({ storagePrefix: ${JSON.stringify(storagePrefix)}${capabilityOptions ? `, ${capabilityOptions}` : ''} });`
 		: `installAbsoluteExpoWebDeviceAdapter(${JSON.stringify(deviceCapabilities.capabilities)});`;
-	const shellOptionProperties: string[] = [];
+	const shellOptionProperties: string[] = [
+		`engine: ${JSON.stringify(engine)}`
+	];
 	if (push) {
 		shellOptionProperties.push(
 			'createAuth: (config, options) => createAbsoluteMobileShellAuth(config, options)',
@@ -317,6 +319,7 @@ const buildShellBootstrap = async (
 	);
 	const build = await Bun.build({
 		entrypoints: [entryPath],
+		external: ['web-vitals', 'web-vitals/*'],
 		minify: true,
 		outdir: staging,
 		target: 'browser'
@@ -411,6 +414,71 @@ const copyClientPage = async (
 		localBundlePath,
 		...(localStylePath ? { localStylePath } : {})
 	};
+};
+
+export const materializeAbsoluteMobileSourcemaps = async (
+	pages: readonly AbsoluteMobileCompatibilityPage[],
+	appBuild: string,
+	projectRoot: string
+) => {
+	const safeLeaf = (value: string, field: string) => {
+		if (
+			value === '.' ||
+			value === '..' ||
+			!/^[A-Za-z0-9._-]+$/u.test(value)
+		)
+			throw new TypeError(`${field} is not a safe source-map key.`);
+
+		return value;
+	};
+	const release = safeLeaf(appBuild, 'Mobile app build');
+	const privateRoot = join(projectRoot, 'sourcemaps');
+	const releaseRoot = join(privateRoot, 'mobile', release);
+	const copied: Array<{
+		bundleHash: string;
+		file: string;
+		pageId: string;
+	}> = [];
+	const available = pages.flatMap((page) => {
+		const source = join(privateRoot, `${basename(page.bundlePath)}.map`);
+
+		return existsSync(source) ? [{ page, source }] : [];
+	});
+	if (available.length > 0) await mkdir(releaseRoot, { recursive: true });
+	await Promise.all(
+		available.map(async ({ page, source }) => {
+			const extension = extname(page.bundlePath) || '.js';
+			if (!/^\.[a-z0-9]+$/iu.test(extension))
+				throw new TypeError(
+					'Mobile page extension is not a safe source-map key.'
+				);
+			const bundleHash = safeLeaf(
+				page.bundleHash,
+				'Mobile page bundle hash'
+			);
+			const file = `${bundleHash}${extension}.map`;
+			await copyFile(source, join(releaseRoot, file));
+			copied.push({ bundleHash, file, pageId: page.pageId });
+		})
+	);
+	if (copied.length > 0) {
+		await writeFile(
+			join(releaseRoot, 'manifest.json'),
+			`${JSON.stringify(
+				{
+					appBuild,
+					format: 1,
+					pages: copied.sort((left, right) =>
+						left.pageId.localeCompare(right.pageId)
+					)
+				},
+				null,
+				'\t'
+			)}\n`
+		);
+	}
+
+	return copied.length;
 };
 
 const absoluteClientImports = async (
@@ -567,6 +635,9 @@ export const materializeAbsoluteCapacitorWebBundle = async (
 			productionOrigin: options.config.productionOrigin,
 			routes: options.artifact.routes,
 			runtime: options.artifact.runtime,
+			...(options.config.observability
+				? { observability: options.config.observability }
+				: {}),
 			...(options.config.updates
 				? { updates: options.config.updates }
 				: {}),
@@ -615,6 +686,11 @@ export const materializeAbsoluteCapacitorWebBundle = async (
 			)
 		]);
 		await installBundle(staging, destination);
+		await materializeAbsoluteMobileSourcemaps(
+			options.artifact.pages,
+			options.artifact.appBuild,
+			options.projectRoot
+		);
 
 		return manifest;
 	} catch (error) {

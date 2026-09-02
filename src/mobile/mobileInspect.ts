@@ -38,6 +38,13 @@ export type AbsoluteMobileProjectInspection = {
 		nativeProjectDirectory: string;
 		platforms: string[];
 		productionOrigin: string;
+		observability?: {
+			enabled: true;
+			endpoint: string;
+			environment?: string;
+			project: string;
+			sampleRate: number;
+		};
 	};
 	format: typeof ABSOLUTE_MOBILE_INSPECTION_FORMAT;
 	nativeProjects: Array<{
@@ -196,7 +203,18 @@ export const inspectAbsoluteMobileProject = async (
 				config.nativeProjectDirectory
 			),
 			platforms: config.platforms,
-			productionOrigin: config.productionOrigin
+			productionOrigin: config.productionOrigin,
+			...(config.observability
+				? {
+						observability: {
+							enabled: true as const,
+							endpoint: config.observability.endpoint,
+							environment: config.observability.environment,
+							project: config.observability.project,
+							sampleRate: config.observability.sampleRate
+						}
+					}
+				: {})
 		},
 		format: ABSOLUTE_MOBILE_INSPECTION_FORMAT,
 		nativeProjects: await Promise.all(

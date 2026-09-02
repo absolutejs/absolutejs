@@ -38,6 +38,12 @@ export type AbsoluteMobileClientManifest = {
 	entry: string;
 	format: typeof ABSOLUTE_MOBILE_CLIENT_MANIFEST_FORMAT;
 	nativeRuntime: string;
+	observability?: {
+		endpoint: string;
+		environment?: string;
+		project: string;
+		sampleRate: number;
+	};
 	pages: AbsoluteMobileClientPage[];
 	productionOrigin: string;
 	routes: AbsoluteMobileCompatibilityRoute[];

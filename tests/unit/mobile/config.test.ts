@@ -17,6 +17,64 @@ afterEach(async () => {
 });
 
 describe('mobile config normalization', () => {
+	test('pins mobile observability to the trusted production origin', () => {
+		const config = normalizeAbsoluteMobileConfig(
+			{
+				appId: 'com.example.product',
+				appName: 'Product',
+				observability: {
+					environment: 'production',
+					project: 'project-1',
+					route: '/internal/mobile-errors',
+					sampleRate: 0.25
+				},
+				server: { productionOrigin: 'https://api.example.com' }
+			},
+			'/workspace'
+		);
+
+		expect(config.observability).toEqual({
+			endpoint: 'https://api.example.com/internal/mobile-errors',
+			environment: 'production',
+			project: 'project-1',
+			sampleRate: 0.25
+		});
+		for (const route of [
+			'https://collector.example/errors',
+			'//collector.example/errors',
+			'/errors?token=secret',
+			'/errors#secret'
+		]) {
+			expect(() =>
+				normalizeAbsoluteMobileConfig(
+					{
+						appId: 'com.example.product',
+						appName: 'Product',
+						observability: { project: 'project-1', route },
+						server: {
+							productionOrigin: 'https://api.example.com'
+						}
+					},
+					'/workspace'
+				)
+			).toThrow('mobile.observability.route');
+		}
+		expect(() =>
+			normalizeAbsoluteMobileConfig(
+				{
+					appId: 'com.example.product',
+					appName: 'Product',
+					observability: {
+						project: 'project-1',
+						sampleRate: 1.01
+					},
+					server: { productionOrigin: 'https://api.example.com' }
+				},
+				'/workspace'
+			)
+		).toThrow('mobile.observability.sampleRate');
+	});
+
 	test('validates Expo code-signing certificates as native runtime input', async () => {
 		const { publicKey } = generateKeyPairSync('ec', {
 			namedCurve: 'prime256v1'

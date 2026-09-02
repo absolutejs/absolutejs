@@ -93,6 +93,18 @@ type MobileSharedConfig = {
 		/** Deployed AbsoluteJS origin used for page envelopes and API calls. */
 		productionOrigin: string;
 	};
+	/** Shell-owned production error capture for web-rendered and Expo-native routes.
+	 * Events go only to the configured route on the trusted production origin. */
+	observability?: {
+		/** Public project identity expected by the application's observability relay. */
+		project: string;
+		/** Deployment environment attached to reports, for example `production`. */
+		environment?: string;
+		/** Root-relative trusted-server error route. Defaults to `/api/observability/errors`. */
+		route?: string;
+		/** Fraction of errors retained, from 0 through 1. Defaults to 1. */
+		sampleRate?: number;
+	};
 	/** Signed over-the-air web-bundle updates. Native capability changes still require a store build. */
 	updates?: {
 		/** Maximum time an activated bundle may take to render its first page before native rollback. Defaults to 20 seconds. */

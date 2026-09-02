@@ -55,6 +55,10 @@ const fixture = async (
 			appName: 'Product',
 			deepLinks: { hosts: ['app.example.com'], scheme: 'product' },
 			engine: 'expo',
+			observability: {
+				environment: 'production',
+				project: 'project-1'
+			},
 			routes: {
 				native: {
 					'/files/*': 'mobile/native/scanner.tsx',
@@ -177,6 +181,14 @@ describe('experimental Expo project', () => {
 		expect(nativeRouteRuntime).toContain(
 			'application/vnd.absolute.native-route+json'
 		);
+		expect(nativeRouteRuntime).toContain(
+			'createAbsoluteNativeRouteErrorBoundary'
+		);
+		expect(nativeRouteRuntime).toContain("phase: 'native-route-load'");
+		expect(nativeRouteRuntime).toContain("phase: 'native-route-render'");
+		expect(nativeRouteRuntime).toContain('mobileAppBuild');
+		expect(nativeRouteRuntime).toContain('redactErrorText');
+		expect(nativeRoute).toContain('export const ErrorBoundary');
 		expect(nativeRouteRuntime).toContain('x-absolute-mobile-app-build');
 		expect(nativeRouteRuntime).toContain('ABSOLUTE_MOBILE_MANIFEST');
 		expect(nativeRouteRuntime).toContain('new AbortController()');
@@ -257,6 +269,13 @@ describe('experimental Expo project', () => {
 				JSON.stringify({
 					appBuild: 'ambuild_test',
 					internalSigningMaterial: 'must-not-be-embedded',
+					observability: {
+						endpoint:
+							'https://api.example.com/api/observability/errors',
+						environment: 'production',
+						project: 'project-1',
+						sampleRate: 1
+					},
 					pages: [
 						{
 							bundleHash: 'bundle-product',
@@ -302,6 +321,9 @@ describe('experimental Expo project', () => {
 		expect(source).toContain("new File(root, 'index.html').uri");
 		expect(source).toContain('ABSOLUTE_MOBILE_MANIFEST');
 		expect(source).toContain('react:Product:schema-product');
+		expect(source).toContain(
+			'https://api.example.com/api/observability/errors'
+		);
 		expect(source).not.toContain('"method":"POST"');
 		expect(source).not.toContain('must-not-be-embedded');
 	});

@@ -1,7 +1,7 @@
 # AbsoluteJS iOS and TestFlight macOS test runbook
 
 This runbook validates the iOS release path shipped in
-`@absolutejs/absolute@0.20.0-beta.63` and
+`@absolutejs/absolute@0.20.0-beta.66` and
 `@absolutejs/deploy@0.24.0`. It covers a signed local IPA, an internal
 TestFlight upload, retry behavior, and installation on an iPhone or iPad.
 
@@ -239,6 +239,9 @@ actual result, sanitized logs, and artifact or screenshot path in section 13.
   secure restore, native/web parity, and credential-boundary acceptance.
 - [ ] `EXPO-REMOTE-01` through `EXPO-REMOTE-08` Complete the two-computer Expo
   Remote Mac workflow, or mark all eight `SKIPPED — no second developer host`.
+- [ ] `OBS-01` through `OBS-04` Complete the production-error correlation and
+  redaction checks when a staging observability relay is supplied; otherwise
+  mark all four `SKIPPED — no staging observability relay`.
 - [ ] `DEVICEDEV-01` through `DEVICEDEV-10` Complete first-class physical-device
   development, HTTPS enrollment, warm-cache, HMR, relaunch, cleanup, and recovery.
 - [ ] `CAP-01` Complete automatic device-capability provisioning.
@@ -291,7 +294,7 @@ still requires the developer team setup described below.
 From the root of the AbsoluteJS application:
 
 ```sh
-bun add @absolutejs/absolute@0.20.0-beta.51 \
+bun add @absolutejs/absolute@0.20.0-beta.66 \
   @absolutejs/auth@0.75.6 \
   @absolutejs/dispatch@0.9.0 \
   @absolutejs/sync@2.31.0 \
@@ -2244,6 +2247,64 @@ bunx absolute mobile publish ios \
 Never add `--testflight-submit-review` casually: it creates an external beta
 review submission. Merely naming an external group does not submit review.
 
+### Production mobile observability acceptance
+
+Run this only when the staging application owner supplies a working trusted
+observability relay and its public project ID. No API token belongs in the
+application config. From the staging application root, add the following to the
+existing configuration; keep the relay token exclusively in the server
+environment:
+
+```ts
+export default {
+	// Existing configuration...
+	sourcemaps: 'external',
+	mobile: {
+		// Existing mobile configuration...
+		observability: {
+			environment: 'staging',
+			project: 'PUBLIC_PROJECT_ID'
+		}
+	}
+};
+```
+
+The default destination is the trusted server route
+`/api/observability/errors`. If the staging application mounts its relay at a
+different path, set a root-relative `route`; AbsoluteJS rejects absolute or
+cross-origin destinations. Then, from the application root, run:
+
+```sh
+bunx absolute prepare src/backend/server.ts --config absolute.config.ts
+bunx absolute mobile sync ios --config absolute.config.ts
+bunx absolute mobile inspect --config absolute.config.ts --json
+```
+
+- [ ] `OBS-01` Confirm inspect reports observability enabled with the public
+  project, staging environment, trusted production-origin endpoint, and sample
+  rate. Confirm it contains no relay token, user identifier, device identifier,
+  certificate, or environment secret.
+- [ ] `OBS-02` In a Capacitor page, trigger a disposable runtime exception whose
+  message contains `token=mobile-observability-secret`. Confirm one issue reaches
+  the relay with `mobileEngine`, `mobilePlatform`, `mobileAppBuild`,
+  `mobileRuntime`, declared route pattern, page/framework/contract, and page
+  bundle hash. Confirm the secret and concrete route parameters/query are absent
+  or replaced by `[REDACTED]`.
+- [ ] `OBS-03` On an Expo-native staging route, trigger one disposable data-load
+  failure and one render failure. Confirm both reach the same relay with phases
+  `native-route-load` and `native-route-render`; the render failure must show the
+  native retry UI and recover after **Try again** once the fault is removed.
+- [ ] `OBS-04` Confirm the installed web assets contain no `.map` files. On the
+  trusted build host, confirm
+  `sourcemaps/mobile/<appBuild>/<bundleHash>.js.map` and that release's
+  `manifest.json` exist. Use the relay's `@absolutejs/errors` resolver to
+  symbolicate the disposable WebView stack, then delete the test issue according
+  to the staging retention policy.
+
+Do not use a real credential as the redaction canary, and do not attach a raw
+error envelope to the report. Return only the issue ID, retained metadata keys,
+symbolicated fixture filename/line, and PASS/FAIL.
+
 ## 12. Troubleshooting
 
 ### Xcode cannot archive or export
@@ -2304,7 +2365,7 @@ source change and build a new content-addressed release instead.
 - Mac architecture:
 - Xcode version:
 - Bun version:
-- AbsoluteJS version: 0.20.0-beta.63
+- AbsoluteJS version: 0.20.0-beta.66
 - Auth version: 0.75.6
 - Dispatch version: 0.9.0
 - Sync version: 2.31.0
@@ -2430,6 +2491,10 @@ versus expected behavior. Do not report exact coordinates.
 | EXPO-REMOTE-06 |  | tunnel cleanup / warm cache timing: |  |
 | EXPO-REMOTE-07 |  | interrupted SSH failure / recovery: |  |
 | EXPO-REMOTE-08 |  | physical dual relay or skipped: |  |
+| OBS-01 |  | redacted inspect metadata: |  |
+| OBS-02 |  | Capacitor capture / correlation / redaction: |  |
+| OBS-03 |  | Expo load / render / retry: |  |
+| OBS-04 |  | private map / symbolication: |  |
 | DEVICEDEV-01 |  | selected physical target / no Simulator dependency: |  |
 | DEVICEDEV-02 |  | signed build / install / launch: |  |
 | DEVICEDEV-03 |  | CA enrollment / full trust / endpoint cleanup: |  |

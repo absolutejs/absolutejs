@@ -487,7 +487,7 @@ wire format.
 | `@absolutejs/ai` and `@absolutejs/rag` | Typed clients/streaming and React, Vue, Svelte and Angular integrations | Audit fetch/stream support in WebView and React Native; add transport adapters where SSE/streaming differs | Server engines remain unchanged; certify client subpaths per runtime |
 | `@absolutejs/voice` and `@absolutejs/media` | Provider-neutral realtime/audio/session primitives and framework clients | Microphone/audio-session permissions, interruption handling, background policy, native codecs/routes and Expo/Capacitor media adapters | Web APIs may cover v1 foreground use; advanced native media needs dedicated adapters |
 | `@absolutejs/commerce` and related product packages | Provider-neutral carts/orders/payments/fulfillment and browser clients | Mark offline-safe versus online-only mutations; native wallet/payment surfaces; effect handoff and receipt recovery | Never queue charges blindly; packs declare safety and execution class |
-| Beacon/errors/replay/observability | Browser errors, breadcrumbs, privacy-masked DOM replay, server ingestion and correlation | App/build/runtime metadata, native crash breadcrumbs, offline delivery and Expo-native instrumentation | Browser capture works in Capacitor; DOM replay does not cover native Expo UI |
+| Beacon/errors/replay/observability | Browser errors, breadcrumbs, privacy-masked DOM replay, server ingestion and correlation | OS-level native crash adapter and bounded offline delivery | `mobile.observability` now provisions all-framework WebView capture plus Expo-native load/render boundaries with app/build/runtime/route correlation and strict client redaction; DOM replay does not cover native Expo UI |
 | Analytics/attribution | Typed privacy-aware server analytics and resilient browser attribution | Install/referrer/deep-link attribution, ATT/consent, app lifecycle/session semantics and offline event transport | Add mobile adapters only after consent/data declarations are first-class |
 | Audit/compliance/policy/rate-limit | Server governance and enforcement primitives | Native capability/data-use evidence, permission audit events and release-policy checks | Feed generated capability facts into these packages rather than duplicating policy |
 | `@absolutejs/secrets` | Host-side secret broker for Bun runtimes | Nothing on-device; installed apps need credentials/keys, not deploy secrets | Explicitly prohibit use in mobile bundles |
@@ -2731,14 +2731,32 @@ Set budgets from the prototype baseline rather than inventing numbers now. Fail 
 
 ## Observability and debugging
 
-- Forward AbsoluteJS browser errors with engine/platform/app-build/mobile-manifest metadata, excluding device identifiers by default.
-- Symbolicate mobile web bundles using the existing private sourcemap direction.
+- `mobile.observability` provisions shell-owned capture with no page/framework
+  changes. Its route is forced onto `mobile.server.productionOrigin`; the native
+  app never receives an observability credential.
+- AbsoluteJS browser errors carry engine, platform, app-build, runtime,
+  manifest-format, route pattern, page contract/framework, and immutable bundle
+  hash metadata. Device and installation identifiers are excluded.
+- Capacitor and Expo WebView failures use `@absolutejs/beacon`; generated Expo
+  native routes have a retryable React error boundary and capture data-load and
+  render failures through the same trusted relay.
+- Error messages and stacks are redacted client-side and must be validated and
+  redacted again by the trusted server. Query strings and route parameter values
+  are never attached; only the declared route pattern is correlated.
+- With production `sourcemaps: 'external'`, mobile page maps are additionally
+  copied to the private
+  `sourcemaps/mobile/<appBuild>/<bundleHash>.js.map` layout with a release
+  manifest. No map is copied into the Capacitor/Expo application bundle.
 - Preserve console/HMR overlay behavior during live reload.
 - `absolute mobile inspect` prints the redacted effective config,
   runtime/provider versions, native plugin list, route/framework summary,
   origins, native-project state, release projection, and embedded-bundle
   validation in human or JSON form.
-- Capture native crash reports through platform-native tooling; web error reporting is not a substitute.
+- Capture OS/process native crash reports through a provider-neutral adapter to
+  platform-native tooling; WebView and React error reporting are not substitutes.
+- Add bounded restart-safe offline error delivery only after its storage,
+  retention, user-consent, and deletion contract is shared with web. Do not put
+  crash payloads into ordinary application Sync collections.
 - Log lifecycle, deep-link, permission, and adapter failures behind an opt-in debug namespace.
 
 ## Expo v2 architecture

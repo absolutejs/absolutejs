@@ -39,6 +39,12 @@ const EXPO_PROJECT_MARKER = '.absolutejs-expo-project';
 
 type AbsoluteExpoNativeDataManifest = {
 	appBuild: string;
+	observability?: {
+		endpoint: string;
+		environment?: string;
+		project: string;
+		sampleRate: number;
+	};
 	pages: {
 		bundleHash: string;
 		contract: string;
@@ -117,6 +123,21 @@ const expoNativeDataManifest = (
 
 	return {
 		appBuild: requireManifestString(value.appBuild, 'appBuild'),
+		...(isRecord(value.observability) &&
+		typeof value.observability.endpoint === 'string' &&
+		typeof value.observability.project === 'string' &&
+		typeof value.observability.sampleRate === 'number'
+			? {
+					observability: {
+						endpoint: value.observability.endpoint,
+						...(typeof value.observability.environment === 'string'
+							? { environment: value.observability.environment }
+							: {}),
+						project: value.observability.project,
+						sampleRate: value.observability.sampleRate
+					}
+				}
+			: {}),
 		pages,
 		productionOrigin: requireManifestString(
 			value.productionOrigin,
@@ -1149,7 +1170,7 @@ export default AbsoluteWebHost;
 `;
 
 const nativeRouteRuntimeSource = (auth: boolean) =>
-	`${EXPO_GENERATED_HEADER}import { useLocalSearchParams, usePathname } from 'expo-router';
+	`${EXPO_GENERATED_HEADER}import { type ErrorBoundaryProps, useLocalSearchParams, usePathname } from 'expo-router';
 import { type ComponentType, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { ABSOLUTE_MOBILE_MANIFEST } from './webAssets';
@@ -1176,6 +1197,47 @@ type NativeRouteState<PageProps> =
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
 	typeof value === 'object' && value !== null && !Array.isArray(value);
+const redactErrorText = (value: string) => value
+	.replace(/\\b(Bearer)\\s+[A-Za-z0-9._~+/-]+=*/gi, '$1 [REDACTED]')
+	.replace(/([?&](?:access_token|api_?key|authorization|code|id_token|password|refresh_token|secret|token)=)[^&#\\s]*/gi, '$1[REDACTED]')
+	.replace(/\\b((?:access_?token|api_?key|authorization|client_?secret|cookie|id_?token|password|passwd|refresh_?token|secret|token)\\s*[:=]\\s*)[^,\\s;]+/gi, '$1[REDACTED]')
+	.replace(/\\beyJ[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\b/g, '[REDACTED]');
+const captureNativeException = (value: unknown, context: { bundle?: string | undefined; contract?: string | undefined; pageId?: string | undefined; phase: string; route: string }) => {
+	const manifest = ABSOLUTE_MOBILE_MANIFEST;
+	const config = manifest?.observability;
+	if (!manifest || !config || config.sampleRate === 0 || config.sampleRate < 1 && Math.random() >= config.sampleRate) return;
+	const error = value instanceof Error ? value : new Error(String(value));
+	const event = {
+		level: 'error',
+		message: redactErrorText(error.message),
+		name: error.name,
+		...(error.stack ? { stack: redactErrorText(error.stack) } : {}),
+		tags: {
+			absoluteMobile: 'true',
+			mobileAppBuild: manifest.appBuild,
+			mobileEngine: 'expo',
+			mobileFailurePhase: context.phase,
+			mobileManifestFormat: '1',
+			mobilePlatform: Platform.OS,
+			mobileRoute: context.route,
+			mobileRuntime: manifest.runtime,
+			...(context.bundle ? { mobilePageBundle: context.bundle } : {}),
+			...(context.contract ? { mobilePageContract: context.contract } : {}),
+			...(context.pageId ? { mobilePageId: context.pageId } : {})
+		}
+	};
+	void fetch(config.endpoint, {
+		body: JSON.stringify({
+			...(config.environment ? { environment: config.environment } : {}),
+			events: [event],
+			project: config.project,
+			release: manifest.appBuild,
+			v: 1
+		}),
+		headers: { 'content-type': 'application/json' },
+		method: 'POST'
+	}).catch(() => undefined);
+};
 const routeSegmentPattern = (segment: string) => {
 	if (segment === '*') return '.*';
 	if (segment.startsWith(':') && segment.endsWith('?')) return '[^/]*';
@@ -1202,6 +1264,17 @@ const productionPage = (pathname: string) => {
 	const page = ABSOLUTE_MOBILE_MANIFEST.pages.find(candidate => candidate.pageId === route.pageId);
 	if (!page) throw new Error('The embedded AbsoluteJS page contract is incomplete.');
 	return page;
+};
+export const createAbsoluteNativeRouteErrorBoundary = (pattern: string) => {
+	return function AbsoluteNativeRouteErrorBoundary({ error, retry }: ErrorBoundaryProps) {
+		const pathname = usePathname() || '/';
+		useEffect(() => {
+			let page: ReturnType<typeof productionPage> | undefined;
+			try { if (ABSOLUTE_MOBILE_MANIFEST) page = productionPage(pathname); } catch {}
+			captureNativeException(error, { bundle: page?.bundleHash, contract: page?.contract, pageId: page?.pageId, phase: 'native-route-render', route: pattern });
+		}, [error, pathname]);
+		return <View style={styles.center}><Text accessibilityRole="alert" style={styles.error}>This screen stopped unexpectedly.</Text><Pressable accessibilityRole="button" onPress={() => { void retry(); }} style={styles.button}><Text>Try again</Text></Pressable></View>;
+	};
 };
 const createDataRequest = (path: string) => {
 	const development = typeof DEV_ORIGIN === 'string' && DEV_ORIGIN.length > 0;
@@ -1255,7 +1328,14 @@ export const createAbsoluteNativeRoute = <
 			setState({ kind: 'loading' });
 			void requestData<PageProps>(requestPath, controller.signal).then(
 				pageProps => { if (!controller.signal.aborted) setState({ kind: 'ready', pageProps }); },
-				() => { if (!controller.signal.aborted) setState({ kind: 'error' }); }
+				error => {
+					if (!controller.signal.aborted) {
+						let page: ReturnType<typeof productionPage> | undefined;
+						try { if (ABSOLUTE_MOBILE_MANIFEST) page = productionPage(pathname); } catch {}
+						captureNativeException(error, { bundle: page?.bundleHash, contract: page?.contract, pageId: page?.pageId, phase: 'native-route-load', route: pattern });
+						setState({ kind: 'error' });
+					}
+				}
 			);
 			return () => controller.abort();
 		}, [requestPath, revision]);
@@ -1281,8 +1361,9 @@ const nativeWrapperSource = (
 	route: string
 ) =>
 	`${EXPO_GENERATED_HEADER}import ApplicationNativeRoute from ${JSON.stringify(portableRelative(dirname(wrapper), module).replace(/\.(?:[cm]?[jt]sx?)$/u, ''))};
-import { createAbsoluteNativeRoute } from ${JSON.stringify(portableRelative(dirname(wrapper), runtime).replace(/\.(?:[cm]?[jt]sx?)$/u, ''))};
+import { createAbsoluteNativeRoute, createAbsoluteNativeRouteErrorBoundary } from ${JSON.stringify(portableRelative(dirname(wrapper), runtime).replace(/\.(?:[cm]?[jt]sx?)$/u, ''))};
 
+export const ErrorBoundary = createAbsoluteNativeRouteErrorBoundary(${JSON.stringify(route)});
 export default createAbsoluteNativeRoute(ApplicationNativeRoute, ${JSON.stringify(route)});
 `;
 
@@ -1382,6 +1463,7 @@ const jsonSource = (value: unknown) => `${JSON.stringify(value, null, '\t')}\n`;
 
 const nativeDataManifestTypeSource = `type AbsoluteMobileManifest = {
 	appBuild: string;
+	observability?: { endpoint: string; environment?: string; project: string; sampleRate: number };
 	pages: readonly { bundleHash: string; contract: string; pageId: string }[];
 	productionOrigin: string;
 	routes: readonly { method: 'GET'; pageId: string; pattern: string }[];

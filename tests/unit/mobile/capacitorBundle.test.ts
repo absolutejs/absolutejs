@@ -3,7 +3,10 @@ import { createHash, generateKeyPairSync } from 'node:crypto';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { materializeAbsoluteCapacitorWebBundle } from '../../../src/mobile/capacitorBundle';
+import {
+	materializeAbsoluteCapacitorWebBundle,
+	materializeAbsoluteMobileSourcemaps
+} from '../../../src/mobile/capacitorBundle';
 import { normalizeAbsoluteMobileConfig } from '../../../src/mobile/config';
 import type { AbsoluteDeviceCapabilityPlan } from '../../../src/mobile/deviceCapabilities';
 import { createAbsoluteMobileCompatibilityArtifact } from '../../../src/mobile/releaseArtifact';
@@ -87,6 +90,60 @@ afterEach(async () => {
 });
 
 describe('Capacitor local web bundle', () => {
+	test('keys private mobile sourcemaps by immutable app and page hashes', async () => {
+		const root = await mkdtemp(join(tmpdir(), 'absolute-mobile-maps-'));
+		temporaryDirectories.push(root);
+		await Bun.write(
+			join(root, 'sourcemaps', 'Account.js.map'),
+			JSON.stringify({
+				mappings: '',
+				names: [],
+				sources: ['src/pages/Account.tsx'],
+				version: 3
+			})
+		);
+		const copied = await materializeAbsoluteMobileSourcemaps(
+			[
+				{
+					bundleHash: 'bundle-account',
+					bundlePath: '/generated/Account.js',
+					contract: 'account@1',
+					framework: 'react',
+					pageId: 'Account',
+					propsSchemaHash: 'schema-account'
+				}
+			],
+			'ambuild_123',
+			root
+		);
+		const releaseRoot = join(root, 'sourcemaps', 'mobile', 'ambuild_123');
+
+		expect(copied).toBe(1);
+		expect(
+			await Bun.file(join(releaseRoot, 'bundle-account.js.map')).exists()
+		).toBe(true);
+		expect(
+			JSON.parse(
+				await Bun.file(join(releaseRoot, 'manifest.json')).text()
+			)
+		).toEqual({
+			appBuild: 'ambuild_123',
+			format: 1,
+			pages: [
+				{
+					bundleHash: 'bundle-account',
+					file: 'bundle-account.js.map',
+					pageId: 'Account'
+				}
+			]
+		});
+		expect(
+			await Bun.file(
+				join(root, 'mobile-web', 'bundle-account.js.map')
+			).exists()
+		).toBe(false);
+	});
+
 	test('ships the signed page bundle and excludes the server producer', async () => {
 		const root = await mkdtemp(
 			join(tmpdir(), 'absolute-capacitor-bundle-')
@@ -158,6 +215,10 @@ describe('Capacitor local web bundle', () => {
 				appName: 'Product',
 				bundleDirectory: 'mobile-web',
 				entry: '/account/Ada',
+				observability: {
+					environment: 'production',
+					project: 'project-1'
+				},
 				server: { productionOrigin: 'https://api.example.com' },
 				updates: {
 					publicKeys: {
@@ -233,6 +294,14 @@ describe('Capacitor local web bundle', () => {
 			).exists()
 		).toBe(true);
 		expect(bootstrap).toContain('appUrlOpen');
+		expect(bootstrap).toContain('mobileAppBuild');
+		expect(bootstrap).toContain('unhandledrejection');
+		expect(manifest.observability).toEqual({
+			endpoint: 'https://api.example.com/api/observability/errors',
+			environment: 'production',
+			project: 'project-1',
+			sampleRate: 1
+		});
 		expect(bootstrap).toContain('AbsoluteMobileUpdateWatchdog');
 		expect(manifest.updates?.bootTimeoutMs).toBe(20_000);
 		expect(bootstrap).toContain('takePhoto');
