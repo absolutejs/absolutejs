@@ -16,6 +16,8 @@ import type { AbsoluteMobileClientManifest } from './transport';
 
 const STATE_KEY = 'absolute.mobile.update.state.v1';
 const INSTALLATION_KEY = 'absolute.mobile.update.installation.v1';
+const RESULT_KEY = Symbol.for('absolutejs.mobile.update.result');
+const RESULTS_KEY = Symbol.for('absolutejs.mobile.update.results');
 const ROOT = 'NoCloud/ionic_built_snapshots';
 
 type UpdateState = {
@@ -324,8 +326,15 @@ const createVerifier = (
 	}
 });
 
-const emitUpdateResult = (detail: Record<string, unknown>) =>
+const emitUpdateResult = (detail: Record<string, unknown>) => {
+	Reflect.set(globalThis, RESULT_KEY, detail);
+	const existing = Reflect.get(globalThis, RESULTS_KEY);
+	const results = Array.isArray(existing) ? existing : [];
+	results.push(detail);
+	if (results.length > 8) results.splice(0, results.length - 8);
+	Reflect.set(globalThis, RESULTS_KEY, results);
 	dispatchEvent(new CustomEvent('absolute:mobile-update', { detail }));
+};
 
 const removePriorRelease = async (prior?: string, active?: string) => {
 	if (prior && prior !== active) await removeRelease(prior);

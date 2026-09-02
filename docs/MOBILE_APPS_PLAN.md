@@ -3512,6 +3512,18 @@ Recovery telemetry is restricted to reason, release identity, and duration. Rele
 doctor validates the platform projection, and shell ABI 2 prevents pre-watchdog
 store binaries from accepting watchdog-era updates.
 
+The Android embedded-bundle suite now exercises this contract in a real Capacitor
+app and emulator rather than only through generated-source tests. It creates
+ephemeral P-256 keys and four immutable signed bundles, then proves healthy
+activation, in-process timeout rollback, local quarantine without a second
+download, acceptance of a corrected release, and recovery after an ADB-forced
+process death. The same run verifies that native Auth credentials, Sync's durable
+outbox, and ordinary local storage survive every root transition. Its machine
+readable result is written to
+`.absolutejs/mobile-native-conformance/embedded-artifacts/android-update-conformance.json`.
+Run only this slice with `bun run test:native:android:updates`; it remains part of
+the complete `bun run test:native:android` path through the bundle suite.
+
 `@absolutejs/deploy` owns the adjacent immutable BlobStore registry, staged
 channel/fallback state, anonymous cohort selection, compatible-runtime
 resolution, CORS-constrained HTTP delivery, promotion, and rollback. The core

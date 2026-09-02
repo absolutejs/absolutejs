@@ -34,6 +34,8 @@ describe('mobile update artifacts', () => {
 		const root = await temporaryRoot();
 		const bundle = join(root, 'bundle');
 		await Bun.write(join(bundle, 'index.html'), '<h1>Absolute</h1>');
+		await Bun.write(join(bundle, 'Z-runtime.js'), 'export const z = true;');
+		await Bun.write(join(bundle, 'a-runtime.js'), 'export const a = true;');
 		await Bun.write(
 			join(bundle, 'pages', 'app.js'),
 			'export const app = true;'
@@ -54,10 +56,12 @@ describe('mobile update artifacts', () => {
 		});
 
 		expect(built.manifest.releaseId).toMatch(/^amu_[a-f0-9]{64}$/);
-		expect(built.manifest.files.map(({ path }) => path)).toEqual([
-			'index.html',
-			'pages/app.js'
-		]);
+		const paths = built.manifest.files.map(({ path }) => path);
+		expect(paths).toEqual(
+			[...paths].sort((left, right) => left.localeCompare(right))
+		);
+		expect(paths).toContain('Z-runtime.js');
+		expect(paths).toContain('a-runtime.js');
 		expect(
 			verifyAbsoluteMobileUpdateSignature(
 				built.manifest,

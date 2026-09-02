@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
-import { createHash } from 'node:crypto';
+import { cp, mkdir, readFile, rm, unlink, writeFile } from 'node:fs/promises';
+import { createHash, generateKeyPairSync } from 'node:crypto';
 import { resolve } from 'node:path';
 import config from '../fixtures/mobile-native-conformance/absolute.config';
 import {
@@ -23,6 +23,7 @@ import { normalizeAbsoluteMobileConfig } from '../../src/mobile/config';
 import { createAbsoluteMobileCompatibilityDispatcher } from '../../src/mobile/compatibilityDispatcher';
 import { applyAbsoluteNativeDeepLinks } from '../../src/mobile/nativeDeepLinks';
 import { applyAbsoluteNativeDeviceCapabilities } from '../../src/mobile/nativeDeviceCapabilities';
+import { applyAbsoluteNativeUpdates } from '../../src/mobile/nativeUpdates';
 import { findFreePort } from '../../src/cli/utils';
 import {
 	createAbsoluteMobileCompatibilityArtifact,
@@ -33,6 +34,8 @@ import {
 	sanitizeNativeReportText,
 	type AbsoluteNativeSyncMigrationResult
 } from '../../src/mobile/nativeTestReport';
+import { buildAbsoluteMobileUpdate } from '../../src/mobile/updateSigning';
+import type { AbsoluteMobileClientManifest } from '../../src/mobile/transport';
 
 const ENABLED = process.env.ABSOLUTE_TEST_NATIVE_ANDROID === '1';
 const describeNative = ENABLED ? describe : describe.skip;
@@ -49,6 +52,12 @@ const ARTIFACT_ROOT = resolve(
 	PROJECT_ROOT,
 	'.absolutejs/mobile-native-conformance/embedded-artifacts'
 );
+const UPDATE_ROOT = resolve(
+	PROJECT_ROOT,
+	'.absolutejs/mobile-native-conformance/updates'
+);
+const UPDATE_STATE_KEY = 'absolute.mobile.update.state.v1';
+const UPDATE_PATH_PREFIX = '/__absolute/mobile/updates/production/';
 const CAPACITOR_CONFIG_PATH = resolve(PROJECT_ROOT, 'capacitor.config.ts');
 const PACKAGE_JSON_PATH = resolve(PROJECT_ROOT, 'package.json');
 const PORT = Number(process.env.ABSOLUTE_NATIVE_BUNDLE_TEST_PORT) || 39_080;
@@ -69,6 +78,30 @@ let nativeSyncConnections = 0;
 let nativeSyncTicketsIssued = 0;
 let nativeSyncTicketsConsumed = 0;
 let nativeNavigationFailures = 0;
+let updatePrivateKey = '';
+let updatePublicKey = '';
+let offeredUpdate: string | undefined;
+type BuiltUpdate = Awaited<ReturnType<typeof buildAbsoluteMobileUpdate>>;
+type BuildNativeUpdateOptions = { broken?: boolean; createdAt: string };
+type NativeUpdateConformanceReport = {
+	durationMs: number;
+	releases: {
+		brokenInterrupted: string;
+		brokenTimeout: string;
+		corrected: string;
+		healthy: string;
+	};
+	state: {
+		authCredential: boolean;
+		brokenReleaseRedownloaded: boolean;
+		localStorage: boolean;
+		pendingOperations: boolean;
+		processDeathRecovered: boolean;
+		timeoutRecovered: boolean;
+	};
+};
+const servedUpdates = new Map<string, BuiltUpdate>();
+const updateFileRequests = new Map<string, number>();
 type CompatibilityGeneration = 'current' | 'n+1' | 'n+2' | 'n+3' | 'rollback';
 
 let compatibilityGeneration: CompatibilityGeneration = 'current';
@@ -295,6 +328,103 @@ const jsonResponse = (value: unknown, init: ResponseInit = {}) =>
 		}
 	});
 
+const updateConfig = () => ({
+	bootTimeoutMs: 5_000,
+	channel: 'production',
+	manifestUrl: `${PRODUCTION_ORIGIN}${UPDATE_PATH_PREFIX}update.json`,
+	publicKeys: { 'native-conformance': updatePublicKey }
+});
+
+const nativeUpdateResponse = async (request: Request) => {
+	const url = new URL(request.url);
+	if (!url.pathname.startsWith(UPDATE_PATH_PREFIX)) return undefined;
+	const relativePath = url.pathname.slice(UPDATE_PATH_PREFIX.length);
+	const headers: HeadersInit = {
+		'access-control-allow-origin': '*',
+		'cache-control': 'no-store'
+	};
+	if (relativePath === 'update.json') {
+		if (!offeredUpdate) return new Response(null, { headers, status: 204 });
+		const update = servedUpdates.get(offeredUpdate);
+		if (!update)
+			return new Response('Unknown update.', { headers, status: 404 });
+
+		return jsonResponse(update.manifest, { headers });
+	}
+	const separator = relativePath.indexOf('/files/');
+	if (separator < 1)
+		return new Response('Unknown update path.', { headers, status: 404 });
+	const releaseId = relativePath.slice(0, separator);
+	const update = servedUpdates.get(releaseId);
+	if (!update)
+		return new Response('Unknown update.', { headers, status: 404 });
+	let filePath: string;
+	try {
+		filePath = relativePath
+			.slice(separator + '/files/'.length)
+			.split('/')
+			.map(decodeURIComponent)
+			.join('/');
+	} catch {
+		return new Response('Invalid update path.', { headers, status: 400 });
+	}
+	if (!update.manifest.files.some(({ path }) => path === filePath))
+		return new Response('Unknown update file.', { headers, status: 404 });
+	const file = Bun.file(
+		resolve(update.outputDirectory, 'files', ...filePath.split('/'))
+	);
+	if (!(await file.exists()))
+		return new Response('Missing update file.', { headers, status: 404 });
+	updateFileRequests.set(
+		releaseId,
+		(updateFileRequests.get(releaseId) ?? 0) + 1
+	);
+
+	return new Response(file, { headers });
+};
+
+const buildNativeUpdate = async (
+	marker: string,
+	options: BuildNativeUpdateOptions
+) => {
+	const source = resolve(UPDATE_ROOT, 'sources', marker);
+	await rm(source, { force: true, recursive: true });
+	await cp(project.config.bundleDirectory, source, { recursive: true });
+	await writeFile(
+		resolve(source, 'absolute-update-fixture.json'),
+		`${JSON.stringify({ marker })}\n`
+	);
+	if (options.broken) {
+		await writeFile(
+			resolve(source, 'index.html'),
+			'<!doctype html><title>Broken update fixture</title><p>Broken update fixture</p>\n'
+		);
+	}
+	const clientManifest: AbsoluteMobileClientManifest = JSON.parse(
+		await readFile(
+			resolve(
+				project.config.bundleDirectory,
+				'absolute-mobile-manifest.json'
+			),
+			'utf8'
+		)
+	);
+	const update = await buildAbsoluteMobileUpdate({
+		appId: project.config.appId,
+		bundleDirectory: source,
+		channel: 'production',
+		classification: 'bug-fix',
+		createdAt: new Date(options.createdAt),
+		keyId: 'native-conformance',
+		outputDirectory: resolve(UPDATE_ROOT, 'releases'),
+		privateKey: updatePrivateKey,
+		runtimeFingerprint: clientManifest.nativeRuntime
+	});
+	servedUpdates.set(update.manifest.releaseId, update);
+
+	return update;
+};
+
 const signIdToken = async (clientId: string, nonce: string) => {
 	const header = base64Url(
 		JSON.stringify({ alg: 'ES256', kid: 'native-conformance', typ: 'JWT' })
@@ -502,7 +632,9 @@ const runPrepare = async () => {
 			cwd: PROJECT_ROOT,
 			env: {
 				...Bun.env,
-				ABSOLUTE_NATIVE_CONFORMANCE_ORIGIN: PRODUCTION_ORIGIN
+				ABSOLUTE_NATIVE_CONFORMANCE_ORIGIN: PRODUCTION_ORIGIN,
+				ABSOLUTE_NATIVE_CONFORMANCE_UPDATE_MANIFEST: `${PRODUCTION_ORIGIN}${UPDATE_PATH_PREFIX}update.json`,
+				ABSOLUTE_NATIVE_CONFORMANCE_UPDATE_PUBLIC_KEY: updatePublicKey
 			},
 			stderr: 'inherit',
 			stdout: 'inherit'
@@ -577,6 +709,108 @@ const waitForNavigationReady = (path: string, timeoutMs = TIMEOUT_MS) =>
 		`document.body?.hasAttribute('data-absolute-mobile-page-active') === true && document.body?.hasAttribute('data-absolute-mobile-navigation-pending') === false && history.state?.path === ${JSON.stringify(path)}`,
 		{ timeoutMs }
 	);
+
+type NativeUpdateState = {
+	activeRelease?: string;
+	pendingRelease?: string;
+	quarantinedReleases?: string[];
+};
+
+const updateStateExpression = `(async () => {
+	const result = await globalThis.Capacitor.Plugins.Preferences.get({ key: ${JSON.stringify(UPDATE_STATE_KEY)} });
+	return JSON.parse(result.value ?? '{}');
+})()`;
+
+const readUpdateState = () =>
+	webview.evaluate<NativeUpdateState>(updateStateExpression);
+
+const waitForActiveUpdate = (releaseId: string) =>
+	webview.waitFor<boolean>(
+		`(async () => {
+			const state = await ${updateStateExpression};
+			return state.activeRelease === ${JSON.stringify(releaseId)} && state.pendingRelease === undefined;
+		})()`,
+		{ timeoutMs: TIMEOUT_MS }
+	);
+
+const waitForQuarantinedUpdate = (releaseId: string) =>
+	webview.waitFor<boolean>(
+		`(async () => (await ${updateStateExpression}).quarantinedReleases?.includes(${JSON.stringify(releaseId)}) === true)()`,
+		{ timeoutMs: TIMEOUT_MS }
+	);
+
+const waitForUpdateMarker = (marker: string, timeoutMs = TIMEOUT_MS) =>
+	webview.waitFor<boolean>(
+		`fetch('./absolute-update-fixture.json', { cache: 'no-store' })
+			.then((response) => response.ok ? response.json() : null)
+			.then((value) => value?.marker === ${JSON.stringify(marker)})
+			.catch(() => false)`,
+		{ timeoutMs }
+	);
+
+const latestUpdateResult = () =>
+	webview.evaluate<Record<string, unknown> | undefined>(
+		`Reflect.get(globalThis, Symbol.for('absolutejs.mobile.update.result'))`
+	);
+
+const updateResults = () =>
+	webview.evaluate<Record<string, unknown>[]>(
+		`Reflect.get(globalThis, Symbol.for('absolutejs.mobile.update.results')) ?? []`
+	);
+
+const expectUpdateStorageProof = async () => {
+	expect(
+		await webview.evaluate<string | null>(
+			`localStorage.getItem('absolute-update-storage-proof')`
+		)
+	).toBe('preserved');
+};
+
+const attachCurrentAndroidWebView = async () => {
+	webview = await attachAbsoluteAndroidWebView({
+		adb: project.adb,
+		appId: project.config.appId,
+		serial: android.serial,
+		timeoutMs: TIMEOUT_MS
+	});
+};
+
+const launchAndroidWithoutWebView = async () => {
+	await webview.close().catch(() => undefined);
+	await android.relaunch();
+};
+
+const reattachAndroidWebView = async () => {
+	await launchAndroidWithoutWebView();
+	await attachCurrentAndroidWebView();
+};
+
+const waitForNativePendingPreference = async (releaseId: string) => {
+	const expected = `&quot;pendingRelease&quot;:&quot;${releaseId}&quot;`;
+	const deadline = Date.now() + TIMEOUT_MS;
+	while (Date.now() < deadline) {
+		const output = Bun.spawnSync([
+			project.adb,
+			'-s',
+			android.serial,
+			'shell',
+			'run-as',
+			project.config.appId,
+			'cat',
+			'shared_prefs/CapacitorStorage.xml'
+		]);
+		if (
+			output.exitCode === 0 &&
+			output.stdout.toString().includes(expected)
+		)
+			return;
+		await Bun.sleep(100);
+	}
+
+	throw new Error(
+		`Android did not persist pending mobile update ${releaseId} before the watchdog deadline.`
+	);
+};
 
 const navigate = async (path: string, expectedText: string) => {
 	const clicked = await webview.evaluate<{
@@ -831,6 +1065,16 @@ describeNative('real Capacitor Android embedded-bundle conformance', () => {
 			CAPACITOR_CONFIG_PATH,
 			'utf8'
 		).catch(() => undefined);
+		const updateKeys = generateKeyPairSync('ec', {
+			namedCurve: 'prime256v1'
+		});
+		updatePrivateKey = updateKeys.privateKey
+			.export({ format: 'pem', type: 'pkcs8' })
+			.toString();
+		updatePublicKey = updateKeys.publicKey
+			.export({ format: 'der', type: 'spki' })
+			.toString('base64');
+		await rm(UPDATE_ROOT, { force: true, recursive: true });
 		const keys = await crypto.subtle.generateKey(
 			{ name: 'ECDSA', namedCurve: 'P-256' },
 			true,
@@ -935,6 +1179,8 @@ describeNative('real Capacitor Android embedded-bundle conformance', () => {
 				}
 				const authResponse = await nativeAuthResponse(request);
 				if (authResponse) return authResponse;
+				const updateResponse = await nativeUpdateResponse(request);
+				if (updateResponse) return updateResponse;
 				if (url.pathname === '/__absolute/native-fragment') {
 					return new Response(
 						'<section id="trusted-fragment" onclick="window.__ABS_BAD_HANDLER__=true"><script>window.__ABS_BAD_SCRIPT__=true</script><button id="safe-fragment-action" hx-post="/htmx/increment">Native fragment safe</button><button id="unsafe-fragment-action" hx-post="https://evil.example/steal">Unsafe</button></section>',
@@ -955,7 +1201,8 @@ describeNative('real Capacitor Android embedded-bundle conformance', () => {
 		const mobile = normalizeAbsoluteMobileConfig(
 			{
 				...config.mobile,
-				server: { productionOrigin: PRODUCTION_ORIGIN }
+				server: { productionOrigin: PRODUCTION_ORIGIN },
+				updates: updateConfig()
 			},
 			PROJECT_ROOT
 		);
@@ -967,6 +1214,7 @@ describeNative('real Capacitor Android embedded-bundle conformance', () => {
 		await applyAbsoluteNativeDeviceCapabilities(PROJECT_ROOT, mobile, [
 			'android'
 		]);
+		await applyAbsoluteNativeUpdates(mobile, ['android']);
 		android = await startAbsoluteAndroidDevSession({
 			embeddedBundle: true,
 			port: PORT,
@@ -1054,6 +1302,10 @@ describeNative('real Capacitor Android embedded-bundle conformance', () => {
 		backend?.stop(true);
 		compiledBackend?.kill();
 		await compiledBackend?.exited.catch(() => undefined);
+		offeredUpdate = undefined;
+		servedUpdates.clear();
+		updateFileRequests.clear();
+		await rm(UPDATE_ROOT, { force: true, recursive: true });
 		if (originalCapacitorConfig === undefined)
 			await unlink(CAPACITOR_CONFIG_PATH).catch(() => undefined);
 		else await writeFile(CAPACITOR_CONFIG_PATH, originalCapacitorConfig);
@@ -1702,6 +1954,152 @@ describeNative('real Capacitor Android embedded-bundle conformance', () => {
 			expect(nativeSyncTicketsIssued).toBeGreaterThanOrEqual(2);
 			expect(nativeSyncTicketsConsumed).toBeGreaterThanOrEqual(2);
 		}
+	);
+
+	nativeTest(
+		'activates, rolls back, quarantines, and process-recovers signed web updates',
+		async () => {
+			await ensureNativeAuthSyncAcceptance();
+			const pendingBefore = await webview.evaluate<number>(
+				`Number(document.querySelector('#native-auth-sync-status')?.getAttribute('data-pending') ?? 0)`
+			);
+			if (pendingBefore === 0) {
+				const queued = await webview.evaluate<boolean>(`(() => {
+					const button = document.querySelector('#native-sync-queue');
+					if (!(button instanceof HTMLButtonElement)) return false;
+					button.click();
+					return true;
+				})()`);
+				expect(queued).toBe(true);
+				await webview.waitFor<boolean>(
+					`Number(document.querySelector('#native-auth-sync-status')?.getAttribute('data-pending') ?? 0) > 0`,
+					{ timeoutMs: TIMEOUT_MS }
+				);
+			}
+			await webview.evaluate(
+				`localStorage.setItem('absolute-update-storage-proof', 'preserved')`
+			);
+			await expectUpdateStorageProof();
+			await Bun.sleep(5_000);
+			const [healthy, brokenTimeout, corrected, brokenInterrupted] =
+				await Promise.all([
+					buildNativeUpdate('healthy', {
+						createdAt: '2026-09-02T00:00:01.000Z'
+					}),
+					buildNativeUpdate('broken-timeout', {
+						broken: true,
+						createdAt: '2026-09-02T00:00:02.000Z'
+					}),
+					buildNativeUpdate('corrected', {
+						createdAt: '2026-09-02T00:00:03.000Z'
+					}),
+					buildNativeUpdate('broken-interrupted', {
+						broken: true,
+						createdAt: '2026-09-02T00:00:04.000Z'
+					})
+				]);
+			const startedAt = performance.now();
+
+			offeredUpdate = healthy.manifest.releaseId;
+			await reattachAndroidWebView();
+			await waitForUpdateMarker('healthy');
+			await waitForActiveUpdate(healthy.manifest.releaseId);
+			await waitForNavigationReady('/react');
+			await expectUpdateStorageProof();
+			expect(await latestUpdateResult()).toEqual({
+				kind: 'activated',
+				releaseId: healthy.manifest.releaseId
+			});
+
+			offeredUpdate = brokenTimeout.manifest.releaseId;
+			await launchAndroidWithoutWebView();
+			await waitForNativePendingPreference(
+				brokenTimeout.manifest.releaseId
+			);
+			await Bun.sleep(5_500);
+			await attachCurrentAndroidWebView();
+			await waitForUpdateMarker('healthy');
+			await waitForQuarantinedUpdate(brokenTimeout.manifest.releaseId);
+			await waitForNavigationReady('/react');
+			await expectUpdateStorageProof();
+			expect(await updateResults()).toContainEqual({
+				durationMs: expect.any(Number),
+				kind: 'rolled-back',
+				reason: 'boot-timeout',
+				releaseId: brokenTimeout.manifest.releaseId
+			});
+			const brokenTimeoutRequests =
+				updateFileRequests.get(brokenTimeout.manifest.releaseId) ?? 0;
+			expect(brokenTimeoutRequests).toBeGreaterThan(0);
+			await reattachAndroidWebView();
+			await waitForUpdateMarker('healthy');
+			await waitForActiveUpdate(healthy.manifest.releaseId);
+			await waitForNavigationReady('/react');
+			await expectUpdateStorageProof();
+			await Bun.sleep(1_000);
+			expect(
+				updateFileRequests.get(brokenTimeout.manifest.releaseId) ?? 0
+			).toBe(brokenTimeoutRequests);
+
+			offeredUpdate = corrected.manifest.releaseId;
+			await reattachAndroidWebView();
+			await waitForUpdateMarker('corrected');
+			await waitForActiveUpdate(corrected.manifest.releaseId);
+			await waitForNavigationReady('/react');
+			await expectUpdateStorageProof();
+			expect(
+				(await readUpdateState()).quarantinedReleases
+			).toBeUndefined();
+
+			offeredUpdate = brokenInterrupted.manifest.releaseId;
+			await launchAndroidWithoutWebView();
+			await waitForNativePendingPreference(
+				brokenInterrupted.manifest.releaseId
+			);
+			requireAdbShell('am', 'force-stop', project.config.appId);
+			await android.relaunch();
+			await attachCurrentAndroidWebView();
+			await waitForUpdateMarker('corrected');
+			await waitForActiveUpdate(corrected.manifest.releaseId);
+			await waitForNavigationReady('/react');
+			await waitForQuarantinedUpdate(
+				brokenInterrupted.manifest.releaseId
+			);
+			await expectUpdateStorageProof();
+			await openNativeRoute(
+				'/native-auth-sync',
+				'AbsoluteJS Native Auth + Sync'
+			);
+			await waitForText('Native auth + sync complete');
+			await webview.waitFor<boolean>(
+				`Number(document.querySelector('#native-auth-sync-status')?.getAttribute('data-pending') ?? 0) > 0`,
+				{ timeoutMs: TIMEOUT_MS }
+			);
+			const report: NativeUpdateConformanceReport = {
+				durationMs: Math.round(performance.now() - startedAt),
+				releases: {
+					brokenInterrupted: brokenInterrupted.manifest.releaseId,
+					brokenTimeout: brokenTimeout.manifest.releaseId,
+					corrected: corrected.manifest.releaseId,
+					healthy: healthy.manifest.releaseId
+				},
+				state: {
+					authCredential: true,
+					brokenReleaseRedownloaded: false,
+					localStorage: true,
+					pendingOperations: true,
+					processDeathRecovered: true,
+					timeoutRecovered: true
+				}
+			};
+			await mkdir(ARTIFACT_ROOT, { recursive: true });
+			await writeFile(
+				resolve(ARTIFACT_ROOT, 'android-update-conformance.json'),
+				`${JSON.stringify(report, null, 2)}\n`
+			);
+			offeredUpdate = undefined;
+		},
+		900_000
 	);
 
 	nativeTest(

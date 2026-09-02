@@ -224,6 +224,24 @@ CORS.
   `boot-interrupted` recovery reason, release identity, and duration. It never
   includes URLs, keys, paths, page data, Auth state, or downloaded bytes.
 
+## Native conformance
+
+On an Android development machine with AbsoluteJS's emulator prerequisites
+installed, run:
+
+```bash
+bun run test:native:android:updates
+```
+
+The test builds and signs its own isolated releases with an ephemeral key, serves
+them from the local trusted test backend, and drives a real Capacitor WebView. It
+checks valid activation, automatic timeout rollback, quarantine/no-redownload,
+replacement by a corrected release, and recovery from an ADB-forced process death.
+It also verifies that native Auth, Sync's durable outbox, and local storage remain
+intact. The test leaves a JSON result at
+`.absolutejs/mobile-native-conformance/embedded-artifacts/android-update-conformance.json`;
+on failure the same directory receives sanitized diagnostics and a screenshot.
+
 ## Current limitations
 
 - Delta transfer is not implemented. Immutable files are fetched independently,

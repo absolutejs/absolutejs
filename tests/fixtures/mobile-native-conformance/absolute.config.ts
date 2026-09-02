@@ -1,6 +1,9 @@
 import { defineConfig } from '../../../src/utils/defineConfig';
 import { appProviders } from '../../../example/angular/appProviders';
 
+const updatePublicKey =
+	process.env.ABSOLUTE_NATIVE_CONFORMANCE_UPDATE_PUBLIC_KEY;
+
 export default defineConfig({
 	angular: { providers: appProviders },
 	angularDirectory: 'example/angular',
@@ -37,7 +40,21 @@ export default defineConfig({
 			productionOrigin:
 				process.env.ABSOLUTE_NATIVE_CONFORMANCE_ORIGIN ??
 				'https://conformance.absolutejs.com'
-		}
+		},
+		...(updatePublicKey
+			? {
+					updates: {
+						bootTimeoutMs: 5_000,
+						channel: 'production',
+						manifestUrl:
+							process.env
+								.ABSOLUTE_NATIVE_CONFORMANCE_UPDATE_MANIFEST,
+						publicKeys: {
+							'native-conformance': updatePublicKey
+						}
+					}
+				}
+			: {})
 	},
 	publicDirectory: 'example/public',
 	reactDirectory: 'example/react',

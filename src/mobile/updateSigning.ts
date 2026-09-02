@@ -55,7 +55,7 @@ const listFiles = async (root: string, directory = root): Promise<string[]> => {
 		})
 	);
 
-	return paths.flat().sort();
+	return paths.flat().sort((left, right) => left.localeCompare(right));
 };
 
 const inspectFiles = async (root: string, paths: readonly string[]) =>
