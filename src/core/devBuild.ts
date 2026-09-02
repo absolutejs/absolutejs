@@ -41,6 +41,7 @@ import { cleanStaleAssets, populateAssetStore } from '../dev/assetStore';
 import { drainPendingQueue, queueFileChange } from '../dev/rebuildTrigger';
 import { logServerReload } from '../utils/logger';
 import { logStartupTimingBlock } from '../utils/startupTimings';
+import { setBootPhase } from '../dev/bootLifecycle';
 
 const FRAMEWORK_DIR_KEYS = [
 	'reactDirectory',
@@ -466,6 +467,7 @@ export const devBuild = async (config: BuildConfig) => {
 
 	// Initialize dependency graph by scanning all source files
 	stepStartedAt = performance.now();
+	setBootPhase('scan source tree');
 	const watchPaths = getWatchPaths(config, state.resolvedPaths);
 	buildInitialDependencyGraph(state.dependencyGraph, watchPaths);
 	recordStep('initialize dependency graph', stepStartedAt);
@@ -619,6 +621,7 @@ export const devBuild = async (config: BuildConfig) => {
 	// start kills boot and leaves the user without live-reload
 	// feedback to find their mistake.
 	let buildResult: Awaited<ReturnType<typeof build>> | null = null;
+	setBootPhase('initial build');
 	try {
 		buildResult = await build({
 			...config,
@@ -668,6 +671,7 @@ export const devBuild = async (config: BuildConfig) => {
 
 	// Populate in-memory asset store so client assets are served from memory
 	stepStartedAt = performance.now();
+	setBootPhase('populate asset store');
 	await populateAssetStore(
 		state.assetStore,
 		manifest,
@@ -685,6 +689,7 @@ export const devBuild = async (config: BuildConfig) => {
 	// in a centralized post-step so cross-framework specifier rewrites can use
 	// the FULL combined path map (react ∪ angular ∪ svelte ∪ vue ∪ dep).
 	stepStartedAt = performance.now();
+	setBootPhase('build vendor bundles');
 	const reactVendorDir = resolve(
 		state.resolvedPaths.buildDir,
 		'react',
@@ -758,6 +763,7 @@ export const devBuild = async (config: BuildConfig) => {
 	// browser fetches the vendor file at runtime and chokes on bare specifiers.
 	// Run AFTER all vendor builds so every framework's path map is included.
 	stepStartedAt = performance.now();
+	setBootPhase('rewrite vendor cross-references');
 	const combinedVendorPaths: Record<string, string> = {
 		...(getDevVendorPaths() ?? {}),
 		...(getAngularVendorPaths() ?? {}),
@@ -801,6 +807,7 @@ export const devBuild = async (config: BuildConfig) => {
 	// Sets the module-level compiler references in moduleServer.ts
 	// so transformSvelteFile/transformVueFile skip the dynamic import.
 	stepStartedAt = performance.now();
+	setBootPhase('warm compilers');
 	const { warmCompilers } = await import('../dev/moduleServer');
 	await warmCompilers({
 		svelte: Boolean(config.svelteDirectory),

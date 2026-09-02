@@ -10,7 +10,9 @@ import {
 	MAX_HTTP_IDLE_TIMEOUT_SECONDS,
 	MILLISECONDS_IN_A_SECOND
 } from '../constants';
+import { runDeferredBootTasks } from '../dev/bootLifecycle';
 import { loadDevCert } from '../dev/devCert';
+import { releaseEarlyListener } from '../dev/earlyListener';
 import {
 	registerInstance,
 	resolveProjectName
@@ -175,9 +177,15 @@ export const networking = <A extends AnyElysia>(app: A) => {
 			},
 			fetch: (request: Request) => app.fetch(request)
 		});
+		runDeferredBootTasks();
 
 		return app;
 	}
+
+	// Hand the port over from the dev bootstrap's "Building…" placeholder
+	// (see `dev/earlyListener.ts`). `stop(true)` closes its listen socket
+	// synchronously, so the real bind below cannot see EADDRINUSE from it.
+	releaseEarlyListener();
 
 	const listened = app.listen(
 		{
@@ -195,6 +203,9 @@ export const networking = <A extends AnyElysia>(app: A) => {
 		},
 		() => {
 			selfRegisterInstance();
+			// The port is serving real traffic now — flush boot work that
+			// was deferred off the critical path (module prewarm, etc.).
+			runDeferredBootTasks();
 
 			if (visibility === 'internal' || managedByWorkspace) {
 				return;

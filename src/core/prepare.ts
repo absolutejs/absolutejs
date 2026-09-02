@@ -27,6 +27,7 @@ import {
 import { setSpaRouteManifest } from '../utils/spaRouteManifest';
 import { logStartupTimingBlock } from '../utils/startupTimings';
 import { logWarn } from '../utils/logger';
+import { deferUntilServing, setBootPhase } from '../dev/bootLifecycle';
 
 const MS_PER_SECOND = 1000;
 const DEFAULT_PORT = 3000;
@@ -199,6 +200,7 @@ const prepareDev = async (
 	};
 
 	let stepStartedAt = performance.now();
+	setBootPhase('patch route registration');
 	const { patchElysiaRouteRegistrationCallsites } = await import(
 		'./devRouteRegistrationCallsite'
 	);
@@ -206,11 +208,13 @@ const prepareDev = async (
 	recordStep('patch route registration', stepStartedAt);
 
 	stepStartedAt = performance.now();
+	setBootPhase('build');
 	const { devBuild } = await import('./devBuild');
 	const result = await devBuild(config);
 	recordStep('devBuild', stepStartedAt);
 
 	stepStartedAt = performance.now();
+	setBootPhase('load dev runtime');
 	const { hmr } = await import('../plugins/hmr');
 	const { staticPlugin } = await import('@elysia/static');
 	const { createModuleServer } = await import('../dev/moduleServer');
@@ -256,12 +260,24 @@ const prepareDev = async (
 
 	// Pre-compile all framework source files into the transform cache
 	// so the first HMR edit hits a warm cache and the runtime import
-	// graph is populated (needed for findNearestComponent).
+	// graph is populated (needed for findNearestComponent). This is
+	// warm-up, not a prerequisite for serving: the module server
+	// transforms on demand, so it runs AFTER the port is serving real
+	// traffic (see `deferUntilServing`) instead of holding up boot.
 	const { warmCache, SRC_URL_PREFIX } = await import('../dev/moduleServer');
 	const prewarmDirs = buildPrewarmDirs(config);
 	stepStartedAt = performance.now();
-	await warmPrewarmDirs(prewarmDirs, warmCache, SRC_URL_PREFIX);
-	recordStep('prewarm source modules', stepStartedAt);
+	deferUntilServing(async () => {
+		const prewarmStartedAt = performance.now();
+		await warmPrewarmDirs(prewarmDirs, warmCache, SRC_URL_PREFIX);
+		logStartupTimingBlock('AbsoluteJS deferred boot timing', [
+			{
+				durationMs: performance.now() - prewarmStartedAt,
+				label: 'prewarm source modules (after listen)'
+			}
+		]);
+	});
+	recordStep('schedule source module prewarm', stepStartedAt);
 
 	// Expose HMR state for the HTTP/2 bridge (networking.ts reads this
 	// to attach WebSocket handling on the HTTP/2 server).
@@ -274,6 +290,7 @@ const prepareDev = async (
 	}
 
 	stepStartedAt = performance.now();
+	setBootPhase('configure dev plugins');
 	const hmrPlugin = hmr(result.hmrState, result.manifest, moduleHandler);
 	const { devtoolsJson } = await import('../plugins/devtoolsJson');
 
@@ -286,6 +303,7 @@ const prepareDev = async (
 
 	// Load convention files (error/loading/not-found) into the runtime registry
 	stepStartedAt = performance.now();
+	setBootPhase('load runtime metadata');
 	if (result.conventions) setConventions(result.conventions);
 	setCurrentIslandManifest(result.manifest);
 	if (config.islands?.registry) {
@@ -297,6 +315,7 @@ const prepareDev = async (
 	recordStep('load runtime metadata', stepStartedAt);
 
 	stepStartedAt = performance.now();
+	setBootPhase('assemble dev runtime');
 	const { imageOptimizer } = await import('../plugins/imageOptimizer');
 	const { requestInspector } = await import('../dev/requestInspector');
 	const { serverTiming } = await import('@elysia/server-timing');
@@ -366,6 +385,7 @@ const prepareDev = async (
 	await withOpenApi(absolutejs, config, process.cwd(), true);
 	await withTelemetry(absolutejs, config, process.cwd());
 	recordStep('assemble dev runtime', stepStartedAt);
+	setBootPhase('starting server');
 	logStartupTimingBlock('AbsoluteJS prepareDev timing', startupSteps);
 
 	return {
