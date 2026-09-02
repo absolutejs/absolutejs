@@ -593,6 +593,52 @@ const contentSecurityPolicyCheck = async (
 	}
 };
 
+const validateExpoCodeSigningProjection = async (
+	config: NormalizedAbsoluteMobileConfig,
+	expo: Record<string, unknown>
+) => {
+	const configuredSigning = config.updates?.expoCodeSigning;
+	const generatedUpdates = isRecord(expo.updates) ? expo.updates : undefined;
+	if (config.updates && !configuredSigning)
+		throw new TypeError(
+			'Expo production updates require an embedded code-signing certificate.'
+		);
+	if (
+		!configuredSigning &&
+		generatedUpdates &&
+		('codeSigningCertificate' in generatedUpdates ||
+			'codeSigningMetadata' in generatedUpdates)
+	)
+		throw new TypeError(
+			'Generated Expo config contains unconfigured code-signing material.'
+		);
+	if (!configuredSigning) return;
+	if (
+		!generatedUpdates ||
+		generatedUpdates.codeSigningCertificate !==
+			'./certs/absolute-mobile-update.pem' ||
+		!isRecord(generatedUpdates.codeSigningMetadata) ||
+		generatedUpdates.codeSigningMetadata.keyid !==
+			configuredSigning.keyId ||
+		generatedUpdates.codeSigningMetadata.alg !== configuredSigning.algorithm
+	)
+		throw new TypeError(
+			'Generated Expo code-signing metadata does not match mobile config.'
+		);
+	const generatedCertificate = await readFile(
+		join(
+			config.nativeProjectDirectory,
+			'certs',
+			'absolute-mobile-update.pem'
+		),
+		'utf8'
+	);
+	if (generatedCertificate !== configuredSigning.certificatePem)
+		throw new TypeError(
+			'Generated Expo code-signing certificate does not match mobile config.'
+		);
+};
+
 const expoApplicationConfigCheck = async (
 	config: NormalizedAbsoluteMobileConfig,
 	projectRoot: string
@@ -627,6 +673,7 @@ const expoApplicationConfigCheck = async (
 				'Generated Expo runtimeVersion does not match the AbsoluteJS native contract.'
 			);
 		}
+		await validateExpoCodeSigningProjection(config, expo);
 		if (
 			Array.isArray(expo.plugins) &&
 			expo.plugins.some(

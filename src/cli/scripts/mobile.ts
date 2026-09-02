@@ -118,6 +118,7 @@ import {
 	verifyAbsoluteMobileUpdateSignature
 } from '../../mobile/updateSigning';
 import { finalizeAbsoluteExpoUpdateExport } from '../../mobile/expoUpdate';
+import { generateAbsoluteExpoCodeSigning } from '../../mobile/expoCodeSigning';
 import { resolveAbsoluteMobileUpdateRuntime } from '../../mobile/updateRuntime';
 import {
 	loadAbsoluteMobileUpdatePublisher,
@@ -130,6 +131,19 @@ const NOT_FOUND = -1;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
 	typeof value === 'object' && value !== null && !Array.isArray(value);
+
+const expoPublicConfig = (config: Record<string, unknown>) => {
+	const result: Record<string, unknown> = { ...config };
+	if (!isRecord(result.updates)) return result;
+	const {
+		codeSigningCertificate: _codeSigningCertificate,
+		codeSigningMetadata: _codeSigningMetadata,
+		...publicUpdates
+	} = result.updates;
+	result.updates = publicUpdates;
+
+	return result;
+};
 
 type AndroidSession = Awaited<ReturnType<typeof attachAbsoluteAndroidWebView>>;
 
@@ -1051,6 +1065,7 @@ const prepareExpoMobileUpdateExport = async (options: {
 			: undefined;
 		if (!isRecord(expoConfig))
 			throw new TypeError('Generated Expo app configuration is invalid.');
+		const publicExpoConfig = expoPublicConfig(expoConfig);
 		const computedRuntime = resolveAbsoluteMobileUpdateRuntime(
 			mobile,
 			options.projectRoot
@@ -1060,7 +1075,7 @@ const prepareExpoMobileUpdateExport = async (options: {
 				'Expo native runtime changed while exporting the update.'
 			);
 		await finalizeAbsoluteExpoUpdateExport({
-			expoConfig,
+			expoConfig: publicExpoConfig,
 			exportDirectory: temporaryDirectory,
 			runtimeVersion: options.runtimeFingerprint
 		});
@@ -1081,6 +1096,10 @@ const buildMobileUpdate = async (args: string[]) => {
 	if (!mobile.updates)
 		throw new TypeError(
 			'mobile update build requires mobile.updates.publicKeys in absolute.config.ts.'
+		);
+	if (mobile.engine === 'expo' && !mobile.updates.expoCodeSigning)
+		throw new TypeError(
+			'Expo production updates require mobile.updates.expoCodeSigning. Run `absolute mobile update signing generate --private-key <path outside the project>` first.'
 		);
 	if (!args.includes('--within-submitted-purpose'))
 		throw new TypeError(
@@ -1175,6 +1194,56 @@ const buildMobileUpdate = async (args: string[]) => {
 			success
 		});
 	}
+};
+
+const generateExpoUpdateSigning = async (args: string[]) => {
+	const configPath = valueAfter(args, '--config');
+	const { mobile, projectRoot } = await loadMobile(configPath);
+	if (mobile.engine !== 'expo')
+		throw new TypeError('Expo code signing requires mobile.engine: expo.');
+	const privateKeyPath = valueAfter(args, '--private-key');
+	if (!privateKeyPath)
+		throw new TypeError(
+			'mobile update signing generate requires --private-key <path outside the project>.'
+		);
+	const validityValue = valueAfter(args, '--validity-years');
+	const validityYears =
+		validityValue === undefined ? undefined : Number(validityValue);
+	const keyId = valueAfter(args, '--key-id') ?? 'main';
+	if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/u.test(keyId))
+		throw new TypeError(
+			'mobile update signing generate --key-id contains unsupported characters.'
+		);
+	const result = await generateAbsoluteExpoCodeSigning({
+		certificatePath:
+			valueAfter(args, '--certificate') ??
+			'mobile/code-signing/expo-update-certificate.pem',
+		commonName:
+			valueAfter(args, '--common-name') ?? `${mobile.appName} Updates`,
+		privateKeyPath,
+		projectRoot,
+		...(valueAfter(args, '--public-key')
+			? { publicKeyPath: valueAfter(args, '--public-key') }
+			: {}),
+		...(validityYears === undefined ? {} : { validityYears })
+	});
+	const certificatePath = relative(
+		projectRoot,
+		result.certificatePath
+	).replaceAll('\\', '/');
+	sendTelemetryEvent('mobile:update-code-signing-generated', {
+		engine: 'expo',
+		validityYears: validityYears ?? 10
+	});
+	console.log(`Generated Expo update certificate ${certificatePath}.`);
+	console.log(
+		`Keep the private key outside source control and provision it only to the trusted update server: ${result.privateKeyPath}`
+	);
+	console.log(
+		`Add expoCodeSigning: { certificatePath: '${certificatePath}', keyId: '${keyId}' } to mobile.updates, then run absolute mobile sync.`
+	);
+
+	return result;
 };
 
 const updateRollout = (args: string[], fallback?: number) => {
@@ -3268,6 +3337,15 @@ export const runMobile = async (args: string[]) => {
 
 		return;
 	}
+	if (
+		command === 'update' &&
+		args[1] === 'signing' &&
+		args[2] === 'generate'
+	) {
+		await generateExpoUpdateSigning(args.slice(3));
+
+		return;
+	}
 	if (command === 'update' && args[1] === 'publish') {
 		await publishMobileUpdate(args.slice(2));
 
@@ -3295,6 +3373,6 @@ export const runMobile = async (args: string[]) => {
 	}
 
 	throw new TypeError(
-		'Usage: absolute mobile <pair mac <name> <user@host> [--port n] [--workspace path] | remotes [inspect [name] [--json] | clean [name] --yes | --json] | unpair mac <name> | init [--no-native] [--force] | sync [ios|android] | inspect [--json] [--require-bundle] | associations [--outdir dir] [--verify] | ci github [server-entry] [--publish] [--registry module] [--secret-env NAME] [--output path] [--force] [--json] | doctor [ios|android|release [ios|android]] [--remote name] [--json|--fix [--yes]] | build <android|ios> [server-entry] [--remote name] [--outdir dir] [--web-outdir dir] [--unsigned] | update build [server-entry] --classification bug-fix|content|security --key-id id --signing-key path --within-submitted-purpose [--outdir dir] [--web-outdir dir] | update publish <release-directory> [--rollout fraction] [--registry module] | update promote --release id --rollout fraction [--registry module] | update rollback [--release id] [--registry module] | publish android [server-entry] [--registry module] [--channel name] [--play-track track] [--play-status completed|draft|halted|in-progress] [--play-rollout fraction] [--play-name name] [--play-notes language=text] [--play-update-priority 0..5] [--play-hold-review] [--play-cancel-existing-review] [--outdir dir] [--web-outdir dir] [--unsigned] | publish ios [server-entry] [--remote name] [--registry module] [--channel name] [--testflight-group name-or-id] [--testflight-notes locale=text] [--testflight-submit-review] [--outdir dir] [--web-outdir dir] [--unsigned] | test android [--route path] [--wait-for-hmr] [--report [dir]] [--timeout ms] [--port n] [--serial id] [--artifacts dir] [--json] | test ios [--device identifier [--remote name] | --udid id] [--wait-for-hmr] [--report [dir]] [--timeout ms] [--port n] [--artifacts dir] [--json]> [--config path]'
+		'Usage: absolute mobile <pair mac <name> <user@host> [--port n] [--workspace path] | remotes [inspect [name] [--json] | clean [name] --yes | --json] | unpair mac <name> | init [--no-native] [--force] | sync [ios|android] | inspect [--json] [--require-bundle] | associations [--outdir dir] [--verify] | ci github [server-entry] [--publish] [--registry module] [--secret-env NAME] [--output path] [--force] [--json] | doctor [ios|android|release [ios|android]] [--remote name] [--json|--fix [--yes]] | build <android|ios> [server-entry] [--remote name] [--outdir dir] [--web-outdir dir] [--unsigned] | update signing generate --private-key path [--certificate path] [--public-key path] [--key-id id] [--common-name name] [--validity-years n] | update build [server-entry] --classification bug-fix|content|security --key-id id --signing-key path --within-submitted-purpose [--outdir dir] [--web-outdir dir] | update publish <release-directory> [--rollout fraction] [--registry module] | update promote --release id --rollout fraction [--registry module] | update rollback [--release id] [--registry module] | publish android [server-entry] [--registry module] [--channel name] [--play-track track] [--play-status completed|draft|halted|in-progress] [--play-rollout fraction] [--play-name name] [--play-notes language=text] [--play-update-priority 0..5] [--play-hold-review] [--play-cancel-existing-review] [--outdir dir] [--web-outdir dir] [--unsigned] | publish ios [server-entry] [--remote name] [--registry module] [--channel name] [--testflight-group name-or-id] [--testflight-notes locale=text] [--testflight-submit-review] [--outdir dir] [--web-outdir dir] [--unsigned] | test android [--route path] [--wait-for-hmr] [--report [dir]] [--timeout ms] [--port n] [--serial id] [--artifacts dir] [--json] | test ios [--device identifier [--remote name] | --udid id] [--wait-for-hmr] [--report [dir]] [--timeout ms] [--port n] [--artifacts dir] [--json]> [--config path]'
 	);
 };

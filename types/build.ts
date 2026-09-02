@@ -103,6 +103,13 @@ type MobileSharedConfig = {
 		manifestUrl?: string;
 		/** ECDSA P-256 SPKI public keys, encoded as base64 DER and keyed by rotation ID. */
 		publicKeys: Readonly<Record<string, string>>;
+		/** Expo's native end-to-end manifest verification. The public certificate is embedded in store builds; its private key stays on the trusted update server. */
+		expoCodeSigning?: {
+			/** Project-relative PEM X.509 root certificate path. */
+			certificatePath: string;
+			/** Rotation identity. Defaults to `main`. */
+			keyId?: string;
+		};
 	};
 	/** Capacitor webDir output. Defaults to `.absolutejs/mobile/web`. */
 	bundleDirectory?: string;

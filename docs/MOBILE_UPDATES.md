@@ -37,27 +37,28 @@ When uncertain, ship a normal App Store/Google Play build.
 
 ```text
 private ECDSA P-256 key (build host only)
-        |
-        v
-signed immutable manifest ---- immutable, individually hashed files
+        |                         Expo RSA key (trusted server only)
+        v                                      |
+signed immutable manifest ---- immutable files + signed Expo response
         |                                      |
         +---------- @absolutejs/deploy --------+
                           |
               anonymous stable rollout cohort
                           |
                           v
-           exact native-runtime match
+       exact native-runtime/certificate match
                   /             \
          Capacitor client       Expo client
-        verify signed files    verify asset hashes
+        verify signed files    verify RSA manifest + asset hashes
         native boot watchdog   native Expo recovery
 ```
 
-The signing private key is never put in application config, a mobile bundle, the
-deployment registry, telemetry, or a device. Capacitor applications contain only
-one or more ECDSA P-256 public keys; the self-hosted Expo beta keeps those keys at
-the trusted registry boundary. Provision the next public key before retiring an old
-key.
+Neither private key is put in application config, a mobile bundle, the deployment
+registry, telemetry, or a device. Capacitor applications contain only ECDSA P-256
+public keys. Expo applications additionally contain a public X.509 certificate;
+its RSA private key exists only in the trusted update-serving process. Registry
+admission and native client verification are independent, so compromising storage
+or a CDN cannot produce an accepted Expo update.
 
 The native-runtime fingerprint is generated automatically from:
 
@@ -95,6 +96,11 @@ export default {
       channel: 'production',
       publicKeys: {
         'production-2026': 'BASE64_ECDSA_P256_SPKI_DER'
+      },
+      // Expo only: this public certificate is safe to commit.
+      expoCodeSigning: {
+        certificatePath: 'mobile/code-signing/expo-update-certificate.pem',
+        keyId: 'main'
       }
     }
   }
@@ -114,6 +120,21 @@ controller. AbsoluteJS stores an anonymous installation UUID in Expo SecureStore
 adds it to update requests, and checks after startup without exposing Expo APIs to
 application routes. No Auth principal, advertising identifier, or device
 fingerprint is used.
+
+For Expo, first generate the separate RSA key and public certificate through
+AbsoluteJS. The private-key destination is deliberately required to be outside
+the application; the certificate remains inside it so store builds can embed it:
+
+```bash
+bunx absolute mobile update signing generate \
+  --private-key "$HOME/.config/absolutejs/product-expo-update.pem"
+```
+
+The command prints the exact `expoCodeSigning` config to add. It refuses to
+overwrite existing material, writes the private key with owner-only permissions,
+and defaults to a ten-year certificate. Run `absolute mobile sync` after adding
+the config. Since the certificate is part of the automatically generated runtime
+fingerprint, this correctly requires a new store build.
 
 Run these commands from the application root—the directory containing
 `package.json` and `absolute.config.ts`:
@@ -173,6 +194,7 @@ import {
   createMobileUpdateHandler,
   createMobileUpdateRegistry
 } from '@absolutejs/deploy/mobile-update';
+import { readFileSync } from 'node:fs';
 
 const updateRegistry = createMobileUpdateRegistry({
   publicKeys: {
@@ -183,6 +205,17 @@ const updateRegistry = createMobileUpdateRegistry({
 const updateHandler = createMobileUpdateHandler({
   appId: 'com.example.product',
   channel: 'production',
+  expoCodeSigning: {
+    keys: {
+      main: {
+        certificate: readFileSync(
+          'mobile/code-signing/expo-update-certificate.pem',
+          'utf8'
+        ),
+        privateKey: process.env.EXPO_UPDATE_PRIVATE_KEY!
+      }
+    }
+  },
   registry: updateRegistry
 });
 
@@ -199,6 +232,20 @@ manifests and assets, keeps the prior confirmed release as the staged-rollout
 fallback, validates its own receipts, and assigns an anonymous installation UUID
 deterministically. It does not use a user, Auth
 principal, advertising identifier, device fingerprint, or credential.
+
+The handler validates each Expo RSA private key against its X.509 certificate at
+startup and rejects invalid, expired, mismatched, or non-RSA material. When the
+native client requests signing, it negotiates the key ID and
+`rsa-v1_5-sha256`, signs the exact manifest or rollback-directive bytes, and
+fails closed for missing or unsupported keys. The private key is never part of a
+published update artifact; provision it from the deployment platform's secret
+manager.
+
+For rotation, add the new certificate/key pair to `expoCodeSigning.keys`, update
+the application's certificate and `keyId`, and ship the resulting new native
+runtime through the stores. Keep the old server key while old binaries remain
+supported; each binary requests its own key ID. Retire the old key only after that
+binary population no longer receives updates.
 
 The handler permits Capacitor's standard `capacitor://localhost` and
 `https://localhost` origins by default. Supply `allowedOrigins` when the native
@@ -264,12 +311,5 @@ The iOS suite requires macOS and Xcode and is included in
 
 - Delta transfer is not implemented. Immutable files are fetched independently,
   which already avoids an archive/unzip dependency and permits CDN caching.
-- The self-hosted registry verifies AbsoluteJS's ECDSA signature before accepting
-  an Expo release, and clients require HTTPS, but Expo's optional client-side RSA
-  manifest verification is not provisioned yet. A server/CDN compromise after
-  publication is therefore outside the current Expo beta trust boundary. Do not
-  configure an Expo code-signing certificate until the matching AbsoluteJS
-  signing adapter lands; the handler deliberately rejects `expo-expect-signature`
-  instead of serving an unverifiable response.
 - EAS-hosted publishing is not yet an AbsoluteJS registry provider. The current
   Expo path is the provider-neutral self-hosted `@absolutejs/deploy` registry.

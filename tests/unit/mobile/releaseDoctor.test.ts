@@ -23,6 +23,7 @@ import {
 	inspectAbsoluteMobileRelease
 } from '../../../src/mobile/releaseDoctor';
 import { applyAbsoluteNativeUpdates } from '../../../src/mobile/nativeUpdates';
+import { createExpoTestCertificate } from '../../helpers/expoCodeSigning';
 
 const temporaryDirectories: string[] = [];
 const CAPACITOR_VERSION = '8.5.0';
@@ -170,11 +171,21 @@ const fixture = async () => {
 	return { assets, config, main, projectRoot };
 };
 
-const expoFixture = async () => {
+const expoFixture = async (codeSigning = false) => {
 	const projectRoot = await mkdtemp(
 		join(tmpdir(), 'absolute-expo-release-doctor-')
 	);
 	temporaryDirectories.push(projectRoot);
+	if (codeSigning) {
+		await mkdir(join(projectRoot, 'certs'), { recursive: true });
+		await writeFile(
+			join(projectRoot, 'certs', 'expo-update.pem'),
+			createExpoTestCertificate()
+		);
+	}
+	const updatePublicKey = generateKeyPairSync('ec', {
+		namedCurve: 'prime256v1'
+	}).publicKey.export({ format: 'der', type: 'spki' });
 	const config = normalizeAbsoluteMobileConfig(
 		{
 			appId: 'com.example.expo.release',
@@ -186,7 +197,20 @@ const expoFixture = async () => {
 			},
 			engine: 'expo',
 			platforms: ['android'],
-			server: { productionOrigin: 'https://api.example.com' }
+			server: { productionOrigin: 'https://api.example.com' },
+			...(codeSigning
+				? {
+						updates: {
+							expoCodeSigning: {
+								certificatePath: 'certs/expo-update.pem',
+								keyId: 'release-2026'
+							},
+							publicKeys: {
+								main: updatePublicKey.toString('base64')
+							}
+						}
+					}
+				: {})
 		},
 		projectRoot
 	);
@@ -252,6 +276,30 @@ const expoFixture = async () => {
 };
 
 describe('mobile release doctor', () => {
+	test('verifies Expo code-signing metadata and embedded certificate', async () => {
+		const { config, projectRoot } = await expoFixture(true);
+		const valid = await inspectAbsoluteMobileRelease(config, projectRoot);
+		expect(
+			valid.checks.find(({ id }) => id === 'expo.app-config')
+		).toMatchObject({ status: 'pass' });
+
+		await writeFile(
+			join(
+				config.nativeProjectDirectory,
+				'certs',
+				'absolute-mobile-update.pem'
+			),
+			'TAMPERED\n'
+		);
+		const tampered = await inspectAbsoluteMobileRelease(
+			config,
+			projectRoot
+		);
+		expect(
+			tampered.checks.find(({ id }) => id === 'expo.app-config')
+		).toMatchObject({ status: 'fail' });
+	});
+
 	test('passes a production-safe Expo Android projection', async () => {
 		const { config, projectRoot } = await expoFixture();
 		const result = await inspectAbsoluteMobileRelease(config, projectRoot);

@@ -370,6 +370,18 @@ const expoAppConfig = (
 								'x-absolute-mobile-channel':
 									config.updates.channel
 							},
+							...(config.updates.expoCodeSigning
+								? {
+										codeSigningCertificate:
+											'./certs/absolute-mobile-update.pem',
+										codeSigningMetadata: {
+											alg: config.updates.expoCodeSigning
+												.algorithm,
+											keyid: config.updates
+												.expoCodeSigning.keyId
+										}
+									}
+								: {}),
 							url: config.updates.manifestUrl
 						}
 					}
@@ -386,6 +398,11 @@ if (process.env.ABSOLUTE_EXPO_DEVELOPMENT === '1' && process.env.ABSOLUTE_EXPO_D
 		...config.expo.plugins,
 		'./plugins/withAbsoluteDevelopmentCa'
 	];
+}
+
+if (process.env.ABSOLUTE_EXPO_DEVELOPMENT === '1' && config.expo.updates) {
+	delete config.expo.updates.codeSigningCertificate;
+	delete config.expo.updates.codeSigningMetadata;
 }
 
 module.exports = config;
@@ -1492,6 +1509,12 @@ export const writeAbsoluteExpoProject = async (
 			updatesRuntimeSource(config)
 		);
 	}
+	const expoCodeSigning = config.updates?.expoCodeSigning;
+	if (expoCodeSigning)
+		files.set(
+			join(project, 'certs', 'absolute-mobile-update.pem'),
+			expoCodeSigning.certificatePem
+		);
 	if (auth) {
 		files.set(
 			join(project, 'src', 'generated', 'AbsoluteAuth.ts'),

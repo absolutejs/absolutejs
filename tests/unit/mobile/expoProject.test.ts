@@ -8,6 +8,7 @@ import {
 	syncAbsoluteExpoWebAssets,
 	writeAbsoluteExpoProject
 } from '../../../src/mobile/expoProject';
+import { createExpoTestCertificate } from '../../helpers/expoCodeSigning';
 
 const temporaryDirectories: string[] = [];
 
@@ -19,7 +20,12 @@ afterEach(async () => {
 	);
 });
 
-const fixture = async (auth = false, sync = false, updates = false) => {
+const fixture = async (
+	auth = false,
+	sync = false,
+	updates = false,
+	codeSigning = false
+) => {
 	const root = await mkdtemp(join(tmpdir(), 'absolute-expo-project-'));
 	temporaryDirectories.push(root);
 	await mkdir(join(root, 'mobile', 'native'), { recursive: true });
@@ -27,6 +33,13 @@ const fixture = async (auth = false, sync = false, updates = false) => {
 		join(root, 'mobile', 'native', 'scanner.tsx'),
 		'export default function Scanner() { return null; }\n'
 	);
+	if (codeSigning) {
+		await mkdir(join(root, 'certs'), { recursive: true });
+		await writeFile(
+			join(root, 'certs', 'expo-update.pem'),
+			createExpoTestCertificate()
+		);
+	}
 	await writeFile(
 		join(root, 'package.json'),
 		JSON.stringify({
@@ -53,6 +66,15 @@ const fixture = async (auth = false, sync = false, updates = false) => {
 			...(updates
 				? {
 						updates: {
+							...(codeSigning
+								? {
+										expoCodeSigning: {
+											certificatePath:
+												'certs/expo-update.pem',
+											keyId: 'production-2026'
+										}
+									}
+								: {}),
 							publicKeys: {
 								main: generateKeyPairSync('ec', {
 									namedCurve: 'prime256v1'
@@ -74,6 +96,37 @@ const fixture = async (auth = false, sync = false, updates = false) => {
 };
 
 describe('experimental Expo project', () => {
+	test('embeds the configured Expo code-signing root and metadata', async () => {
+		const { config, root } = await fixture(false, false, true, true);
+		await writeAbsoluteExpoProject(config, { projectRoot: root });
+		const project = config.nativeProjectDirectory;
+		const [appConfigSource, dynamicConfig, generatedCertificate] =
+			await Promise.all([
+				readFile(join(project, 'app.json'), 'utf8'),
+				readFile(join(project, 'app.config.js'), 'utf8'),
+				readFile(
+					join(project, 'certs', 'absolute-mobile-update.pem'),
+					'utf8'
+				)
+			]);
+		const appConfig = JSON.parse(appConfigSource);
+
+		expect(appConfig.expo.updates.codeSigningCertificate).toBe(
+			'./certs/absolute-mobile-update.pem'
+		);
+		expect(appConfig.expo.updates.codeSigningMetadata).toEqual({
+			alg: 'rsa-v1_5-sha256',
+			keyid: 'production-2026'
+		});
+		const configuredCertificate = config.updates?.expoCodeSigning;
+		if (!configuredCertificate)
+			throw new Error('Normalized Expo code signing is missing.');
+		expect(generatedCertificate).toBe(configuredCertificate.certificatePem);
+		expect(dynamicConfig).toContain(
+			'delete config.expo.updates.codeSigningCertificate'
+		);
+	});
+
 	test('generates a CNG shell with explicit native ownership and web catch-all', async () => {
 		const { config, root } = await fixture();
 		const first = await writeAbsoluteExpoProject(config, {

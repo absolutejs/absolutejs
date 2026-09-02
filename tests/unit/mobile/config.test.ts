@@ -1,8 +1,81 @@
-import { describe, expect, test } from 'bun:test';
+import { afterEach, describe, expect, test } from 'bun:test';
 import { generateKeyPairSync } from 'node:crypto';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { normalizeAbsoluteMobileConfig } from '../../../src/mobile/config';
+import { createExpoTestCertificate } from '../../helpers/expoCodeSigning';
+
+const temporaryDirectories: string[] = [];
+
+afterEach(async () => {
+	await Promise.all(
+		temporaryDirectories
+			.splice(0)
+			.map((directory) => rm(directory, { force: true, recursive: true }))
+	);
+});
 
 describe('mobile config normalization', () => {
+	test('validates Expo code-signing certificates as native runtime input', async () => {
+		const { publicKey } = generateKeyPairSync('ec', {
+			namedCurve: 'prime256v1'
+		});
+		const projectRoot = await mkdtemp(
+			join(tmpdir(), 'absolute-config-signing-')
+		);
+		temporaryDirectories.push(projectRoot);
+		await mkdir(join(projectRoot, 'certs'));
+		await writeFile(
+			join(projectRoot, 'certs', 'certificate.pem'),
+			createExpoTestCertificate()
+		);
+		const config = normalizeAbsoluteMobileConfig(
+			{
+				appId: 'com.example.product',
+				appName: 'Product',
+				engine: 'expo',
+				server: { productionOrigin: 'https://api.example.com' },
+				updates: {
+					expoCodeSigning: {
+						certificatePath: 'certs/certificate.pem',
+						keyId: 'production-2026'
+					},
+					publicKeys: {
+						main: publicKey
+							.export({ format: 'der', type: 'spki' })
+							.toString('base64')
+					}
+				}
+			},
+			projectRoot
+		);
+
+		expect(config.updates?.expoCodeSigning).toMatchObject({
+			algorithm: 'rsa-v1_5-sha256',
+			certificateSha256: expect.stringMatching(/^[a-f0-9]{64}$/u),
+			keyId: 'production-2026'
+		});
+		const publicKeys = config.updates?.publicKeys;
+		if (!publicKeys) throw new Error('Normalized update keys are missing.');
+		expect(() =>
+			normalizeAbsoluteMobileConfig(
+				{
+					appId: 'com.example.product',
+					appName: 'Product',
+					server: { productionOrigin: 'https://api.example.com' },
+					updates: {
+						expoCodeSigning: {
+							certificatePath: 'certs/certificate.pem'
+						},
+						publicKeys
+					}
+				},
+				projectRoot
+			)
+		).toThrow('only with mobile.engine: expo');
+	});
+
 	test('normalizes a signed update channel without accepting private material', () => {
 		const { publicKey } = generateKeyPairSync('ec', {
 			namedCurve: 'prime256v1'

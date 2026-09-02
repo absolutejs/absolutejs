@@ -21,6 +21,7 @@
 		"@elysia/openapi": "2.0.0-beta.1",
 		"@elysia/server-timing": "2.0.0-beta.1",
 		"@elysia/static": "2.0.0-beta.2",
+		"@expo/code-signing-certificates": "0.0.6",
 		"@tailwindcss/oxide": "^4.1.0",
 		"exact-mirror": "1.2.4",
 		"typebox": "1.3.16",
@@ -293,12 +294,12 @@
 	"main": "./dist/index.js",
 	"name": "@absolutejs/absolute",
 	"optionalDependencies": {
-		"@absolutejs/native-darwin-arm64": "0.20.0-beta.64",
-		"@absolutejs/native-darwin-x64": "0.20.0-beta.64",
-		"@absolutejs/native-linux-arm64": "0.20.0-beta.64",
-		"@absolutejs/native-linux-x64": "0.20.0-beta.64",
-		"@absolutejs/native-windows-arm64": "0.20.0-beta.64",
-		"@absolutejs/native-windows-x64": "0.20.0-beta.64"
+		"@absolutejs/native-darwin-arm64": "0.20.0-beta.65",
+		"@absolutejs/native-darwin-x64": "0.20.0-beta.65",
+		"@absolutejs/native-linux-arm64": "0.20.0-beta.65",
+		"@absolutejs/native-linux-x64": "0.20.0-beta.65",
+		"@absolutejs/native-windows-arm64": "0.20.0-beta.65",
+		"@absolutejs/native-windows-x64": "0.20.0-beta.65"
 	},
 	"overrides": {
 		"@sinclair/typebox": "0.34.52",
@@ -516,7 +517,7 @@
 			]
 		}
 	},
-	"version": "0.20.0-beta.64",
+	"version": "0.20.0-beta.65",
 	"workspaces": [
 		"tests/fixtures/*",
 		"tests/fixtures/_packages/*"

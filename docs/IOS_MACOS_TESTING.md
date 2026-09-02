@@ -626,6 +626,59 @@ Return the sanitized Terminal 1 output and the eight result rows. Never return
 the CA private key, Apple credentials, provisioning profiles, raw device logs,
 or the contents of environment files.
 
+#### Expo production-update signature acceptance
+
+Run this from the same staging application root, but use a disposable signing
+identity and a production/release build—Expo development mode does not exercise
+the production update launcher. The private-key path must be outside the cloned
+application:
+
+```sh
+cd /absolute/path/to/the/staging-application
+bunx absolute mobile update signing generate \
+  --private-key /absolute/path/outside/the/application/expo-update-private.pem \
+  --certificate mobile/code-signing/expo-update-certificate.pem \
+  --common-name "Staging App Expo Updates" \
+  --validity-years 1
+```
+
+Add the exact `expoCodeSigning` block printed by the command under
+`mobile.updates`. Provision the private-key contents only in the trusted staging
+server's secret store, configure the matching key under
+`createMobileUpdateHandler({ expoCodeSigning: { keys: ... } })`, and then run
+`bunx absolute mobile sync ios --yes --config absolute.config.ts`. Never paste
+the private key into `absolute.config.ts`, a shell command argument, a report, or
+Git.
+
+- [ ] `EXPO-OTA-01` Confirm the command created the certificate inside the
+  application and the private/public key files outside it, refused a second run
+  rather than overwriting them, and created the private key with mode `600`.
+- [ ] `EXPO-OTA-02` Confirm generated `app.json` points to
+  `./certs/absolute-mobile-update.pem`, declares the printed key ID and
+  `rsa-v1_5-sha256`, and the generated certificate exactly matches the public
+  source certificate.
+- [ ] `EXPO-OTA-03` Run `bunx absolute mobile doctor release ios`. Confirm
+  `expo.app-config` passes and a one-byte disposable certificate change makes it
+  fail. Restore by rerunning `mobile sync ios` before continuing.
+- [ ] `EXPO-OTA-04` Install the resulting release build, publish a harmless
+  page-only update through the existing AbsoluteJS registry, reopen twice, and
+  confirm the update downloads and remains active without another IPA.
+- [ ] `EXPO-OTA-05` Capture only the response header names and confirm the
+  request includes `expo-expect-signature` with the configured key ID/algorithm
+  and the response includes `expo-signature`. Do not capture header values.
+- [ ] `EXPO-OTA-06` On the staging server only, temporarily configure a
+  mismatched private key. Confirm the server refuses to start the handler rather
+  than serving updates. Restore the correct secret without returning either key.
+- [ ] `EXPO-OTA-07` Temporarily remove the requested key from the server while
+  leaving another test key configured. Confirm the endpoint returns `406` and
+  the installed app remains on its last verified update. Restore the key.
+- [ ] `EXPO-OTA-08` Roll the channel back to embedded. Confirm the signed
+  `rollBackToEmbedded` directive is accepted and the embedded store build opens.
+
+Return the eight `EXPO-OTA` rows, release/runtime IDs, HTTP statuses, and
+PASS/FAIL only. Do not return certificates, signatures, private/public key
+contents, secret-store names, complete headers, or raw server/device logs.
+
 #### Expo typed page-props acceptance
 
 Run these checks from the same staging application root and Terminal 1 session
@@ -2459,6 +2512,14 @@ versus expected behavior. Do not report exact coordinates.
 | OTA-12 |  | request fields / credential exclusion: |  |
 | OTA-13 |  | automatic watchdog rollback / duration / quarantine: |  |
 | OTA-14 |  | interrupted-boot recovery before Capacitor load: |  |
+| EXPO-OTA-01 |  | generated locations / overwrite / mode: |  |
+| EXPO-OTA-02 |  | generated certificate metadata: |  |
+| EXPO-OTA-03 |  | doctor pass / tamper rejection: |  |
+| EXPO-OTA-04 |  | signed activation / persistence: |  |
+| EXPO-OTA-05 |  | request/response signing header names: |  |
+| EXPO-OTA-06 |  | mismatched server key refusal: |  |
+| EXPO-OTA-07 |  | unavailable rotation key / retained release: |  |
+| EXPO-OTA-08 |  | signed embedded rollback: |  |
 
 - Signed IPA build: PASS / FAIL
 - App Store upload and processing: PASS / FAIL

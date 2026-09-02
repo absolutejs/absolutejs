@@ -1,5 +1,6 @@
+import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { createPublicKey } from 'node:crypto';
+import { createHash, createPublicKey, X509Certificate } from 'node:crypto';
 import type { MobileConfig, MobilePlatform } from '../../types/build';
 
 export type NormalizedAbsoluteMobileConfig = {
@@ -24,6 +25,12 @@ export type NormalizedAbsoluteMobileConfig = {
 		channel: string;
 		manifestUrl: string;
 		publicKeys: Record<string, string>;
+		expoCodeSigning?: {
+			algorithm: 'rsa-v1_5-sha256';
+			certificatePem: string;
+			certificateSha256: string;
+			keyId: string;
+		};
 	};
 };
 
@@ -207,9 +214,29 @@ const normalizeCertificateFingerprints = (
 		)
 	].sort();
 
+const readExpoCodeSigningCertificate = (certificatePath: string) => {
+	try {
+		const certificateSource = readFileSync(certificatePath, 'utf8');
+		const certificatePem = certificateSource.endsWith('\n')
+			? certificateSource
+			: `${certificateSource}\n`;
+
+		return {
+			certificate: new X509Certificate(certificatePem),
+			certificatePem
+		};
+	} catch (error) {
+		throw new TypeError(
+			'mobile.updates.expoCodeSigning.certificatePath must reference a readable PEM X.509 certificate.',
+			{ cause: error }
+		);
+	}
+};
+
 const normalizeUpdates = (
 	config: MobileConfig,
-	productionOrigin: string
+	productionOrigin: string,
+	projectRoot: string
 ): NormalizedAbsoluteMobileConfig['updates'] => {
 	if (!config.updates) return undefined;
 	const bootTimeoutMs =
@@ -301,12 +328,66 @@ const normalizeUpdates = (
 			return [keyId, normalized];
 		})
 	);
+	let expoCodeSigning:
+		| NonNullable<
+				NormalizedAbsoluteMobileConfig['updates']
+		  >['expoCodeSigning']
+		| undefined;
+	if (config.updates.expoCodeSigning) {
+		if ((config.engine ?? 'capacitor') !== 'expo')
+			throw new TypeError(
+				'mobile.updates.expoCodeSigning is available only with mobile.engine: expo.'
+			);
+		const keyId = requireText(
+			config.updates.expoCodeSigning.keyId ?? 'main',
+			'mobile.updates.expoCodeSigning.keyId'
+		);
+		if (!UPDATE_NAME_PATTERN.test(keyId))
+			throw new TypeError(
+				'mobile.updates.expoCodeSigning.keyId contains unsupported characters.'
+			);
+		const certificatePath = resolveProjectPath(
+			projectRoot,
+			requireText(
+				config.updates.expoCodeSigning.certificatePath,
+				'mobile.updates.expoCodeSigning.certificatePath'
+			),
+			'mobile.updates.expoCodeSigning.certificatePath'
+		);
+		const { certificate, certificatePem } =
+			readExpoCodeSigningCertificate(certificatePath);
+		if (
+			certificate.publicKey.asymmetricKeyType !== 'rsa' ||
+			certificate.issuer !== certificate.subject ||
+			!certificate.verify(certificate.publicKey)
+		)
+			throw new TypeError(
+				'mobile.updates.expoCodeSigning certificate must be a self-signed RSA root.'
+			);
+		const now = Date.now();
+		if (
+			now < Date.parse(certificate.validFrom) ||
+			now > Date.parse(certificate.validTo)
+		)
+			throw new TypeError(
+				'mobile.updates.expoCodeSigning certificate is not currently valid.'
+			);
+		expoCodeSigning = {
+			algorithm: 'rsa-v1_5-sha256',
+			certificatePem,
+			certificateSha256: createHash('sha256')
+				.update(certificate.raw)
+				.digest('hex'),
+			keyId
+		};
+	}
 
 	return {
 		bootTimeoutMs,
 		channel,
 		manifestUrl: manifestUrl.href,
-		publicKeys
+		publicKeys,
+		...(expoCodeSigning ? { expoCodeSigning } : {})
 	};
 };
 
@@ -431,7 +512,7 @@ export const normalizeAbsoluteMobileConfig = (
 			'mobile.deepLinks.scheme is not a valid URL scheme.'
 		);
 	}
-	const updates = normalizeUpdates(config, productionOrigin);
+	const updates = normalizeUpdates(config, productionOrigin, projectRoot);
 
 	return {
 		androidCertificateFingerprints: normalizeCertificateFingerprints(

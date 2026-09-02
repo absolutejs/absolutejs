@@ -18,6 +18,7 @@ export * from './syncSchema';
 export * from './syncRemediation';
 export * from './deviceCapabilities';
 export * from './expoBridge';
+export * from './expoCodeSigning';
 export * from './expoDevController';
 export * from './expoProject';
 export * from './expoUpdate';
