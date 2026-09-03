@@ -58,3 +58,58 @@ describe('generateHeadElement', () => {
 		expect(head).not.toContain('rel="stylesheet"');
 	});
 });
+
+describe('generateHeadElement preload + speculation rules', () => {
+	test('emits preload and modulepreload links next to the preconnect block', () => {
+		const head = generateHeadElement({
+			font: 'Inter',
+			preload: [
+				{ as: 'style', href: '/styles/main.css' },
+				{ href: '/react/indexes/Home.js', module: true },
+				{ as: 'font', crossorigin: 'anonymous', href: '/fonts/a.woff2' }
+			]
+		});
+		expect(head).toContain(
+			'<link rel="preload" href="/styles/main.css" as="style">'
+		);
+		expect(head).toContain(
+			'<link rel="modulepreload" href="/react/indexes/Home.js">'
+		);
+		expect(head).toContain(
+			'<link rel="preload" href="/fonts/a.woff2" as="font" crossorigin="anonymous">'
+		);
+		expect(head.indexOf('rel="preconnect"')).toBeLessThan(
+			head.indexOf('rel="preload"')
+		);
+	});
+
+	test('emits a speculationrules script with prerender and prefetch lists', () => {
+		const head = generateHeadElement({
+			speculationRules: { prefetch: ['/about'], prerender: ['/pricing'] }
+		});
+		expect(head).toContain(
+			'<script type="speculationrules">{"prerender":[{"urls":["/pricing"]}],"prefetch":[{"urls":["/about"]}]}</script>'
+		);
+	});
+
+	test('drops empty speculation rules and escapes < in URLs', () => {
+		expect(generateHeadElement({ speculationRules: {} })).not.toContain(
+			'speculationrules'
+		);
+		expect(
+			generateHeadElement({ speculationRules: { prerender: [] } })
+		).not.toContain('speculationrules');
+		const head = generateHeadElement({
+			speculationRules: { prerender: ['/a</script>'] }
+		});
+		expect(head).toContain('\\u003c/script>');
+		expect(head).not.toContain('/a</script>');
+	});
+
+	test('omits preload and speculation output when neither is configured', () => {
+		const head = generateHeadElement({ title: 'Plain' });
+		expect(head).not.toContain('rel="preload"');
+		expect(head).not.toContain('modulepreload');
+		expect(head).not.toContain('speculationrules');
+	});
+});

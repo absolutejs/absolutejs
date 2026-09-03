@@ -259,8 +259,12 @@ const build = async () => {
 	// (`svelte`, `vue`, Angular, React) as a static import in client/index.js.
 	// A React-only consumer would then need Svelte installed just to compile.
 	console.log('Building split client runtime...');
+	// `src/client/prefetch.ts` ships as its own `dist/client/prefetch.js`:
+	// the raw-copied Svelte router (`dist/svelte/router/prefetchCache.ts`)
+	// re-exports it by relative path at the user's build time, and it is the
+	// public `@absolutejs/absolute/client/prefetch` subpath.
 	const clientRuntimeBuild = await Bun.build({
-		entrypoints: ['src/client/index.ts'],
+		entrypoints: ['src/client/index.ts', 'src/client/prefetch.ts'],
 		external: EXTERNALS,
 		format: 'esm',
 		naming: {

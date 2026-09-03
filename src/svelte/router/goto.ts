@@ -1,7 +1,6 @@
 import type { GotoOptions, RouterMode } from '../../../types/svelteRouter';
 import { buildHashHref } from './hashMode';
 import { setPage } from './page.svelte';
-import { consumePrefetch } from './prefetchCache';
 import { withViewTransition } from './viewTransitions';
 
 let activeMode: RouterMode = 'history';
@@ -73,8 +72,13 @@ export const goto = async (target: string, options: GotoOptions = {}) => {
 		return;
 	}
 
-	consumePrefetch(target);
-
+	// `goto` performs no network fetch of its own: the swap is a client-side
+	// route match against the registered <Route>s. What `<Link prefetch>`
+	// buys the click is therefore already in place by now — the target's
+	// HTML sits in the HTTP cache (content-hash ETag → 304 on a later real
+	// navigation), its client modules are in the modulepreload map and, when
+	// `prerender` was set, a speculation rule has the page rendered in a
+	// hidden tab. Nothing to consume here.
 	const mutate = () => {
 		writeHistory(url, options);
 		setPage({
