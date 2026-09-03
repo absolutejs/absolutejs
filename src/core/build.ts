@@ -1,4 +1,4 @@
-import { DEFAULT_PORT, UNFOUND_INDEX } from '../constants';
+import { DEFAULT_PORT } from '../constants';
 import {
 	copyFileSync,
 	cpSync,
@@ -84,6 +84,12 @@ import { createAngularLinkerPlugin } from '../build/angularLinkerPlugin';
 import { createBunStringRawUnicodePlugin } from '../build/bunStringRawUnicodePlugin';
 import { createExternalAssetPlugin } from '../build/externalAssetPlugin';
 import { createIslandRegistryDefinitionPlugin } from '../build/islandRegistryTransform';
+import {
+	collectVueHmrOutputPaths,
+	injectVueComposableTracking,
+	isSharedChunkPath,
+	type VueComposableModuleIdOptions
+} from '../build/injectVueComposableTracking';
 import { createAngularHmrInjectionPlugin } from '../dev/angular/hmrInjectionPlugin';
 import { cleanStaleOutputs } from '../utils/cleanStaleOutputs';
 import { cleanup } from '../utils/cleanup';
@@ -599,118 +605,6 @@ const copyVueDevIndexes = (
 		);
 		writeFileSync(join(devIndexDir, `${name}.vue.js`), content);
 	}
-};
-
-const resolveVueRuntimeId = (
-	content: string,
-	firstUseName: string,
-	outputPath: string,
-	projectRoot: string
-) => {
-	const varIdx = content.indexOf(`var ${firstUseName} =`);
-	if (varIdx <= 0) return JSON.stringify(outputPath);
-	// Find all // src/...js comments before the var declaration
-	const before = content.slice(0, varIdx);
-	const allComments = [...before.matchAll(/\/\/\s*(src\/[^\n]*\.js)\s*\n/g)];
-	// Use the last one (closest to the var declaration)
-	const last = allComments[allComments.length - 1];
-	if (!last?.[1]) return JSON.stringify(outputPath);
-	const srcPath = resolve(
-		projectRoot,
-		last[1].replace('/client/', '/').replace(/\.js$/, '.ts')
-	);
-
-	return JSON.stringify(srcPath);
-};
-
-const QUOTE_CHARS = new Set(['"', "'", '`']);
-const OPEN_BRACES = new Set(['{', '(']);
-const CLOSE_BRACES = new Set(['}', ')']);
-
-const findFunctionExpressionEnd = (content: string, startPos: number) => {
-	let depth = 0;
-	let inStr: string | false = false;
-	for (let i = startPos; i < content.length; i++) {
-		const char = content[i] ?? '';
-		if (inStr && char === inStr && content[i - 1] !== '\\') inStr = false;
-		if (inStr) continue;
-		if (QUOTE_CHARS.has(char)) inStr = char;
-		if (QUOTE_CHARS.has(char)) continue;
-		if (OPEN_BRACES.has(char)) depth++;
-		if (CLOSE_BRACES.has(char)) depth--;
-		if (depth === 0 && char === ';') return i;
-	}
-
-	return startPos;
-};
-
-const wrapUseFunctions = (content: string, useNames: string[]) => {
-	let result = content;
-	for (const name of useNames) {
-		const marker = `var ${name} = `;
-		const pos = result.indexOf(marker);
-		if (pos === UNFOUND_INDEX) continue;
-		const afterMarker = pos + marker.length;
-		const endPos = findFunctionExpressionEnd(result, afterMarker);
-		const funcBody = result.slice(afterMarker, endPos);
-		result = `${result.slice(0, afterMarker)}__hmr_wrap(${JSON.stringify(name)}, ${funcBody})${result.slice(endPos)}`;
-	}
-
-	return result;
-};
-
-const VUE_HMR_RUNTIME = [
-	`var __hmr_cs=(globalThis.__HMR_COMPOSABLE_STATE__??={});`,
-	`var __hmr_mid=__HMR_MID__;`,
-	`var __hmr_prev_refs=__hmr_cs[__hmr_mid];`,
-	`var __hmr_idx={};`,
-	`__hmr_cs[__hmr_mid]={};`,
-	`function __hmr_wrap(n,fn){return function(){`,
-	`var i=(__hmr_idx[n]=(__hmr_idx[n]??-1)+1);`,
-	`var r=fn.apply(this,arguments);`,
-	`if(r&&typeof r==="object"){`,
-	`var refs={};for(var k in r){var v=r[k];`,
-	`if(v&&typeof v==="object"&&"value"in v&&!v.effect&&typeof v.value!=="function")refs[k]=v;}`,
-	`(__hmr_cs[__hmr_mid][n]??=[])[i]=refs;`,
-	`if(__hmr_prev_refs&&__hmr_prev_refs[n]&&__hmr_prev_refs[n][i]){`,
-	`var old=__hmr_prev_refs[n][i];`,
-	`for(var k in old){var nv=r[k],ov=old[k];`,
-	`if(nv&&ov&&typeof nv==="object"&&"value"in nv&&!nv.effect&&typeof nv.value===typeof ov.value)nv.value=ov.value;}`,
-	`}}return r;};}`
-].join('');
-
-const injectVueComposableTracking = (
-	outputPath: string,
-	projectRoot: string
-) => {
-	let content = readFileSync(outputPath, 'utf-8');
-	// Find `var useXxx = (` patterns and the source file comment above them
-	const usePattern = /^var\s+(use[A-Z]\w*)\s*=/gm;
-	const useNames: string[] = [];
-	let match;
-	while ((match = usePattern.exec(content)) !== null) {
-		if (match[1]) useNames.push(match[1]);
-	}
-	if (useNames.length === 0) return;
-
-	const [firstUseName] = useNames;
-	if (!firstUseName) return;
-
-	const runtimeId = resolveVueRuntimeId(
-		content,
-		firstUseName,
-		outputPath,
-		projectRoot
-	);
-	const runtime = VUE_HMR_RUNTIME.replace('__HMR_MID__', runtimeId);
-
-	// Insert runtime before the first use* function
-	const firstUseIdx = content.indexOf(`var ${firstUseName} =`);
-	if (firstUseIdx === UNFOUND_INDEX) return;
-	content = `${content.slice(0, firstUseIdx) + runtime}\n${content.slice(firstUseIdx)}`;
-
-	content = wrapUseFunctions(content, useNames);
-	writeFileSync(outputPath, content);
 };
 
 const buildDevUrlFileMap = (
@@ -2587,7 +2481,14 @@ const buildUnlocked = async ({
 									sourcemaps,
 									isDev
 								),
-								splitting: !isDev,
+								// Split in dev too: without shared chunks every
+								// page entry (index + client bundle) re-emits
+								// the whole component graph, and each
+								// post-processing pass re-reads those bytes.
+								// Shared `chunk-*.js` files get manifest keys
+								// (`ChunkXxxx`) and are served from the dev
+								// asset store exactly as in production.
+								splitting: true,
 								target: 'browser',
 								throw: false,
 								tsconfig: './tsconfig.json'
@@ -3089,15 +2990,35 @@ const buildUnlocked = async ({
 	}
 
 	// In dev mode, inject composable state tracking into Vue bundled output
-	// so the first HMR cycle can preserve ref values.
-	const vueOutputPaths = nonReactClientOutputs
-		.map((artifact) => artifact.path)
-		.filter((path) => path.includes('/vue/'));
-	if (hmr && vueDirectory) {
-		await tracePhase('postprocess/vue-hmr', () =>
-			vueOutputPaths.forEach((outputPath) =>
-				injectVueComposableTracking(outputPath, projectRoot)
-			)
+	// so the first HMR cycle can preserve ref values. With code splitting a
+	// composable shared by several pages lives in a root-level `chunk-*.js`
+	// rather than in each page bundle, so the pass also covers every chunk
+	// the Vue outputs reach through their chunk imports.
+	if (hmr && vueDirectory && vueDir) {
+		const vueOutputPaths = nonReactClientOutputPaths.filter((path) =>
+			path.includes('/vue/')
+		);
+		const chunkOutputPaths =
+			nonReactClientOutputPaths.filter(isSharedChunkPath);
+		const vueHmrTargets = collectVueHmrOutputPaths(
+			vueOutputPaths,
+			chunkOutputPaths
+		);
+		const moduleIdOptions: VueComposableModuleIdOptions = {
+			generatedVueDir: getFrameworkGeneratedDir('vue', projectRoot),
+			projectRoot,
+			vueDir
+		};
+		await tracePhase(
+			'postprocess/vue-hmr',
+			() =>
+				vueHmrTargets.forEach((outputPath) =>
+					injectVueComposableTracking(outputPath, moduleIdOptions)
+				),
+			{
+				chunks: vueHmrTargets.length - vueOutputPaths.length,
+				files: vueHmrTargets.length
+			}
 		);
 	}
 
