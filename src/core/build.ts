@@ -56,9 +56,10 @@ import { optimizeHtmlImages } from '../build/optimizeHtmlImages';
 import { updateAssetPaths } from '../build/updateAssetPaths';
 import { buildHMRClient } from '../dev/buildHMRClient';
 import {
-	patchRefreshGlobals,
-	rewriteReactImports
-} from '../build/rewriteReactImports';
+	rewriteClientOutputs,
+	type ClientRewriteStats
+} from '../build/rewriteClientOutputs';
+import { describeNativeRewriteFallback } from '../build/nativeRewrite';
 import { maskLiterals } from '../build/maskLiterals';
 import { sendTelemetryEvent } from '../cli/telemetryEvent';
 import {
@@ -660,27 +661,6 @@ const buildUrlFileMap = (
 		buildPath,
 		nonReactClientOutputs
 	);
-};
-
-const rewriteUrlReferences = (
-	outputPaths: string[],
-	urlFileMap: Map<string, string>
-) => {
-	const urlPattern =
-		/new\s+URL\(\s*["'](\.\.?\/[^"']+)["']\s*,\s*import\.meta\.url\s*\)/g;
-	for (const outputPath of outputPaths) {
-		let content = readFileSync(outputPath, 'utf-8');
-		let changed = false;
-		content = content.replace(urlPattern, (_match, relPath) => {
-			const targetName = basename(relPath);
-			const resolvedPath = urlFileMap.get(targetName);
-			if (!resolvedPath) return _match;
-			changed = true;
-
-			return `new URL('${resolvedPath}', import.meta.url)`;
-		});
-		if (changed) writeFileSync(outputPath, content);
-	}
 };
 
 const bunBuildPassKeys: BunBuildPassKey[] = [
@@ -2747,26 +2727,6 @@ const buildUnlocked = async ({
 		(artifact) => artifact.path
 	);
 
-	// Use reactExternalPaths (vendorPaths + depVendorPaths) so dep
-	// specifiers that were externalized at bundle time get rewritten to
-	// their /vendor/*.js paths. Using just `vendorPaths` here leaks bare
-	// specifiers like `@react-spring/web` into page bundles, which the
-	// browser cannot resolve and which crashes hydration.
-	if (
-		Object.keys(reactExternalPaths).length > 0 &&
-		reactClientOutputPaths.length > 0
-	) {
-		await tracePhase('postprocess/react-imports', () =>
-			rewriteReactImports(reactClientOutputPaths, reactExternalPaths)
-		);
-	}
-
-	if (hmr && reactClientOutputPaths.length > 0) {
-		await tracePhase('postprocess/react-refresh-globals', () =>
-			patchRefreshGlobals(reactClientOutputPaths)
-		);
-	}
-
 	const nonReactClientLogs = [
 		...(nonReactClientResult?.logs ?? []),
 		...(workerClientResult?.logs ?? [])
@@ -2783,37 +2743,6 @@ const buildUnlocked = async ({
 	const islandClientOutputPaths = islandClientOutputs.map(
 		(artifact) => artifact.path
 	);
-
-	if (
-		Object.keys(nonReactExternalPaths).length > 0 &&
-		nonReactClientOutputPaths.length > 0
-	) {
-		await tracePhase('postprocess/non-react-react-imports', () =>
-			rewriteReactImports(
-				nonReactClientOutputPaths,
-				nonReactExternalPaths
-			)
-		);
-	}
-	if (hmr && nonReactClientOutputPaths.length > 0) {
-		await tracePhase('postprocess/non-react-refresh-globals', () =>
-			patchRefreshGlobals(nonReactClientOutputPaths)
-		);
-	}
-
-	if (
-		Object.keys(nonReactExternalPaths).length > 0 &&
-		islandClientOutputPaths.length > 0
-	) {
-		await tracePhase('postprocess/island-react-imports', () =>
-			rewriteReactImports(islandClientOutputPaths, nonReactExternalPaths)
-		);
-	}
-	if (hmr && islandClientOutputPaths.length > 0) {
-		await tracePhase('postprocess/island-refresh-globals', () =>
-			patchRefreshGlobals(islandClientOutputPaths)
-		);
-	}
 
 	if (
 		((nonReactClientResult && !nonReactClientResult.success) ||
@@ -2834,7 +2763,17 @@ const buildUnlocked = async ({
 		handlePassFailure(islandClientLogs, 'island-client', 'Island client');
 	}
 
-	// Post-process: rewrite bare Angular/Vue specifiers to vendor paths.
+	// Post-process every client output in ONE read/mask/write pass
+	// (`rewriteClientOutputs`), families in the order the standalone passes
+	// ran: bare React + dep specifiers → /vendor/*.js paths (using
+	// reactExternalPaths — just `vendorPaths` would leak bare specifiers like
+	// `@react-spring/web` into page bundles and crash hydration), then the
+	// dev-only $RefreshReg$/$RefreshSig$ stubs, then bare Angular/Vue/Svelte
+	// specifiers → vendor paths, then `new URL('./path', import.meta.url)`
+	// worker references → /@src/ URLs in dev (so workers resolve through the
+	// module server) or the hashed output path in prod. Groups run one after
+	// another so a chunk path emitted by two passes is never rewritten twice
+	// at once; files within a group run in parallel.
 	const allNonReactVendorPaths: Record<string, string> = {
 		...depVendorPaths,
 		...(angularVendorPaths ?? {}),
@@ -2845,28 +2784,52 @@ const buildUnlocked = async ({
 		...reactExternalPaths,
 		...allNonReactVendorPaths
 	};
-	if (
-		nonReactClientOutputs.length > 0 &&
-		Object.keys(allNonReactVendorPaths).length > 0
-	) {
-		const { rewriteBuildOutputs } = await import(
-			'../build/rewriteImportsPlugin'
-		);
-		await tracePhase('postprocess/non-react-vendor-imports', () =>
-			rewriteBuildOutputs(nonReactClientOutputs, allNonReactVendorPaths)
-		);
+	const urlFileMap =
+		urlReferencedFiles.length > 0
+			? buildUrlFileMap(
+					urlReferencedFiles,
+					hmr,
+					projectRoot,
+					buildPath,
+					nonReactClientOutputs
+				)
+			: undefined;
+	const nativeRewriteFallback = describeNativeRewriteFallback();
+	if (nativeRewriteFallback) {
+		console.warn(`[absolute] ${nativeRewriteFallback}`);
 	}
-	if (
-		islandClientOutputs.length > 0 &&
-		Object.keys(allIslandVendorPaths).length > 0
-	) {
-		const { rewriteBuildOutputs } = await import(
-			'../build/rewriteImportsPlugin'
+	const clientRewriteStats: ClientRewriteStats = { files: 0, rewritten: 0 };
+	const rewriteClientGroups = async () => {
+		await rewriteClientOutputs(
+			reactClientOutputPaths,
+			{ reactPaths: reactExternalPaths, refreshGlobals: hmr, urlFileMap },
+			clientRewriteStats
 		);
-		await tracePhase('postprocess/island-vendor-imports', () =>
-			rewriteBuildOutputs(islandClientOutputs, allIslandVendorPaths)
+		await rewriteClientOutputs(
+			nonReactClientOutputPaths,
+			{
+				reactPaths: nonReactExternalPaths,
+				refreshGlobals: hmr,
+				urlFileMap,
+				vendorPaths: allNonReactVendorPaths
+			},
+			clientRewriteStats
 		);
-	}
+		await rewriteClientOutputs(
+			islandClientOutputPaths,
+			{
+				reactPaths: nonReactExternalPaths,
+				refreshGlobals: hmr,
+				vendorPaths: allIslandVendorPaths
+			},
+			clientRewriteStats
+		);
+	};
+	await tracePhase(
+		'postprocess/client-rewrite',
+		rewriteClientGroups,
+		clientRewriteStats
+	);
 
 	// Production guardrail: every browser chunk (app entries, shared/split
 	// chunks, and the React vendor files) must have its bare React specifiers
@@ -2967,26 +2930,6 @@ const buildUnlocked = async ({
 
 	if (vueCssResult && !vueCssResult.success && vueCssResult.logs.length > 0) {
 		handlePassFailure(vueCssResult.logs, 'vue-css', 'Vue CSS');
-	}
-
-	// In dev mode, rewrite new URL('./path', import.meta.url) in all bundled
-	// client outputs to /@src/ URLs so workers resolve through the module server.
-	// In prod mode, rewrite to the hashed output path from the build.
-	const allClientOutputPaths = [
-		...reactClientOutputPaths,
-		...nonReactClientOutputs.map((artifact) => artifact.path)
-	];
-	if (urlReferencedFiles.length > 0) {
-		const urlFileMap = buildUrlFileMap(
-			urlReferencedFiles,
-			hmr,
-			projectRoot,
-			buildPath,
-			nonReactClientOutputs
-		);
-		await tracePhase('postprocess/url-references', () =>
-			rewriteUrlReferences(allClientOutputPaths, urlFileMap)
-		);
 	}
 
 	// In dev mode, inject composable state tracking into Vue bundled output
