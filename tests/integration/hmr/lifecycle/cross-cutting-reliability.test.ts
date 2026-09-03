@@ -199,7 +199,9 @@ describe('Cross-cutting HMR reliability', () => {
 		// snapshot pulls. The /hmr-status manifestKeys list
 		// should stay stable across the run — keys don't get
 		// added or dropped just because we rebuilt the same
-		// pages over and over.
+		// pages over and over. Dev builds pages on first request, so
+		// open the page being edited before taking the baseline.
+		expect((await fetch(`${srv.baseUrl}/angular`)).status).toBe(200);
 		const baseStatus = (await (
 			await fetch(`${srv.baseUrl}/hmr-status`)
 		).json()) as { manifestKeys?: string[] };

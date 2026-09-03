@@ -42,6 +42,13 @@ import { drainPendingQueue, queueFileChange } from '../dev/rebuildTrigger';
 import { logServerReload } from '../utils/logger';
 import { logStartupTimingBlock } from '../utils/startupTimings';
 import { setBootPhase } from '../dev/bootLifecycle';
+import {
+	createLazyPageRegistry,
+	createOnDemandPageBuilder,
+	lazyPagesEnabled,
+	updateLazyPageRegistry
+} from '../dev/lazyPages';
+import { setDevPageWarmer } from './requestContext';
 
 const FRAMEWORK_DIR_KEYS = [
 	'reactDirectory',
@@ -292,6 +299,12 @@ const rebuildManifest = async (
 		});
 		if (!buildResult?.manifest) return;
 		const newManifest = buildResult.manifest;
+		if (state.lazyPages && buildResult.pageEntries) {
+			updateLazyPageRegistry(
+				state.lazyPages.registry,
+				buildResult.pageEntries
+			);
+		}
 
 		// Track partial-build failures so a reconnecting browser still sees
 		// the overlay; clear them when the build is fully clean again.
@@ -361,6 +374,12 @@ const handleCachedReload = async () => {
 	}
 	if (cached?.hmrState.config.emberDirectory) {
 		setEmberVendorPaths(computeEmberVendorPaths());
+	}
+	// The on-demand page warmer closes over the moduleServer module
+	// instance; re-point the ambient registry at the fresh one.
+	if (cached?.hmrState.lazyPages) {
+		const { createDevPageWarmer } = await import('../dev/moduleServer');
+		setDevPageWarmer(createDevPageWarmer());
 	}
 
 	if (serverMtime === lastMtime) {
@@ -470,6 +489,21 @@ export const devBuild = async (config: BuildConfig) => {
 		});
 	};
 
+	/* On-demand pages (default): the boot build skips every page entry and
+	 * each page is bundled by its first request. `warmedPages` is the live
+	 * set of pages built so far — shared by identity with the build option
+	 * so every later full rebuild (server entry reload, cold-start
+	 * recovery) re-emits exactly those pages. `--eager` /
+	 * `ABSOLUTE_DEV_EAGER=1` restores the full boot build. */
+	const lazyPages = lazyPagesEnabled();
+	const warmedPages = new Set<string>();
+	if (lazyPages) {
+		config.options = {
+			...config.options,
+			deferPageEntries: { except: warmedPages }
+		};
+	}
+
 	// Create initial HMR state with config
 	let stepStartedAt = performance.now();
 	const state = createHMRState(config);
@@ -577,6 +611,12 @@ export const devBuild = async (config: BuildConfig) => {
 			if (recoveryResult?.manifest) {
 				Object.assign(manifest, recoveryResult.manifest);
 				state.manifest = manifest;
+				if (state.lazyPages && recoveryResult.pageEntries) {
+					updateLazyPageRegistry(
+						state.lazyPages.registry,
+						recoveryResult.pageEntries
+					);
+				}
 				await populateAssetStore(
 					state.assetStore,
 					manifest,
@@ -682,7 +722,7 @@ export const devBuild = async (config: BuildConfig) => {
 	}
 	recordStep('initial build', buildStart);
 
-	if (Object.keys(manifest).length === 0) {
+	if (Object.keys(manifest).length === 0 && !lazyPages) {
 		console.log(
 			'⚠️ Manifest is empty - this is OK for HTML/HTMX-only projects'
 		);
@@ -702,6 +742,24 @@ export const devBuild = async (config: BuildConfig) => {
 		state.resolvedPaths.buildDir
 	);
 	recordStep('populate asset store', stepStartedAt);
+
+	if (lazyPages) {
+		const pageEntries = buildResult?.pageEntries ?? [];
+		const { createDevPageWarmer, runOnDemandPageBuild } = await import(
+			'../dev/moduleServer'
+		);
+		state.lazyPages = {
+			buildCount: 0,
+			builder: createOnDemandPageBuilder(runOnDemandPageBuild),
+			onRebuildComplete: onWatcherRebuildComplete,
+			registry: createLazyPageRegistry(pageEntries),
+			warmed: warmedPages
+		};
+		setDevPageWarmer(createDevPageWarmer());
+		console.log(
+			`[hmr] ${pageEntries.length} page${pageEntries.length === 1 ? '' : 's'} build on first request — pass --eager (or ABSOLUTE_DEV_EAGER=1) to build them all at boot.`
+		);
+	}
 
 	// Build vendor files in parallel now that the build directory exists.
 	// Each task only BUILDS — file rewriting + asset-store loading happen below

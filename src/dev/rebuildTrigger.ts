@@ -13,7 +13,8 @@ import {
 	type GeneratedFramework
 } from '../utils/generatedDir';
 import { build } from '../core/build';
-import type { BuildConfig } from '../../types/build';
+import type { BuildConfig, DevPageEntry } from '../../types/build';
+import { updateLazyPageRegistry } from './lazyPages';
 import { scanEntryPoints } from '../build/scanEntryPoints';
 import { loadIslandRegistryBuildInfo } from '../build/islandEntries';
 import {
@@ -5010,6 +5011,17 @@ const runFrameworkFastPaths = async (
 	return files.every((f) => handled.has(f));
 };
 
+/* Options for a rebuild that was not caused by a file edit. */
+export type TriggerRebuildOptions = {
+	/** Dev on-demand page build: bundle this page for the first time.
+	 *  Skips the framework fast paths (they swap edited modules in
+	 *  already-loaded pages — nothing is loaded yet) and the per-framework
+	 *  HMR broadcasts (no module changed), but keeps everything else a
+	 *  watcher rebuild does: the incremental `build()`, manifest merge,
+	 *  asset-store population, chunk handling and Tailwind refresh. */
+	onDemandPage?: DevPageEntry;
+};
+
 const performFullRebuild = async (
 	state: HMRState,
 	config: BuildConfig,
@@ -5019,7 +5031,8 @@ const performFullRebuild = async (
 	onRebuildComplete: (result: {
 		manifest: Record<string, string>;
 		hmrState: HMRState;
-	}) => void
+	}) => void,
+	options?: TriggerRebuildOptions
 ) => {
 	// Run each framework's fast path for its files independently.
 	// This handles cross-framework batches (e.g., editing a React
@@ -5032,7 +5045,8 @@ const performFullRebuild = async (
 	state.svelteSurgicallyHandled = undefined;
 	const hasManifest = Object.keys(state.manifest).length > 0;
 	const files = filesToRebuild ?? [];
-	let allHandled = files.length > 0 && hasManifest;
+	const onDemandPage = options?.onDemandPage;
+	let allHandled = !onDemandPage && files.length > 0 && hasManifest;
 	const hasIslandSourceChanges =
 		files.length > 0
 			? await didStaticPagesNeedIslandRefresh(config, files)
@@ -5101,6 +5115,14 @@ const performFullRebuild = async (
 		throw new Error('Build failed - no manifest generated');
 	}
 	const { manifest } = buildResult;
+	// Every build re-scans the page directories; keep the on-demand key →
+	// source registry current so a page added since boot resolves.
+	if (state.lazyPages && buildResult.pageEntries) {
+		updateLazyPageRegistry(
+			state.lazyPages.registry,
+			buildResult.pageEntries
+		);
+	}
 
 	const duration = Date.now() - startTime;
 
@@ -5126,6 +5148,9 @@ const performFullRebuild = async (
 		);
 
 		const [first] = partialErrors;
+		if (onDemandPage && state.lazyPages) {
+			state.lazyPages.lastError = first?.message ?? 'Build failed';
+		}
 		broadcastToClients(state, {
 			data: {
 				affectedFrameworks,
@@ -5219,6 +5244,18 @@ const performFullRebuild = async (
 			message: 'Tailwind utilities recompiled',
 			type: 'style-update'
 		});
+	}
+
+	if (onDemandPage) {
+		// No module changed — skip the framework HMR broadcasts (a
+		// `vue-update` for a page no client has loaded is at best noise and
+		// at worst a full reload of unrelated tabs). Drop the SSR CSS memos
+		// exactly like a full rebuild does: the side manifests and sibling
+		// CSS for this page were just written.
+		clearDevSsrCssCaches();
+		onRebuildComplete({ hmrState: state, manifest });
+
+		return manifest;
 	}
 
 	const hasFilesToRebuild = filesToRebuild && filesToRebuild.length > 0;
@@ -5357,15 +5394,25 @@ export const triggerRebuild = async (
 		manifest: Record<string, string>;
 		hmrState: HMRState;
 	}) => void,
-	filesToRebuild?: string[]
+	filesToRebuild?: string[],
+	options?: TriggerRebuildOptions
 ) => {
 	if (state.isRebuilding) {
 		return null;
 	}
 
+	// Synchronous up to here on purpose: on-demand page builds
+	// (`runOnDemandPageBuild`) poll this flag and call in the same
+	// continuation, so it must flip before the first `await` or two
+	// waiters could both start a rebuild.
 	state.isRebuilding = true;
-	const affectedFrameworks = Array.from(state.rebuildQueue);
-	state.rebuildQueue.clear();
+	const onDemandPage = options?.onDemandPage;
+	// An on-demand page build is not a file edit: leave the watcher's
+	// queued frameworks alone for its own drain.
+	const affectedFrameworks = onDemandPage
+		? [onDemandPage.framework]
+		: Array.from(state.rebuildQueue);
+	if (!onDemandPage) state.rebuildQueue.clear();
 
 	/* Cross-framework CSS routing: if a stylesheet edit lands in
 	 * the styles/assets bucket but the file is referenced by an
@@ -5381,6 +5428,7 @@ export const triggerRebuild = async (
 	 * directory; this branch closes the gap for separate-tree
 	 * stylesheets without affecting the co-located path. */
 	if (
+		!onDemandPage &&
 		config.angularDirectory !== undefined &&
 		!affectedFrameworks.includes('angular') &&
 		(await hasAngularOwnedStyleEdit(state, config.angularDirectory))
@@ -5403,9 +5451,14 @@ export const triggerRebuild = async (
 			affectedFrameworks,
 			filesToRebuild,
 			startTime,
-			onRebuildComplete
+			onRebuildComplete,
+			options
 		);
 	} catch (error) {
+		if (onDemandPage && state.lazyPages) {
+			state.lazyPages.lastError =
+				error instanceof Error ? error.message : String(error);
+		}
 		sendTelemetryEvent('hmr:rebuild-error', {
 			durationMs: Date.now() - startTime,
 			fileCount: filesToRebuild?.length ?? 0,

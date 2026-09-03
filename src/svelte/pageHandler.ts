@@ -3,7 +3,11 @@ import type { SveltePropsOf } from '../../types/svelte';
 import { compileSvelteServerModule } from '../core/svelteServerModule';
 import { injectIslandPageContextStream } from '../core/islandPageContext';
 import { getCurrentRouteRegistrationCallsite } from '../core/devRouteRegistrationCallsite';
-import { getCurrentAbsoluteRequest } from '../core/requestContext';
+import {
+	getCurrentAbsoluteRequest,
+	resolveDeferredPageAssets,
+	withDeferredStylesheets
+} from '../core/requestContext';
 import type { AbsoluteMobileBuildPageMetadata } from '../mobile/buildMetadata';
 import {
 	ABSOLUTE_MOBILE_PAGE_PROTOCOL_VERSION,
@@ -143,9 +147,28 @@ export const handleSveltePageRequest = async <
 >(
 	input: SveltePageRequestInput<Component>
 ) => {
-	const resolvedIndexPath = input.indexPath;
+	// Dev on-demand pages: `asset()` returned `''` for a page that has not
+	// been built yet. Build it now and re-read the manifest; otherwise fall
+	// through to the manifest error so the overlay shows the real cause.
+	const deferredAssets =
+		input.pagePath === '' || input.indexPath === ''
+			? await resolveDeferredPageAssets()
+			: null;
+	const resolvedIndexPath =
+		deferredAssets && input.indexPath === ''
+			? deferredAssets.lookup(`${deferredAssets.name}Index`)
+			: input.indexPath;
 	const resolvedOptions = input;
-	const resolvedPagePath = input.pagePath;
+	const resolvedPagePath =
+		deferredAssets && input.pagePath === ''
+			? deferredAssets.lookup(deferredAssets.name)
+			: input.pagePath;
+	if (resolvedPagePath === '' || resolvedIndexPath === '') {
+		const missingName = deferredAssets?.name || 'Page';
+		const missingKey =
+			resolvedPagePath === '' ? missingName : `${missingName}Index`;
+		throw new Error(`Asset "${missingKey}" not found in manifest.`);
+	}
 	const userProps = input.props;
 	const request = input.request ?? getCurrentAbsoluteRequest();
 	const requestPathname = resolveRequestPathname(request);
@@ -256,9 +279,10 @@ export const handleSveltePageRequest = async <
 			const cssBlock = siblingCss
 				? `<style data-absolute-page-css>${siblingCss}</style>`
 				: '';
-			const composedHeadContent = `${cssBlock}${
-				resolvedOptions?.headContent ?? ''
-			}`;
+			const composedHeadContent = `${cssBlock}${withDeferredStylesheets(
+				resolvedOptions?.headContent ?? '',
+				deferredAssets
+			)}`;
 
 			const stream = await renderToReadableStream(
 				resolvedPage.component,

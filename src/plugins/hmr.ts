@@ -329,6 +329,14 @@ export const hmr = (
 			),
 			entryWatcherReady: globalThis.__absoluteEntryWatcherReady === true,
 			isRebuilding: hmrState.isRebuilding,
+			lazyPages: hmrState.lazyPages
+				? {
+						buildCount: hmrState.lazyPages.buildCount,
+						enabled: true,
+						inFlight: hmrState.lazyPages.builder.inFlight(),
+						warmed: Array.from(hmrState.lazyPages.warmed)
+					}
+				: { enabled: false },
 			manifestKeys: Object.keys(manifest),
 			pendingBundleRebuilds: Array.from(hmrState.pendingBundleRebuilds),
 			pendingFileChanges: Array.from(

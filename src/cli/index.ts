@@ -63,10 +63,11 @@ if (command === 'dev') {
 		'--config',
 		'--android-device',
 		'--ios-device'
-	).filter((arg) => arg !== '--no-mobile');
+	).filter((arg) => arg !== '--no-mobile' && arg !== '--eager');
 	const serverEntry = positionalArgs[0] ?? DEFAULT_SERVER_ENTRY;
 	await dev(serverEntry, configPath, {
 		androidDevice,
+		eager: args.includes('--eager'),
 		iosDevice,
 		mobile: !args.includes('--no-mobile')
 	});
@@ -234,7 +235,7 @@ if (command === 'dev') {
 	console.error('Usage: absolute <command>');
 	console.error('Commands:');
 	console.error(
-		'  dev [entry] [--no-mobile] [--android-device serial] [--ios-device identifier] Start web and configured mobile development'
+		'  dev [entry] [--eager] [--no-mobile] [--android-device serial] [--ios-device identifier] Start web and configured mobile development (--eager builds every page at boot instead of on first request)'
 	);
 	console.error(
 		'  workspace dev [--no-tui] Start multi-service workspace dev'

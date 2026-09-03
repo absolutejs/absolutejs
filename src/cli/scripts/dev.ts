@@ -407,6 +407,9 @@ const resolveDevConfig = (
 
 export type AbsoluteDevOptions = {
 	androidDevice?: string;
+	/** Build every page during the boot build (`--eager` /
+	 *  `ABSOLUTE_DEV_EAGER=1`). Default: pages build on first request. */
+	eager?: boolean;
 	iosDevice?: string;
 	mobile?: boolean;
 };
@@ -952,6 +955,7 @@ export const dev = async (
 		serverEntry,
 		...(configPath ? ['--config', configPath] : []),
 		...(options.mobile === false ? ['--no-mobile'] : []),
+		...(options.eager ? ['--eager'] : []),
 		...(options.androidDevice
 			? ['--android-device', options.androidDevice]
 			: []),
@@ -1821,6 +1825,7 @@ export const dev = async (
 					ABSOLUTE_INSTANCE_MANAGED: '1',
 					ABSOLUTE_PORT: String(port),
 					ABSOLUTE_SERVER_ENTRY: resolvePath(serverEntry),
+					...(options.eager ? { ABSOLUTE_DEV_EAGER: '1' } : {}),
 					...(mobileConfig ? { ABSOLUTE_MOBILE_PREVIEW: '1' } : {}),
 					FORCE_COLOR: '1',
 					NODE_ENV: 'development',

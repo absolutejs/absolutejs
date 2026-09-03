@@ -79,8 +79,10 @@ import type {
 	BuildPassError,
 	BunBuildConfigOverride,
 	BunBuildPassConfig,
-	BunBuildPassKey
+	BunBuildPassKey,
+	DevPageEntry
 } from '../../types/build';
+import { toDevPageEntry } from '../dev/lazyPages';
 import { createAngularLinkerPlugin } from '../build/angularLinkerPlugin';
 import { createBunStringRawUnicodePlugin } from '../build/bunStringRawUnicodePlugin';
 import { createExternalAssetPlugin } from '../build/externalAssetPlugin';
@@ -474,6 +476,44 @@ export const scanWorkerReferences = async (dirs: string[]) => {
 	);
 
 	return [...workerPaths];
+};
+
+/* Prime the Angular fast-HMR fingerprint cache for every component `.ts`
+ * under the Angular directory. Best-effort: if priming fails, the only
+ * consequence is the pre-fix behaviour (the first edit per component
+ * falls through to Tier 0). */
+const primeAngularHmrFingerprints = async (angularDir: string) => {
+	try {
+		const { primeComponentFingerprint } = await import(
+			'../dev/angular/fastHmrCompiler'
+		);
+		const { readdir } = await import('node:fs/promises');
+		const walk = async (dir: string) => {
+			const entries = await readdir(dir, { withFileTypes: true });
+			const out: string[] = [];
+			const directories: string[] = [];
+			for (const entry of entries) {
+				const full = join(dir, entry.name);
+				if (entry.isDirectory()) {
+					directories.push(full);
+				} else if (
+					entry.isFile() &&
+					entry.name.endsWith('.ts') &&
+					!entry.name.endsWith('.d.ts')
+				) {
+					out.push(full);
+				}
+			}
+			const nestedFiles = await Promise.all(directories.map(walk));
+			out.push(...nestedFiles.flat());
+
+			return out;
+		};
+		const tsFiles = await walk(angularDir);
+		await Promise.all(tsFiles.map(primeComponentFingerprint));
+	} catch {
+		/* best effort */
+	}
 };
 
 const copyDevIndexes = async ({
@@ -1375,45 +1415,91 @@ const buildUnlocked = async ({
 			(f) =>
 				f.includes('/html/') && (f.endsWith('.html') || isStylePath(f))
 		);
+	// Dev on-demand pages (`options.deferPageEntries`, dev/HMR builds only):
+	// page entries are skipped unless their source is in `except` — the
+	// live set of pages the dev server has been asked for. The initial
+	// build passes an empty set, so it only produces conventions, vendor,
+	// CSS, workers, islands and static pages; each page is then built by
+	// an incremental `build({ incrementalFiles: [pageSource] })` from the
+	// first request. Applies on top of the incremental filter so a
+	// dependency-expanded rebuild never drags in pages nobody opened.
+	const deferPageEntries = hmr ? options?.deferPageEntries : undefined;
+	const identityEntry = (entry: string) => entry;
+	const selectPageEntries = (
+		entryPoints: string[],
+		mapToSource: (entry: string) => string | null
+	) => {
+		const scoped = isIncremental
+			? filterToIncrementalEntries(entryPoints, mapToSource)
+			: entryPoints;
+		if (!deferPageEntries) return scoped;
+
+		return scoped.filter((entry) => {
+			const source = mapToSource(entry);
+
+			return (
+				source !== null && deferPageEntries.except.has(resolve(source))
+			);
+		});
+	};
+	// Map index entry (indexes/ReactExample.tsx) to source page (pages/ReactExample.tsx)
+	const mapReactIndexToPage = (entry: string) => {
+		if (
+			reactIndexesPath &&
+			reactPagesPath &&
+			entry.startsWith(resolve(reactIndexesPath))
+		) {
+			const pageName = basename(entry, '.tsx');
+
+			return join(reactPagesPath, `${pageName}.tsx`);
+		}
+
+		return null;
+	};
 	// Filter entries for incremental builds
 	// For React: map index entries back to their source pages
 	const reactEntries =
-		isIncremental && reactIndexesPath && reactPagesPath
-			? filterToIncrementalEntries(allReactEntries, (entry) => {
-					// Map index entry (indexes/ReactExample.tsx) to source page (pages/ReactExample.tsx)
-					if (entry.startsWith(resolve(reactIndexesPath))) {
-						const pageName = basename(entry, '.tsx');
-
-						return join(reactPagesPath, `${pageName}.tsx`);
-					}
-
-					return null;
-				})
+		reactIndexesPath && reactPagesPath
+			? selectPageEntries(allReactEntries, mapReactIndexToPage)
 			: allReactEntries;
 
 	const htmlEntries =
 		isIncremental &&
 		(htmlScriptsPath || htmxScriptsPath) &&
 		!shouldIncludeHtmlAssets
-			? filterToIncrementalEntries(allHtmlEntries, (entry) => entry)
+			? filterToIncrementalEntries(allHtmlEntries, identityEntry)
 			: allHtmlEntries;
 
 	// For Svelte/Vue/Angular: entries are the page files themselves
-	const svelteEntries = isIncremental
-		? filterToIncrementalEntries(allSvelteEntries, (entry) => entry)
-		: allSvelteEntries;
+	const svelteEntries = selectPageEntries(allSvelteEntries, identityEntry);
 
-	const vueEntries = isIncremental
-		? filterToIncrementalEntries(allVueEntries, (entry) => entry)
-		: allVueEntries;
+	const vueEntries = selectPageEntries(allVueEntries, identityEntry);
 
-	const angularEntries = isIncremental
-		? filterToIncrementalEntries(allAngularEntries, (entry) => entry)
-		: allAngularEntries;
+	const angularEntries = selectPageEntries(allAngularEntries, identityEntry);
 
-	const emberEntries = isIncremental
-		? filterToIncrementalEntries(allEmberEntries, (entry) => entry)
-		: allEmberEntries;
+	const emberEntries = selectPageEntries(allEmberEntries, identityEntry);
+
+	// Every page the scan found, so the dev server can map a manifest key
+	// (`PortalIndex`, `Portal`, `PortalCSS`) back to its source file for
+	// the on-demand build. Dev only — production never reads it.
+	const pageEntries: DevPageEntry[] = hmr
+		? [
+				...allReactEntries
+					.map(mapReactIndexToPage)
+					.filter((source): source is string => source !== null)
+					.map((source) => toDevPageEntry('react', source)),
+				...allSvelteEntries.map((source) =>
+					toDevPageEntry('svelte', source)
+				),
+				...allVueEntries.map((source) => toDevPageEntry('vue', source)),
+				...allAngularEntries.map((source) =>
+					toDevPageEntry('angular', source)
+				),
+				...allEmberEntries.map((source) =>
+					toDevPageEntry('ember', source)
+				)
+			]
+		: [];
 
 	// CSS entries - entries are the style files themselves
 	const globalCssEntries = isIncremental
@@ -1469,6 +1555,16 @@ const buildUnlocked = async ({
 			})
 		: new Set<string>();
 	const shouldCompileEmber = emberDir && emberEntries.length > 0;
+
+	// Deferred pages: the boot build compiles no Angular page, but the
+	// Angular fast path still needs a fingerprint baseline per component
+	// or the first structural edit (mount path, providers, imports) is
+	// misclassified as a Tier 0 template swap.
+	if (hmr && angularDir && deferPageEntries && !shouldCompileAngular) {
+		await tracePhase('angular/prime-hmr-fingerprints', () =>
+			primeAngularHmrFingerprints(angularDir)
+		);
+	}
 
 	const emptyStringArray: string[] = [];
 	const islandBuildInfo = islandRegistryPath
@@ -1660,53 +1756,7 @@ const buildUnlocked = async ({
 					// `hostDirectives`, `providers`, etc.) silently
 					// run through Tier 0 instead of escalating to
 					// Tier 1b.
-					if (hmr) {
-						try {
-							const { primeComponentFingerprint } = await import(
-								'../dev/angular/fastHmrCompiler'
-							);
-							const { readdir } = await import(
-								'node:fs/promises'
-							);
-							const { join: joinPath } = await import(
-								'node:path'
-							);
-							const walk = async (dir: string) => {
-								const entries = await readdir(dir, {
-									withFileTypes: true
-								});
-								const out: string[] = [];
-								const directories: string[] = [];
-								for (const entry of entries) {
-									const full = joinPath(dir, entry.name);
-									if (entry.isDirectory()) {
-										directories.push(full);
-									} else if (
-										entry.isFile() &&
-										entry.name.endsWith('.ts') &&
-										!entry.name.endsWith('.d.ts')
-									) {
-										out.push(full);
-									}
-								}
-								const nestedFiles = await Promise.all(
-									directories.map(walk)
-								);
-								out.push(...nestedFiles.flat());
-
-								return out;
-							};
-							const tsFiles = await walk(angularDir);
-							await Promise.all(
-								tsFiles.map(primeComponentFingerprint)
-							);
-						} catch {
-							// Best-effort: if priming fails, the only
-							// consequence is the pre-fix behavior
-							// (first-edit-per-component falls through
-							// to Tier 0).
-						}
-					}
+					if (hmr) await primeAngularHmrFingerprints(angularDir);
 
 					return result;
 				})
@@ -2059,7 +2109,11 @@ const buildUnlocked = async ({
 		(entry) => entry.entryPath
 	);
 
+	// A deferred-page dev build legitimately has no page entries yet; it
+	// still has to run through to the manifest (conventions, CSS, static
+	// pages) so the dev server boots with a real, if small, manifest.
 	if (
+		!deferPageEntries &&
 		serverEntryPoints.length === 0 &&
 		reactClientEntryPoints.length === 0 &&
 		nonReactClientEntryPoints.length === 0 &&
@@ -3380,7 +3434,8 @@ const buildUnlocked = async ({
 		return {
 			conventions: conventionsMap,
 			errors: passErrors.length > 0 ? passErrors : undefined,
-			manifest
+			manifest,
+			pageEntries
 		};
 	}
 
@@ -3434,7 +3489,8 @@ const buildUnlocked = async ({
 	return {
 		conventions: conventionsMap,
 		errors: passErrors.length > 0 ? passErrors : undefined,
-		manifest
+		manifest,
+		pageEntries
 	};
 };
 

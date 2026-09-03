@@ -1,5 +1,9 @@
 import { pathToFileURL } from 'node:url';
 import { withPageCacheHeaders } from '../core/pageResponseCache';
+import {
+	resolveDeferredPageAssets,
+	withDeferredStylesheets
+} from '../core/requestContext';
 import { ssrErrorPage } from '../utils/ssrErrorPage';
 import { injectBrowserTranslationBaseline } from '../core/browserTranslation';
 
@@ -127,7 +131,25 @@ const getEmberHmrShim = () => {
 };
 
 export const handleEmberPageRequest = async (input: EmberPageRequestInput) => {
-	const { indexPath, pagePath, headTag } = input;
+	// Dev on-demand pages: `asset()` returned `''` for a page that has not
+	// been built yet. Build it now and re-read the manifest; otherwise fall
+	// through to the manifest error so the overlay shows the real cause.
+	const deferredAssets =
+		input.pagePath === '' ? await resolveDeferredPageAssets() : null;
+	const pagePath =
+		deferredAssets && input.pagePath === ''
+			? deferredAssets.lookup(deferredAssets.name)
+			: input.pagePath;
+	if (pagePath === '') {
+		throw new Error(
+			`Asset "${deferredAssets?.name || 'Page'}" not found in manifest.`
+		);
+	}
+	const indexPath =
+		deferredAssets && input.indexPath === ''
+			? deferredAssets.lookup(`${deferredAssets.name}Index`)
+			: input.indexPath;
+	const { headTag } = input;
 	const userProps = input.props;
 	const requestPathname = resolveRequestPathname(input.request);
 	// Auto-inject `url` from the request when the caller didn't already
@@ -137,7 +159,10 @@ export const handleEmberPageRequest = async (input: EmberPageRequestInput) => {
 			? { ...(userProps ?? {}), url: requestPathname }
 			: userProps;
 
-	const resolvedHeadTag = headTag ?? '<head></head>';
+	const resolvedHeadTag = withDeferredStylesheets(
+		headTag ?? '<head></head>',
+		deferredAssets
+	);
 
 	try {
 		installSimpleDomGlobals();
