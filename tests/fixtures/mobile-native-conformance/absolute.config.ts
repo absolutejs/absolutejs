@@ -29,6 +29,10 @@ export default defineConfig({
 		nativeProject: {
 			directory: '.absolutejs/mobile-native-conformance/native'
 		},
+		observability: {
+			environment: 'conformance',
+			project: 'native-conformance'
+		},
 		platforms: ['android', 'ios'],
 		pushNotifications: {
 			android: {

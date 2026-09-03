@@ -441,6 +441,18 @@ public final class AbsoluteMobileObservabilityPlugin extends Plugin {
     }
 
     @PluginMethod
+    public void crashForTesting(PluginCall call) {
+        boolean debuggable = (getContext().getApplicationInfo().flags & android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0;
+        if (!debuggable) {
+            call.reject("Native crash injection is available only in debuggable builds.");
+            return;
+        }
+        new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
+            throw new RuntimeException("AbsoluteJS native observability acceptance crash");
+        });
+    }
+
+    @PluginMethod
     public void acknowledge(PluginCall call) {
         JSArray ids = call.getArray("ids");
         if (ids == null) {

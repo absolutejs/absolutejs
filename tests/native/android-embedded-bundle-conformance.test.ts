@@ -24,6 +24,7 @@ import { createAbsoluteMobileCompatibilityDispatcher } from '../../src/mobile/co
 import { applyAbsoluteNativeDeepLinks } from '../../src/mobile/nativeDeepLinks';
 import { applyAbsoluteNativeDeviceCapabilities } from '../../src/mobile/nativeDeviceCapabilities';
 import { applyAbsoluteNativeUpdates } from '../../src/mobile/nativeUpdates';
+import { applyAbsoluteNativeObservability } from '../../src/mobile/nativeObservability';
 import { findFreePort } from '../../src/cli/utils';
 import {
 	createAbsoluteMobileCompatibilityArtifact,
@@ -78,6 +79,8 @@ let nativeSyncConnections = 0;
 let nativeSyncTicketsIssued = 0;
 let nativeSyncTicketsConsumed = 0;
 let nativeNavigationFailures = 0;
+let nativeObservabilityAccept = true;
+const nativeObservabilityRequests: unknown[] = [];
 let updatePrivateKey = '';
 let updatePublicKey = '';
 let offeredUpdate: string | undefined;
@@ -907,6 +910,52 @@ const requireAdbShell = (...args: string[]) => {
 	throw new Error(`ADB shell ${args.join(' ')} failed: ${failure}`);
 };
 
+type NativeObservabilityEvent = {
+	at?: number;
+	extra?: { nativeDiagnosticId?: string };
+	groupingKey?: string;
+	name?: string;
+	tags?: Record<string, string>;
+};
+
+const nativeObservabilityEvents = () =>
+	nativeObservabilityRequests.flatMap((request) => {
+		if (typeof request !== 'object' || request === null) return [];
+		const events = Reflect.get(request, 'events');
+
+		return Array.isArray(events)
+			? (events as NativeObservabilityEvent[])
+			: [];
+	});
+
+const waitForNativeObservabilityEvent = async (
+	predicate: (event: NativeObservabilityEvent) => boolean
+) => {
+	const deadline = Date.now() + TIMEOUT_MS;
+	while (Date.now() < deadline) {
+		const event = nativeObservabilityEvents().find(predicate);
+		if (event) return event;
+		await Bun.sleep(250);
+	}
+
+	throw new Error(
+		`Android native observability relay did not receive the expected event: ${JSON.stringify(nativeObservabilityEvents())}`
+	);
+};
+
+const waitForNativeObservabilityReport = async (since: number) => {
+	const expression = `globalThis.Capacitor.Plugins.AbsoluteMobileObservability.pending().then(({ reports }) => reports.find(({ occurredAt, platform }) => platform === 'android' && occurredAt >= ${since - 2_000}) ?? null)`;
+	await webview.waitFor<boolean>(`${expression}.then(Boolean)`, {
+		timeoutMs: TIMEOUT_MS
+	});
+
+	return webview.evaluate<{
+		id: string;
+		kind: string;
+		occurredAt: number;
+	}>(expression);
+};
+
 const inputMethodIsVisible = () =>
 	/InsetsSource id=3 type=ime[^\n]* visible=true/u.test(
 		requireAdbShell('dumpsys', 'activity', 'activities')
@@ -1138,6 +1187,19 @@ describeNative('real Capacitor Android embedded-bundle conformance', () => {
 			},
 			fetch: async (request, server) => {
 				const url = new URL(request.url);
+				if (
+					url.pathname === '/api/observability/errors' &&
+					request.method === 'POST'
+				) {
+					nativeObservabilityRequests.push(await request.json());
+
+					return jsonResponse(
+						nativeObservabilityAccept
+							? { accepted: true }
+							: { error: 'temporarily unavailable' },
+						{ status: nativeObservabilityAccept ? 202 : 503 }
+					);
+				}
 				const navigationDelay = Number(
 					url.searchParams.get('absoluteTestDelay')
 				);
@@ -1215,6 +1277,7 @@ describeNative('real Capacitor Android embedded-bundle conformance', () => {
 			'android'
 		]);
 		await applyAbsoluteNativeUpdates(mobile, ['android']);
+		await applyAbsoluteNativeObservability(mobile, ['android']);
 		android = await startAbsoluteAndroidDevSession({
 			embeddedBundle: true,
 			port: PORT,
@@ -1321,6 +1384,95 @@ describeNative('real Capacitor Android embedded-bundle conformance', () => {
 			await navigate('/htmx', 'AbsoluteJS + HTMX');
 			await navigate('/react', 'AbsoluteJS + React');
 		}
+	);
+
+	nativeTest(
+		'retries a native process crash until the trusted relay accepts it',
+		async () => {
+			try {
+				const pluginAvailable = await webview.evaluate<boolean>(
+					`Boolean(globalThis.Capacitor?.Plugins?.AbsoluteMobileObservability)`
+				);
+				expect(pluginAvailable).toBe(true);
+				await Bun.sleep(1_000);
+				nativeObservabilityRequests.length = 0;
+				nativeObservabilityAccept = false;
+				const crashStartedAt = Date.now();
+				await webview.evaluate(
+					`void globalThis.Capacitor.Plugins.AbsoluteMobileObservability.crashForTesting()`
+				);
+				await Bun.sleep(1_000);
+				await webview.close().catch(() => undefined);
+				await android.relaunch();
+				await attachCurrentAndroidWebView();
+				await waitForText('AbsoluteJS + React');
+				const pendingCrash =
+					await waitForNativeObservabilityReport(crashStartedAt);
+				expect(['crash', 'native-crash', 'signal']).toContain(
+					pendingCrash.kind
+				);
+				await webview.evaluate(`dispatchEvent(new Event('online'))`);
+				const rejected = await waitForNativeObservabilityEvent(
+					(event) =>
+						event.name === 'AbsoluteMobileNativeDiagnostic' &&
+						event.groupingKey ===
+							`absolute-native:android:${pendingCrash.kind}` &&
+						(event.at ?? 0) >= crashStartedAt - 2_000
+				);
+				const reportId = rejected.extra?.nativeDiagnosticId;
+				expect(reportId).toBeString();
+				const pendingAfterRejection = await webview.evaluate<{
+					reports: Array<{ id?: string }>;
+				}>(
+					`globalThis.Capacitor.Plugins.AbsoluteMobileObservability.pending()`
+				);
+				expect(
+					pendingAfterRejection.reports.some(
+						({ id }) => id === reportId
+					)
+				).toBe(true);
+
+				nativeObservabilityAccept = true;
+				await webview.close();
+				await android.relaunch();
+				await attachCurrentAndroidWebView();
+				await waitForText('AbsoluteJS + React');
+				const accepted = await waitForNativeObservabilityEvent(
+					(event) =>
+						event.extra?.nativeDiagnosticId === reportId &&
+						nativeObservabilityRequests.length >= 2
+				);
+				expect(accepted.tags).toMatchObject({
+					absoluteMobile: 'true',
+					mobileFailurePhase: 'native-process',
+					mobilePlatform: 'android'
+				});
+				await webview.waitFor<boolean>(
+					`globalThis.Capacitor.Plugins.AbsoluteMobileObservability.pending().then(({ reports }) => reports.every(({ id }) => id !== ${JSON.stringify(reportId)}))`,
+					{ timeoutMs: TIMEOUT_MS }
+				);
+				await mkdir(ARTIFACT_ROOT, { recursive: true });
+				await writeFile(
+					resolve(ARTIFACT_ROOT, 'android-native-observability.json'),
+					`${JSON.stringify(
+						{
+							acknowledgedAfterAcceptedResponse: true,
+							kind: pendingCrash.kind,
+							platform: 'android',
+							relayAttempts: nativeObservabilityRequests.length,
+							retainedAfterRejectedResponse: true,
+							retriedSameDiagnostic: true,
+							tagKeys: Object.keys(accepted.tags ?? {}).sort()
+						},
+						null,
+						2
+					)}\n`
+				);
+			} finally {
+				nativeObservabilityAccept = true;
+			}
+		},
+		180_000
 	);
 
 	nativeTest(

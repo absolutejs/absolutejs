@@ -125,6 +125,8 @@ public class MainActivity extends BridgeActivity {}
 		);
 		const source = await readFile(plugin, 'utf8');
 		expect(source).toContain('getHistoricalProcessExitReasons');
+		expect(source).toContain('ApplicationInfo.FLAG_DEBUGGABLE');
+		expect(source).toContain('crashForTesting');
 		expect(source).toContain('MAX_REPORTS = 8');
 		expect(source).toContain('MAX_TRACE_BYTES = 32 * 1024');
 		expect(source).toContain('REASON_CRASH_NATIVE');

@@ -988,6 +988,105 @@ const nativeUpdateWatchdogCheck = async (
 			);
 };
 
+const nativeObservabilityProjectionCheck = async (
+	config: NormalizedAbsoluteMobileConfig,
+	platform: 'android' | 'ios'
+) => {
+	if (!config.observability) return undefined;
+	const nativeRoot = config.nativeProjectDirectory;
+	if (config.engine === 'expo') {
+		const moduleRoot = join(
+			nativeRoot,
+			'modules',
+			'absolute-mobile-observability'
+		);
+		const configPath = join(moduleRoot, 'expo-module.config.json');
+		const sourcePath =
+			platform === 'android'
+				? join(
+						moduleRoot,
+						'android/src/main/java/expo/modules/absolutemobileobservability/AbsoluteMobileObservabilityModule.kt'
+					)
+				: join(
+						moduleRoot,
+						'ios/AbsoluteMobileObservabilityModule.swift'
+					);
+		const [moduleConfig, source] = await Promise.all([
+			readFile(configPath, 'utf8').catch(() => ''),
+			readFile(sourcePath, 'utf8').catch(() => '')
+		]);
+		const valid =
+			moduleConfig.includes('AbsoluteMobileObservabilityModule') &&
+			source.includes('AbsoluteMobileObservability') &&
+			(platform === 'android'
+				? source.includes('getHistoricalProcessExitReasons')
+				: source.includes('MXMetricManagerSubscriber'));
+
+		return valid
+			? pass(
+					`${platform}.native-observability`,
+					`The Expo ${platform} native process collector is projected and autolinkable.`,
+					sourcePath
+				)
+			: fail(
+					`${platform}.native-observability`,
+					`The Expo ${platform} native process collector is missing or incomplete.`,
+					sourcePath,
+					`Run \`absolute mobile build ${platform}\` before building the release.`
+				);
+	}
+	if (platform === 'ios') {
+		const delegatePath = join(nativeRoot, 'ios/App/App/AppDelegate.swift');
+		const configPath = join(
+			nativeRoot,
+			'ios/App/App/capacitor.config.json'
+		);
+		const [delegate, nativeConfig] = await Promise.all([
+			readFile(delegatePath, 'utf8').catch(() => ''),
+			readFile(configPath, 'utf8').catch(() => '')
+		]);
+		const valid =
+			delegate.includes('AbsoluteMobileObservabilityPlugin') &&
+			delegate.includes('MXMetricManagerSubscriber') &&
+			nativeConfig.includes('AbsoluteMobileObservabilityPlugin');
+
+		return valid
+			? pass(
+					'ios.native-observability',
+					'The iOS MetricKit native process collector is projected and registered.',
+					delegatePath
+				)
+			: fail(
+					'ios.native-observability',
+					'The iOS MetricKit native process collector is missing or unregistered.',
+					delegatePath,
+					'Run `absolute mobile sync ios` before building the release.'
+				);
+	}
+	const sourceRoot = join(nativeRoot, 'android/app/src/main');
+	const sources = await sourceFiles(sourceRoot, new Set(['.java', '.kt']));
+	const [registration, plugin] = await Promise.all([
+		containsPattern(
+			sources,
+			/registerPlugin\s*\(\s*AbsoluteMobileObservabilityPlugin(?:::class\.java|\.class)\s*\)/u
+		),
+		containsPattern(sources, /getHistoricalProcessExitReasons\s*\(/u)
+	]);
+
+	return registration && plugin
+		? pass(
+				'android.native-observability',
+				'The Android process-exit collector is projected and registered.',
+				plugin
+			)
+		: fail(
+				'android.native-observability',
+				'The Android process-exit collector is missing or unregistered.',
+				plugin ?? sourceRoot,
+				'Run `absolute mobile sync android` before building the release.'
+			);
+};
+
 const iosNativeSecurityCheck = async (iosRoot: string) => {
 	const applicationFiles = async (extensions: Set<string>) =>
 		(await sourceFiles(iosRoot, extensions)).filter(
@@ -1470,7 +1569,8 @@ const inspectAndroidRelease = async (
 		androidNativeSecurityCheck(androidRoot),
 		androidExportedComponentsCheck(manifestPath),
 		androidDeepLinkProjectionCheck(config, manifestPath),
-		nativeUpdateWatchdogCheck(config, 'android')
+		nativeUpdateWatchdogCheck(config, 'android'),
+		nativeObservabilityProjectionCheck(config, 'android')
 	]);
 
 	return checks
@@ -1517,15 +1617,18 @@ const inspectExpoAndroidRelease = async (
 		contentSecurityPolicyCheck(config, 'android', config.bundleDirectory),
 		androidNativeSecurityCheck(androidRoot),
 		androidExportedComponentsCheck(manifestPath),
-		androidDeepLinkProjectionCheck(config, manifestPath)
+		androidDeepLinkProjectionCheck(config, manifestPath),
+		nativeObservabilityProjectionCheck(config, 'android')
 	]);
 
-	return checks.map((check) => ({
-		...check,
-		path: check.path
-			? relative(projectRoot, check.path).replaceAll('\\', '/') || '.'
-			: undefined
-	}));
+	return checks
+		.filter((check) => check !== undefined)
+		.map((check) => ({
+			...check,
+			path: check.path
+				? relative(projectRoot, check.path).replaceAll('\\', '/') || '.'
+				: undefined
+		}));
 };
 
 const uniqueExpoIosFile = async (
@@ -1665,6 +1768,11 @@ const inspectExpoIosRelease = async (
 			iosNativeSecurityCheck(iosRoot)
 		]))
 	);
+	const nativeObservability = await nativeObservabilityProjectionCheck(
+		config,
+		'ios'
+	);
+	if (nativeObservability) checks.push(nativeObservability);
 
 	return checks.map((check) => ({
 		...check,
@@ -1799,6 +1907,11 @@ const inspectIosRelease = async (
 			join(config.nativeProjectDirectory, 'ios')
 		)
 	);
+	const nativeObservability = await nativeObservabilityProjectionCheck(
+		config,
+		'ios'
+	);
+	if (nativeObservability) checks.push(nativeObservability);
 	if (updateWatchdog) checks.push(updateWatchdog);
 
 	return checks.map((check) => ({

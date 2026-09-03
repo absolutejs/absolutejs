@@ -2752,6 +2752,13 @@ Set budgets from the prototype baseline rather than inventing numbers now. Fail 
   separately remembers acknowledged historical-exit
   IDs so the OS history ring is not re-enqueued. Raw application state, user
   identity, device identity, and credentials are never added by AbsoluteJS.
+- Release doctor now blocks a configured release when the Capacitor collector is
+  missing or unregistered, or when the generated Expo module is incomplete or
+  not autolinkable. The Linux/Windows-hosted Android gate deliberately crashes a
+  debuggable app process, proves a rejected relay response retains the same
+  diagnostic across relaunch, then proves a successful response acknowledges
+  it. The injection hook rejects non-debuggable builds. Physical-iPhone
+  MetricKit delivery remains the platform acceptance item in the macOS runbook.
 - Error messages and stacks are redacted client-side and must be validated and
   redacted again by the trusted server. Query strings and route parameter values
   are never attached; only the declared route pattern is correlated.

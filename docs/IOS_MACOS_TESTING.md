@@ -1,7 +1,7 @@
 # AbsoluteJS iOS and TestFlight macOS test runbook
 
 This runbook validates the iOS release path shipped in
-`@absolutejs/absolute@0.20.0-beta.66` and
+`@absolutejs/absolute@0.20.0-beta.69` and
 `@absolutejs/deploy@0.24.0`. It covers a signed local IPA, an internal
 TestFlight upload, retry behavior, and installation on an iPhone or iPad.
 
@@ -242,6 +242,10 @@ actual result, sanitized logs, and artifact or screenshot path in section 13.
 - [ ] `OBS-01` through `OBS-04` Complete the production-error correlation and
   redaction checks when a staging observability relay is supplied; otherwise
   mark all four `SKIPPED — no staging observability relay`.
+- [ ] `OBS-05` through `OBS-08` Complete native collector projection,
+  physical-iPhone MetricKit delivery, rejected-relay retry, and sensitive-data
+  exclusion when a staging observability relay and physical iPhone are supplied;
+  otherwise record the exact blocked prerequisite for each item.
 - [ ] `DEVICEDEV-01` through `DEVICEDEV-10` Complete first-class physical-device
   development, HTTPS enrollment, warm-cache, HMR, relaunch, cleanup, and recovery.
 - [ ] `CAP-01` Complete automatic device-capability provisioning.
@@ -294,7 +298,7 @@ still requires the developer team setup described below.
 From the root of the AbsoluteJS application:
 
 ```sh
-bun add @absolutejs/absolute@0.20.0-beta.66 \
+bun add @absolutejs/absolute@0.20.0-beta.69 \
   @absolutejs/auth@0.75.6 \
   @absolutejs/dispatch@0.9.0 \
   @absolutejs/sync@2.31.0 \
@@ -2393,7 +2397,7 @@ source change and build a new content-addressed release instead.
 - Mac architecture:
 - Xcode version:
 - Bun version:
-- AbsoluteJS version: 0.20.0-beta.66
+- AbsoluteJS version: 0.20.0-beta.69
 - Auth version: 0.75.6
 - Dispatch version: 0.9.0
 - Sync version: 2.31.0
@@ -2523,6 +2527,10 @@ versus expected behavior. Do not report exact coordinates.
 | OBS-02 |  | Capacitor capture / correlation / redaction: |  |
 | OBS-03 |  | Expo load / render / retry: |  |
 | OBS-04 |  | private map / symbolication: |  |
+| OBS-05 |  | generated collector / release-doctor projection: |  |
+| OBS-06 |  | physical-iPhone MetricKit delivery: |  |
+| OBS-07 |  | rejected relay / relaunch retry / acknowledgement: |  |
+| OBS-08 |  | sensitive-data exclusion / redaction: |  |
 | DEVICEDEV-01 |  | selected physical target / no Simulator dependency: |  |
 | DEVICEDEV-02 |  | signed build / install / launch: |  |
 | DEVICEDEV-03 |  | CA enrollment / full trust / endpoint cleanup: |  |

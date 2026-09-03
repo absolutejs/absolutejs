@@ -23,6 +23,7 @@ import {
 	inspectAbsoluteMobileRelease
 } from '../../../src/mobile/releaseDoctor';
 import { applyAbsoluteNativeUpdates } from '../../../src/mobile/nativeUpdates';
+import { applyAbsoluteNativeObservability } from '../../../src/mobile/nativeObservability';
 import { createExpoTestCertificate } from '../../helpers/expoCodeSigning';
 
 const temporaryDirectories: string[] = [];
@@ -196,6 +197,7 @@ const expoFixture = async (codeSigning = false) => {
 				}
 			},
 			engine: 'expo',
+			observability: { project: 'expo-release-fixture' },
 			platforms: ['android'],
 			server: { productionOrigin: 'https://api.example.com' },
 			...(codeSigning
@@ -311,6 +313,11 @@ describe('mobile release doctor', () => {
 		expect(
 			result.checks.find(({ id }) => id === 'expo.bundle-projection')
 		).toMatchObject({ status: 'pass' });
+		expect(
+			result.checks.find(
+				({ id }) => id === 'android.native-observability'
+			)
+		).toMatchObject({ status: 'pass' });
 	});
 
 	test('passes a production-safe Expo iOS CNG projection', async () => {
@@ -357,6 +364,9 @@ describe('mobile release doctor', () => {
 		expect(result.ready).toBe(true);
 		expect(
 			result.checks.find(({ id }) => id === 'ios.expo-native-projection')
+		).toMatchObject({ status: 'pass' });
+		expect(
+			result.checks.find(({ id }) => id === 'ios.native-observability')
 		).toMatchObject({ status: 'pass' });
 		expect(result.checks.some(({ id }) => id === 'expo.ios-release')).toBe(
 			false
@@ -454,6 +464,55 @@ describe('mobile release doctor', () => {
 		expect(
 			result.checks.find(({ id }) => id === 'android.update-watchdog')
 		).toMatchObject({ status: 'pass' });
+	});
+
+	test('verifies the generated Android native observability collector', async () => {
+		const release = await fixture();
+		const config = normalizeAbsoluteMobileConfig(
+			{
+				appId: release.config.appId,
+				appName: release.config.appName,
+				deepLinks: {
+					android: {
+						sha256CertificateFingerprints: [ANDROID_FINGERPRINT]
+					}
+				},
+				observability: { project: 'release-fixture' },
+				platforms: ['android'],
+				server: { productionOrigin: release.config.productionOrigin }
+			},
+			release.projectRoot
+		);
+		const activityPath = join(
+			release.main,
+			'java/com/example/release/MainActivity.java'
+		);
+		await mkdir(dirname(activityPath), { recursive: true });
+		await writeFile(
+			activityPath,
+			'package com.example.release; import com.getcapacitor.BridgeActivity; public class MainActivity extends BridgeActivity {}\n'
+		);
+		await writeReleaseBundle(join(release.assets, 'public'), config);
+		await applyAbsoluteNativeObservability(config, ['android']);
+
+		const valid = await inspectAbsoluteMobileRelease(
+			config,
+			release.projectRoot
+		);
+		expect(
+			valid.checks.find(({ id }) => id === 'android.native-observability')
+		).toMatchObject({ status: 'pass' });
+
+		await writeFile(activityPath, 'package com.example.release;\n');
+		const invalid = await inspectAbsoluteMobileRelease(
+			config,
+			release.projectRoot
+		);
+		expect(
+			invalid.checks.find(
+				({ id }) => id === 'android.native-observability'
+			)
+		).toMatchObject({ status: 'fail' });
 	});
 
 	test('rejects an unprovisioned native capability', async () => {
