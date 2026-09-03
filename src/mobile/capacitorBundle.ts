@@ -57,54 +57,52 @@ const errorHasCode = (error: unknown, code: string) =>
 	error !== null &&
 	Reflect.get(error, 'code') === code;
 
-const shellBootstrapModule = () => {
+// The shell modules are emitted to dist/mobile/. This function lives in
+// src/mobile/capacitorBundle.ts (→ dist/mobile/index.js), but the CLI bundles
+// its own copy into dist/cli/index.js, where `import.meta.dir` is dist/cli/ and
+// the shell files are not present. Probe the sibling ../mobile/ directory too
+// so `absolute mobile build|publish` resolves them from the packaged CLI.
+const resolveShellModule = (name: string, missingMessage: string) => {
 	const candidate = ['js', 'ts']
-		.map((extension) =>
-			join(import.meta.dir, `shellBootstrap.${extension}`)
-		)
+		.flatMap((extension) => [
+			join(import.meta.dir, `${name}.${extension}`),
+			join(import.meta.dir, '..', 'mobile', `${name}.${extension}`)
+		])
 		.find(existsSync);
 	if (candidate) return candidate;
 
-	throw new TypeError('AbsoluteJS mobile shell bootstrap module is missing.');
+	throw new TypeError(missingMessage);
 };
 
-const shellAuthModule = () => {
-	const candidate = ['js', 'ts']
-		.map((extension) => join(import.meta.dir, `shellAuth.${extension}`))
-		.find(existsSync);
-	if (candidate) return candidate;
+const shellBootstrapModule = () =>
+	resolveShellModule(
+		'shellBootstrap',
+		'AbsoluteJS mobile shell bootstrap module is missing.'
+	);
 
-	throw new TypeError('AbsoluteJS mobile auth shell module is missing.');
-};
+const shellAuthModule = () =>
+	resolveShellModule(
+		'shellAuth',
+		'AbsoluteJS mobile auth shell module is missing.'
+	);
 
-const shellSyncModule = () => {
-	const candidate = ['js', 'ts']
-		.map((extension) => join(import.meta.dir, `shellSync.${extension}`))
-		.find(existsSync);
-	if (candidate) return candidate;
+const shellSyncModule = () =>
+	resolveShellModule(
+		'shellSync',
+		'AbsoluteJS mobile Sync shell module is missing.'
+	);
 
-	throw new TypeError('AbsoluteJS mobile Sync shell module is missing.');
-};
+const shellPushModule = () =>
+	resolveShellModule(
+		'shellPush',
+		'AbsoluteJS mobile push shell module is missing.'
+	);
 
-const shellPushModule = () => {
-	const candidate = ['js', 'ts']
-		.map((extension) => join(import.meta.dir, `shellPush.${extension}`))
-		.find(existsSync);
-	if (candidate) return candidate;
-
-	throw new TypeError('AbsoluteJS mobile push shell module is missing.');
-};
-
-const shellExpoDevicesModule = () => {
-	const candidate = ['js', 'ts']
-		.map((extension) =>
-			join(import.meta.dir, `shellExpoDevices.${extension}`)
-		)
-		.find(existsSync);
-	if (candidate) return candidate;
-
-	throw new TypeError('AbsoluteJS Expo device bridge module is missing.');
-};
+const shellExpoDevicesModule = () =>
+	resolveShellModule(
+		'shellExpoDevices',
+		'AbsoluteJS Expo device bridge module is missing.'
+	);
 
 const escapeHtml = (value: string) =>
 	value

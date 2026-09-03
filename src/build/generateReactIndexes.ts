@@ -219,20 +219,28 @@ export const generateReactIndexFiles = async (
 			`\treturn isHydration;`,
 			`}\n`,
 			`function logHydrationError(error, componentName) {`,
-			`\tif (!isDev) return;`,
-			`\tif (window.__HMR_WS__ && window.__HMR_WS__.readyState === WebSocket.OPEN) {`,
-			`\t\ttry {`,
-			`\t\t\twindow.__HMR_WS__.send(JSON.stringify({`,
-			`\t\t\t\ttype: 'hydration-error',`,
-			`\t\t\t\tdata: {`,
-			`\t\t\t\t\tcomponentName: '${componentName}',`,
-			`\t\t\t\t\tcomponentPath: componentPath,`,
-			`\t\t\t\t\terror: error instanceof Error ? error.message : String(error),`,
-			`\t\t\t\t\ttimestamp: Date.now()`,
-			`\t\t\t\t}`,
-			`\t\t\t}));`,
-			`\t\t} catch (err) {}`,
-			`\t}`,
+			// The dev-only hydration-error beacon references the HMR WebSocket.
+			// Emit it only for development builds — in production it would be
+			// dead code guarded by `isDev`, but its `__HMR_WS__` string still
+			// ships and trips the release audit's "no dev HMR client" check.
+			...(isDev
+				? [
+						`\tif (!isDev) return;`,
+						`\tif (window.__HMR_WS__ && window.__HMR_WS__.readyState === WebSocket.OPEN) {`,
+						`\t\ttry {`,
+						`\t\t\twindow.__HMR_WS__.send(JSON.stringify({`,
+						`\t\t\t\ttype: 'hydration-error',`,
+						`\t\t\t\tdata: {`,
+						`\t\t\t\t\tcomponentName: '${componentName}',`,
+						`\t\t\t\t\tcomponentPath: componentPath,`,
+						`\t\t\t\t\terror: error instanceof Error ? error.message : String(error),`,
+						`\t\t\t\t\ttimestamp: Date.now()`,
+						`\t\t\t\t}`,
+						`\t\t\t}));`,
+						`\t\t} catch (err) {}`,
+						`\t}`
+					]
+				: []),
 			`}\n`,
 			`// Track if we've already switched to client-only mode`,
 			`let hasSwitchedToClientOnly = false;`,
