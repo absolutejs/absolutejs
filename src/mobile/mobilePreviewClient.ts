@@ -128,7 +128,7 @@ const previewFetch: typeof globalThis.fetch = Object.assign(
 );
 
 const installPreviewFetch = () => {
-	globalThis.fetch = previewFetch;
+	if (globalThis.fetch !== previewFetch) globalThis.fetch = previewFetch;
 };
 
 let removePreviewHttpTransport: (() => void) | undefined;
@@ -142,8 +142,6 @@ const installPreviewHttpTransport = () => {
 		})
 	);
 };
-
-installPreviewFetch();
 
 const postState = (
 	type: 'event' | 'ready',
@@ -215,8 +213,13 @@ const handlePreviewMessage = (
 	postState('event', { event: message.type });
 };
 
+/** Installs the preview bridge exactly once per document. Importing this
+ *  module has no side effects: the fetch simulation, the simulated device
+ *  adapter, and the HTTP transport are only installed from here, so a page
+ *  that never targets the preview keeps the browser's own `fetch`. */
 export const installAbsoluteMobilePreview = () => {
 	if (Reflect.has(globalThis, '__ABS_MOBILE_PREVIEW__')) return;
+	installPreviewFetch();
 	const platform = previewPlatform();
 	const controller = createTestDeviceAdapter({
 		lifecycle: 'active',

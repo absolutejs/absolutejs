@@ -411,9 +411,25 @@ export const createAbsoluteMobileUpgradeResponse = (
 	result: AbsoluteMobileUpgradeRequiredResult
 ) => envelopeResponse(result, UPGRADE_REQUIRED_STATUS);
 
+const ABSOLUTE_MEDIA_TYPE_MARKER = /vnd\.absolute/i;
+
+/** Every AbsoluteJS page media type carries the `vnd.absolute` tree, so an
+ *  Accept header without it is an ordinary browser request. Checking the raw
+ *  header first keeps the common SSR path free of Accept parsing and of any
+ *  allocation, and it never reads `compatibility`, so callers can defer that
+ *  work behind a getter. */
+const mentionsAbsoluteMediaType = (request: Request | undefined) => {
+	const accept = request?.headers.get('accept');
+
+	return (
+		typeof accept === 'string' && ABSOLUTE_MEDIA_TYPE_MARKER.test(accept)
+	);
+};
+
 export const finalizeAbsoluteMobilePage = <Props>(
 	input: FinalizeAbsoluteMobilePageInput<Props>
 ) => {
+	if (!mentionsAbsoluteMediaType(input.request)) return undefined;
 	if (acceptsAbsoluteNativeRouteData(input.request)) {
 		return finalizeAbsoluteNativeRouteDevelopmentPage(input);
 	}

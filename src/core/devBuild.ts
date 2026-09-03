@@ -74,6 +74,21 @@ export const collectDepVendorSourceDirs = (config: BuildConfig) => {
 	return Array.from(new Set(configuredDirs));
 };
 
+/** Individual sources that join the dependency-vendor graph on top of the
+ *  scanned directories. The mobile preview client (served at
+ *  `/__absolute/mobile-preview-client.js`) imports `@absolutejs/devices`,
+ *  `@absolutejs/devices/testing`, and `@absolutejs/http`; vendoring them lets
+ *  the preview share module instances with page code, and skipping the scan
+ *  for web-only projects keeps every mobile package out of their vendor set. */
+const collectDepVendorSourceFiles = async (config: BuildConfig) => {
+	if (!config.mobile) return [];
+	const { resolveAbsoluteMobilePreviewClientEntry } = await import(
+		'../mobile/mobilePreviewClientBundle'
+	);
+
+	return [await resolveAbsoluteMobilePreviewClientEntry()];
+};
+
 /** Parse directory keys from config source text */
 const parseDirectoryConfig = (source: string) => {
 	const config: Partial<BuildConfig> = {};
@@ -496,8 +511,12 @@ export const devBuild = async (config: BuildConfig) => {
 		// server bundle, which Bun resolves through node_modules — one
 		// canonical instance per process across HMR cycles.
 	}
+	const sourceFiles = await collectDepVendorSourceFiles(config);
 	const { computeDepVendorPaths } = await import('../build/buildDepVendor');
-	globalThis.__depVendorPaths = await computeDepVendorPaths(sourceDirs);
+	globalThis.__depVendorPaths = await computeDepVendorPaths(
+		sourceDirs,
+		sourceFiles
+	);
 	recordStep('prepare vendor paths', stepStartedAt);
 
 	stepStartedAt = performance.now();
@@ -743,7 +762,7 @@ export const devBuild = async (config: BuildConfig) => {
 		config.emberDirectory
 			? buildEmberVendor(state.resolvedPaths.buildDir)
 			: Promise.resolve(undefined),
-		buildDepVendor(state.resolvedPaths.buildDir, sourceDirs)
+		buildDepVendor(state.resolvedPaths.buildDir, sourceDirs, sourceFiles)
 	]);
 	if (angularSpecs) globalThis.__angularVendorSpecifiers = angularSpecs;
 	// Intentionally NOT calling setAngularServerVendorPaths in dev — the

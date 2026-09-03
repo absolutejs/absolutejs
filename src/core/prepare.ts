@@ -3,6 +3,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { basename, join, relative, resolve as resolvePath } from 'node:path';
 import { Elysia, NotFound } from 'elysia';
 import type { staticPlugin } from '@elysia/static';
+import type { MobileConfig } from '../../types/build';
 import type { ConventionsMap } from '../../types/conventions';
 import { withOpenApi } from '../plugins/openApiPlugin';
 import { withTelemetry } from '../plugins/telemetryPlugin';
@@ -10,10 +11,6 @@ import { loadConfig } from '../utils/loadConfig';
 import { setIconVersionResolver } from '../utils/iconVersion';
 import { setCurrentIslandManifest } from './islandPageContext';
 import { absoluteRequestContext } from './requestContext';
-import { createAbsoluteMobileCompatibilityDispatcher } from '../mobile/compatibilityDispatcher';
-import { createAbsoluteMobileAssociationPlugin } from '../mobile/associationFiles';
-import { createAbsoluteMobilePreviewPlugin } from '../mobile/mobilePreview';
-import { loadAbsoluteMobileMaterializedBundle } from '../mobile/materializedBundle';
 import { loadIslandRegistry } from './loadIslandRegistry';
 import { setCurrentIslandRegistry } from './currentIslandRegistry';
 import {
@@ -72,6 +69,72 @@ const mountStaticPlugin = async (
 
 		return retryStaticPlugin(createStaticPlugin, options);
 	}
+};
+
+const MOBILE_DEV_MODULE_HEADERS: HeadersInit = {
+	'Cache-Control': 'no-store',
+	'Content-Type': 'text/javascript; charset=utf-8'
+};
+const NATIVE_DEVICE_ADAPTER_PATH = '/__absolute/native-device-adapter.js';
+const MOBILE_PREVIEW_CLIENT_PATH = '/__absolute/mobile-preview-client.js';
+
+/** Every mobile development route hangs off `config.mobile`. Without it the
+ *  runtime mounts an empty plugin and never evaluates a mobile module, so a
+ *  web-only project pays nothing for the association files, the preview
+ *  shell, or the browser modules the HMR client fetches on native targets. */
+const loadMobileDevPlugin = async (mobile: MobileConfig | undefined) => {
+	if (!mobile) return new Elysia({ name: 'absolutejs-mobile-disabled' });
+	const [
+		{ createAbsoluteMobileAssociationPlugin },
+		{ createAbsoluteMobilePreviewPlugin }
+	] = await Promise.all([
+		import('../mobile/associationFiles'),
+		import('../mobile/mobilePreview')
+	]);
+	let nativeDevAdapterBundle: Promise<string> | undefined;
+	const getNativeDevAdapterBundle = () =>
+		(nativeDevAdapterBundle ??= import('../mobile/devDeviceAdapter').then(
+			({ buildAbsoluteNativeDevAdapter }) =>
+				buildAbsoluteNativeDevAdapter(process.cwd(), mobile)
+		));
+	const getMobilePreviewClientBundle = () =>
+		import('../mobile/mobilePreviewClientBundle').then(
+			({ getAbsoluteMobilePreviewClientBundle }) =>
+				getAbsoluteMobilePreviewClientBundle()
+		);
+
+	return new Elysia({ name: 'absolutejs-mobile-dev' })
+		.use(createAbsoluteMobileAssociationPlugin(mobile, process.cwd()))
+		.use(createAbsoluteMobilePreviewPlugin(mobile))
+		.get(
+			NATIVE_DEVICE_ADAPTER_PATH,
+			async () =>
+				new Response(await getNativeDevAdapterBundle(), {
+					headers: MOBILE_DEV_MODULE_HEADERS
+				})
+		)
+		.get(
+			MOBILE_PREVIEW_CLIENT_PATH,
+			async () =>
+				new Response(await getMobilePreviewClientBundle(), {
+					headers: MOBILE_DEV_MODULE_HEADERS
+				})
+		);
+};
+
+const loadMobileAssociationPlugin = async (
+	mobile: MobileConfig | undefined
+) => {
+	if (!mobile) {
+		return new Elysia({ name: 'absolutejs-mobile-associations-disabled' });
+	}
+	const { createAbsoluteMobileAssociationPlugin } = await import(
+		'../mobile/associationFiles'
+	);
+
+	return createAbsoluteMobileAssociationPlugin(mobile, process.cwd(), {
+		requireAll: true
+	});
 };
 
 type PrewarmEntry = { dir: string; pattern: string };
@@ -319,25 +382,7 @@ const prepareDev = async (
 	const { imageOptimizer } = await import('../plugins/imageOptimizer');
 	const { requestInspector } = await import('../dev/requestInspector');
 	const { serverTiming } = await import('@elysia/server-timing');
-	const mobileAssociationPlugin = createAbsoluteMobileAssociationPlugin(
-		config.mobile,
-		process.cwd()
-	);
-	const mobilePreviewPlugin = createAbsoluteMobilePreviewPlugin(
-		config.mobile
-	);
-	const nativeMobileConfig = config.mobile;
-	let nativeDevAdapterBundle: Promise<string> | undefined;
-	const getNativeDevAdapterBundle = () =>
-		(nativeDevAdapterBundle ??= nativeMobileConfig
-			? import('../mobile/devDeviceAdapter').then(
-					({ buildAbsoluteNativeDevAdapter }) =>
-						buildAbsoluteNativeDevAdapter(
-							process.cwd(),
-							nativeMobileConfig
-						)
-				)
-			: Promise.resolve('export {};'));
+	const mobileDevPlugin = await loadMobileDevPlugin(config.mobile);
 	const absolutejs = new Elysia({ name: 'absolutejs-runtime' })
 		// Must be first: the inspector's global request/afterResponse hooks
 		// only reach routes compiled after them, so it has to precede the
@@ -357,18 +402,7 @@ const prepareDev = async (
 			})
 		)
 		.use(imageOptimizer(config.images, buildDir))
-		.use(mobileAssociationPlugin)
-		.use(mobilePreviewPlugin)
-		.get(
-			'/__absolute/native-device-adapter.js',
-			async () =>
-				new Response(await getNativeDevAdapterBundle(), {
-					headers: {
-						'Cache-Control': 'no-store',
-						'Content-Type': 'text/javascript; charset=utf-8'
-					}
-				})
-		)
+		.use(mobileDevPlugin)
 		.use(
 			await mountStaticPlugin(staticPlugin, {
 				alwaysStatic: true,
@@ -422,6 +456,13 @@ const loadMobileCompatibilityPlugin = async (buildDir: string) => {
 	if (!existsSync(join(root, 'current.json'))) {
 		return new Elysia({ name: 'absolutejs-mobile-compatibility-empty' });
 	}
+	const [
+		{ loadAbsoluteMobileMaterializedBundle },
+		{ createAbsoluteMobileCompatibilityDispatcher }
+	] = await Promise.all([
+		import('../mobile/materializedBundle'),
+		import('../mobile/compatibilityDispatcher')
+	]);
 	const options = await loadAbsoluteMobileMaterializedBundle(root);
 
 	return createAbsoluteMobileCompatibilityDispatcher(options);
@@ -628,10 +669,8 @@ export const prepare = async (configOrPath?: string) => {
 	const prerenderMap = loadPrerenderMap(prerenderDir);
 	const mobileCompatibilityPlugin =
 		await loadMobileCompatibilityPlugin(buildDir);
-	const mobileAssociationPlugin = createAbsoluteMobileAssociationPlugin(
-		config.mobile,
-		process.cwd(),
-		{ requireAll: true }
+	const mobileAssociationPlugin = await loadMobileAssociationPlugin(
+		config.mobile
 	);
 	recordStep('load prerender map', stepStartedAt);
 

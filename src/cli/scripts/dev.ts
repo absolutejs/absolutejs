@@ -37,59 +37,32 @@ import { loadConfig } from '../../utils/loadConfig';
 import { scanListeners } from '../../utils/portScan';
 import { resolveDevPort } from '../../utils/resolveDevPort';
 import { getLocalIPAddress } from '../../utils/networking';
-import { normalizeAbsoluteMobileConfig } from '../../mobile/config';
-import { writeAbsoluteExpoProject } from '../../mobile/expoProject';
-import {
-	absoluteExpoExecutable,
-	startAbsoluteExpoDevSession,
-	type AbsoluteExpoDevPlatform,
-	type AbsoluteExpoDevSession,
-	type AbsoluteExpoDevState
+import type { NormalizedAbsoluteMobileConfig } from '../../mobile/config';
+import type {
+	AbsoluteExpoDevPlatform,
+	AbsoluteExpoDevSession,
+	AbsoluteExpoDevState
 } from '../../mobile/expoDevController';
-import { installAbsoluteMobileAuthEnvironment } from '../../mobile/nativeAuth';
-import {
-	prepareAbsoluteAndroidDevProject,
-	repairAbsoluteAndroidDevSession,
-	startAbsoluteAndroidDevSession,
-	type AbsoluteAndroidDevState,
-	type AbsoluteAndroidNativeLogEntry,
-	type AbsoluteAndroidDevProject,
-	type AbsoluteAndroidDevSession
+import type {
+	AbsoluteAndroidDevState,
+	AbsoluteAndroidNativeLogEntry,
+	AbsoluteAndroidDevProject,
+	AbsoluteAndroidDevSession
 } from '../../mobile/androidEmulatorController';
-import {
-	inspectAbsoluteMobileToolchain,
-	detectAbsoluteMobileHost,
-	type AbsoluteMobileDoctorCheck
-} from '../../mobile/emulatorDoctor';
-import { fixAbsoluteMobileEmulatorToolchain } from '../../mobile/emulatorInstaller';
-import {
-	createAbsoluteAndroidNativeWatcher,
-	type AbsoluteAndroidNativeWatcher
-} from '../../mobile/androidNativeWatcher';
-import {
-	prepareAbsoluteIosDevProject,
-	repairAbsoluteIosDevSession,
-	startAbsoluteIosDevSession,
-	type AbsoluteIosDevSession,
-	type AbsoluteIosDevState,
-	type AbsoluteIosNativeLogEntry,
-	type StartAbsoluteIosDevOptions
+import type { AbsoluteMobileDoctorCheck } from '../../mobile/emulatorDoctor';
+import type { AbsoluteAndroidNativeWatcher } from '../../mobile/androidNativeWatcher';
+import type {
+	AbsoluteIosDevSession,
+	AbsoluteIosDevState,
+	AbsoluteIosNativeLogEntry,
+	StartAbsoluteIosDevOptions
 } from '../../mobile/iosSimulatorController';
-import {
-	createAbsoluteRemoteExpoIosDevProject,
-	createAbsoluteRemoteIosDevProject,
-	getAbsoluteRemoteMacProfile,
-	inspectAbsoluteRemoteMacLanHost,
-	startAbsoluteRemoteExpoIosDevSession,
-	startAbsoluteRemoteIosDevSession,
-	type AbsoluteIosDevelopmentProject,
-	type AbsoluteRemoteExpoIosDevProject,
-	type AbsoluteRemoteMacProfile
+import type {
+	AbsoluteIosDevelopmentProject,
+	AbsoluteRemoteExpoIosDevProject,
+	AbsoluteRemoteMacProfile
 } from '../../mobile/remoteMacProtocol';
-import {
-	createAbsoluteIosNativeWatcher,
-	type AbsoluteIosNativeWatcher
-} from '../../mobile/iosNativeWatcher';
+import type { AbsoluteIosNativeWatcher } from '../../mobile/iosNativeWatcher';
 import {
 	COMPOSE_PATH,
 	findFreePort,
@@ -100,6 +73,84 @@ import {
 	startDatabase,
 	stopDatabase
 } from '../utils';
+
+/** The mobile toolchain (Expo, Capacitor, emulators, simulators, Remote Mac)
+ *  loads only for projects whose absolute.config.ts has a `mobile` block, so
+ *  a web-only `absolute dev` never evaluates a mobile module. */
+const loadAbsoluteMobileDevModules = async () => {
+	const [
+		config,
+		expoProject,
+		expoDevController,
+		nativeAuth,
+		androidEmulatorController,
+		emulatorDoctor,
+		emulatorInstaller,
+		androidNativeWatcher,
+		iosSimulatorController,
+		remoteMacProtocol,
+		iosNativeWatcher
+	] = await Promise.all([
+		import('../../mobile/config'),
+		import('../../mobile/expoProject'),
+		import('../../mobile/expoDevController'),
+		import('../../mobile/nativeAuth'),
+		import('../../mobile/androidEmulatorController'),
+		import('../../mobile/emulatorDoctor'),
+		import('../../mobile/emulatorInstaller'),
+		import('../../mobile/androidNativeWatcher'),
+		import('../../mobile/iosSimulatorController'),
+		import('../../mobile/remoteMacProtocol'),
+		import('../../mobile/iosNativeWatcher')
+	]);
+
+	return {
+		absoluteExpoExecutable: expoDevController.absoluteExpoExecutable,
+		createAbsoluteAndroidNativeWatcher:
+			androidNativeWatcher.createAbsoluteAndroidNativeWatcher,
+		createAbsoluteIosNativeWatcher:
+			iosNativeWatcher.createAbsoluteIosNativeWatcher,
+		createAbsoluteRemoteExpoIosDevProject:
+			remoteMacProtocol.createAbsoluteRemoteExpoIosDevProject,
+		createAbsoluteRemoteIosDevProject:
+			remoteMacProtocol.createAbsoluteRemoteIosDevProject,
+		detectAbsoluteMobileHost: emulatorDoctor.detectAbsoluteMobileHost,
+		fixAbsoluteMobileEmulatorToolchain:
+			emulatorInstaller.fixAbsoluteMobileEmulatorToolchain,
+		getAbsoluteRemoteMacProfile:
+			remoteMacProtocol.getAbsoluteRemoteMacProfile,
+		inspectAbsoluteMobileToolchain:
+			emulatorDoctor.inspectAbsoluteMobileToolchain,
+		inspectAbsoluteRemoteMacLanHost:
+			remoteMacProtocol.inspectAbsoluteRemoteMacLanHost,
+		installAbsoluteMobileAuthEnvironment:
+			nativeAuth.installAbsoluteMobileAuthEnvironment,
+		normalizeAbsoluteMobileConfig: config.normalizeAbsoluteMobileConfig,
+		prepareAbsoluteAndroidDevProject:
+			androidEmulatorController.prepareAbsoluteAndroidDevProject,
+		prepareAbsoluteIosDevProject:
+			iosSimulatorController.prepareAbsoluteIosDevProject,
+		repairAbsoluteAndroidDevSession:
+			androidEmulatorController.repairAbsoluteAndroidDevSession,
+		repairAbsoluteIosDevSession:
+			iosSimulatorController.repairAbsoluteIosDevSession,
+		startAbsoluteAndroidDevSession:
+			androidEmulatorController.startAbsoluteAndroidDevSession,
+		startAbsoluteExpoDevSession:
+			expoDevController.startAbsoluteExpoDevSession,
+		startAbsoluteIosDevSession:
+			iosSimulatorController.startAbsoluteIosDevSession,
+		startAbsoluteRemoteExpoIosDevSession:
+			remoteMacProtocol.startAbsoluteRemoteExpoIosDevSession,
+		startAbsoluteRemoteIosDevSession:
+			remoteMacProtocol.startAbsoluteRemoteIosDevSession,
+		writeAbsoluteExpoProject: expoProject.writeAbsoluteExpoProject
+	};
+};
+
+type AbsoluteMobileDevModules = Awaited<
+	ReturnType<typeof loadAbsoluteMobileDevModules>
+>;
 
 const cliTag = (color: string, message: string) =>
 	`\x1b[2m${formatTimestamp()}\x1b[0m ${color}[cli]\x1b[0m ${color}${message}\x1b[0m`;
@@ -400,15 +451,23 @@ export const dev = async (
 	let resolvedDev: ResolvedDevConfig;
 	let buildDirectory = resolvePath(process.cwd(), 'build');
 	let mobileConfig: MobileConfig | undefined;
-	let normalizedMobileConfig:
-		| ReturnType<typeof normalizeAbsoluteMobileConfig>
-		| undefined;
+	let normalizedMobileConfig: NormalizedAbsoluteMobileConfig | undefined;
+	let mobileDev: AbsoluteMobileDevModules | undefined;
+	const requireMobileDev = () => {
+		if (!mobileDev) {
+			throw new TypeError(
+				'Mobile development requires an absolute.config.ts mobile configuration.'
+			);
+		}
+
+		return mobileDev;
+	};
 	let iosPhysicalServerHost: string | undefined;
 	let selectedRemoteMacProfile: AbsoluteRemoteMacProfile | undefined;
 	let expoDevProject:
 		| {
 				executable: string;
-				mobile: ReturnType<typeof normalizeAbsoluteMobileConfig>;
+				mobile: NormalizedAbsoluteMobileConfig;
 				platforms: AbsoluteExpoDevPlatform[];
 				remoteIos?: AbsoluteRemoteExpoIosDevProject;
 		  }
@@ -417,11 +476,12 @@ export const dev = async (
 		const config = await loadConfig(configPath);
 		mobileConfig = config?.mobile;
 		if (mobileConfig) {
-			normalizedMobileConfig = normalizeAbsoluteMobileConfig(
+			mobileDev = await loadAbsoluteMobileDevModules();
+			normalizedMobileConfig = mobileDev.normalizeAbsoluteMobileConfig(
 				mobileConfig,
 				process.cwd()
 			);
-			installAbsoluteMobileAuthEnvironment(
+			mobileDev.installAbsoluteMobileAuthEnvironment(
 				process.cwd(),
 				normalizedMobileConfig
 			);
@@ -436,17 +496,18 @@ export const dev = async (
 		resolvedDev = resolveDevConfig(undefined);
 		httpsEnabled = resolvedDev.https;
 	}
-	if (
-		(options.androidDevice ||
-			(options.iosDevice && detectAbsoluteMobileHost() === 'macos')) &&
-		['localhost', '127.0.0.1', '::1'].includes(resolvedDev.host)
-	) {
-		resolvedDev.host = '0.0.0.0';
-	}
 	if ((options.androidDevice || options.iosDevice) && !mobileConfig) {
 		throw new TypeError(
 			'Physical-device development requires an absolute.config.ts mobile configuration.'
 		);
+	}
+	if (
+		(options.androidDevice ||
+			(options.iosDevice &&
+				requireMobileDev().detectAbsoluteMobileHost() === 'macos')) &&
+		['localhost', '127.0.0.1', '::1'].includes(resolvedDev.host)
+	) {
+		resolvedDev.host = '0.0.0.0';
 	}
 	if (
 		options.androidDevice &&
@@ -465,17 +526,19 @@ export const dev = async (
 		throw new TypeError('--ios-device requires ios in mobile.platforms.');
 	}
 	if (options.iosDevice) {
-		if (detectAbsoluteMobileHost() === 'macos')
+		if (requireMobileDev().detectAbsoluteMobileHost() === 'macos')
 			iosPhysicalServerHost = mobileReachableHost(resolvedDev.host);
 		else {
-			selectedRemoteMacProfile = await getAbsoluteRemoteMacProfile();
+			selectedRemoteMacProfile =
+				await requireMobileDev().getAbsoluteRemoteMacProfile();
 			if (!selectedRemoteMacProfile)
 				throw new Error(
 					'--ios-device requires macOS or a paired Remote Mac.'
 				);
-			iosPhysicalServerHost = await inspectAbsoluteRemoteMacLanHost(
-				selectedRemoteMacProfile
-			);
+			iosPhysicalServerHost =
+				await requireMobileDev().inspectAbsoluteRemoteMacLanHost(
+					selectedRemoteMacProfile
+				);
 		}
 	}
 	if (httpsEnabled) {
@@ -505,10 +568,14 @@ export const dev = async (
 	if (normalizedMobileConfig && mobileInteractive) {
 		try {
 			const normalized = normalizedMobileConfig;
+			const mobile = requireMobileDev();
 			if (normalized.engine === 'expo') {
-				const generated = await writeAbsoluteExpoProject(normalized, {
-					projectRoot: process.cwd()
-				});
+				const generated = await mobile.writeAbsoluteExpoProject(
+					normalized,
+					{
+						projectRoot: process.cwd()
+					}
+				);
 				const dependenciesReady =
 					existsSync(
 						join(
@@ -557,7 +624,7 @@ export const dev = async (
 						? 'device'
 						: 'emulator';
 					let ready = androidToolchainReady(
-						await inspectAbsoluteMobileToolchain(),
+						await mobile.inspectAbsoluteMobileToolchain(),
 						target
 					);
 					if (!ready) {
@@ -565,9 +632,11 @@ export const dev = async (
 							'Android development is not configured. Install the tested toolchain now?'
 						);
 						if (install) {
-							await fixAbsoluteMobileEmulatorToolchain('android');
+							await mobile.fixAbsoluteMobileEmulatorToolchain(
+								'android'
+							);
 							ready = androidToolchainReady(
-								await inspectAbsoluteMobileToolchain(),
+								await mobile.inspectAbsoluteMobileToolchain(),
 								target
 							);
 						}
@@ -575,10 +644,10 @@ export const dev = async (
 					if (ready) platforms.push('android');
 				}
 				if (normalized.platforms.includes('ios')) {
-					if (detectAbsoluteMobileHost() !== 'macos') {
+					if (mobile.detectAbsoluteMobileHost() !== 'macos') {
 						const remote =
 							selectedRemoteMacProfile ??
-							(await getAbsoluteRemoteMacProfile());
+							(await mobile.getAbsoluteRemoteMacProfile());
 						if (!remote) {
 							console.log(
 								cliTag(
@@ -588,11 +657,12 @@ export const dev = async (
 							);
 						} else {
 							selectedRemoteMacProfile = remote;
-							remoteIos = createAbsoluteRemoteExpoIosDevProject(
-								normalized,
-								process.cwd(),
-								remote
-							);
+							remoteIos =
+								mobile.createAbsoluteRemoteExpoIosDevProject(
+									normalized,
+									process.cwd(),
+									remote
+								);
 							console.log(
 								cliTag(
 									'\x1b[35m',
@@ -605,7 +675,7 @@ export const dev = async (
 							? 'device'
 							: 'simulator';
 						let ready = iosToolchainReady(
-							await inspectAbsoluteMobileToolchain(),
+							await mobile.inspectAbsoluteMobileToolchain(),
 							target
 						);
 						if (!ready) {
@@ -613,9 +683,11 @@ export const dev = async (
 								'iOS development is not configured. Open the guided Xcode setup now?'
 							);
 							if (install) {
-								await fixAbsoluteMobileEmulatorToolchain('ios');
+								await mobile.fixAbsoluteMobileEmulatorToolchain(
+									'ios'
+								);
 								ready = iosToolchainReady(
-									await inspectAbsoluteMobileToolchain(),
+									await mobile.inspectAbsoluteMobileToolchain(),
 									target
 								);
 							}
@@ -625,7 +697,7 @@ export const dev = async (
 				}
 				if (platforms.length > 0 || remoteIos) {
 					expoDevProject = {
-						executable: await absoluteExpoExecutable(
+						executable: await mobile.absoluteExpoExecutable(
 							generated.path
 						),
 						mobile: normalized,
@@ -649,7 +721,7 @@ export const dev = async (
 					? 'device'
 					: 'emulator';
 				let ready = androidToolchainReady(
-					await inspectAbsoluteMobileToolchain(),
+					await mobile.inspectAbsoluteMobileToolchain(),
 					androidTarget
 				);
 				if (!ready) {
@@ -657,9 +729,11 @@ export const dev = async (
 						'Android development is not configured. Install the tested toolchain now?'
 					);
 					if (install) {
-						await fixAbsoluteMobileEmulatorToolchain('android');
+						await mobile.fixAbsoluteMobileEmulatorToolchain(
+							'android'
+						);
 						ready = androidToolchainReady(
-							await inspectAbsoluteMobileToolchain(),
+							await mobile.inspectAbsoluteMobileToolchain(),
 							androidTarget
 						);
 					} else {
@@ -684,11 +758,14 @@ export const dev = async (
 					}
 					if (existsSync(nativeDirectory) || createNativeProject) {
 						androidDevProject =
-							await prepareAbsoluteAndroidDevProject(normalized, {
-								createNativeProject,
-								projectRoot: process.cwd(),
-								target: androidTarget
-							});
+							await mobile.prepareAbsoluteAndroidDevProject(
+								normalized,
+								{
+									createNativeProject,
+									projectRoot: process.cwd(),
+									target: androidTarget
+								}
+							);
 					}
 				}
 			}
@@ -696,10 +773,10 @@ export const dev = async (
 				normalized.engine === 'capacitor' &&
 				normalized.platforms.includes('ios')
 			) {
-				if (detectAbsoluteMobileHost() !== 'macos') {
+				if (mobile.detectAbsoluteMobileHost() !== 'macos') {
 					const remote =
 						selectedRemoteMacProfile ??
-						(await getAbsoluteRemoteMacProfile());
+						(await mobile.getAbsoluteRemoteMacProfile());
 					if (!remote) {
 						console.log(
 							cliTag(
@@ -720,11 +797,12 @@ export const dev = async (
 								)
 							);
 						} else {
-							iosDevProject = createAbsoluteRemoteIosDevProject(
-								normalized,
-								process.cwd(),
-								remote
-							);
+							iosDevProject =
+								mobile.createAbsoluteRemoteIosDevProject(
+									normalized,
+									process.cwd(),
+									remote
+								);
 							console.log(
 								cliTag(
 									'\x1b[35m',
@@ -738,7 +816,7 @@ export const dev = async (
 						? 'device'
 						: 'simulator';
 					let ready = iosToolchainReady(
-						await inspectAbsoluteMobileToolchain(),
+						await mobile.inspectAbsoluteMobileToolchain(),
 						iosTarget
 					);
 					if (!ready) {
@@ -748,9 +826,11 @@ export const dev = async (
 								: 'iOS simulation is not configured. Install the missing simulator runtime now?'
 						);
 						if (install) {
-							await fixAbsoluteMobileEmulatorToolchain('ios');
+							await mobile.fixAbsoluteMobileEmulatorToolchain(
+								'ios'
+							);
 							ready = iosToolchainReady(
-								await inspectAbsoluteMobileToolchain(),
+								await mobile.inspectAbsoluteMobileToolchain(),
 								iosTarget
 							);
 						} else {
@@ -777,14 +857,15 @@ export const dev = async (
 							existsSync(nativeDirectory) ||
 							createNativeProject
 						) {
-							iosDevProject = await prepareAbsoluteIosDevProject(
-								normalized,
-								{
-									createNativeProject,
-									projectRoot: process.cwd(),
-									target: iosTarget
-								}
-							);
+							iosDevProject =
+								await mobile.prepareAbsoluteIosDevProject(
+									normalized,
+									{
+										createNativeProject,
+										projectRoot: process.cwd(),
+										target: iosTarget
+									}
+								);
 						}
 					}
 				}
@@ -961,7 +1042,7 @@ export const dev = async (
 		});
 	};
 	const openAndroidDevSession = (androidProject: AbsoluteAndroidDevProject) =>
-		startAbsoluteAndroidDevSession({
+		requireMobileDev().startAbsoluteAndroidDevSession({
 			certificateAuthorityPath: devCertificateAuthorityPath ?? undefined,
 			deviceSerial: options.androidDevice,
 			https: httpsEnabled,
@@ -989,7 +1070,8 @@ export const dev = async (
 		androidProject: AbsoluteAndroidDevProject
 	) => {
 		if (androidNativeWatcher) return;
-		androidNativeWatcher = await createAbsoluteAndroidNativeWatcher({
+		const mobile = requireMobileDev();
+		androidNativeWatcher = await mobile.createAbsoluteAndroidNativeWatcher({
 			project: androidProject,
 			signal: androidDevAbort.signal,
 			onChange: async (change) => {
@@ -1112,6 +1194,7 @@ export const dev = async (
 		});
 	};
 	const openIosDevSession = (iosProject: AbsoluteIosDevelopmentProject) => {
+		const mobile = requireMobileDev();
 		const sessionOptions: Omit<StartAbsoluteIosDevOptions, 'project'> = {
 			certificateAuthorityPath: devCertificateAuthorityPath ?? undefined,
 			deviceIdentifier: options.iosDevice,
@@ -1145,12 +1228,12 @@ export const dev = async (
 			}
 		};
 		if (iosProject.remote)
-			return startAbsoluteRemoteIosDevSession({
+			return mobile.startAbsoluteRemoteIosDevSession({
 				...sessionOptions,
 				project: iosProject
 			});
 
-		return startAbsoluteIosDevSession({
+		return mobile.startAbsoluteIosDevSession({
 			...sessionOptions,
 			project: iosProject
 		});
@@ -1159,7 +1242,8 @@ export const dev = async (
 		iosProject: AbsoluteIosDevelopmentProject
 	) => {
 		if (iosNativeWatcher) return;
-		iosNativeWatcher = await createAbsoluteIosNativeWatcher({
+		const mobile = requireMobileDev();
+		iosNativeWatcher = await mobile.createAbsoluteIosNativeWatcher({
 			project: iosProject,
 			signal: iosDevAbort.signal,
 			onChange: async (change) => {
@@ -1277,6 +1361,7 @@ export const dev = async (
 		) {
 			return;
 		}
+		const mobile = requireMobileDev();
 		const androidHost = options.androidDevice
 			? mobileReachableHost(resolvedDev.host)
 			: '10.0.2.2';
@@ -1293,41 +1378,44 @@ export const dev = async (
 		let metroSession: AbsoluteExpoDevSession | undefined;
 		let localNativeSession: AbsoluteExpoDevSession | undefined;
 		let remoteSession: AbsoluteExpoDevSession | undefined;
-		const metroStart = startAbsoluteExpoDevSession({
-			androidOrigin,
-			certificateAuthorityPath: devCertificateAuthorityPath ?? undefined,
-			config: project.mobile,
-			executable: project.executable,
-			iosOrigin,
-			metroPort: expoMetroPort,
-			platforms: [],
-			signal: expoDevAbort.signal,
-			log: (message) =>
-				printNativeOutput(cliTag('\x1b[35m', `Expo ${message}`)),
-			onPhaseTiming: ({ durationMs, phase }) => {
-				sendTelemetryEvent('mobile:expo-dev-phase', {
-					durationMs: Math.round(durationMs),
-					host: detectAbsoluteMobileHost(),
-					phase,
-					platform: expoTelemetryPlatform(phase),
-					provider: 'expo'
-				});
-			},
-			onStateChange: (state) => {
-				if (state === 'ready' || state === 'closed') return;
-				expoDevState = state;
-				printNativeOutput(
-					cliTag('\x1b[35m', `Expo development: ${state}.`)
-				);
-			}
-		}).then((session) => {
-			metroSession = session;
+		const metroStart = mobile
+			.startAbsoluteExpoDevSession({
+				androidOrigin,
+				certificateAuthorityPath:
+					devCertificateAuthorityPath ?? undefined,
+				config: project.mobile,
+				executable: project.executable,
+				iosOrigin,
+				metroPort: expoMetroPort,
+				platforms: [],
+				signal: expoDevAbort.signal,
+				log: (message) =>
+					printNativeOutput(cliTag('\x1b[35m', `Expo ${message}`)),
+				onPhaseTiming: ({ durationMs, phase }) => {
+					sendTelemetryEvent('mobile:expo-dev-phase', {
+						durationMs: Math.round(durationMs),
+						host: mobile.detectAbsoluteMobileHost(),
+						phase,
+						platform: expoTelemetryPlatform(phase),
+						provider: 'expo'
+					});
+				},
+				onStateChange: (state) => {
+					if (state === 'ready' || state === 'closed') return;
+					expoDevState = state;
+					printNativeOutput(
+						cliTag('\x1b[35m', `Expo development: ${state}.`)
+					);
+				}
+			})
+			.then((session) => {
+				metroSession = session;
 
-			return session;
-		});
+				return session;
+			});
 		const localNativeStart = metroStart.then(async () => {
 			if (project.platforms.length === 0) return undefined;
-			const session = await startAbsoluteExpoDevSession({
+			const session = await mobile.startAbsoluteExpoDevSession({
 				androidDevice: options.androidDevice,
 				androidOrigin,
 				certificateAuthorityPath:
@@ -1345,7 +1433,7 @@ export const dev = async (
 				onPhaseTiming: ({ durationMs, phase }) => {
 					sendTelemetryEvent('mobile:expo-dev-phase', {
 						durationMs: Math.round(durationMs),
-						host: detectAbsoluteMobileHost(),
+						host: mobile.detectAbsoluteMobileHost(),
 						phase,
 						platform: expoTelemetryPlatform(phase),
 						provider: 'expo'
@@ -1366,45 +1454,47 @@ export const dev = async (
 		const remoteIosProject = project.remoteIos;
 		const remoteStart = remoteIosProject
 			? metroStart.then(async () => {
-					const session = await startAbsoluteRemoteExpoIosDevSession({
-						certificateAuthorityPath:
-							devCertificateAuthorityPath ?? undefined,
-						deviceIdentifier: options.iosDevice,
-						https: httpsEnabled,
-						metroPort: expoMetroPort,
-						port,
-						project: remoteIosProject,
-						serverHost: options.iosDevice
-							? iosPhysicalServerHost
-							: undefined,
-						signal: expoDevAbort.signal,
-						log: (message) =>
-							printNativeOutput(
-								cliTag(
-									'\x1b[35m',
-									`Expo [remote-ios] ${message}`
-								)
-							),
-						onPhaseTiming: ({ durationMs, phase }) => {
-							sendTelemetryEvent('mobile:expo-dev-phase', {
-								durationMs: Math.round(durationMs),
-								host: 'remote-macos',
-								phase,
-								platform: expoTelemetryPlatform(phase),
-								provider: 'expo'
-							});
-						},
-						onStateChange: (state) => {
-							if (state === 'ready' || state === 'closed') return;
-							expoDevState = state;
-							printNativeOutput(
-								cliTag(
-									'\x1b[35m',
-									`Expo Remote Mac iOS: ${state}.`
-								)
-							);
-						}
-					});
+					const session =
+						await mobile.startAbsoluteRemoteExpoIosDevSession({
+							certificateAuthorityPath:
+								devCertificateAuthorityPath ?? undefined,
+							deviceIdentifier: options.iosDevice,
+							https: httpsEnabled,
+							metroPort: expoMetroPort,
+							port,
+							project: remoteIosProject,
+							serverHost: options.iosDevice
+								? iosPhysicalServerHost
+								: undefined,
+							signal: expoDevAbort.signal,
+							log: (message) =>
+								printNativeOutput(
+									cliTag(
+										'\x1b[35m',
+										`Expo [remote-ios] ${message}`
+									)
+								),
+							onPhaseTiming: ({ durationMs, phase }) => {
+								sendTelemetryEvent('mobile:expo-dev-phase', {
+									durationMs: Math.round(durationMs),
+									host: 'remote-macos',
+									phase,
+									platform: expoTelemetryPlatform(phase),
+									provider: 'expo'
+								});
+							},
+							onStateChange: (state) => {
+								if (state === 'ready' || state === 'closed')
+									return;
+								expoDevState = state;
+								printNativeOutput(
+									cliTag(
+										'\x1b[35m',
+										`Expo Remote Mac iOS: ${state}.`
+									)
+								);
+							}
+						});
 					remoteSession = session;
 
 					return session;
@@ -2085,17 +2175,17 @@ export const dev = async (
 		if (androidDevSession) {
 			await androidDevSession.close();
 		} else if (androidDevProject) {
-			await repairAbsoluteAndroidDevSession(
-				androidDevProject.projectRoot
-			).catch(() => undefined);
+			await requireMobileDev()
+				.repairAbsoluteAndroidDevSession(androidDevProject.projectRoot)
+				.catch(() => undefined);
 		}
 		if (iosDevSession) {
 			await iosDevSession.close();
 		} else if (iosDevProject) {
 			if (!iosDevProject.remote)
-				await repairAbsoluteIosDevSession(
-					iosDevProject.projectRoot
-				).catch(() => undefined);
+				await requireMobileDev()
+					.repairAbsoluteIosDevSession(iosDevProject.projectRoot)
+					.catch(() => undefined);
 		}
 		if (expoDevSession) await expoDevSession.close();
 		if (paused) sendSignal('SIGCONT');
