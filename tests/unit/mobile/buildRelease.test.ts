@@ -143,6 +143,25 @@ describe('automatic mobile compatibility release build', () => {
 			});
 			expect(next.artifact.generation).toBe(2);
 			expect(next.artifact.appBuild).not.toBe(release.artifact.appBuild);
+			// Rebuilding older content (generation 1) while a newer generation
+			// (2) exists must promote it to a fresh newest generation, not reuse
+			// the stale generation 1, so it can become the current release.
+			await writeFile(
+				clientPaths.AccountIndex,
+				'export const generation = 1;'
+			);
+			const promoted = await buildAbsoluteMobileCompatibilityRelease({
+				app: loaded.app,
+				appId: 'com.absolute.fixture',
+				buildDirectory: output,
+				manifest: releaseManifest,
+				previousArtifacts: [release.artifact, next.artifact],
+				producerExport: 'app',
+				producerPath,
+				runtime: '1'
+			});
+			expect(promoted.artifact.appBuild).toBe(release.artifact.appBuild);
+			expect(promoted.artifact.generation).toBe(3);
 			expect(
 				release.artifact.pages.map(({ framework }) => framework).sort()
 			).toEqual(['angular', 'html', 'htmx', 'react', 'svelte', 'vue']);

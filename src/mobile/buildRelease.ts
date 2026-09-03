@@ -191,19 +191,26 @@ export const buildAbsoluteMobileCompatibilityRelease = async (
 			'Previous mobile compatibility artifacts belong to another app.'
 		);
 	}
+	const newestGeneration = Math.max(
+		0,
+		...(options.previousArtifacts ?? []).map(
+			(artifact) => artifact.generation
+		)
+	);
 	const unchanged = options.previousArtifacts?.find(
 		(artifact) =>
 			artifact.appBuild === appBuild &&
 			artifact.runtime === options.runtime
 	);
+	// Reuse a generation only when the rebuilt content is already the newest
+	// release (an idempotent rebuild). Rebuilding older content while a newer
+	// generation exists must promote it to a fresh newest generation, because
+	// the current release must always be the newest generation; the pipeline
+	// supersedes the stale same-appBuild entry it replaces.
 	const generation =
-		unchanged?.generation ??
-		Math.max(
-			0,
-			...(options.previousArtifacts ?? []).map(
-				(artifact) => artifact.generation
-			)
-		) + 1;
+		unchanged && unchanged.generation === newestGeneration
+			? unchanged.generation
+			: newestGeneration + 1;
 	const artifact = createAbsoluteMobileCompatibilityArtifact({
 		appBuild,
 		appId: options.appId,

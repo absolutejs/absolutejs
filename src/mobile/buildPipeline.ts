@@ -210,8 +210,18 @@ export const finalizeAbsoluteMobileCompatibilityBuild = async (
 			'@absolutejs/auth is installed, but its OIDC provider is not mounted. Native authentication requires the auth oidc configuration so AbsoluteJS can provision a public PKCE client.'
 		);
 	}
+	// The current build supersedes any prior release with identical content
+	// (same appBuild): listing `current` last lets it overwrite that entry, so
+	// re-promoting older content never leaves a duplicate appBuild in the
+	// retained set (which retain forbids) or a stale generation as newest.
+	const releasesByBuild = new Map(
+		[...previous, current].map((release) => [
+			release.artifact.appBuild,
+			release
+		])
+	);
 	const releasesById = new Map(
-		[current, ...previous].map((release) => [
+		[...releasesByBuild.values()].map((release) => [
 			release.artifact.releaseId,
 			release
 		])

@@ -2,7 +2,7 @@
 
 This runbook validates the iOS release path shipped in
 `@absolutejs/absolute@0.20.0-beta.42` and
-`@absolutejs/deploy@0.24.0`. It covers a signed local IPA, an internal
+`@absolutejs/deploy@0.25.3`. It covers a signed local IPA, an internal
 TestFlight upload, retry behavior, and installation on an iPhone or iPad.
 
 Use a staging App Store Connect application if possible. Uploading a build
@@ -272,7 +272,7 @@ bun add @absolutejs/absolute@0.20.0-beta.42 \
   @absolutejs/dispatch@0.9.0 \
   @absolutejs/sync@2.29.0 \
   @absolutejs/sync-capacitor@0.9.2 \
-  @absolutejs/deploy@0.24.0 \
+  @absolutejs/deploy@0.25.3 \
   @absolutejs/blob@0.5.2 \
   @capacitor/core@8.5.0 \
   @capacitor/app@8.1.1 \
