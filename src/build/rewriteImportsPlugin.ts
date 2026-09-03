@@ -8,65 +8,42 @@
  *  Now: the rewrite operates on the `BuildArtifact` outputs returned by
  *  `Bun.build()` itself, in the same await chain. Each output's content is
  *  transformed (using the native Zig scanner when available, falling back to
- *  the JS regex implementation), then written back to disk. The standalone
- *  iteration over a captured path list goes away. */
+ *  a single combined-regex JS pass), then written back to disk. The standalone
+ *  iteration over a captured path list goes away.
+ *
+ *  The main build pipeline no longer calls `rewriteBuildOutputs` for client
+ *  outputs — `rewriteClientOutputs` folds this family into its single pass. */
 
 import type { BuildArtifact, BuildOutput } from 'bun';
 import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
-import { maskLiterals } from './maskLiterals';
-import { nativeRewriteImports } from './nativeRewrite';
+import {
+	compileSpecifierRewriter,
+	rewriteContentSpecifiers,
+	rewriteSpecifiers
+} from './specifierRewriter';
 
-const escapeRegex = (str: string) =>
-	str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+type MissingNamespaceImport = { ident: string; path: string };
 
-/** JS fallback: regex-based import rewriting. */
-export const jsRewriteImports = (
-	content: string,
-	replacements: [string, string][]
+const REEXPORT_PATTERN =
+	/__reExport\(\s*[A-Za-z_$][\w$]*\s*,\s*([A-Za-z_$][\w$]*)\s*\)/g;
+const IMPORT_PATH_PATTERN = /(?:from\s+|import\s*)["']([^"']+)["']/g;
+
+const isMissingFile = (error: unknown) =>
+	error instanceof Error && 'code' in error && error.code === 'ENOENT';
+
+/** Helper to wrap a `Bun.build` call so the rewrite happens in-pipeline.
+ *  Use as: `const result = await buildWithImportRewrite(bunBuild(config), vendorPaths)`. */
+export const buildWithImportRewrite = async (
+	pendingBuild: Promise<BuildOutput>,
+	vendorPaths: Record<string, string>
 ) => {
-	let result = content;
-
-	for (const [specifier, webPath] of replacements) {
-		const escaped = escapeRegex(specifier);
-		const fromRegex = new RegExp(
-			`(from\\s*["'])${escaped}(["'])`,
-			'g'
-		);
-		const sideEffectRegex = new RegExp(
-			`(import\\s*["'])${escaped}(["'])`,
-			'g'
-		);
-		const dynamicRegex = new RegExp(
-			`(import\\s*\\(\\s*["'])${escaped}(["']\\s*\\))`,
-			'g'
-		);
-		result = result.replace(fromRegex, `$1${webPath}$2`);
-		result = result.replace(sideEffectRegex, `$1${webPath}$2`);
-		result = result.replace(dynamicRegex, `$1${webPath}$2`);
+	const result = await pendingBuild;
+	if (result.outputs.length > 0) {
+		await rewriteBuildOutputs(result.outputs, vendorPaths);
 	}
 
 	return result;
-};
-
-/** Apply the bare-specifier → vendor-URL rewrite to a single chunk of text. */
-export const rewriteImportsInContent = (
-	content: string,
-	vendorPaths: Record<string, string>
-) => {
-	if (Object.keys(vendorPaths).length === 0) return content;
-
-	// Sort by specifier length (longest first) to avoid partial matches.
-	const replacements = Object.entries(vendorPaths).sort(
-		([keyA], [keyB]) => keyB.length - keyA.length
-	);
-
-	// Mask template literals + comments so `from '...'` inside example-code
-	// snippets isn't mistaken for a real import; restore them after rewriting.
-	const { masked, restore } = maskLiterals(content);
-	const native = nativeRewriteImports(masked, replacements);
-
-	return restore(native ?? jsRewriteImports(masked, replacements));
 };
 
 /** Workaround for a Bun bundler bug: when a module does both
@@ -79,65 +56,83 @@ export const rewriteImportsInContent = (
  *  path is recovered from a sibling named-import in the same chunk (Bun keeps
  *  that intact). */
 export const fixMissingReExportNamespacesInContent = (content: string) => {
-	const REEXPORT_PATTERN =
-		/__reExport\(\s*[A-Za-z_$][\w$]*\s*,\s*([A-Za-z_$][\w$]*)\s*\)/g;
-
-	REEXPORT_PATTERN.lastIndex = 0;
-	const missing: { ident: string; path: string }[] = [];
-	let match;
-	while ((match = REEXPORT_PATTERN.exec(content)) !== null) {
-		const ident = match[1];
-		if (!ident) continue;
-		const nsImportRe = new RegExp(
-			`\\bimport\\s*\\*\\s*as\\s+${ident}\\s+from\\b`
-		);
-		if (nsImportRe.test(content)) continue;
-		const declRe = new RegExp(
-			`\\b(?:const|let|var|function|class)\\s+${ident}\\b`
-		);
-		if (declRe.test(content)) continue;
-		const namedImportRe = new RegExp(
-			`\\bimport\\s*\\{[^}]*\\b${ident}\\b[^}]*\\}\\s*from\\b`
-		);
-		if (namedImportRe.test(content)) continue;
-
-		const importPathRe =
-			/(?:from\s+|import\s*)["']([^"']+)["']/g;
-		let pathMatch;
-		let sourcePath: string | undefined;
-		while ((pathMatch = importPathRe.exec(content)) !== null) {
-			const p = pathMatch[1];
-			if (!p) continue;
-			const base = p.split('/').pop()?.replace(/\.[mc]?js$/, '');
-			if (!base) continue;
-			const normalized = base.startsWith('_') ? base.slice(1) : base;
-			if (normalized === ident || normalized.endsWith(`_${ident}`)) {
-				sourcePath = p;
-				break;
-			}
-		}
-		if (sourcePath) missing.push({ ident, path: sourcePath });
-	}
-
+	const missing = collectMissingNamespaceImports(content);
 	if (missing.length === 0) return content;
 
-	const seen = new Set<string>();
-	const unique = missing.filter((entry) => {
-		if (seen.has(entry.ident)) return false;
-		seen.add(entry.ident);
-
-		return true;
-	});
-
-	const inserts = unique
+	const inserts = missing
 		.map((entry) => `import * as ${entry.ident} from "${entry.path}";`)
 		.join('\n');
 
 	return `${inserts}\n${content}`;
 };
 
-const isReadableArtifact = (artifact: BuildArtifact) =>
-	artifact.path.endsWith('.js');
+/** Is `ident` already declared or imported (in any form) in this chunk? */
+const isIdentifierBound = (content: string, ident: string) => {
+	const nsImportRe = new RegExp(
+		`\\bimport\\s*\\*\\s*as\\s+${ident}\\s+from\\b`
+	);
+	const declRe = new RegExp(
+		`\\b(?:const|let|var|function|class)\\s+${ident}\\b`
+	);
+	const namedImportRe = new RegExp(
+		`\\bimport\\s*\\{[^}]*\\b${ident}\\b[^}]*\\}\\s*from\\b`
+	);
+
+	return (
+		nsImportRe.test(content) ||
+		declRe.test(content) ||
+		namedImportRe.test(content)
+	);
+};
+
+/** Bun keeps a sibling named import from the same module in the chunk; its
+ *  path's basename (minus extension and a leading `_`) matches the dropped
+ *  namespace identifier, or ends with `_${ident}`. */
+const findNamespaceSourcePath = (content: string, ident: string) => {
+	IMPORT_PATH_PATTERN.lastIndex = 0;
+	for (const [, importPath] of content.matchAll(IMPORT_PATH_PATTERN)) {
+		if (!importPath) continue;
+		const base = importPath
+			.split('/')
+			.pop()
+			?.replace(/\.[mc]?js$/, '');
+		if (!base) continue;
+		const normalized = base.startsWith('_') ? base.slice(1) : base;
+		if (normalized === ident || normalized.endsWith(`_${ident}`)) {
+			return importPath;
+		}
+	}
+
+	return undefined;
+};
+
+const collectMissingNamespaceImports = (content: string) => {
+	REEXPORT_PATTERN.lastIndex = 0;
+	const missing: MissingNamespaceImport[] = [];
+	const seen = new Set<string>();
+	for (const [, ident] of content.matchAll(REEXPORT_PATTERN)) {
+		if (!ident || seen.has(ident)) continue;
+		if (isIdentifierBound(content, ident)) continue;
+		const sourcePath = findNamespaceSourcePath(content, ident);
+		if (!sourcePath) continue;
+		seen.add(ident);
+		missing.push({ ident, path: sourcePath });
+	}
+
+	return missing;
+};
+
+/** JS fallback: one combined-regex pass over the (already masked) content —
+ *  O(content), not O(specifiers × content). Exported for tests. */
+export const jsRewriteImports = (
+	content: string,
+	replacements: [string, string][]
+) =>
+	rewriteSpecifiers(
+		content,
+		compileSpecifierRewriter(Object.fromEntries(replacements)),
+		{ native: false, sweep: false }
+	);
 
 /** In-pipeline output rewrite. Reads each emitted .js artifact, applies the
  *  rewrite, and writes back. Operates on `BuildArtifact[]` straight off
@@ -149,28 +144,55 @@ export const rewriteBuildOutputs = async (
 	if (Object.keys(vendorPaths).length === 0) return;
 
 	await Promise.all(
-		outputs.filter(isReadableArtifact).map(async (artifact) => {
-			let original: string;
-			try {
-				original = await artifact.text();
-			} catch (err) {
-				const code = (err as NodeJS.ErrnoException).code;
-				if (code === 'ENOENT') return;
-				throw err;
-			}
-
-			const rewritten = rewriteImportsInContent(original, vendorPaths);
-			if (rewritten === original) return;
-
-			try {
-				await Bun.write(artifact.path, rewritten);
-			} catch (err) {
-				const code = (err as NodeJS.ErrnoException).code;
-				if (code === 'ENOENT') return;
-				throw err;
-			}
-		})
+		outputs
+			.filter(isReadableArtifact)
+			.map((artifact) => rewriteArtifact(artifact, vendorPaths))
 	);
+};
+
+const isReadableArtifact = (artifact: BuildArtifact) =>
+	artifact.path.endsWith('.js');
+
+// A rebuild may sweep an output between scheduling and read/write; a missing
+// file is not an error for a post-process pass.
+const readArtifactText = async (artifact: BuildArtifact) => {
+	try {
+		return await artifact.text();
+	} catch (error) {
+		if (isMissingFile(error)) return undefined;
+		throw error;
+	}
+};
+
+const readFileText = async (filePath: string) => {
+	try {
+		return await Bun.file(filePath).text();
+	} catch (error) {
+		if (isMissingFile(error)) return undefined;
+		throw error;
+	}
+};
+
+const writeFileText = async (filePath: string, content: string) => {
+	try {
+		await Bun.write(filePath, content);
+	} catch (error) {
+		if (isMissingFile(error)) return;
+		throw error;
+	}
+};
+
+const rewriteArtifact = async (
+	artifact: BuildArtifact,
+	vendorPaths: Record<string, string>
+) => {
+	if (Object.keys(vendorPaths).length === 0) return;
+	const original = await readArtifactText(artifact);
+	if (original === undefined) return;
+
+	const rewritten = rewriteImportsInContent(original, vendorPaths);
+	if (rewritten === original) return;
+	await writeFileText(artifact.path, rewritten);
 };
 
 /** Like `rewriteBuildOutputs`, but takes a separate per-artifact resolver to
@@ -181,31 +203,53 @@ export const rewriteBuildOutputsWith = async (
 	resolveVendorPaths: (artifact: BuildArtifact) => Record<string, string>
 ) => {
 	await Promise.all(
-		outputs.filter(isReadableArtifact).map(async (artifact) => {
-			const vendorPaths = resolveVendorPaths(artifact);
-			if (Object.keys(vendorPaths).length === 0) return;
-
-			let original: string;
-			try {
-				original = await artifact.text();
-			} catch (err) {
-				const code = (err as NodeJS.ErrnoException).code;
-				if (code === 'ENOENT') return;
-				throw err;
-			}
-
-			const rewritten = rewriteImportsInContent(original, vendorPaths);
-			if (rewritten === original) return;
-
-			try {
-				await Bun.write(artifact.path, rewritten);
-			} catch (err) {
-				const code = (err as NodeJS.ErrnoException).code;
-				if (code === 'ENOENT') return;
-				throw err;
-			}
-		})
+		outputs
+			.filter(isReadableArtifact)
+			.map((artifact) =>
+				rewriteArtifact(artifact, resolveVendorPaths(artifact))
+			)
 	);
+};
+
+/** Apply the bare-specifier → vendor-URL rewrite to a single chunk of text. */
+export const rewriteImportsInContent = (
+	content: string,
+	vendorPaths: Record<string, string>
+) => {
+	if (Object.keys(vendorPaths).length === 0) return content;
+
+	return rewriteContentSpecifiers(
+		content,
+		compileSpecifierRewriter(vendorPaths),
+		{ sweep: false }
+	);
+};
+
+const listJsFiles = async (dir: string) => {
+	try {
+		const entries = await readdir(dir);
+
+		return entries
+			.filter((entry) => entry.endsWith('.js'))
+			.map((entry) => join(dir, entry));
+	} catch {
+		// missing dir is fine — that framework wasn't used
+		return [];
+	}
+};
+
+const rewriteVendorFile = async (
+	filePath: string,
+	vendorPaths: Record<string, string>
+) => {
+	const original = await readFileText(filePath);
+	if (original === undefined) return;
+
+	const next = fixMissingReExportNamespacesInContent(
+		rewriteImportsInContent(original, vendorPaths)
+	);
+	if (next === original) return;
+	await writeFileText(filePath, next);
 };
 
 /** Apply the rewrite + re-export fix to every .js file inside a list of
@@ -223,54 +267,10 @@ export const rewriteVendorDirectories = async (
 ) => {
 	if (Object.keys(vendorPaths).length === 0) return;
 
-	const allFiles: string[] = [];
-	for (const dir of vendorDirs) {
-		try {
-			const entries = await readdir(dir);
-			for (const entry of entries) {
-				if (entry.endsWith('.js')) allFiles.push(join(dir, entry));
-			}
-		} catch {
-			// missing dir is fine — that framework wasn't used
-		}
-	}
-
+	const fileLists = await Promise.all(vendorDirs.map(listJsFiles));
 	await Promise.all(
-		allFiles.map(async (filePath) => {
-			let original: string;
-			try {
-				original = await Bun.file(filePath).text();
-			} catch (err) {
-				const code = (err as NodeJS.ErrnoException).code;
-				if (code === 'ENOENT') return;
-				throw err;
-			}
-
-			let next = rewriteImportsInContent(original, vendorPaths);
-			next = fixMissingReExportNamespacesInContent(next);
-
-			if (next === original) return;
-			try {
-				await Bun.write(filePath, next);
-			} catch (err) {
-				const code = (err as NodeJS.ErrnoException).code;
-				if (code === 'ENOENT') return;
-				throw err;
-			}
-		})
+		fileLists
+			.flat()
+			.map((filePath) => rewriteVendorFile(filePath, vendorPaths))
 	);
-};
-
-/** Helper to wrap a `Bun.build` call so the rewrite happens in-pipeline.
- *  Use as: `const result = await buildWithImportRewrite(bunBuild(config), vendorPaths)`. */
-export const buildWithImportRewrite = async (
-	pendingBuild: Promise<BuildOutput>,
-	vendorPaths: Record<string, string>
-): Promise<BuildOutput> => {
-	const result = await pendingBuild;
-	if (result.outputs.length > 0) {
-		await rewriteBuildOutputs(result.outputs, vendorPaths);
-	}
-
-	return result;
 };

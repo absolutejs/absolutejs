@@ -1,5 +1,8 @@
 /** Native Zig import rewriter — 15x faster than JS regex on large files.
- *  Falls back to JS if the native addon isn't available (Windows, missing .so). */
+ *  Falls back to JS if the native addon isn't available (unsupported platform,
+ *  missing or unloadable binary). The load is attempted once per process and
+ *  the outcome memoised, so a missing addon never re-runs `dlopen` per file;
+ *  `describeNativeRewriteFallback` lets the build log the reason once. */
 
 import { dlopen, FFIType, ptr } from 'bun:ffi';
 import { platform, arch } from 'node:os';
@@ -21,39 +24,58 @@ const ffiDefinition = {
 
 type NativeLib = ReturnType<typeof dlopen<typeof ffiDefinition>>['symbols'];
 
-let nativeLib: NativeLib | null = null;
+type NativeLoadState = {
+	lib: NativeLib | null;
+	/** Why the addon is unavailable; `null` when it loaded. */
+	reason: string | null;
+};
+
+const platformMap: Record<string, string> = {
+	'darwin-arm64': 'darwin-arm64/fast_ops.dylib',
+	'darwin-x64': 'darwin-x64/fast_ops.dylib',
+	'linux-arm64': 'linux-arm64/fast_ops.so',
+	'linux-x64': 'linux-x64/fast_ops.so',
+	'win32-arm64': 'windows-arm64/fast_ops.dll',
+	'win32-x64': 'windows-x64/fast_ops.dll'
+};
+
+const platformKey = () => `${platform()}-${arch()}`;
+
+let loadState: NativeLoadState | undefined;
+
+const attemptLoad = () => {
+	const libPath = platformMap[platformKey()];
+	if (!libPath) {
+		return { lib: null, reason: 'no prebuilt fast_ops binary' };
+	}
+
+	const fullPath = resolve(
+		import.meta.dir,
+		'../../native/packages',
+		libPath
+	);
+	try {
+		return { lib: dlopen(fullPath, ffiDefinition).symbols, reason: null };
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+
+		return { lib: null, reason: `${fullPath}: ${message}` };
+	}
+};
 
 const loadNative = () => {
-	if (nativeLib !== null) return nativeLib;
+	loadState ??= attemptLoad();
 
-	const osPlatform = platform();
-	const cpu = arch();
+	return loadState;
+};
 
-	const platformMap: Record<string, string> = {
-		'darwin-arm64': 'darwin-arm64/fast_ops.dylib',
-		'darwin-x64': 'darwin-x64/fast_ops.dylib',
-		'linux-arm64': 'linux-arm64/fast_ops.so',
-		'linux-x64': 'linux-x64/fast_ops.so',
-		'win32-arm64': 'windows-arm64/fast_ops.dll',
-		'win32-x64': 'windows-x64/fast_ops.dll'
-	};
+/** `null` when the native scanner is loaded; otherwise a one-line reason
+ *  naming the platform/arch, for the build to log at warn level. */
+export const describeNativeRewriteFallback = () => {
+	const { reason } = loadNative();
+	if (reason === null) return null;
 
-	const libPath = platformMap[`${osPlatform}-${cpu}`];
-	if (!libPath) return null;
-
-	try {
-		const fullPath = resolve(
-			import.meta.dir,
-			'../../native/packages',
-			libPath
-		);
-		const lib = dlopen(fullPath, ffiDefinition);
-		nativeLib = lib.symbols;
-
-		return nativeLib;
-	} catch {
-		return null;
-	}
+	return `native import rewriter unavailable on ${platformKey()} (${reason}); using the JavaScript fallback`;
 };
 
 /** Rewrite import specifiers in a string using the native Zig scanner.
@@ -62,7 +84,7 @@ export const nativeRewriteImports = (
 	content: string,
 	replacements: [string, string][]
 ) => {
-	const lib = loadNative();
+	const { lib } = loadNative();
 	if (!lib) return null;
 
 	// Format replacements as JSON array of [specifier, webPath] pairs
