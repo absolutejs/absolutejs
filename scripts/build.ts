@@ -404,6 +404,22 @@ const build = async () => {
 		process.exit(1);
 	}
 
+	// Build worker pool entry (`src/build/workerPool.ts`). Resolved at
+	// runtime as `dist/build/buildWorker.js` in the published package —
+	// keep the output path in step with `resolveBuildWorkerEntry`.
+	console.log('Building build worker...');
+	const buildWorkerBuild = await Bun.build({
+		entrypoints: ['src/build/buildWorker.ts'],
+		external: EXTERNALS,
+		outdir: join(DIST, 'build'),
+		target: 'bun'
+	});
+	if (!buildWorkerBuild.success) {
+		console.error('Build worker build failed:');
+		for (const log of buildWorkerBuild.logs) console.error(log);
+		process.exit(1);
+	}
+
 	console.log('Building dev server bootstrap...');
 	const serverBootstrapBuild = await Bun.build({
 		entrypoints: ['src/dev/serverBootstrap.ts'],
@@ -1096,6 +1112,18 @@ const verifyExports = async () => {
 		const mainFile = Bun.file(mainPath);
 		if (!(await mainFile.exists())) missing.push(`main → ${pkg.main}`);
 	}
+
+	// Runtime-resolved entries that no `exports` key covers.
+	await runSequentially(
+		[
+			join(DIST, 'build', 'buildWorker.js'),
+			join(DIST, 'dev', 'serverBootstrap.js')
+		],
+		async (entryPath) => {
+			if (!(await Bun.file(entryPath).exists()))
+				missing.push(`runtime entry → ${entryPath}`);
+		}
+	);
 
 	if (missing.length > 0) {
 		console.error('\nExport verification failed! Missing files:');

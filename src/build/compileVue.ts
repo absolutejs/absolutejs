@@ -1,5 +1,5 @@
 import { BASE_36_RADIX } from '../constants';
-import { existsSync, readFileSync, realpathSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import {
 	basename,
@@ -17,18 +17,18 @@ import type {
 	parse as ParseFn
 } from '@vue/compiler-sfc';
 import { file, write, Transpiler } from 'bun';
+import type {
+	VueSfcCompileInput,
+	VueSfcCompileOutput
+} from '../../types/workerPool';
 import { toKebab } from '../utils/stringModifiers';
 import { loadVueCompiler } from '../utils/vueCompiler';
 import { getFrameworkGeneratedDir } from '../utils/generatedDir';
 import { resolvePackageImport } from './resolvePackageImport';
-import { buildIslandMetadataExports } from '../islands/sourceMetadata';
 import { parseVueSpaRoutes, type ParsedVueSpaRoute } from './parseVueSpaRoutes';
-import {
-	buildLineRemap,
-	inlineLineMapComment,
-	remapGeneratedLines
-} from './chainInlineSourcemaps';
+import { inlineLineMapComment } from './chainInlineSourcemaps';
 import { addAutoRouterSetupApp } from './vueAutoRouterTransform';
+import { getBuildWorkerPool } from './workerPool';
 import {
 	addStyleImporter,
 	compileStyleSource,
@@ -36,7 +36,6 @@ import {
 } from './stylePreprocessor';
 import type { StylePreprocessorConfig } from '../../types/build';
 import {
-	hashContent,
 	hashParts,
 	readVueCompileCacheEntry,
 	vueCompileCacheEnabled,
@@ -200,34 +199,6 @@ const extractImports = (sourceCode: string) => {
 	);
 };
 
-// Inline `@import "rel.css"` / `@import url("rel.css")` statements in a
-// Vue <style> block by reading the referenced file and embedding its
-// contents. Done before compileStyle so the scoped-class hashing
-// applies uniformly across imported content, and so the concatenated
-// bundle has no `@import` rules to keep in spec-required order. Bare
-// (non-relative) imports are preserved — those resolve through the
-// regular CSS loader chain.
-const inlineCssImports = (
-	cssContent: string,
-	cssFilePath: string,
-	visited: Set<string> = new Set()
-): string => {
-	const resolved = realpathSync(cssFilePath);
-	if (visited.has(resolved)) return '';
-	visited.add(resolved);
-
-	const importRegex =
-		/@import\s+(?:url\(\s*)?(['"])(\.{1,2}\/[^'"]+)\1\s*\)?\s*;?/g;
-
-	return cssContent.replace(importRegex, (match, _quote, relPath) => {
-		const importedPath = resolve(dirname(cssFilePath), relPath);
-		if (!existsSync(importedPath)) return match;
-		const importedContent = readFileSync(importedPath, 'utf-8');
-
-		return inlineCssImports(importedContent, importedPath, visited);
-	});
-};
-
 // Resolve a relative .ts helper import to an actual file path. Mirrors
 // node's resolution: if `<dir>/<helper>.ts` doesn't exist, try
 // `<dir>/<helper>/index.ts` so callers can import a directory module.
@@ -241,115 +212,6 @@ const resolveHelperTsPath = (sourceDir: string, helper: string) => {
 	return direct;
 };
 
-const toJs = (filePath: string, sourceDir?: string) => {
-	if (filePath.endsWith('.vue')) return filePath.replace(/\.vue$/, '.js');
-	if (filePath.endsWith('.ts')) return filePath.replace(/\.ts$/, '.js');
-	// Style imports (.css / .module.scss / .less / .styl / etc.) keep their
-	// original extension — the bun-side style preprocessor plugin loads them
-	// directly. Appending `.js` would break the resolver and the build.
-	//
-	// We also rewrite relative style imports to absolute paths so they
-	// resolve correctly: the compiled .js lives in `generated/{mode}/...`
-	// (a different directory tree than the source), and a bare `./foo.scss`
-	// would point to the wrong location once the bundler runs from the
-	// output directory.
-	if (isStylePath(filePath)) {
-		if (
-			sourceDir &&
-			(filePath.startsWith('./') || filePath.startsWith('../'))
-		) {
-			return resolve(sourceDir, filePath);
-		}
-
-		return filePath;
-	}
-
-	// Bare relative import without extension — could be a `.ts` file or a
-	// directory with `index.ts`. Probe the filesystem so callers can write
-	// `import x from "../state"` against a `state/index.ts` directory module.
-	if (
-		sourceDir &&
-		(filePath.startsWith('./') || filePath.startsWith('../'))
-	) {
-		const directTs = resolve(sourceDir, `${filePath}.ts`);
-		if (existsSync(directTs)) return `${filePath}.js`;
-		const indexedTs = resolve(sourceDir, filePath, 'index.ts');
-		if (existsSync(indexedTs)) return `${filePath}/index.js`;
-	}
-
-	return `${filePath}.js`;
-};
-
-const stripExports = (code: string) =>
-	// Only strip `export default ...` (the SFC script object) — `assembleModule`
-	// re-emits `export default script` at the end. User-defined named exports
-	// from a plain `<script>` block (e.g. `export const setupApp = ...` for
-	// vue-router cooperation) MUST be preserved so the auto-generated client
-	// index can import them via `import * as PageModule`.
-	code.replace(/export\s+default/, 'const script =');
-
-const mergeVueImports = (code: string) => {
-	const lines = code.split('\n');
-	const specifierSet = new Set<string>();
-	const vueImportRegex = /^import\s+{([^}]+)}\s+from\s+['"]vue['"];?$/;
-
-	lines.forEach((line) => {
-		const match = line.match(vueImportRegex);
-		if (match?.[1])
-			match[1]
-				.split(',')
-				.forEach((importSpecifier) =>
-					specifierSet.add(importSpecifier.trim())
-				);
-	});
-
-	const nonVueLines = lines.filter((line) => !vueImportRegex.test(line));
-
-	return specifierSet.size
-		? [
-				`import { ${[...specifierSet].join(', ')} } from "vue";`,
-				...nonVueLines
-			].join('\n')
-		: nonVueLines.join('\n');
-};
-
-const wrapServerAsyncComponentLoader = (code: string) => {
-	const vueImportRegex = /import\s+\{([^}]+)\}\s+from\s+['"]vue['"];?/;
-	const match = code.match(vueImportRegex);
-	if (!match?.[1]) return code;
-
-	const specifiers = match[1].split(',').map((specifier) => specifier.trim());
-	const asyncComponentIndex = specifiers.findIndex((specifier) =>
-		/^defineAsyncComponent(?:\s+as\s+[A-Za-z_$][\w$]*)?$/.test(specifier)
-	);
-	if (asyncComponentIndex === -1) return code;
-
-	const asyncComponentSpecifier = specifiers[asyncComponentIndex] ?? '';
-	const localName =
-		asyncComponentSpecifier.match(/\s+as\s+([A-Za-z_$][\w$]*)$/)?.[1] ??
-		'defineAsyncComponent';
-	const importedName = '__absoluteDefineAsyncComponent';
-	specifiers[asyncComponentIndex] = `defineAsyncComponent as ${importedName}`;
-
-	const wrapper = `
-const __absoluteResolveAsyncVueComponent = async (loader) => {
-  const loaded = await loader();
-  return loaded && typeof loaded === "object" && "default" in loaded
-    ? loaded.default
-    : loaded;
-};
-const ${localName} = (source) => ${importedName}(
-  typeof source === "function"
-    ? () => __absoluteResolveAsyncVueComponent(source)
-    : { ...source, loader: () => __absoluteResolveAsyncVueComponent(source.loader) },
-);`;
-
-	return code.replace(
-		vueImportRegex,
-		`import { ${specifiers.join(', ')} } from 'vue';${wrapper}`
-	);
-};
-
 type VueCompiler = {
 	parse: typeof ParseFn;
 	compileScript: typeof CompileScriptFn;
@@ -357,6 +219,30 @@ type VueCompiler = {
 	compileStyle: typeof CompileStyleFn;
 	/** `@vue/compiler-sfc` version — part of the compile-cache key. */
 	version?: string;
+};
+
+/** Runs the pure per-SFC compile (`compileVueSfc`) — on a build worker
+ *  or inline; decided once per `compileVue` call (see `selectSfcRunner`). */
+type SfcRunner = (input: VueSfcCompileInput) => Promise<VueSfcCompileOutput>;
+
+/** Batches below the pool's threshold (a single HMR edit) compile on the
+ *  main thread; a cold dev boot or `absolute build` fans the SFCs out
+ *  across the worker pool. Jobs carry the source directory as affinity
+ *  so a worker keeps seeing the same imported-type files. */
+const selectSfcRunner = (entryCount: number) => {
+	const pool = getBuildWorkerPool();
+	const inline = !pool.shouldUse(entryCount);
+	// Each worker's first job would otherwise pay the ~1s
+	// `@vue/compiler-sfc` + `typescript` load; start that now so it
+	// overlaps the main thread's own compiler load and entry scan.
+	if (!inline) pool.warm('vue-sfc');
+	const runSfc: SfcRunner = (input) =>
+		pool.run('vue-sfc', input, {
+			affinity: dirname(input.sourceFilePath),
+			inline
+		});
+
+	return runSfc;
 };
 
 // addAutoRouterSetupApp moved to ./vueAutoRouterTransform — shared
@@ -382,7 +268,11 @@ const currentVueCompileFingerprint = (
 	vueRootDir: string,
 	stylePreprocessors: StylePreprocessorConfig | undefined
 ) => {
-	const memoKey = JSON.stringify([outputDirs, vueRootDir, stylePreprocessors]);
+	const memoKey = JSON.stringify([
+		outputDirs,
+		vueRootDir,
+		stylePreprocessors
+	]);
 	const memoised = fingerprintCache.get(memoKey);
 	if (memoised !== undefined) return memoised;
 	const fingerprint = vueCompileCacheFingerprint({
@@ -431,34 +321,116 @@ const materialiseVueCompileCacheEntry = async (
 	fileBaseName: string
 ): Promise<BuildResult> => {
 	const { result } = entry;
-	await mkdir(dirname(result.clientPath), { recursive: true });
-	await mkdir(dirname(result.serverPath), { recursive: true });
-	await write(result.clientPath, entry.clientCode);
-	await write(result.serverPath, entry.serverCode);
-	if (isEntryPoint && result.cssCodes.length > 0) {
-		const cssOutputFile = join(
-			outputDirs.css,
-			`${toKebab(fileBaseName)}-compiled.css`
-		);
-		await mkdir(dirname(cssOutputFile), { recursive: true });
-		await write(cssOutputFile, result.cssCodes.join('\n'));
-	}
+	const cssOutputFile =
+		isEntryPoint && result.cssCodes.length > 0
+			? join(outputDirs.css, `${toKebab(fileBaseName)}-compiled.css`)
+			: null;
+	trackWrite(
+		writeVueOutputs({
+			clientCode: entry.clientCode,
+			clientPath: result.clientPath,
+			css: cssOutputFile
+				? { code: result.cssCodes.join('\n'), path: cssOutputFile }
+				: null,
+			serverCode: entry.serverCode,
+			serverPath: result.serverPath
+		})
+	);
 
 	return { ...result, cacheKey };
+};
+
+/** Per-`compileVue` memo: a settled `BuildResult`, or the in-flight
+ *  compile of a component that several parents import. Without the
+ *  in-flight entry every parent that reaches a shared child before the
+ *  first compile finishes starts its own (identical) compile — on a
+ *  400-SFC app that was ~3x the necessary work. */
+type CompileMemo = Map<string, BuildResult | Promise<BuildResult>>;
+
+/** Output and compile-cache writes in flight. A component's result
+ *  (paths, CSS) is known before its files hit disk, so the writes are
+ *  started and tracked rather than awaited on the spot — otherwise every
+ *  child → parent hand-off waits several filesystem round trips while the
+ *  worker pool sits idle. `compileVue` drains the set before returning,
+ *  so nothing downstream (bundling, the next process's cache) ever
+ *  observes a partial write. */
+const pendingWrites = new Set<Promise<void>>();
+const trackWrite = (writeOperation: Promise<void>) => {
+	const tracked: Promise<void> = writeOperation.finally(() =>
+		pendingWrites.delete(tracked)
+	);
+	pendingWrites.add(tracked);
+};
+
+type VueOutputFiles = {
+	clientCode: string;
+	clientPath: string;
+	/** Entry CSS file — `null` for child components. */
+	css: { code: string; path: string } | null;
+	serverCode: string;
+	serverPath: string;
+};
+
+const writeVueOutputs = async ({
+	clientCode,
+	clientPath,
+	css,
+	serverCode,
+	serverPath
+}: VueOutputFiles) => {
+	await Promise.all([
+		mkdir(dirname(clientPath), { recursive: true }),
+		mkdir(dirname(serverPath), { recursive: true }),
+		...(css ? [mkdir(dirname(css.path), { recursive: true })] : [])
+	]);
+	await Promise.all([
+		write(clientPath, clientCode),
+		write(serverPath, serverCode),
+		...(css ? [write(css.path, css.code)] : [])
+	]);
 };
 
 const compileVueFile = async (
 	sourceFilePath: string,
 	outputDirs: { client: string; server: string; css: string },
-	cacheMap: Map<string, BuildResult>,
+	cacheMap: CompileMemo,
 	isEntryPoint: boolean,
 	vueRootDir: string,
 	compiler: VueCompiler,
+	runSfc: SfcRunner,
 	stylePreprocessors?: StylePreprocessorConfig
 ) => {
-	const cachedResult = cacheMap.get(sourceFilePath);
-	if (cachedResult) return cachedResult;
+	const memoised = cacheMap.get(sourceFilePath);
+	if (memoised) return memoised;
+	const compilation = compileVueFileUncached(
+		sourceFilePath,
+		outputDirs,
+		cacheMap,
+		isEntryPoint,
+		vueRootDir,
+		compiler,
+		runSfc,
+		stylePreprocessors
+	);
+	cacheMap.set(sourceFilePath, compilation);
+	try {
+		return await compilation;
+	} catch (error) {
+		cacheMap.delete(sourceFilePath);
+		throw error;
+	}
+};
 
+const compileVueFileUncached = async (
+	sourceFilePath: string,
+	outputDirs: { client: string; server: string; css: string },
+	cacheMap: CompileMemo,
+	isEntryPoint: boolean,
+	vueRootDir: string,
+	compiler: VueCompiler,
+	runSfc: SfcRunner,
+	stylePreprocessors?: StylePreprocessorConfig
+) => {
 	const relativeFilePath = relative(vueRootDir, sourceFilePath).replace(
 		/\\/g,
 		'/'
@@ -474,7 +446,6 @@ const compileVueFile = async (
 	const sourceContent = isEntryPoint
 		? addAutoRouterSetupApp(rawSourceContent)
 		: rawSourceContent;
-	const islandMetadataExports = buildIslandMetadataExports(sourceContent);
 
 	// Check persistent cache — skip recompilation if source unchanged AND
 	// the compiled outputs still exist on disk. The disk check matters
@@ -586,6 +557,7 @@ const compileVueFile = async (
 				false,
 				vueRootDir,
 				compiler,
+				runSfc,
 				stylePreprocessors
 			)
 		),
@@ -597,6 +569,7 @@ const compileVueFile = async (
 				false,
 				vueRootDir,
 				compiler,
+				runSfc,
 				stylePreprocessors
 			)
 		)
@@ -620,7 +593,6 @@ const compileVueFile = async (
 		isEntryPoint,
 		relativeWithoutExtension
 	});
-	const typeDepHashes: Record<string, string> = {};
 	if (cacheKey) {
 		const restored = readVueCompileCacheEntry(sourceFilePath, cacheKey);
 		if (restored) {
@@ -638,187 +610,6 @@ const compileVueFile = async (
 		}
 	}
 
-	const hasScript = descriptor.script || descriptor.scriptSetup;
-	// Vue's compileScript falls back to `typescript.sys` for filesystem
-	// access when resolving cross-file type references in
-	// `defineProps<ImportedType>()`. That fallback is dynamic-required
-	// inside @vue/compiler-sfc and isn't always loaded under Bun, so
-	// pass an explicit fs adapter — without it any page that uses an
-	// imported type as its props alias errors with
-	// "No fs option provided to compileScript in non-Node environment".
-	const compiledScript = hasScript
-		? compiler.compileScript(descriptor, {
-				fs: {
-					fileExists: existsSync,
-					readFile: (file) => {
-						if (!existsSync(file)) return undefined;
-						const content = readFileSync(file, 'utf-8');
-						// Anything read here shapes the output (imported
-						// prop/emit types), so the cache re-verifies it.
-						typeDepHashes[file] = hashContent(content);
-
-						return content;
-					},
-					realpath: realpathSync
-				},
-				id: componentId,
-				inlineTemplate: false,
-				sourceMap: true
-			})
-		: { bindings: {}, content: 'export default {};', map: undefined };
-	// `deps` lists every file the script's imported types were resolved
-	// from. Vue caches those scopes in-process, so the fs adapter above
-	// only observes the first read — `deps` is the authoritative list.
-	const typeDependencies =
-		'deps' in compiledScript ? (compiledScript.deps ?? []) : [];
-	for (const dep of typeDependencies) {
-		if (dep in typeDepHashes || !existsSync(dep)) continue;
-		typeDepHashes[dep] = hashContent(readFileSync(dep, 'utf-8'));
-	}
-	const strippedScript = stripExports(compiledScript.content);
-	const sourceDir = dirname(sourceFilePath);
-	const transpiledScript = transpiler
-		.transformSync(strippedScript)
-		.replace(
-			/(['"])(\.{1,2}\/[^'"]+)(['"])/g,
-			(_, quoteStart, relativeImport, quoteEnd) =>
-				`${quoteStart}${toJs(relativeImport, sourceDir)}${quoteEnd}`
-		);
-
-	// Build rewrite map for bare module .vue imports → compiled output paths
-	const packageImportRewrites = new Map<
-		string,
-		{ client: string; server: string }
-	>();
-	for (const [bareImport, absolutePath] of packageComponentPaths) {
-		const childResult = cacheMap.get(absolutePath);
-		if (!childResult) continue;
-
-		packageImportRewrites.set(bareImport, {
-			client: childResult.clientPath,
-			server: childResult.serverPath
-		});
-	}
-
-	const generateRenderFunction = (ssr: boolean) => {
-		const rendered = compiler.compileTemplate({
-			compilerOptions: {
-				bindingMetadata: compiledScript.bindings,
-				expressionPlugins: ['typescript'],
-				isCustomElement: (tag) => tag === 'absolute-island',
-				prefixIdentifiers: true
-			},
-			filename: sourceFilePath,
-			id: componentId,
-			scoped: descriptor.styles.some((styleBlock) => styleBlock.scoped),
-			source: descriptor.template?.content ?? '',
-			ssr,
-			ssrCssVars: descriptor.cssVars
-		}).code;
-
-		// `expressionPlugins: ['typescript']` lets compileTemplate accept
-		// TS syntax inside template bindings (e.g. `($event.target as
-		// HTMLInputElement).value`) but it doesn't strip the assertions
-		// from the emitted render code, so the cast leaks into the JS
-		// output and Bun's bundler parses it as a syntax error. Run the
-		// render output through Bun's TS transpiler before path rewriting.
-		return transpiler
-			.transformSync(rendered)
-			.replace(
-				/(['"])(\.{1,2}\/[^'"]+)(['"])/g,
-				(_, quoteStart, relativeImport, quoteEnd) =>
-					`${quoteStart}${toJs(relativeImport, sourceDir)}${quoteEnd}`
-			);
-	};
-
-	const localCss = await Promise.all(
-		descriptor.styles.map(async (styleBlock) => {
-			const rawContent = styleBlock.lang
-				? await compileStyleSource(
-						sourceFilePath,
-						styleBlock.content,
-						styleBlock.lang,
-						stylePreprocessors
-					)
-				: styleBlock.content;
-
-			return compiler.compileStyle({
-				filename: sourceFilePath,
-				id: componentId,
-				scoped: styleBlock.scoped,
-				source: inlineCssImports(rawContent, sourceFilePath),
-				trim: true
-			}).code;
-		})
-	);
-	const allCss = [
-		...localCss,
-		...childBuildResults.flatMap((result) => result.cssCodes)
-	];
-
-	let cssOutputPaths: string[] = [];
-	if (isEntryPoint && allCss.length) {
-		const cssOutputFile = join(
-			outputDirs.css,
-			`${toKebab(fileBaseName)}-compiled.css`
-		);
-		await mkdir(dirname(cssOutputFile), { recursive: true });
-		await write(cssOutputFile, allCss.join('\n'));
-		cssOutputPaths = [cssOutputFile];
-	}
-
-	const assembleModule = (
-		renderCode: string,
-		renderFnName: 'render' | 'ssrRender',
-		includeHmr: boolean
-	) => {
-		const hasScoped = descriptor.styles.some(
-			(styleBlock) => styleBlock.scoped
-		);
-
-		// __scopeId is required for Vue runtime to add scoped style attributes to dynamic elements
-		// Without this, scoped styles only work on static VNodes that have the attribute baked in
-		const scopeIdCode = hasScoped
-			? `script.__scopeId = "data-v-${componentId}";`
-			: '';
-
-		// For client bundles, inject HMR registration code that uses Vue's native __VUE_HMR_RUNTIME__
-		// This enables state-preserving hot updates via rerender() for template changes
-		// and reload() for script changes
-		const hmrCode = includeHmr
-			? `
-// Vue Native HMR Registration
-script.__hmrId = ${JSON.stringify(hmrId)};
-if (typeof __VUE_HMR_RUNTIME__ !== 'undefined') {
-  __VUE_HMR_RUNTIME__.createRecord(script.__hmrId, script);
-  if (typeof window !== 'undefined') {
-    window.__VUE_HMR_COMPONENTS__ = window.__VUE_HMR_COMPONENTS__ || {};
-    window.__VUE_HMR_COMPONENTS__[script.__hmrId] = script;
-  }
-}`
-			: '';
-
-		return mergeVueImports(
-			[
-				transpiledScript,
-				renderCode,
-				`script.${renderFnName} = ${renderFnName};`,
-				scopeIdCode,
-				hmrCode,
-				'export default script;'
-			].join('\n')
-		);
-	};
-
-	// Client bundles include HMR registration code; server bundles do not
-	const clientCode =
-		assembleModule(generateRenderFunction(false), 'render', true) +
-		islandMetadataExports;
-	const serverCode =
-		wrapServerAsyncComponentLoader(
-			assembleModule(generateRenderFunction(true), 'ssrRender', false)
-		) + islandMetadataExports;
-
 	const clientOutputPath = join(
 		outputDirs.client,
 		`${relativeWithoutExtension}.js`
@@ -828,66 +619,70 @@ if (typeof __VUE_HMR_RUNTIME__ !== 'undefined') {
 		`${relativeWithoutExtension}.js`
 	);
 
-	// Rewrite bare module imports to relative paths pointing at compiled output
-	const rewritePackageImports = (
-		code: string,
-		outputPath: string,
-		mode: 'client' | 'server'
-	) => {
-		let result = code;
-		for (const [bareImport, paths] of packageImportRewrites) {
-			const targetPath = mode === 'server' ? paths.server : paths.client;
-			let rel = relative(dirname(outputPath), targetPath).replace(
-				/\\/g,
-				'/'
-			);
-			if (!rel.startsWith('.')) rel = `./${rel}`;
-			result = result.replaceAll(bareImport, rel);
-		}
-
-		return result;
-	};
-
-	await mkdir(dirname(clientOutputPath), { recursive: true });
-	await mkdir(dirname(serverOutputPath), { recursive: true });
-
-	const clientFinal = rewritePackageImports(
-		clientCode,
-		clientOutputPath,
-		'client'
-	);
-	const serverFinal = rewritePackageImports(
-		serverCode,
-		serverOutputPath,
-		'server'
+	// Preprocessor `<style lang>` blocks compile here, not on a worker:
+	// `compileStyleSource` records the partials it read on the dev
+	// server's style dependency graph, and its config may hold functions
+	// (custom sass importers) that cannot cross a thread boundary.
+	const styleSources = await Promise.all(
+		descriptor.styles.map((styleBlock) =>
+			styleBlock.lang
+				? compileStyleSource(
+						sourceFilePath,
+						styleBlock.content,
+						styleBlock.lang,
+						stylePreprocessors
+					)
+				: Promise.resolve(styleBlock.content)
+		)
 	);
 
-	// Inline sourcemap: chain compileScript's map (compileScript-line
-	// → .vue line) through a content-derived line remap that captures
-	// every later non-line-preserving transform (Bun.Transpiler blank-
-	// line drops, mergeVueImports consolidation, etc.). Bun.build then
-	// composes this through to the final hashed bundle when invoked
-	// with `sourcemap: 'inline'`, and `chainBundleInlineSourcemap`
-	// stitches Bun.build's output map onto this one because Bun.build
-	// itself doesn't chain through input inline sourcemaps yet
-	// (docs/BUN_SOURCEMAP_CHAIN_BUG.md).
-	const inlineSourceMapFor = (finalContent: string) => {
-		if (!compiledScript.map || !hasScript) return '';
-		const remap = buildLineRemap(strippedScript, finalContent);
-		const mappings = remapGeneratedLines(
-			compiledScript.map.mappings,
-			remap
-		);
-		const map = { ...compiledScript.map, mappings };
-		return `\n//# sourceMappingURL=data:application/json;base64,${Buffer.from(
-			JSON.stringify(map)
-		).toString('base64')}\n`;
-	};
+	// Bare module .vue imports → compiled output paths. The package
+	// children follow the relative children in `childBuildResults`.
+	const packageImportRewrites: VueSfcCompileInput['packageImportRewrites'] =
+		[];
+	packageComponentPaths.forEach(([bareImport], index) => {
+		const childResult =
+			childBuildResults[childComponentPaths.length + index];
+		if (!childResult) return;
+		packageImportRewrites.push([
+			bareImport,
+			{ client: childResult.clientPath, server: childResult.serverPath }
+		]);
+	});
 
-	const clientOutput = clientFinal + inlineSourceMapFor(clientFinal);
-	const serverOutput = serverFinal + inlineSourceMapFor(serverFinal);
-	await write(clientOutputPath, clientOutput);
-	await write(serverOutputPath, serverOutput);
+	const { clientOutput, localCss, serverOutput, typeDepHashes } =
+		await runSfc({
+			clientOutputPath,
+			componentId,
+			hmrId,
+			packageImportRewrites,
+			serverOutputPath,
+			sourceContent,
+			sourceFilePath,
+			styleSources
+		});
+
+	const allCss = [
+		...localCss,
+		...childBuildResults.flatMap((result) => result.cssCodes)
+	];
+
+	const cssOutputFile =
+		isEntryPoint && allCss.length
+			? join(outputDirs.css, `${toKebab(fileBaseName)}-compiled.css`)
+			: null;
+	const cssOutputPaths = cssOutputFile ? [cssOutputFile] : [];
+	trackWrite(
+		writeVueOutputs({
+			clientCode: clientOutput,
+			clientPath: clientOutputPath,
+			css: cssOutputFile
+				? { code: allCss.join('\n'), path: cssOutputFile }
+				: null,
+			serverCode: serverOutput,
+			serverPath: serverOutputPath
+		})
+	);
 
 	const cacheableResult: VueCompileCacheEntry['result'] = {
 		clientPath: clientOutputPath,
@@ -908,13 +703,15 @@ if (typeof __VUE_HMR_RUNTIME__ !== 'undefined') {
 	cacheMap.set(sourceFilePath, result);
 	persistentBuildCache.set(sourceFilePath, result);
 	if (cacheKey) {
-		writeVueCompileCacheEntry(sourceFilePath, {
-			clientCode: clientOutput,
-			key: cacheKey,
-			result: cacheableResult,
-			serverCode: serverOutput,
-			typeDeps: typeDepHashes
-		});
+		trackWrite(
+			writeVueCompileCacheEntry(sourceFilePath, {
+				clientCode: clientOutput,
+				key: cacheKey,
+				result: cacheableResult,
+				serverCode: serverOutput,
+				typeDeps: typeDepHashes
+			})
+		);
 	}
 
 	return result;
@@ -927,6 +724,7 @@ export const compileVue = async (
 	stylePreprocessors?: StylePreprocessorConfig,
 	ssrOnlyEntries?: ReadonlySet<string>
 ) => {
+	const runSfc = selectSfcRunner(entryPoints.length);
 	const compiler: VueCompiler = await loadVueCompiler();
 
 	// Generated output lives at <projectRoot>/.absolutejs/generated/vue/.
@@ -944,7 +742,7 @@ export const compileVue = async (
 		mkdir(cssOutputDir, { recursive: true })
 	]);
 
-	const buildCache = new Map<string, BuildResult>();
+	const buildCache: CompileMemo = new Map();
 	const allTsHelperPaths = new Set<string>();
 
 	// SPA entries lazily import sibling route pages (`component: () =>
@@ -998,6 +796,7 @@ export const compileVue = async (
 				true,
 				vueRootDir,
 				compiler,
+				runSfc,
 				stylePreprocessors
 			);
 
@@ -1255,6 +1054,8 @@ export const compileVue = async (
 			await write(outServerPath, withMap);
 		})
 	);
+
+	await Promise.all(pendingWrites);
 
 	const isString = (value: string | null): value is string => value !== null;
 
