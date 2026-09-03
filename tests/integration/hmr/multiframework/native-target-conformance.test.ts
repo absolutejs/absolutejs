@@ -16,6 +16,7 @@ const PROJECT_ROOT = resolve(import.meta.dir, '..', '..', '..', '..');
 const NATIVE_TARGET = '__absolute_target=capacitor-android';
 const MAX_NATIVE_APPLY_MS = 2_000;
 const NATIVE_HMR_CONVERGENCE_TIMEOUT_MS = 60_000;
+const NATIVE_BROWSER_ATTEMPTS = 5;
 const SVELTE_COUNTER = resolve(
 	PROJECT_ROOT,
 	'example/svelte/components/Counter.svelte'
@@ -43,6 +44,11 @@ afterEach(async () => {
 	restoreAllFiles();
 	await server?.kill();
 	server = undefined;
+	// This file intentionally creates a fresh browser and dev server for every
+	// framework. Let their child-process resources drain before starting the
+	// next timing-sensitive native HMR measurement.
+	Bun.gc(true);
+	await Bun.sleep(250);
 }, 150_000);
 
 const startConformanceServer = async () => {
@@ -92,7 +98,7 @@ const withNativePage = async (
 		page: Awaited<ReturnType<typeof openPage>>['page']
 	) => Promise<void>
 ) => {
-	for (let attempt = 0; attempt < 3; attempt++) {
+	for (let attempt = 0; attempt < NATIVE_BROWSER_ATTEMPTS; attempt++) {
 		let actionStarted = false;
 		try {
 			await closeSession();
@@ -145,7 +151,7 @@ const withNativePage = async (
 			const serverNotReady =
 				!actionStarted && /net::ERR_CONNECTION_REFUSED/iu.test(message);
 			if (
-				attempt >= 2 ||
+				attempt >= NATIVE_BROWSER_ATTEMPTS - 1 ||
 				(!browserClosed &&
 					!readinessTimeout &&
 					!browserLaunchUnavailable &&
@@ -165,7 +171,11 @@ const withNativePage = async (
 				await server?.kill();
 				server = await startConformanceServer();
 			}
-			await Bun.sleep(100);
+			// The aggregate suite deliberately runs hundreds of browser/server
+			// lifecycles. Under memory pressure Chromium can be reclaimed after a
+			// page becomes ready; give the replacement process time to settle
+			// instead of immediately repeating the same resource spike.
+			await Bun.sleep(500 * (attempt + 1));
 		}
 	}
 };

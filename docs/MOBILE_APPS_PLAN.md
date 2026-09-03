@@ -2,6 +2,21 @@
 
 Status: Capacitor Android development/release, all-framework embedded bundles, universal native Auth/Sync, Expo hybrid native Auth/Sync, background Sync, automatic device provisioning, provider-neutral native push registration, signed staged Capacitor updates, end-to-end RSA-signed self-hosted Expo production updates, and Android conformance are operational; iOS development/release automation is shipped and awaiting real macOS/physical-device acceptance
 
+Implementation checkpoint (September 3, 2026, Expo Android host bridge and
+native observability acceptance): Expo Android development now works from WSL
+without asking developers to edit or build inside generated native code.
+AbsoluteJS mirrors only source inputs into a Windows-local managed cache, uses a
+temporary short drive for React Native New Architecture codegen/CMake, preserves
+Gradle/C++ caches, builds only the emulator's x86_64 ABI, forwards the managed
+Metro port, and cold-restarts the development client on an unambiguous localhost
+URL. A scoped Node hook prevents Expo autolinking from resolving the short drive
+back to a long mixed-root path. The real API 36 gate compiles the generated Expo
+Kotlin module, injects a debug-only one-shot Java crash, proves 503 retention,
+retries the same diagnostic after relaunch, acknowledges a 202, and proves no
+third duplicate. Run it from the AbsoluteJS repository root with
+`bun run test:native:expo:android:observability`; it writes only a sanitized
+result artifact below `.absolutejs/expo-android-observability-conformance`.
+
 Implementation checkpoint (September 2, 2026, all-framework compatibility
 retention): the generated compatibility pipeline now has four-generation
 conformance across React, Vue, Svelte, Angular, HTML, and HTMX. The test compiles
@@ -1702,6 +1717,21 @@ and explicitly supplies `ANDROID_HOME`/`ANDROID_SDK_ROOT` inside PowerShell. The
 developer's committed native tree remains the source of truth and is never rewritten
 to Windows paths.
 
+Expo uses the same host ownership principle but cannot reuse Capacitor's Gradle
+broker. From WSL, AbsoluteJS regenerates CNG in the Linux source tree, mirrors
+that tree into its Windows-local Expo cache, installs a separate Windows Bun
+dependency tree, and executes Expo's native launcher from a temporary short
+drive. The short drive is required by Windows Ninja path limits; the scoped
+realpath adapter is required because Expo autolinking otherwise mixes the short
+drive with its physical `C:` cache path. Native output, `.cxx`, Kotlin, Gradle,
+and dependency caches remain in the managed mirror. After Expo installs the APK,
+AbsoluteJS discards Expo CLI's default LAN launch, establishes `adb reverse`,
+force-stops the development client, and opens the actual managed Metro URL on
+`localhost`. Local macOS/Linux/Windows Android sessions perform the same
+reverse/reset/open sequence without the mirror. No administrator setting,
+manual `android/` edit, disabled New Architecture, or application code change is
+required.
+
 The same acceptance run installed and cold-booted the managed API 36 AVD with WHPX,
 built 93 Gradle tasks, installed and launched a real debug APK, and rendered the
 ordinary dynamic route `/account/Ada` with request-time props. Android HTTP live
@@ -2759,6 +2789,11 @@ Set budgets from the prototype baseline rather than inventing numbers now. Fail 
   diagnostic across relaunch, then proves a successful response acknowledges
   it. The injection hook rejects non-debuggable builds. Physical-iPhone
   MetricKit delivery remains the platform acceptance item in the macOS runbook.
+  Expo Android has its own real gate,
+  `bun run test:native:expo:android:observability`, which generates the managed
+  shell, compiles/installs it, injects a one-shot Java crash, drives the
+  reject/retry/acknowledge lifecycle through ADB, rejects duplicates, and emits
+  no raw diagnostic payload.
 - Error messages and stacks are redacted client-side and must be validated and
   redacted again by the trusted server. Query strings and route parameter values
   are never attached; only the declared route pattern is correlated.

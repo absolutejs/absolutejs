@@ -296,12 +296,12 @@
 	"main": "./dist/index.js",
 	"name": "@absolutejs/absolute",
 	"optionalDependencies": {
-		"@absolutejs/native-darwin-arm64": "0.20.0-beta.69",
-		"@absolutejs/native-darwin-x64": "0.20.0-beta.69",
-		"@absolutejs/native-linux-arm64": "0.20.0-beta.69",
-		"@absolutejs/native-linux-x64": "0.20.0-beta.69",
-		"@absolutejs/native-windows-arm64": "0.20.0-beta.69",
-		"@absolutejs/native-windows-x64": "0.20.0-beta.69"
+		"@absolutejs/native-darwin-arm64": "0.20.0-beta.70",
+		"@absolutejs/native-darwin-x64": "0.20.0-beta.70",
+		"@absolutejs/native-linux-arm64": "0.20.0-beta.70",
+		"@absolutejs/native-linux-x64": "0.20.0-beta.70",
+		"@absolutejs/native-windows-arm64": "0.20.0-beta.70",
+		"@absolutejs/native-windows-x64": "0.20.0-beta.70"
 	},
 	"overrides": {
 		"@sinclair/typebox": "0.34.52",
@@ -466,6 +466,7 @@
 		"test:native:android:observability": "ABSOLUTE_TEST_NATIVE_ANDROID=1 bun test tests/native/android-embedded-bundle-conformance.test.ts -t 'native process crash'",
 		"test:native:android:updates": "ABSOLUTE_TEST_NATIVE_ANDROID=1 bun test tests/native/android-embedded-bundle-conformance.test.ts -t 'signed web updates'",
 		"test:native:android:upgrade": "ABSOLUTE_TEST_NATIVE_ANDROID=1 bun test tests/native/android-embedded-bundle-conformance.test.ts -t 'installed APK upgrade'",
+		"test:native:expo:android:observability": "ABSOLUTE_TEST_NATIVE_EXPO_ANDROID=1 bun test tests/native/expo-android-observability-conformance.test.ts",
 		"test:native:ios": "bun run test:native:ios:lifecycle && bun run test:native:ios:bundle",
 		"test:native:ios:bundle": "ABSOLUTE_TEST_NATIVE_IOS=1 bun test tests/native/ios-embedded-bundle-conformance.test.ts",
 		"test:native:ios:lifecycle": "ABSOLUTE_TEST_NATIVE_IOS=1 bun test tests/native/ios-lifecycle-conformance.test.ts",
@@ -520,7 +521,7 @@
 			]
 		}
 	},
-	"version": "0.20.0-beta.69",
+	"version": "0.20.0-beta.70",
 	"workspaces": [
 		"tests/fixtures/*",
 		"tests/fixtures/_packages/*"

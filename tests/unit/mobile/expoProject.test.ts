@@ -148,6 +148,7 @@ describe('experimental Expo project', () => {
 			nativeObservability,
 			nativeObservabilityConfig,
 			nativeObservabilityAndroid,
+			nativeObservabilityAndroidManifest,
 			nativeObservabilityIos,
 			packageSource,
 			plugin,
@@ -179,6 +180,13 @@ describe('experimental Expo project', () => {
 				join(
 					project,
 					'modules/absolute-mobile-observability/android/src/main/java/expo/modules/absolutemobileobservability/AbsoluteMobileObservabilityModule.kt'
+				),
+				'utf8'
+			),
+			readFile(
+				join(
+					project,
+					'modules/absolute-mobile-observability/android/src/main/AndroidManifest.xml'
 				),
 				'utf8'
 			),
@@ -237,7 +245,19 @@ describe('experimental Expo project', () => {
 		expect(nativeObservabilityAndroid).toContain(
 			'getHistoricalProcessExitReasons'
 		);
+		expect(nativeObservabilityAndroid).toContain(
+			'ApplicationInfo.FLAG_DEBUGGABLE'
+		);
+		expect(nativeObservabilityAndroid).toContain('crashForTesting');
+		expect(nativeObservabilityAndroid).toContain('CRASH_TEST_KEY');
+		expect(nativeObservability).toContain(
+			'crashAbsoluteExpoNativeObservabilityForTesting'
+		);
 		expect(nativeObservabilityAndroid).toContain('MAX_REPORTS = 8');
+		expect(nativeObservabilityAndroidManifest).toStartWith('<!--');
+		expect(nativeObservabilityAndroidManifest).not.toContain(
+			'// Generated'
+		);
 		expect(nativeObservabilityIos).toContain('MXMetricManagerSubscriber');
 		expect(nativeObservabilityIos).toContain('maximumReports = 8');
 		expect(nativeRouteRuntime).toContain('redactErrorText');
