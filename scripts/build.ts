@@ -729,11 +729,13 @@ const copyPublishedDevClientSources = async () => {
 		join('src', 'angular', 'hmrPreserveCore.ts'),
 		join(DIST, 'angular', 'hmrPreserveCore.ts')
 	);
-	// The HMR client installs the mobile preview bridge from
-	// `../../mobile/mobilePreviewClient`, so that file ships raw beside the
-	// mobile shell bundles for the same reason. It imports only published
-	// `@absolutejs/*` packages and touches `globalThis` through `Reflect`,
-	// so it needs neither the ambient-globals header nor path rewriting.
+	// The dev server bundles the mobile preview bridge on demand (served at
+	// `/__absolute/mobile-preview-client.js` for mobile-configured projects,
+	// see `src/mobile/mobilePreviewClientBundle.ts`), so the raw source ships
+	// beside the mobile shell bundles as that build's entrypoint. It imports
+	// only published `@absolutejs/*` packages and touches `globalThis`
+	// through `Reflect`, so it needs neither the ambient-globals header nor
+	// path rewriting.
 	await mkdir(join(DIST, 'mobile'), { recursive: true });
 	await cp(
 		join('src', 'mobile', 'mobilePreviewClient.ts'),
@@ -741,8 +743,10 @@ const copyPublishedDevClientSources = async () => {
 	);
 };
 
+// Static `from` imports, side-effect imports, and dynamic `import('./x')`
+// calls with a literal relative specifier.
 const RELATIVE_IMPORT_PATTERN =
-	/\b(?:import|export)\b[^'"]*?\bfrom\s*['"](\.[^'"]+)['"]|\bimport\s*['"](\.[^'"]+)['"]/g;
+	/\b(?:import|export)\b[^'"]*?\bfrom\s*['"](\.[^'"]+)['"]|\bimport\s*\(?\s*['"](\.[^'"]+)['"]/g;
 const RAW_SOURCE_RESOLUTIONS = [
 	'',
 	'.ts',

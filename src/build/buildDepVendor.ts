@@ -145,13 +145,12 @@ const scanDirFiles = async (dir: string) => {
 	}
 };
 
-const collectDirSpecifiers = async (
-	dir: string,
+const collectFileSpecifiers = async (
+	files: string[],
 	transpiler: Bun.Transpiler,
 	dep: Set<string>,
 	framework: Set<string>
 ) => {
-	const files = await scanDirFiles(dir);
 	const results = await Promise.all(
 		files.map((file) => readFileSpecifiers(file, transpiler))
 	);
@@ -161,19 +160,30 @@ const collectDirSpecifiers = async (
 	}
 };
 
-// Scan source files to find all bare import specifiers
+const collectDirSpecifiers = async (
+	dir: string,
+	transpiler: Bun.Transpiler,
+	dep: Set<string>,
+	framework: Set<string>
+) => collectFileSpecifiers(await scanDirFiles(dir), transpiler, dep, framework);
+
+// Scan source files to find all bare import specifiers. `files` are extra
+// individual sources outside the scanned directories (for example the mobile
+// preview client, which only joins the vendor graph when mobile is configured).
 const scanBareImports = async (
-	directories: string[]
+	directories: string[],
+	files: string[] = []
 ): Promise<ScannedSpecifiers> => {
 	const dep = new Set<string>();
 	const framework = new Set<string>();
 	const transpiler = new Bun.Transpiler({ loader: 'tsx' });
 
-	await Promise.all(
-		directories.map((dir) =>
+	await Promise.all([
+		...directories.map((dir) =>
 			collectDirSpecifiers(dir, transpiler, dep, framework)
-		)
-	);
+		),
+		collectFileSpecifiers(files, transpiler, dep, framework)
+	]);
 
 	return {
 		dep: Array.from(dep).filter(isResolvable),
@@ -606,10 +616,11 @@ const MAX_VENDOR_DISCOVERY_PASSES = 5;
 
 export const buildDepVendor = async (
 	buildDir: string,
-	directories: string[]
+	directories: string[],
+	files: string[] = []
 ) => {
 	const { dep: initialSpecs, framework: frameworkRoots } =
-		await scanBareImports(directories);
+		await scanBareImports(directories, files);
 	if (initialSpecs.length === 0 && frameworkRoots.length === 0) return {};
 
 	const vendorDir = join(buildDir, 'vendor');
@@ -669,9 +680,12 @@ export const buildDepVendor = async (
 	return paths;
 };
 
-export const computeDepVendorPaths = async (directories: string[]) => {
+export const computeDepVendorPaths = async (
+	directories: string[],
+	files: string[] = []
+) => {
 	const { dep: initialSpecs, framework: frameworkRoots } =
-		await scanBareImports(directories);
+		await scanBareImports(directories, files);
 	const allSpecs = new Set<string>(initialSpecs);
 	const alreadyScanned = new Set<string>();
 

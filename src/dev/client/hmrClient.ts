@@ -18,7 +18,6 @@ import {
 } from './hmrTiming';
 import { hideErrorOverlay, showErrorOverlay } from './errorOverlay';
 import { installAbsoluteNativeSyncDevtools } from './syncDevtools';
-import { installAbsoluteMobilePreview } from '../../mobile/mobilePreviewClient';
 import {
 	dispatchAngularComponentRemount,
 	dispatchAngularComponentUpdate
@@ -47,12 +46,39 @@ const isStringRecord = (value: unknown): value is Record<string, string> =>
 
 restoreAbsoluteHmrApply();
 const nativeDeviceAdapterPath = '/__absolute/native-device-adapter.js';
+const mobilePreviewClientPath = '/__absolute/mobile-preview-client.js';
 const hmrClientTarget = absoluteHmrClientTarget();
-if (hmrClientTarget === 'mobile-preview') installAbsoluteMobilePreview();
-const nativeDeviceAdapterReady =
-	hmrClientTarget === 'web' || hmrClientTarget === 'mobile-preview'
-		? Promise.resolve()
-		: import(nativeDeviceAdapterPath).then(() => undefined);
+
+const isMobilePreviewClient = (
+	value: unknown
+): value is { installAbsoluteMobilePreview: () => void } =>
+	isRecord(value) && typeof value.installAbsoluteMobilePreview === 'function';
+
+/* Both mobile runtimes live outside the page graph. The dev server serves
+ * them only for projects with `config.mobile`, and the specifiers are
+ * runtime strings, so a web-only project never bundles, loads, or executes
+ * `@absolutejs/devices`, the preview fetch simulation, or a native adapter.
+ * The preview install rides the same readiness promise as the native
+ * adapters, so `__ABS_NATIVE_DEVICES_READY__` means the same thing on every
+ * non-web target: the device adapter is installed. */
+const installMobilePreview = () =>
+	import(mobilePreviewClientPath).then((module: unknown) => {
+		if (!isMobilePreviewClient(module)) {
+			throw new TypeError(
+				'The mobile preview client did not export installAbsoluteMobilePreview.'
+			);
+		}
+		module.installAbsoluteMobilePreview();
+
+		return undefined;
+	});
+const loadNativeDeviceAdapter = () => {
+	if (hmrClientTarget === 'web') return Promise.resolve();
+	if (hmrClientTarget === 'mobile-preview') return installMobilePreview();
+
+	return import(nativeDeviceAdapterPath).then(() => undefined);
+};
+const nativeDeviceAdapterReady = loadNativeDeviceAdapter();
 Reflect.set(
 	globalThis,
 	'__ABS_NATIVE_DEVICES_READY__',
