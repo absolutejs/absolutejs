@@ -244,6 +244,10 @@ export const buildLineRemap = (before: string, after: string) => {
 	const isVueImport = (s: string) =>
 		/^\s*import\s+.*\bfrom\s+["']vue["']\s*;?\s*$/.test(s);
 	const mergedVueImportLine = aLines.findIndex(isVueImport);
+	// Normalise `after` once: every `before` line probes up to 30
+	// candidates, and re-normalising each candidate per probe was the
+	// single largest self-time item in a Vue compile profile.
+	const aNorm = aLines.map(norm);
 	const remap: number[] = new Array(bLines.length).fill(-1);
 	let ai = 0;
 	for (let bi = 0; bi < bLines.length; bi++) {
@@ -256,8 +260,7 @@ export const buildLineRemap = (before: string, after: string) => {
 		const bNorm = norm(bLine);
 		const horizon = Math.min(aLines.length, ai + 30);
 		for (let probe = ai; probe < horizon; probe++) {
-			const aLine = aLines[probe];
-			if (aLine !== undefined && norm(aLine) === bNorm) {
+			if (aNorm[probe] === bNorm) {
 				remap[bi] = probe;
 				ai = probe + 1;
 				break;
@@ -430,6 +433,17 @@ export const chainSourcemap = (
 	};
 };
 
+type ChainInlineOptions = {
+	/** Keep the source text in the rewritten map's `sourcesContent`. Off
+	 *  by default: the chained sources are real files on disk (`.vue`,
+	 *  `.ts`, and the generated intermediates), Bun's runtime only needs
+	 *  `sources` + `mappings` to name a stack frame, and the embedded text
+	 *  was ~90% of every dev server bundle (a 25 MB page shrinks to ~3 MB).
+	 *  The key itself stays, filled with `null`s — Bun rejects a map
+	 *  without it (`InvalidSourceMap`) and then maps nothing at all. */
+	sourcesContent?: boolean;
+};
+
 /* Rewrite the inline sourcemap of `bundleFilePath` so it points at
  * the deepest source available — chaining through each input file's
  * own inline map.
@@ -442,11 +456,14 @@ export const chainSourcemap = (
  * straight from `sourcesContent` — no path resolution, no second
  * filesystem read — and chain through them.
  *
- * No-op if the bundle has no inline map. */
-export const chainBundleInlineSourcemap = (bundleFilePath: string) => {
+ * Returns `false` (no-op) if the bundle has no inline map. */
+export const chainBundleInlineSourcemap = (
+	bundleFilePath: string,
+	{ sourcesContent = false }: ChainInlineOptions = {}
+) => {
 	const text = readFileSync(bundleFilePath, 'utf-8');
 	const outerMap = extractInlineMap(text);
-	if (!outerMap) return;
+	if (!outerMap) return false;
 	const chained = chainSourcemap(outerMap, (src) => {
 		const idx = outerMap.sources.indexOf(src);
 		if (idx < 0) return null;
@@ -454,18 +471,38 @@ export const chainBundleInlineSourcemap = (bundleFilePath: string) => {
 		if (!content) return null;
 		return extractInlineMap(content);
 	});
+	if (!sourcesContent) {
+		chained.sourcesContent = chained.sources.map(() => null);
+	}
 	const stripped = text.replace(SOURCEMAP_INLINE_RE, '');
 	const inline =
 		'\n//# sourceMappingURL=data:application/json;base64,' +
 		Buffer.from(JSON.stringify(chained)).toString('base64');
 	writeFileSync(bundleFilePath, stripped + inline);
+
+	return true;
 };
 
-/** Chain every server bundle of a dev build (each bundle is independent). */
-export const chainBundleInlineSourcemaps = async (bundlePaths: string[]) => {
-	for (const bundlePath of bundlePaths) {
-		chainBundleInlineSourcemap(bundlePath);
-	}
+/** Chain every server bundle of a dev build (each bundle is independent).
+ *  Fans out across the build worker pool when the batch is large enough
+ *  to amortise a spawn (or the pool is already warm); otherwise runs
+ *  inline on the main thread. */
+export const chainBundleInlineSourcemaps = async (
+	bundlePaths: string[],
+	{ sourcesContent = false }: ChainInlineOptions = {}
+) => {
+	const { getBuildWorkerPool } = await import('./workerPool');
+	const pool = getBuildWorkerPool();
+	const inline = !pool.shouldUse(bundlePaths.length);
+	await Promise.all(
+		bundlePaths.map((bundleFilePath) =>
+			pool.run(
+				'sourcemap-chain',
+				{ bundleFilePath, sourcesContent },
+				{ inline }
+			)
+		)
+	);
 };
 
 /* Chain an EXTERNAL `.js.map` (production builds) the same way

@@ -25,13 +25,8 @@
  * Opt out with `ABSOLUTE_COMPILE_CACHE=0`. */
 
 import { createHash } from 'node:crypto';
-import {
-	existsSync,
-	mkdirSync,
-	readFileSync,
-	renameSync,
-	writeFileSync
-} from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+import { mkdir, rename, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import type { ParsedVueSpaRoute } from './parseVueSpaRoutes';
 
@@ -187,8 +182,11 @@ export const readVueCompileCacheEntry = (
 };
 
 /** Persist a compile. Written via a temp file + rename so a crash mid-write
- *  can never leave a torn entry for the next process to trust. */
-export const writeVueCompileCacheEntry = (
+ *  can never leave a torn entry for the next process to trust. Async so
+ *  hundreds of entry writes never stall the main thread while it is
+ *  feeding the build worker pool; callers drain the returned promises
+ *  before declaring the compile finished. */
+export const writeVueCompileCacheEntry = async (
 	sourceFilePath: string,
 	entry: VueCompileCacheEntry,
 	projectRoot?: string
@@ -196,10 +194,10 @@ export const writeVueCompileCacheEntry = (
 	if (!vueCompileCacheEnabled()) return;
 	const entryFile = entryFileFor(sourceFilePath, projectRoot);
 	try {
-		mkdirSync(vueCompileCacheDir(projectRoot), { recursive: true });
+		await mkdir(vueCompileCacheDir(projectRoot), { recursive: true });
 		const tempFile = `${entryFile}.${process.pid}.tmp`;
-		writeFileSync(tempFile, JSON.stringify(entry));
-		renameSync(tempFile, entryFile);
+		await writeFile(tempFile, JSON.stringify(entry));
+		await rename(tempFile, entryFile);
 	} catch {
 		/* best-effort: a full disk or a read-only checkout just means no
 		 * cache next time */

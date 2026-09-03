@@ -35,6 +35,10 @@
 		"example/dist",
 		"**/generated/**"
 	],
+	// `**/build/**` above also excludes `src/build/`; those modules are
+	// still checked because `src/index.ts` imports them — except the worker
+	// entry, which nothing imports, so it is listed explicitly.
+	"files": ["src/build/buildWorker.ts"],
 	"include": [
 		"src/**/*",
 		"types/**/*",
