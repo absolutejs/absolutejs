@@ -442,6 +442,17 @@ export type BaseBuildConfig = {
 		 *  conventional source dirs (`src/`, `db/`, `assets/`, `styles/`),
 		 *  and these `watchDirs` is implicitly ignored. */
 		watchDirs?: string[];
+		/** DEV ONLY. Server-side (SSR) page bundles leave resolvable
+		 *  `node_modules` packages as bare imports instead of inlining them —
+		 *  the dev server resolves one shared copy at request time, which
+		 *  keeps the per-page bundles small and the sourcemap chain limited to
+		 *  your own modules. Packages that ship `.vue`/`.svelte` files, unbuilt
+		 *  TypeScript, or a Svelte export condition are detected and stay
+		 *  bundled automatically. List extra package names (`three`), scoped
+		 *  globs (`@scope/*`, `pkg/*`) or exact specifiers here to force-bundle
+		 *  them; `'*'` restores the legacy inline-everything behaviour.
+		 *  Production builds are unaffected. */
+		bundleServerDependencies?: string[];
 		/** Expose the dev server to the public internet through a self-hosted
 		 *  AbsoluteJS reverse-tunnel relay (for webhooks: Twilio, Stripe, OAuth).
 		 *  Run the relay with `absolute tunnel-relay` on a public host; point a

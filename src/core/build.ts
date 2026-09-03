@@ -28,7 +28,10 @@ import { outputLogs } from '../build/outputLogs';
 import { scanEntryPoints } from '../build/scanEntryPoints';
 import { scanConventions } from '../build/scanConventions';
 import { writeSpaSideManifests } from '../build/spaSideManifests';
-import { buildServerBundleExternals } from '../build/serverExternals';
+import {
+	buildServerBundleExternals,
+	createDevServerExternalsPlugin
+} from '../build/serverExternals';
 import { scanRouteRegistrations } from '../build/scanRouteRegistrations';
 import { generateSitemap } from '../utils/generateSitemap';
 import type {
@@ -934,7 +937,8 @@ const buildUnlocked = async ({
 	incrementalFiles,
 	mode,
 	sitemap,
-	sourcemaps
+	sourcemaps,
+	dev
 }: BuildConfig) => {
 	const buildStart = performance.now();
 	// `absolute build` and `absolute compile` explicitly request production.
@@ -943,6 +947,18 @@ const buildUnlocked = async ({
 	const isDev = resolveBuildDevelopmentMode(mode, env.NODE_ENV);
 	const vueFeatureFlags = resolveVueFeatureFlags(isDev);
 	const projectRoot = cwd();
+	// Dev-only: keep resolvable node_modules packages OUT of the Bun-target
+	// (SSR) bundles — the dev server resolves them at runtime. Empty in
+	// production so its bundles are byte-for-byte unchanged. See
+	// src/build/serverExternals.ts.
+	const devServerExternalsPlugins = isDev
+		? [
+				createDevServerExternalsPlugin({
+					bundleDependencies: dev?.bundleServerDependencies,
+					projectRoot
+				})
+			]
+		: [];
 	const traceEnabled = isBuildTraceEnabled();
 	const traceEvents: BuildTraceEvent[] = [];
 	let traceFrameworkNames: string[] = [];
@@ -1947,6 +1963,7 @@ const buildUnlocked = async ({
 						naming: `${idx}-[name].[ext]`,
 						outdir: destDir,
 						plugins: [
+							...devServerExternalsPlugins,
 							stylePreprocessorPlugin,
 							createBunStringRawUnicodePlugin()
 						],
@@ -2042,7 +2059,10 @@ const buildUnlocked = async ({
 						minify: !isDev,
 						naming: `${idx}-${name}.[ext]`,
 						outdir: destDir,
-						plugins: [createBunStringRawUnicodePlugin()],
+						plugins: [
+							...devServerExternalsPlugins,
+							createBunStringRawUnicodePlugin()
+						],
 						splitting: false,
 						target: 'bun',
 						throw: false
@@ -2489,6 +2509,7 @@ const buildUnlocked = async ({
 								naming: `[dir]/[name].[hash].[ext]`,
 								outdir: serverOutDir,
 								plugins: [
+									...devServerExternalsPlugins,
 									stylePreprocessorPlugin,
 									...islandRegistryPlugins,
 									...(serverOutDir

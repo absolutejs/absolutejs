@@ -2528,6 +2528,22 @@ const getServerBundleExternals = async () => {
 	return buildServerBundleExternals(getAngularVendorPaths());
 };
 
+/* Dev-only node_modules externalization for server page-bundle rebuilds —
+ * same plugin the initial build uses (src/build/serverExternals.ts), so an
+ * edited page doesn't balloon back to an inline-everything bundle. */
+const getServerBundleExternalsPlugins = async (config: BuildConfig) => {
+	const { createDevServerExternalsPlugin } = await import(
+		'../build/serverExternals'
+	);
+
+	return [
+		createDevServerExternalsPlugin({
+			bundleDependencies: config.dev?.bundleServerDependencies,
+			projectRoot: process.cwd()
+		})
+	];
+};
+
 /* Rewrite bare vendor specifiers in freshly built client bundles to their
  * stable vendor URLs — required whenever `getClientVendorPaths()` keys were
  * externalized (matches core/build + bundleAngularClient). */
@@ -2811,6 +2827,9 @@ const runSvelteBundleRebuild = async (
 		'svelte'
 	);
 	const serverExternals = await getServerBundleExternals();
+	const serverExternalsPlugins = await getServerBundleExternalsPlugins(
+		state.config
+	);
 	const clientVendorPaths = await getClientVendorPaths();
 
 	const [serverResult, clientResult] = await Promise.all([
@@ -2822,6 +2841,7 @@ const runSvelteBundleRebuild = async (
 					naming: '[dir]/[name].[hash].[ext]',
 					outdir: serverOutDir,
 					plugins: [
+						...serverExternalsPlugins,
 						createStylePreprocessorPlugin(
 							getStyleTransformConfig(state.config)
 						)
@@ -3011,6 +3031,9 @@ const handleSvelteFastPath = async (
 			'svelte'
 		);
 		const serverExternals = await getServerBundleExternals();
+		const serverExternalsPlugins = await getServerBundleExternalsPlugins(
+			state.config
+		);
 		const clientVendorPaths = await getClientVendorPaths();
 
 		const [serverResult, clientResult] = await Promise.all([
@@ -3022,6 +3045,7 @@ const handleSvelteFastPath = async (
 						naming: '[dir]/[name].[hash].[ext]',
 						outdir: serverOutDir,
 						plugins: [
+							...serverExternalsPlugins,
 							createStylePreprocessorPlugin(
 								getStyleTransformConfig(state.config)
 							)
@@ -3241,6 +3265,9 @@ const runVueBundleRebuild = async (
 		'vue'
 	);
 	const serverExternals = await getServerBundleExternals();
+	const serverExternalsPlugins = await getServerBundleExternalsPlugins(
+		state.config
+	);
 	const clientVendorPaths = await getClientVendorPaths();
 
 	const [serverResult, clientResult, cssResult] = await Promise.all([
@@ -3252,6 +3279,7 @@ const runVueBundleRebuild = async (
 					naming: '[dir]/[name].[hash].[ext]',
 					outdir: serverOutDir,
 					plugins: [
+						...serverExternalsPlugins,
 						createStylePreprocessorPlugin(
 							getStyleTransformConfig(state.config)
 						)
