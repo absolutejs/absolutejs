@@ -110,6 +110,31 @@ export const cleanStaleAssets = async (
 	} catch {
 		/* buildDir may not exist */
 	}
+
+	await evictMissingChunks(store, buildDir);
+};
+
+/** Shared `chunk-*.js` files are content-addressed and never evicted by the
+ *  identity-based passes above (their names carry no `.<hash>.` segment).
+ *  A full build's `cleanStaleOutputs` removes the chunks nothing imports any
+ *  more; drop their in-memory copies too so the store doesn't grow by every
+ *  chunk ever emitted in a long dev session. Incremental builds never delete
+ *  chunks, so entries still on disk are left alone. */
+const evictMissingChunks = async (
+	store: Map<string, Uint8Array>,
+	buildDir: string
+) => {
+	const chunkKeys = [...store.keys()].filter((webPath) =>
+		webPath.includes('/chunk-')
+	);
+	await Promise.all(
+		chunkKeys.map(async (webPath) => {
+			const onDisk = await Bun.file(resolve(buildDir, webPath.slice(1)))
+				.exists()
+				.catch(() => false);
+			if (!onDisk) store.delete(webPath);
+		})
+	);
 };
 export const lookupAsset = (store: Map<string, Uint8Array>, path: string) =>
 	store.get(path);
@@ -166,8 +191,10 @@ export const populateAssetStore = async (
 	// alone: they may belong to other pages that weren't rebuilt, and their
 	// SSR-rendered HTML still references those hashes.
 	// Disk-level cleanup of pages that were truly deleted is handled by
-	// `cleanStaleAssets`. Chunk files (chunk-XXXX.js) are tracked separately
-	// and are not part of the manifest.
+	// `cleanStaleAssets`. Chunk files (chunk-XXXX.js) are content-addressed
+	// and may still be imported by pages outside this (partial) manifest, so
+	// they are never evicted here — `cleanStaleAssets` drops the ones a full
+	// build removed from disk.
 	const staleKeys = [...store.keys()].filter((existingPath) => {
 		if (existingPath.includes('/chunk-')) return false;
 		const replacement = newIdentities.get(stripHash(existingPath));
