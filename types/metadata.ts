@@ -47,6 +47,29 @@ export type MetaTag = {
 
 import type { JsonLdSchema } from './jsonLd';
 
+/** A `<link rel="preload">` (or `rel="modulepreload"` when `module` is
+ *  set) emitted in the document head so the browser starts fetching the
+ *  resource before the parser discovers it. */
+export type PreloadLink = {
+	href: string;
+	/** Resource type hint. Ignored for `module` preloads. */
+	as?: 'script' | 'style' | 'fetch' | 'image' | 'font';
+	/** Emit `<link rel="modulepreload">` instead of `<link rel="preload">`. */
+	module?: boolean;
+	/** `crossorigin` attribute value — required for fonts and any
+	 *  credentialed fetch so the preload matches the real request. */
+	crossorigin?: string;
+};
+
+/** Declarative speculation rules rendered as
+ *  `<script type="speculationrules">`. URLs are same-origin page paths;
+ *  `prerender` targets render fully in a hidden tab, `prefetch` targets
+ *  are fetched but not rendered. */
+export type SpeculationRules = {
+	prerender?: string[];
+	prefetch?: string[];
+};
+
 export type Metadata = {
 	title?: string;
 	description?: string;
@@ -59,4 +82,6 @@ export type Metadata = {
 	robots?: RobotsDirective;
 	meta?: MetaTag[];
 	jsonLd?: JsonLdSchema | JsonLdSchema[];
+	preload?: PreloadLink[];
+	speculationRules?: SpeculationRules;
 };

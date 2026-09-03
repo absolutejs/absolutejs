@@ -15,6 +15,10 @@ export { defineRoutes, defineVueSetupApp } from './defineVuePage';
 // only dependencies and is safely a no-op on the client when guarded
 // by `ctx.isServer`.
 export { applyVueRouterRedirect } from './routerRedirectProviders';
+export { Link } from './router/Link';
+export { usePrefetch } from './usePrefetch';
+export type { UsePrefetchOptions } from './usePrefetch';
+export type { PrefetchKind, PrefetchMode } from '../../types/prefetch';
 export type {
 	VueAutoRouter,
 	VueRouteRecord,

@@ -5,6 +5,7 @@ type LinkProps = {
 	to: string;
 	replaceState?: boolean;
 	prefetch?: LinkPrefetchMode;
+	prerender?: boolean;
 	keepFocus?: boolean;
 	noScroll?: boolean;
 	class?: string;

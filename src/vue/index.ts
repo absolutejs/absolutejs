@@ -19,6 +19,10 @@ export {
 export { Image } from './components/Image';
 export { StreamSlot, SuspenseSlot } from './components';
 export { useResource } from './useResource';
+export { Link } from './router/Link';
+export { usePrefetch } from './usePrefetch';
+export type { UsePrefetchOptions } from './usePrefetch';
+export type { PrefetchKind, PrefetchMode } from '../../types/prefetch';
 export {
 	ABSOLUTE_TELEPORT_TARGET,
 	ABSOLUTE_TELEPORT_TARGET_ID

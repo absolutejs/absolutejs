@@ -141,6 +141,10 @@
 			"import": "./dist/client/index.js",
 			"types": "./dist/src/client/index.d.ts"
 		},
+		"./client/prefetch": {
+			"import": "./dist/client/prefetch.js",
+			"types": "./dist/src/client/prefetch.d.ts"
+		},
 		"./image": {
 			"import": "./dist/image-client/imageClient.js",
 			"types": "./dist/src/utils/imageClient.d.ts"

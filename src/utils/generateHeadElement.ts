@@ -1,4 +1,9 @@
-import type { Metadata, RobotsDirective } from '../../types/metadata';
+import type {
+	Metadata,
+	PreloadLink,
+	RobotsDirective,
+	SpeculationRules
+} from '../../types/metadata';
 import { applyIconVersion, iconMimeType } from './iconVersion';
 import { serializeJsonLd } from './jsonLd';
 
@@ -113,6 +118,18 @@ const renderMetaTag = (tag: {
 	return undefined;
 };
 
+const renderPreloadLink = (preload: PreloadLink) => {
+	const rel = preload.module ? 'modulepreload' : 'preload';
+	const asAttribute =
+		!preload.module && preload.as ? ` as="${preload.as}"` : '';
+	const crossoriginAttribute =
+		preload.crossorigin !== undefined
+			? ` crossorigin="${preload.crossorigin}"`
+			: '';
+
+	return `<link rel="${rel}" href="${preload.href}"${asAttribute}${crossoriginAttribute}>`;
+};
+
 export const generateHeadElement = ({
 	cssPath,
 	title = 'AbsoluteJS',
@@ -124,7 +141,9 @@ export const generateHeadElement = ({
 	twitter,
 	robots,
 	meta,
-	jsonLd
+	jsonLd,
+	preload,
+	speculationRules
 }: Metadata = {}) => {
 	const tags: string[] = [
 		'<meta charset="UTF-8">',
@@ -161,6 +180,18 @@ export const generateHeadElement = ({
 		);
 	}
 
+	for (const link of preload ?? []) {
+		tags.push(renderPreloadLink(link));
+	}
+
+	const speculation = speculationRules
+		? serializeSpeculationRules(speculationRules)
+		: undefined;
+
+	if (speculation) {
+		tags.push(`<script type="speculationrules">${speculation}</script>`);
+	}
+
 	const cssPaths = cssPath ? [cssPath].flat() : [];
 
 	for (const path of cssPaths) {
@@ -174,4 +205,20 @@ export const generateHeadElement = ({
 	}
 
 	return `<head>\n  ${tags.join('\n  ')}\n</head>` as const;
+};
+/** Serialize declarative speculation rules to the JSON body of a
+ *  `<script type="speculationrules">`. Empty lists are dropped; returns
+ *  `undefined` when there is nothing to speculate. `<` is escaped so a
+ *  URL can never close the script element early. */
+export const serializeSpeculationRules = (rules: SpeculationRules) => {
+	const body: Record<string, Array<{ urls: string[] }>> = {};
+	if (rules.prerender && rules.prerender.length > 0) {
+		body.prerender = [{ urls: rules.prerender }];
+	}
+	if (rules.prefetch && rules.prefetch.length > 0) {
+		body.prefetch = [{ urls: rules.prefetch }];
+	}
+	if (Object.keys(body).length === 0) return undefined;
+
+	return JSON.stringify(body).replace(/</g, '\\u003c');
 };

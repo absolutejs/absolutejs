@@ -2,7 +2,13 @@
 	import { onDestroy, onMount, type Snippet } from 'svelte';
 	import type { LinkPrefetchMode } from '../../../types/svelteRouter';
 	import { goto } from './goto';
-	import { prefetch, scheduleHoverPrefetch } from './prefetchCache';
+	import {
+		observeViewport,
+		prefetch,
+		resolveDefaultPrefetchMode,
+		scheduleHoverPrefetch,
+		speculate
+	} from './prefetchCache';
 
 	type LinkProps = {
 		/** Destination URL — relative or absolute. */
@@ -10,10 +16,14 @@
 		/** `true` → use `history.replaceState` instead of `pushState`.
 		 *  Same name as SvelteKit's `goto` option. */
 		replaceState?: boolean;
-		/** `'hover'` (default) — prefetch on `pointerenter`.
-		 *  `'viewport'` — prefetch when the link enters the viewport.
+		/** `'viewport'` (production default) — prefetch when the link
+		 *  enters the viewport and on `pointerenter` / `pointerdown`.
+		 *  `'hover'` (development default) — prefetch on hover only.
 		 *  `'none'` — disable prefetch for this link. */
 		prefetch?: LinkPrefetchMode;
+		/** Also inject a prerender speculation rule on hover / pointerdown,
+		 *  so the target page is fully rendered before the click lands. */
+		prerender?: boolean;
 		/** Don't reset focus to body on navigate. */
 		keepFocus?: boolean;
 		/** Don't scroll to top on navigate. */
@@ -30,7 +40,8 @@
 	let {
 		to,
 		replaceState = false,
-		prefetch: prefetchMode = 'hover',
+		prefetch: prefetchMode,
+		prerender = false,
 		keepFocus = false,
 		noScroll = false,
 		class: classProp,
@@ -41,7 +52,9 @@
 
 	let anchor: HTMLAnchorElement | null = null;
 	let hoverHandle: { cancel: () => void } | null = null;
-	let viewportObserver: IntersectionObserver | null = null;
+	let unobserveViewport: (() => void) | null = null;
+
+	const resolvedMode = () => prefetchMode ?? resolveDefaultPrefetchMode();
 
 	const isModifierClick = (event: MouseEvent) =>
 		event.metaKey || event.ctrlKey || event.shiftKey || event.altKey;
@@ -74,9 +87,9 @@
 	};
 
 	const handlePointerEnter = () => {
-		if (prefetchMode !== 'hover' || isExternal(to)) return;
+		if (resolvedMode() === 'none' || isExternal(to)) return;
 		hoverHandle?.cancel();
-		hoverHandle = scheduleHoverPrefetch(to);
+		hoverHandle = scheduleHoverPrefetch(to, { prerender });
 	};
 
 	const handlePointerLeave = () => {
@@ -84,29 +97,24 @@
 		hoverHandle = null;
 	};
 
+	const handlePointerDown = () => {
+		if (resolvedMode() === 'none' || isExternal(to)) return;
+		hoverHandle?.cancel();
+		hoverHandle = null;
+		prefetch(to);
+		if (prerender) speculate(to);
+	};
+
 	onMount(() => {
-		if (prefetchMode !== 'viewport' || !anchor) return;
-		if (typeof IntersectionObserver === 'undefined') return;
+		if (resolvedMode() !== 'viewport' || !anchor) return;
 		if (isExternal(to)) return;
 
-		viewportObserver = new IntersectionObserver(
-			(entries) => {
-				for (const entry of entries) {
-					if (entry.isIntersecting) {
-						prefetch(to);
-						viewportObserver?.disconnect();
-						return;
-					}
-				}
-			},
-			{ rootMargin: '128px' }
-		);
-		viewportObserver.observe(anchor);
+		unobserveViewport = observeViewport(anchor, to);
 	});
 
 	onDestroy(() => {
 		hoverHandle?.cancel();
-		viewportObserver?.disconnect();
+		unobserveViewport?.();
 	});
 </script>
 
@@ -118,6 +126,9 @@
 	onclick={handleClick}
 	onpointerenter={handlePointerEnter}
 	onpointerleave={handlePointerLeave}
+	onpointerdown={handlePointerDown}
+	onfocus={handlePointerEnter}
+	onblur={handlePointerLeave}
 	{...rest}
 >
 	{@render children?.()}

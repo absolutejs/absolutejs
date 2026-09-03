@@ -6,6 +6,7 @@ import type {
 	RobotsDirective
 } from '../../../types/metadata';
 import { applyIconVersion, iconMimeType } from '../../utils/iconVersion';
+import { serializeSpeculationRules } from '../../utils/generateHeadElement';
 import { serializeJsonLd } from '../../utils/jsonLd';
 
 const RobotsContent = ({ robots }: { robots: RobotsDirective }) => {
@@ -110,6 +111,32 @@ const CustomMetaTag = ({ tag }: { tag: MetaTag }) => {
 	return <meta content={tag.content} name={tag.name} />;
 };
 
+/** React types `crossOrigin` as a closed union; map the free-form
+ *  metadata string onto it (unknown values behave like `anonymous`, which
+ *  is what the attribute's presence means in HTML). */
+const toCrossOrigin = (value: string | undefined) => {
+	if (value === undefined) return undefined;
+	if (value === '' || value === 'use-credentials') return value;
+
+	return 'anonymous';
+};
+
+const SpeculationRulesScript = ({
+	rules
+}: {
+	rules: NonNullable<Metadata['speculationRules']>;
+}) => {
+	const body = serializeSpeculationRules(rules);
+	if (!body) return null;
+
+	return (
+		<script
+			dangerouslySetInnerHTML={{ __html: body }}
+			type="speculationrules"
+		/>
+	);
+};
+
 export const Head = ({
 	title = 'AbsoluteJS',
 	description = 'A page created using AbsoluteJS',
@@ -121,7 +148,9 @@ export const Head = ({
 	twitter,
 	robots,
 	meta,
-	jsonLd
+	jsonLd,
+	preload,
+	speculationRules
 }: Metadata = {}) => (
 	<head suppressHydrationWarning>
 		<meta charSet="utf-8" />
@@ -165,6 +194,18 @@ export const Head = ({
 					suppressHydrationWarning
 				/>
 			</>
+		)}
+		{preload?.map((link) => (
+			<link
+				as={link.module ? undefined : link.as}
+				crossOrigin={toCrossOrigin(link.crossorigin)}
+				href={link.href}
+				key={`${link.module ? 'modulepreload' : 'preload'}:${link.href}`}
+				rel={link.module ? 'modulepreload' : 'preload'}
+			/>
+		))}
+		{speculationRules && (
+			<SpeculationRulesScript rules={speculationRules} />
 		)}
 		{cssPath &&
 			[cssPath]
