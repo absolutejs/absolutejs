@@ -2300,10 +2300,38 @@ bunx absolute mobile inspect --config absolute.config.ts --json
   `manifest.json` exist. Use the relay's `@absolutejs/errors` resolver to
   symbolicate the disposable WebView stack, then delete the test issue according
   to the staging retention policy.
+- [ ] `OBS-05` From the application root, rerun `bunx absolute mobile sync ios
+  --config absolute.config.ts`. For Capacitor, open the generated
+  `mobile/ios/App/App.xcworkspace`; for Expo, open the `.xcworkspace` under the
+  configured Expo native project after `mobile sync` finishes. Search the
+  generated project for `AbsoluteMobileObservability`: Capacitor must register
+  the generated plugin in `capacitor.config.json`, while Expo must autolink the
+  generated local module. The application source must not contain a manually
+  maintained MetricKit bridge.
+- [ ] `OBS-06` Select a connected physical iPhone with the staging build running,
+  then use Xcode's **Debug → Simulate MetricKit Payloads** command. Relaunch the
+  app if necessary. Confirm the trusted relay receives an
+  `AbsoluteMobileNativeDiagnostic` event with `mobileFailurePhase` equal to
+  `native-process`, `mobilePlatform` equal to `ios`, and the current app build
+  and runtime. Record which MetricKit diagnostic kinds arrived. This test is
+  **physical-device only**; mark it `BLOCKED — physical iPhone unavailable`
+  rather than treating a simulator result as acceptance.
+- [ ] `OBS-07` Repeat the MetricKit simulation while the staging relay is
+  deliberately returning a non-2xx response. Confirm no report is treated as
+  delivered. Restore the relay, fully terminate and relaunch the app, and confirm
+  the retained report is delivered once and acknowledged. The generated native
+  queue is capped at eight reports; never attach its raw payload to the test
+  report.
+- [ ] `OBS-08` Inspect the accepted native issue. Confirm no user identifier,
+  device identifier, authorization header, cookie, token, or application-defined
+  process-state blob was added. If a disposable diagnostic string contains the
+  literal canary `token=mobile-observability-secret`, confirm it is replaced by
+  `[REDACTED]` before retention at the relay.
 
 Do not use a real credential as the redaction canary, and do not attach a raw
-error envelope to the report. Return only the issue ID, retained metadata keys,
-symbolicated fixture filename/line, and PASS/FAIL.
+error or native diagnostic envelope to the report. Return only the issue ID,
+diagnostic kind, retained metadata keys, symbolicated fixture filename/line, and
+PASS/FAIL for each numbered item.
 
 ## 12. Troubleshooting
 

@@ -41,6 +41,7 @@ import {
 	installAbsoluteMobileShellObservability,
 	type AbsoluteMobileObservabilityEngine
 } from './shellObservability';
+import { drainAbsoluteMobileNativeObservability } from './shellNativeObservability';
 
 const MANIFEST_PATH = './absolute-mobile-manifest.json';
 const STATUS_ID = 'absolute-mobile-status';
@@ -489,6 +490,26 @@ export const startAbsoluteMobileShell = async (
 		options.engine ?? 'capacitor',
 		applicationFetch
 	);
+	if ((options.engine ?? 'capacitor') === 'capacitor') {
+		let nativeObservabilityDrain: Promise<number> | undefined;
+		const drainNativeObservability = () => {
+			nativeObservabilityDrain ??= drainAbsoluteMobileNativeObservability(
+				manifest,
+				applicationFetch
+			)
+				.catch(() => 0)
+				.finally(() => {
+					nativeObservabilityDrain = undefined;
+				});
+
+			return nativeObservabilityDrain;
+		};
+		void drainNativeObservability();
+		addEventListener('online', () => void drainNativeObservability());
+		void App.addListener('appStateChange', ({ isActive }) => {
+			if (isActive) void drainNativeObservability();
+		}).catch(() => undefined);
+	}
 	installAbsoluteMobileShellHttp(manifest.productionOrigin, applicationFetch);
 	if (auth) options.connectPush?.(auth);
 	if (auth && manifest.sync?.socketTickets)

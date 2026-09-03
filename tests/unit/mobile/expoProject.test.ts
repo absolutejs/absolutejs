@@ -143,7 +143,12 @@ describe('experimental Expo project', () => {
 		const [
 			appConfig,
 			dynamicConfig,
+			layout,
 			nativeRoute,
+			nativeObservability,
+			nativeObservabilityConfig,
+			nativeObservabilityAndroid,
+			nativeObservabilityIos,
 			packageSource,
 			plugin,
 			nativeRouteRuntime,
@@ -152,7 +157,38 @@ describe('experimental Expo project', () => {
 		] = await Promise.all([
 			readFile(join(project, 'app.json'), 'utf8'),
 			readFile(join(project, 'app.config.js'), 'utf8'),
+			readFile(join(project, 'app', '_layout.tsx'), 'utf8'),
 			readFile(join(project, 'app', 'scanner', 'index.tsx'), 'utf8'),
+			readFile(
+				join(
+					project,
+					'src',
+					'generated',
+					'AbsoluteNativeObservability.ts'
+				),
+				'utf8'
+			),
+			readFile(
+				join(
+					project,
+					'modules/absolute-mobile-observability/expo-module.config.json'
+				),
+				'utf8'
+			),
+			readFile(
+				join(
+					project,
+					'modules/absolute-mobile-observability/android/src/main/java/expo/modules/absolutemobileobservability/AbsoluteMobileObservabilityModule.kt'
+				),
+				'utf8'
+			),
+			readFile(
+				join(
+					project,
+					'modules/absolute-mobile-observability/ios/AbsoluteMobileObservabilityModule.swift'
+				),
+				'utf8'
+			),
 			readFile(join(project, 'package.json'), 'utf8'),
 			readFile(
 				join(project, 'plugins', 'withAbsoluteDevelopmentCa.js'),
@@ -187,6 +223,23 @@ describe('experimental Expo project', () => {
 		expect(nativeRouteRuntime).toContain("phase: 'native-route-load'");
 		expect(nativeRouteRuntime).toContain("phase: 'native-route-render'");
 		expect(nativeRouteRuntime).toContain('mobileAppBuild');
+		expect(layout).toContain('startAbsoluteExpoNativeObservability');
+		expect(nativeObservability).toContain('requireNativeModule');
+		expect(nativeObservability).toContain('if (response.ok)');
+		expect(nativeObservability).toContain('nativeDiagnosticId');
+		expect(nativeObservabilityConfig).toContain(
+			'AbsoluteMobileObservabilityModule'
+		);
+		expect(JSON.parse(nativeObservabilityConfig).platforms).toEqual([
+			'apple',
+			'android'
+		]);
+		expect(nativeObservabilityAndroid).toContain(
+			'getHistoricalProcessExitReasons'
+		);
+		expect(nativeObservabilityAndroid).toContain('MAX_REPORTS = 8');
+		expect(nativeObservabilityIos).toContain('MXMetricManagerSubscriber');
+		expect(nativeObservabilityIos).toContain('maximumReports = 8');
 		expect(nativeRouteRuntime).toContain('redactErrorText');
 		expect(nativeRoute).toContain('export const ErrorBoundary');
 		expect(nativeRouteRuntime).toContain('x-absolute-mobile-app-build');
@@ -232,6 +285,36 @@ describe('experimental Expo project', () => {
 				'utf8'
 			)
 		).toContain('mobile/native/scanner');
+	});
+
+	test('removes only generated native observability files when disabled', async () => {
+		const { config, root } = await fixture();
+		await writeAbsoluteExpoProject(config, { projectRoot: root });
+		const project = config.nativeProjectDirectory;
+		const runtime = join(
+			project,
+			'src',
+			'generated',
+			'AbsoluteNativeObservability.ts'
+		);
+		const module = join(
+			project,
+			'modules',
+			'absolute-mobile-observability',
+			'expo-module.config.json'
+		);
+		delete config.observability;
+
+		const result = await writeAbsoluteExpoProject(config, {
+			projectRoot: root
+		});
+
+		expect(result.changed).toBeGreaterThan(0);
+		await expect(readFile(runtime, 'utf8')).rejects.toThrow();
+		await expect(readFile(module, 'utf8')).rejects.toThrow();
+		expect(
+			await readFile(join(project, 'app', '_layout.tsx'), 'utf8')
+		).not.toContain('AbsoluteNativeObservability');
 	});
 
 	test('prunes only stale AbsoluteJS-managed native route wrappers', async () => {

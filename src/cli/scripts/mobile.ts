@@ -24,6 +24,7 @@ import { applyAbsoluteNativeDeepLinks } from '../../mobile/nativeDeepLinks';
 import { applyAbsoluteNativeDeviceCapabilities } from '../../mobile/nativeDeviceCapabilities';
 import { applyAbsoluteNativeBackgroundSync } from '../../mobile/nativeBackgroundSync';
 import { applyAbsoluteNativeUpdates } from '../../mobile/nativeUpdates';
+import { applyAbsoluteNativeObservability } from '../../mobile/nativeObservability';
 import {
 	inspectAbsoluteMobileToolchain,
 	type AbsoluteMobileDoctorCheck
@@ -734,6 +735,7 @@ const initialize = async (args: string[]) => {
 	await applyAbsoluteNativeDeviceCapabilities(projectRoot, mobile);
 	await applyAbsoluteNativeBackgroundSync(projectRoot, mobile);
 	await applyAbsoluteNativeUpdates(mobile);
+	await applyAbsoluteNativeObservability(mobile);
 };
 
 const sync = async (args: string[]) => {
@@ -780,6 +782,7 @@ const sync = async (args: string[]) => {
 	await applyAbsoluteNativeDeviceCapabilities(projectRoot, mobile, platforms);
 	await applyAbsoluteNativeBackgroundSync(projectRoot, mobile, platforms);
 	await applyAbsoluteNativeUpdates(mobile, platforms);
+	await applyAbsoluteNativeObservability(mobile, platforms);
 };
 
 const associations = async (args: string[]) => {
@@ -1619,6 +1622,7 @@ const prepareCapacitorIosReleaseProject = async (
 	await applyAbsoluteNativeDeviceCapabilities(projectRoot, mobile, ['ios']);
 	await applyAbsoluteNativeBackgroundSync(projectRoot, mobile, ['ios']);
 	await applyAbsoluteNativeUpdates(mobile, ['ios']);
+	await applyAbsoluteNativeObservability(mobile, ['ios']);
 };
 
 const prepareIosReleaseProject = (
@@ -1642,6 +1646,7 @@ const prepareCapacitorAndroidReleaseProject = async (
 	]);
 	await applyAbsoluteNativeBackgroundSync(projectRoot, mobile, ['android']);
 	await applyAbsoluteNativeUpdates(mobile, ['android']);
+	await applyAbsoluteNativeObservability(mobile, ['android']);
 };
 
 const prepareAndroidReleaseProject = (
