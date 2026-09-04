@@ -9,6 +9,16 @@ declare global {
 	 * watchers and can observe entry/configuration edits. */
 	var __absoluteEntryWatcherReady: boolean | undefined;
 	var __absoluteEntryCopies: Set<string> | undefined;
+	/** Import-cost diagnostic (`ABSOLUTE_DEV_IMPORT_COST=1`). The recorder is
+	 *  filled by the preloaded `onLoad` plugin, read by the report, and
+	 *  written to by the dev bootstrap — three separate bundles, so it lives
+	 *  here rather than in module state. Stays unset unless the flag is on. */
+	var __absoluteImportCost:
+		| import('../src/dev/importCost/recorder').ImportCostRecorder
+		| undefined;
+	var __absoluteImportCostEnter: ((moduleIndex: number) => void) | undefined;
+	var __absoluteImportCostExit: ((moduleIndex: number) => void) | undefined;
+	var __absoluteImportCostReport: (() => Promise<void>) | undefined;
 	var __absoluteEntryBootstrapSequence: number | undefined;
 	var __absoluteEntryCleanupRegistered: boolean | undefined;
 	var __absoluteEntryWatcherStarted: boolean | undefined;

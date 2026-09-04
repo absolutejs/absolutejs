@@ -145,10 +145,17 @@ if (
 // The specifier is built at runtime so the bundler leaves it as a real
 // import of the framework runtime (`dist/index.js`) — the exact module the
 // user's entry imports — instead of inlining a second copy in here.
+//
+// The import-cost diagnostic turns this off. Its per-module numbers come
+// from wall-clock gaps on this thread, and a build running inside those gaps
+// lands on whichever module happened to be parsing — which is exactly the
+// kind of misattribution the diagnostic exists to avoid. Measuring costs a
+// slower boot; that is the trade the flag makes.
 if (
 	!isHotReevaluation &&
 	process.env.NODE_ENV === 'development' &&
-	process.env.ABSOLUTE_DEV_PREBUILD !== '0'
+	process.env.ABSOLUTE_DEV_PREBUILD !== '0' &&
+	process.env.ABSOLUTE_DEV_IMPORT_COST !== '1'
 ) {
 	const compiledRuntime = join(import.meta.dir, '..', 'index.js');
 	const runtimeEntry = existsSync(compiledRuntime)
@@ -172,9 +179,24 @@ if (
 		});
 }
 
+// Import-cost diagnostic: hand the recorder the two module identities it
+// cannot discover on its own — this bootstrap is the process root that
+// reachability starts from, and `bootstrapCopy` is the module whose
+// top-level imports are the candidates. Both are no-ops with the flag off.
+const importCostRecorder = globalThis.__absoluteImportCost;
+if (importCostRecorder !== undefined) {
+	importCostRecorder.entryModule = bootstrapCopy;
+	importCostRecorder.entryOriginalModule = entryPath;
+	importCostRecorder.rootModule = import.meta.path;
+}
+
 // Keep the user's original entry out of Bun's --hot module graph. Bun can
 // still hot-refresh its framework dependencies, while AbsoluteJS exclusively
 // owns server-entry replacement through unique sibling imports.
 markBoot('server entry import start');
 await import(bootstrapCopy);
 markBoot('server entry import done');
+
+// Runs only when `ABSOLUTE_DEV_IMPORT_COST=1` preloaded the recorder; with
+// the flag off this is one undefined property read.
+await globalThis.__absoluteImportCostReport?.();
