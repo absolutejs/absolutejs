@@ -238,8 +238,7 @@ export const installParentPortHandoffGuard = (port: number) => {
  *  not offered there and the child's own placeholder stays in charge. */
 export const parentListenerSupported = () => process.platform !== 'win32';
 /** True when the CLI parent, not this process, owns the placeholder. */
-export const parentOwnsDevPort = () =>
-	process.env[PARENT_LISTENER_ENV] === '1';
+export const parentOwnsDevPort = () => process.env[PARENT_LISTENER_ENV] === '1';
 export const releaseEarlyListener = () => {
 	const listener = globalThis.__absoluteEarlyListener;
 	if (!listener) return false;
@@ -257,10 +256,7 @@ export const signalParentPortHandoff = (port: number) => {
 	if (globalThis.__absoluteParentHandoffSignalled) return;
 	globalThis.__absoluteParentHandoffSignalled = true;
 	try {
-		writeSync(
-			PARENT_HANDOFF_FD,
-			`${PARENT_HANDOFF_MARKER} ${port}\n`
-		);
+		writeSync(PARENT_HANDOFF_FD, `${PARENT_HANDOFF_MARKER} ${port}\n`);
 	} catch {
 		/* no hand-off pipe on fd 3 */
 	}
