@@ -46,7 +46,15 @@ const getTypecheckTargets = async (configPath?: string) => {
 	);
 };
 
-const run = async (name: string, command: string[]): Promise<CheckerResult> => {
+const STACK_OVERFLOW = 'Maximum call stack size exceeded';
+/* Deep enough for the compilers' AST recursion on a large project, still
+ * far below a typical 8 MB thread stack. */
+const DEEP_STACK_KB = 4000;
+
+const spawnChecker = async (
+	name: string,
+	command: string[]
+): Promise<CheckerResult> => {
 	const proc = Bun.spawn(command, {
 		stderr: 'pipe',
 		stdout: 'pipe'
@@ -58,6 +66,29 @@ const run = async (name: string, command: string[]): Promise<CheckerResult> => {
 	const exitCode = await proc.exited;
 
 	return { exitCode, name, output: (stdout + stderr).trim() };
+};
+
+/**
+ * Runs a checker, and retries it with a deeper stack if it blew the default
+ * one. A stack overflow is never a type error: tsc, vue-tsc and ngc all walk
+ * the syntax tree recursively, so a deeply nested expression can exhaust
+ * node's ~1 MB default while the code is perfectly valid. Reporting that as
+ * a failed check would be a lie, and raising the stack for every run would
+ * hide the cases where recursion is genuinely unbounded.
+ */
+const run = async (name: string, command: string[]): Promise<CheckerResult> => {
+	const first = await spawnChecker(name, command);
+	if (!first.output.includes(STACK_OVERFLOW)) return first;
+	const [bin, ...args] = command;
+	if (bin === undefined) return first;
+	const deep = await spawnChecker(name, [
+		'node',
+		`--stack-size=${DEEP_STACK_KB}`,
+		bin,
+		...args
+	]).catch(() => first);
+
+	return deep.output.includes(STACK_OVERFLOW) ? first : deep;
 };
 
 const shellEscape = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;

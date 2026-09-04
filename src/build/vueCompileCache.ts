@@ -90,7 +90,12 @@ const readOwnPackageVersion = () => {
 		}
 	}
 
-	return globalThis.__absoluteVersion ?? null;
+	// Read through Reflect so this file needs no ambient global: the Angular
+	// typecheck compiles it under the example's config, which does not load
+	// the framework's own global declarations.
+	const injected: unknown = Reflect.get(globalThis, '__absoluteVersion');
+
+	return typeof injected === 'string' ? injected : null;
 };
 
 let cachedFrameworkVersion: string | null | undefined;
