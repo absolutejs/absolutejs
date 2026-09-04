@@ -93,12 +93,140 @@ Turn it on with `ABSOLUTE_DEV_PRESCAN=1` when your source tree is large but
 your server entry imports little — then there is no import window for the
 scans to hide in, and the saving above should show up in wall clock.
 
+## Which of your imports is actually costing you
+
+Past a certain size the slowest thing in a dev boot is the app's own
+`server.ts` evaluating its module graph, and no framework change can shrink
+that — it is the developer's code. On a 74-page app, 111 top-level imports
+account for around 3.5s of a 5.5s boot.
+
+The obvious way to find the expensive one is to import each specifier in turn
+and time it. That measurement lies. Done on the app above it reports
+`./plugins/enterpriseAuthPlugin` at 1386ms, but that module's own direct
+dependencies cost 3ms, 2ms and 18ms: the 1386ms is first-touch of a subgraph
+that almost every other import also uses. Defer it and the cost moves to
+whichever import loads next. Whole-subgraph measurements have the same
+problem from the other side — on that app the pages, enterprise and voice
+subtrees measure 2137ms, 1778ms and 1616ms in fresh processes and overlap so
+heavily that adding them is meaningless.
+
+`ABSOLUTE_DEV_IMPORT_COST=1` answers the question that leads somewhere
+instead: **if I deferred this import, how much boot time would actually go
+away?**
+
+```
+$ ABSOLUTE_DEV_IMPORT_COST=1 bun run dev
+
+AbsoluteJS import cost — src/backend/server.ts
+3358ms of module evaluation across 2056 modules, 111 top-level imports.
+
+    saving modules  import                                      verdict
+     592ms     160  ./plugins/apiPlugin                         used at module scope
+      27ms       1  @absolutejs/auth/server                     deferrable
+      23ms       8  ./plugins/uploadthingFileRouterPlugin       used at module scope
+  108 more          imports below 15ms — 68ms between them
+
+  shared base: 2649ms across 1817 modules — reached through more than one
+  import (or loaded before the entry), so deferring any single import does not remove it.
+  1852ms was the entry's own body — the work it does after its imports,
+  including the boot build it waits on. No import can move that.
+  79ms more ran outside the instrumented modules (CommonJS dependencies, native
+  modules, the concurrent boot build) and is credited to no import.
+```
+
+Read that top-down and the answer is uncomfortable but true: on this app
+there is no import worth deferring. One import owns 592ms and it is used at
+module scope; everything else owns tens of milliseconds; 2649ms is shared
+between imports and stays no matter which one you move.
+
+### How the saving is computed
+
+**Dominators, not subtree totals.** Deferring an import removes exactly the
+modules that become unreachable without it — the ones it *dominates*. The
+report removes each candidate edge from the module graph, re-runs
+reachability from the process root, and sums the self time of what
+disappeared. A module reached through two of the entry's imports disappears
+from neither, so it lands in the shared base instead of being credited twice.
+
+Reachability starts at the **dev bootstrap**, not at your entry. That is what
+keeps the framework runtime — which the bootstrap loads on its own — out of
+whichever import happened to touch it first. Anything that loaded with no
+recorded importer is hung off that root for the same reason: it stays counted
+but cannot be claimed by an import.
+
+**Self time excludes children.** Every module is bracketed with an enter call
+at the top of its body and an exit call at the end. In ESM that is exclusive
+of static children for free — a module's body does not start until everything
+it imports has finished evaluating. CommonJS nests instead, and so do dynamic
+imports awaited inside a body; a stack subtracts those. Parsing is measured
+separately, from the gap between one module's load and the next one's, and
+the plugin's own read-and-rewrite is bracketed out so instrumentation
+overhead is never charged to a module.
+
+**Lazy edges count as edges.** A `require()` or an `import()` inside a
+function still becomes an edge in the graph. That can only make a module look
+*more* shared than it is, which understates a saving. Overstating one is the
+failure this whole diagnostic exists to avoid, so every judgement call goes
+that way.
+
+### The verdict column
+
+A saving you cannot collect is worthless, so every candidate is also checked
+against the entry's source with the TypeScript compiler API:
+
+| verdict | meaning |
+| --- | --- |
+| `deferrable` | every binding it introduces is referenced only inside function or method bodies. Move the import into the function and the saving is yours. |
+| `used at module scope` | at least one reference runs during module evaluation — at top level, in a decorator, in a class-field initializer, or re-exported from the entry. Deferring it needs a refactor, not a moved line. |
+| `side-effect import` | `import "x"` with no bindings. Never deferrable, and usually order-sensitive: `reflect-metadata` has to be first or every tsyringe-based dependency throws. |
+
+The classifier is one-sided on purpose. Where it cannot prove a reference is
+deferred it says `used at module scope`, so it under-reports deferrable
+imports and never claims one that is not. Type-only imports are left out of
+the table entirely — they are erased and never load.
+
+### What it cannot see
+
+Bun 1.4 has no CommonJS loader for plugins: an `onLoad` hook must return
+contents, and whatever it returns is parsed as an ES module. Instrumenting a
+CommonJS dependency therefore breaks it. So the recorder covers your own
+source, `.mjs` anywhere, and packages that declare `"type": "module"` —
+Node's own rule, including nested manifests, so a CommonJS build shipped
+inside an ESM package (`entities/dist/commonjs/`) stays out.
+
+What is left out is not mis-attributed. It evaluates outside every
+instrumented module's body, so it is charged to the process root and printed
+on the `ran outside the instrumented modules` line rather than credited to
+one of your imports.
+
+Two more things the numbers do not include: the entry's own body — where
+`prepare()` and the boot build it waits on live — is reported on its own line
+and excluded from the total, and the boot build is not started early under
+this flag (see below), so a measured boot is slower than a normal one.
+
+### Cost of measuring
+
+The flag is off by default and costs nothing when off: no extra `--preload`
+argument reaches the dev child, and the bootstrap does one undefined property
+read. With it on, expect a slower boot — the recorder rewrites every module
+it loads (about 90ms on the app above, reported and excluded), the analysis
+runs after the entry finishes importing, and `startDevPrebuild()` is
+suppressed. Its build would otherwise run inside the same wall-clock gaps the
+per-module numbers come from and land on whichever module happened to be
+parsing, which is exactly the misattribution the flag exists to avoid.
+
+`ABSOLUTE_DEV_IMPORT_COST_DUMP=<path>` writes the raw measurement (module
+paths and the event log) alongside the report, so an attribution can be
+re-derived without another boot.
+
 ## Knobs
 
 | Setting | Default | Effect |
 | --- | --- | --- |
 | `--eager` / `ABSOLUTE_DEV_EAGER=1` | off | Build every page during boot instead of on first request. |
 | `ABSOLUTE_DEV_PROFILE=1` | off | Startup timings + build trace + on-demand build lines + pool utilisation. |
+| `ABSOLUTE_DEV_IMPORT_COST=1` | off | Per-import cost report for your server entry: how much boot time deferring each top-level import would actually remove. Slows the boot it measures — see above. |
+| `ABSOLUTE_DEV_IMPORT_COST_DUMP=path` | off | With the above, also write the raw measurement to `path` as JSON. |
 | `ABSOLUTE_BUILD_WORKERS=n` | `max(2, min(cpus, 8))`, capped by free memory | Build-worker threads for `@vue/compiler-sfc` and the dev sourcemap chain. `0` or `1` runs every job inline on the main thread — the supported path for debugging. |
 | `ABSOLUTE_COMPILE_CACHE=0` | on | Disable the restart-surviving Vue compile cache in `.absolutejs/compile-cache/vue/`. A cold boot then recompiles every SFC. |
 | `ABSOLUTE_EARLY_LISTEN=0` | on | Don't bind the port during the boot build. With it on (default) the port answers `503` + `Retry-After` while building, instead of refusing connections. |
