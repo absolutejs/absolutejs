@@ -138,7 +138,17 @@ export const handleReactPageRequest = async <
 			runtimes: [String(ABSOLUTE_MOBILE_PAGE_PROTOCOL_VERSION)]
 		},
 		props: maybeProps ?? Object.create(null),
-		request
+		request,
+		// Web route data: the assets a hovered `<Link>` warms before the
+		// click. React pages own their `<head>` inside the component, so
+		// the handler can only name the client entry (plus any stylesheet
+		// an on-demand dev build just resolved).
+		route: () => ({
+			assets: {
+				css: deferredAssets?.cssHrefs() ?? [],
+				index: resolvedIndex
+			}
+		})
 	});
 	if (mobileResponse) return mobileResponse;
 

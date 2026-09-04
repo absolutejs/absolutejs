@@ -101,7 +101,7 @@
 		if (resolvedMode() === 'none' || isExternal(to)) return;
 		hoverHandle?.cancel();
 		hoverHandle = null;
-		prefetch(to);
+		prefetch(to, { kind: 'route' });
 		if (prerender) speculate(to);
 	};
 

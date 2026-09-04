@@ -25,6 +25,7 @@ import {
 	captureStreamingSlotWarningCallsite,
 	runWithStreamingSlotWarningScope
 } from '../core/streamingSlotWarningScope';
+import { readHeadStylesheets, readHeadTitle } from '../core/routeAssets';
 import { readSiblingCss } from '../utils/inlinePageCss';
 import { ssrErrorPage } from '../utils/ssrErrorPage';
 import { renderSpaNotFound } from '../utils/spaRouteManifest';
@@ -198,7 +199,25 @@ export const handleSveltePageRequest = async <
 			runtimes: [String(ABSOLUTE_MOBILE_PAGE_PROTOCOL_VERSION)]
 		},
 		props: resolvedProps ?? Object.create(null),
-		request
+		request,
+		// Web route data: the assets a hovered `<Link>` warms before the
+		// click, read back out of the head content this handler is about
+		// to render.
+		route: () => {
+			const head = withDeferredStylesheets(
+				input.headContent ?? '',
+				deferredAssets
+			);
+			const title = readHeadTitle(head);
+
+			return {
+				assets: {
+					css: readHeadStylesheets(head),
+					index: resolvedIndexPath
+				},
+				...(title ? { head: { title } } : {})
+			};
+		}
 	});
 	if (mobileResponse) return mobileResponse;
 

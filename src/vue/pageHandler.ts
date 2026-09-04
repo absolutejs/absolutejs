@@ -34,6 +34,7 @@ import {
 	renderFirstNotFound,
 	renderConventionError
 } from '../utils/resolveConvention';
+import { readHeadStylesheets, readHeadTitle } from '../core/routeAssets';
 import { resolveGeneratedVueModulePath } from './resolveGeneratedVueModulePath';
 import {
 	ABSOLUTE_TELEPORT_TARGET,
@@ -199,7 +200,27 @@ export const handleVuePageRequest = async <Component extends VueComponent>(
 			runtimes: [String(ABSOLUTE_MOBILE_PAGE_PROTOCOL_VERSION)]
 		},
 		props: input.props ?? Object.create(null),
-		request
+		request,
+		// Web route data: the assets a hovered `<Link>` warms before the
+		// click. Read back out of the head this handler is about to
+		// render, so no manifest key is resolved twice.
+		route: () => {
+			const head = withDeferredStylesheets(
+				input.headTag ?? '',
+				deferredAssets
+			);
+			const title = readHeadTitle(head);
+
+			return {
+				assets: {
+					css: readHeadStylesheets(head),
+					...(clientMode === 'auto' && resolvedIndexPath
+						? { index: resolvedIndexPath }
+						: {})
+				},
+				...(title ? { head: { title } } : {})
+			};
+		}
 	});
 	if (mobileResponse) return mobileResponse;
 	const userHeadTag = withDeferredStylesheets(

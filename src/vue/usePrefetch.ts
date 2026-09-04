@@ -25,7 +25,9 @@ export type UsePrefetchOptions = {
 	/** `'viewport'` (production default), `'hover'` (development default)
 	 *  or `'none'`. */
 	mode?: MaybeRefOrGetter<PrefetchMode | undefined>;
-	/** Defaults to `'document'`. */
+	/** What to warm. Defaults to `'document'` for the viewport trigger and
+	 *  `'route'` (document + route data + the modules / CSS it names) for
+	 *  hover and pointerdown. */
 	kind?: PrefetchKind;
 	/** Also inject a prerender speculation rule when the hover /
 	 *  pointerdown trigger fires. */
@@ -47,7 +49,8 @@ export const usePrefetch = (
 	href: MaybeRefOrGetter<string | undefined>,
 	options: UsePrefetchOptions = {}
 ) => {
-	const kind = options.kind ?? 'document';
+	const viewportKind = options.kind ?? 'document';
+	const triggerKind = options.kind ?? 'route';
 	const element: Ref<HTMLElement | null> = ref(null);
 	let hoverHandle: HoverPrefetchHandle | null = null;
 
@@ -72,7 +75,7 @@ export const usePrefetch = (
 		if (target === undefined || !isActive()) return;
 		cancelHover();
 		hoverHandle = scheduleHoverPrefetch(target, {
-			kind,
+			kind: triggerKind,
 			prerender: shouldPrerender()
 		});
 	};
@@ -81,7 +84,7 @@ export const usePrefetch = (
 		const target = currentHref();
 		if (target === undefined || !isActive()) return;
 		cancelHover();
-		prefetch(target, { kind });
+		prefetch(target, { kind: triggerKind });
 		if (shouldPrerender()) speculate(target);
 	};
 
@@ -91,7 +94,7 @@ export const usePrefetch = (
 			const target = currentHref();
 			if (!node || target === undefined || !isActive()) return;
 			if (currentMode() !== 'viewport') return;
-			onCleanup(observeViewport(node, target, { kind }));
+			onCleanup(observeViewport(node, target, { kind: viewportKind }));
 		}, { flush: 'post' });
 	}
 

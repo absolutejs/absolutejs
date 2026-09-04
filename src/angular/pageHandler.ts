@@ -5,6 +5,7 @@ import { pathToFileURL } from 'node:url';
 import type { EnvironmentProviders, Provider, Type } from '@angular/core';
 import { BASE_36_RADIX, RANDOM_ID_END_INDEX } from '../constants';
 import { injectIslandPageContext } from '../core/islandPageContext';
+import { readHeadStylesheets, readHeadTitle } from '../core/routeAssets';
 import { injectInlineCss, readSiblingCss } from '../utils/inlinePageCss';
 import { ssrErrorPage } from '../utils/ssrErrorPage';
 import {
@@ -403,7 +404,25 @@ export const handleAngularPageRequest = async <Page = unknown>(
 			? input.requestContext
 			: Object.create(null),
 		request,
-		status: input.responseInit?.status
+		status: input.responseInit?.status,
+		// Web route data: the assets a hovered `<Link>` warms before the
+		// click, read back out of the head this handler is about to
+		// render.
+		route: () => {
+			const head = withDeferredStylesheets(
+				input.headTag ?? '',
+				deferredAssets
+			);
+			const title = readHeadTitle(head);
+
+			return {
+				assets: {
+					css: readHeadStylesheets(head),
+					index: deferredIndexPath
+				},
+				...(title ? { head: { title } } : {})
+			};
+		}
 	});
 	if (mobileResponse) return mobileResponse;
 

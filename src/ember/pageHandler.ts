@@ -1,10 +1,17 @@
 import { pathToFileURL } from 'node:url';
 import { withPageCacheHeaders } from '../core/pageResponseCache';
 import {
+	getCurrentAbsoluteRequest,
 	resolveDeferredPageAssets,
 	withDeferredStylesheets
 } from '../core/requestContext';
+import { readHeadStylesheets, readHeadTitle } from '../core/routeAssets';
+import {
+	ABSOLUTE_MOBILE_PAGE_PROTOCOL_VERSION,
+	finalizeAbsoluteRouteData
+} from '../mobile/pageProtocol';
 import { ssrErrorPage } from '../utils/ssrErrorPage';
+import { derivePageName } from '../utils/resolveConvention';
 import { injectBrowserTranslationBaseline } from '../core/browserTranslation';
 
 /**
@@ -163,6 +170,40 @@ export const handleEmberPageRequest = async (input: EmberPageRequestInput) => {
 		headTag ?? '<head></head>',
 		deferredAssets
 	);
+
+	// Web route data (`application/vnd.absolute.route+json`): the props +
+	// assets a hovered `<Link>` warms before the click. Ember pages have
+	// no mobile representation, so this is the only Absolute media type
+	// they answer. The Elysia request context is the fallback source for
+	// the request because Ember routes commonly don't forward one.
+	const pageId = deferredAssets?.name ?? derivePageName(pagePath);
+	const routeData = finalizeAbsoluteRouteData({
+		compatibility: {
+			framework: 'ember',
+			pageId,
+			representations: [
+				{
+					contract: `ember:${pageId}:${ABSOLUTE_MOBILE_PAGE_PROTOCOL_VERSION}`,
+					mapProps: (value: Record<string, unknown>) => value
+				}
+			],
+			runtimes: [String(ABSOLUTE_MOBILE_PAGE_PROTOCOL_VERSION)]
+		},
+		props: props ?? Object.create(null),
+		request: input.request ?? getCurrentAbsoluteRequest(),
+		route: () => {
+			const title = readHeadTitle(resolvedHeadTag);
+
+			return {
+				assets: {
+					css: readHeadStylesheets(resolvedHeadTag),
+					index: indexPath
+				},
+				...(title ? { head: { title } } : {})
+			};
+		}
+	});
+	if (routeData) return routeData;
 
 	try {
 		installSimpleDomGlobals();
