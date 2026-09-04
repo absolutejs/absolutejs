@@ -76,7 +76,7 @@ const spawnChecker = async (
  * a failed check would be a lie, and raising the stack for every run would
  * hide the cases where recursion is genuinely unbounded.
  */
-const run = async (name: string, command: string[]): Promise<CheckerResult> => {
+const run = async (name: string, command: string[]) => {
 	const first = await spawnChecker(name, command);
 	if (!first.output.includes(STACK_OVERFLOW)) return first;
 	const [bin, ...args] = command;
