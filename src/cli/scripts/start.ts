@@ -473,6 +473,16 @@ export const start = async (
 					loader: 'js'
 				})
 			);
+			// The rebuild driver is dev-only too, but unlike its siblings it is
+			// reached from the module server's `warmPage`, so the bundler
+			// follows it and then fails to link the dev exports the stubs above
+			// removed. Stubbing it here cuts that edge instead of forcing every
+			// module it touches to keep a production-shaped surface.
+			bld.onLoad({ filter: /dev\/rebuildTrigger\.ts$/ }, () => ({
+				contents:
+					'export const triggerRebuild = () => {}; export const queueFileChange = () => {}; export const drainPendingQueue = () => {};',
+				loader: 'js'
+			}));
 			// Stub telemetry — not needed in production bundle
 			bld.onLoad(
 				{ filter: /cli\/(telemetryEvent|scripts\/telemetry)\.ts$/ },
