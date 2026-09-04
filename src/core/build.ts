@@ -371,6 +371,10 @@ const tryReadPackageJson = async (path: string) => {
 };
 
 const resolveAbsoluteVersion = async () => {
+	// The framework's own package.json cannot change under a running
+	// process, and dev re-enters `build()` for every incremental rebuild
+	// and every on-demand page build.
+	if (globalThis.__absoluteVersion) return;
 	const candidates = [
 		resolve(import.meta.dir, '..', '..', 'package.json'),
 		resolve(import.meta.dir, '..', 'package.json')

@@ -5,6 +5,7 @@ import { rm } from 'node:fs/promises';
 import { build as bunBuild, Glob, type BunPlugin } from 'bun';
 import { generateVendorEntrySource } from './vendorEntrySource';
 import { isTestSourcePath } from '../utils/isTestSourcePath';
+import { devProfileEnabled } from '../utils/startupTimings';
 
 // `@`-scoped packages get an underscore prefix so `@foo/bar` and `foo/bar`
 // produce distinct vendor filenames (both would otherwise collapse to
@@ -684,8 +685,11 @@ export const computeDepVendorPaths = async (
 	directories: string[],
 	files: string[] = []
 ) => {
+	const scanStartedAt = performance.now();
 	const { dep: initialSpecs, framework: frameworkRoots } =
 		await scanBareImports(directories, files);
+	const scanMs = performance.now() - scanStartedAt;
+	const transitiveStartedAt = performance.now();
 	const allSpecs = new Set<string>(initialSpecs);
 	const alreadyScanned = new Set<string>();
 
@@ -710,6 +714,14 @@ export const computeDepVendorPaths = async (
 	const paths: Record<string, string> = {};
 	for (const specifier of allSpecs) {
 		paths[specifier] = `/vendor/${toSafeFileName(specifier)}.js`;
+	}
+	if (devProfileEnabled) {
+		console.error(
+			`[profile] dep vendor scan: sources ${Math.round(scanMs)}ms ` +
+				`(${initialSpecs.length} specs), transitive ` +
+				`${Math.round(performance.now() - transitiveStartedAt)}ms ` +
+				`(${allSpecs.size} total, ${alreadyScanned.size} scanned)`
+		);
 	}
 
 	return paths;

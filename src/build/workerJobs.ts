@@ -10,6 +10,7 @@ import type {
 	BuildWorkerJobs,
 	EchoJobInput,
 	SourcemapChainInput,
+	TsHelperEmitInput,
 	VueSfcCompileInput,
 	WarmJobInput
 } from '../../types/workerPool';
@@ -35,6 +36,12 @@ const runSourcemapChain = async ({
 	};
 };
 
+const runTsHelperEmit = async (input: TsHelperEmitInput) => {
+	const { emitTsHelpers } = await import('./emitTsHelpers');
+
+	return emitTsHelpers(input);
+};
+
 const runVueSfc = async (input: VueSfcCompileInput) => {
 	const { compileVueSfc } = await import('./compileVueSfc');
 
@@ -51,7 +58,8 @@ const warmVueSfc = async () => {
 
 const warmers: Record<string, () => Promise<unknown>> = {
 	'vue-sfc': warmVueSfc,
-	'sourcemap-chain': () => import('./chainInlineSourcemaps')
+	'sourcemap-chain': () => import('./chainInlineSourcemaps'),
+	'ts-helper-emit': () => import('./emitTsHelpers')
 };
 
 const runWarm = async ({ kinds }: WarmJobInput) => {
@@ -67,6 +75,7 @@ const handlers: {
 } = {
 	echo: runEcho,
 	'sourcemap-chain': runSourcemapChain,
+	'ts-helper-emit': runTsHelperEmit,
 	'vue-sfc': runVueSfc,
 	warm: runWarm
 };

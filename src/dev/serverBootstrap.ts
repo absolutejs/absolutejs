@@ -137,6 +137,7 @@ if (
 	const runtimeEntry = existsSync(compiledRuntime)
 		? compiledRuntime
 		: join(import.meta.dir, '..', 'index.ts');
+	markBoot('prebuild import issued');
 	void import(runtimeEntry)
 		.then((runtime: { startDevPrebuild?: () => Promise<unknown> }) => {
 			markBoot('prebuild started');

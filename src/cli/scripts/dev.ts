@@ -10,7 +10,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join, resolve as resolvePath } from 'node:path';
 import type { DbScripts, InteractiveHandler } from '../../../types/cli';
-import type { MobileConfig } from '../../../types/build';
+import type { BuildConfig, MobileConfig } from '../../../types/build';
 import {
 	ANSI_ESCAPE_CODE,
 	DEFAULT_PORT,
@@ -19,6 +19,7 @@ import {
 	SIGTERM_EXIT_CODE
 } from '../../constants';
 import { startTunnelClient } from '../../dev/tunnel/client';
+import { createDevPrescan } from '../../dev/devPrescan';
 import { formatTimestamp } from '../../utils/startupBanner';
 import { bootTimelineChildEnv, markBoot } from '../../utils/bootTimeline';
 import { createInteractiveHandler } from '../interactive';
@@ -477,9 +478,11 @@ export const dev = async (
 		  }
 		| undefined;
 	markBoot('dev command entered');
+	let prescanConfig: BuildConfig | undefined;
 	try {
 		const config = await loadConfig(configPath);
 		markBoot('dev config loaded');
+		prescanConfig = config;
 		mobileConfig = config?.mobile;
 		if (mobileConfig) {
 			mobileDev = await loadAbsoluteMobileDevModules();
@@ -1807,9 +1810,16 @@ export const dev = async (
 		}
 	};
 
+	// One pre-scan per CLI process, for the first child only: the payload
+	// describes the tree as it was at spawn time, and a respawn happens
+	// after edits the parent has not re-scanned.
+	let prescan = prescanConfig ? createDevPrescan(prescanConfig) : null;
+
 	const spawnServer = async () => {
 		await refreshDevConfigForSpawn();
 		markBoot('dev child spawn requested');
+		const prescanForSpawn = prescan;
+		prescan = null;
 		const proc = nodeSpawn(
 			'bun',
 			[
@@ -1831,6 +1841,9 @@ export const dev = async (
 					ABSOLUTE_PORT: String(port),
 					ABSOLUTE_SERVER_ENTRY: resolvePath(serverEntry),
 					...bootTimelineChildEnv(),
+					...(prescanForSpawn
+						? { ABSOLUTE_DEV_PRESCAN: prescanForSpawn.path }
+						: {}),
 					...(options.eager ? { ABSOLUTE_DEV_EAGER: '1' } : {}),
 					...(mobileConfig ? { ABSOLUTE_MOBILE_PREVIEW: '1' } : {}),
 					FORCE_COLOR: '1',
@@ -1842,6 +1855,9 @@ export const dev = async (
 				stdio: ['ignore', 'pipe', 'pipe']
 			}
 		);
+
+		// Started after the spawn so the scan can never delay the child.
+		prescanForSpawn?.start();
 
 		let printedBootDiagnostic = false;
 		const forward = (

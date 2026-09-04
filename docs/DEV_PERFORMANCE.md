@@ -37,6 +37,43 @@ runs, profiling a full build).
 
 `absolute build` prints the slowest phases from the same trace directory.
 
+## Where a dev boot's time actually goes
+
+`absolute dev` runs two processes: the CLI parent and the `bun --hot`
+child that serves. `ABSOLUTE_DEV_PROFILE=1` prints one timeline across
+both (`AbsoluteJS boot timeline`, offsets from CLI start), which is the
+only view that explains the wall clock — the per-step blocks inside each
+process cannot, because their awaits interleave with whatever else holds
+the thread.
+
+The child's boot is **single-threaded and CPU bound**. Evaluating the
+user's server entry (a large app imports well over a hundred packages at
+the top level) and running the framework's boot build compete for the
+same JS thread, so moving the build earlier only interleaves the two — it
+does not make either cheaper. The build starts as early as it can already:
+`dev/serverBootstrap.ts` kicks off `startDevPrebuild()` right after the
+early listener binds and before the user's entry is imported, and the
+user's later `prepare()` joins that promise instead of starting a second
+build (`prepare() joined prebuild` in the timeline).
+
+What *is* free is the CLI parent. From the spawn until the child prints
+`ready` it does nothing but forward stdout, so the two boot steps that are
+pure functions of what is on disk run over there instead:
+
+- the dependency-vendor specifier scan (every source file under the
+  configured framework directories, then the matching packages in
+  `node_modules`);
+- the initial HMR dependency graph (every watched source file's imports).
+
+The parent writes both to `.absolutejs/dev-prescan/<pid>.json` and the
+child adopts them (`adopt CLI pre-scan` in the devBuild timing block,
+followed by near-zero `initialize dependency graph` and
+`prepare dep vendor paths` steps). The payload records which directories
+the scan covered; if they do not match what this process would have
+scanned, or the file is late or malformed, the child simply scans for
+itself. On a 1,400-file app this moves ~1.3s off the child's critical
+path. Turn it off with `ABSOLUTE_DEV_PRESCAN=0`.
+
 ## Knobs
 
 | Setting | Default | Effect |
@@ -46,6 +83,9 @@ runs, profiling a full build).
 | `ABSOLUTE_BUILD_WORKERS=n` | `max(2, min(cpus, 8))`, capped by free memory | Build-worker threads for `@vue/compiler-sfc` and the dev sourcemap chain. `0` or `1` runs every job inline on the main thread — the supported path for debugging. |
 | `ABSOLUTE_COMPILE_CACHE=0` | on | Disable the restart-surviving Vue compile cache in `.absolutejs/compile-cache/vue/`. A cold boot then recompiles every SFC. |
 | `ABSOLUTE_EARLY_LISTEN=0` | on | Don't bind the port during the boot build. With it on (default) the port answers `503` + `Retry-After` while building, instead of refusing connections. |
+| `ABSOLUTE_DEV_PRESCAN=0` | on | Don't pre-scan the source tree in the CLI parent; the dev child scans it itself during its own boot. See above. |
+| `ABSOLUTE_DEV_PRESCAN_WAIT_MS=n` | `2000` | How long the child waits for the parent's pre-scan before giving up and scanning itself. The parent starts ~2s before the child needs the result, so the wait is normally zero. |
+| `ABSOLUTE_DEV_PREBUILD=0` | on | Don't start the boot build from the dev bootstrap; wait for the user's `prepare()` call. |
 | `dev.bundleServerDependencies` | built-in detection | Force-bundle `node_modules` packages into SSR page bundles. See below. |
 
 ### Server dependencies stay external in dev
@@ -61,6 +101,30 @@ Force extra packages to be bundled with `dev.bundleServerDependencies`:
 package names (`'three'`), scoped globs (`'@scope/*'`), exact specifiers,
 or `'*'` for the legacy inline-everything behaviour. Production builds are
 unaffected.
+
+### Vue helper emission
+
+A Vue page's components import plain `.ts` helpers (stores, composables,
+shared utilities) and every one of them is transpiled into both generated
+trees so the relative imports inside the compiled intermediates resolve.
+`cleanup/generated` wipes those trees after every build, so this repeats
+on every build — including each on-demand page build. On a large app that
+is several hundred files per build, and it was the single largest slice of
+an on-demand page build.
+
+Three things keep it small:
+
+- the helper graph is walked breadth-first in waves, so the hundreds of
+  reads happen concurrently instead of one await at a time;
+- the transpile itself runs on the build worker pool
+  (`ABSOLUTE_BUILD_WORKERS`), through the same handler the inline path
+  uses, so the emitted bytes never depend on which thread ran it;
+- the emitted bytes are a pure function of the source text and the
+  framework version, so they are cached under
+  `.absolutejs/compile-cache/vue-helpers/` and copied back when the source
+  has not changed. Entries are content addressed and superseded entries
+  for a path are removed as it is rewritten. `ABSOLUTE_COMPILE_CACHE=0`
+  disables this along with the SFC compile cache.
 
 ### Shared chunks in dev
 
