@@ -1947,9 +1947,7 @@ export const dev = async (
 					// Only set when the placeholder is actually up here, so
 					// a failed parent bind falls straight back to the
 					// child's own placeholder and its plain (loud) listen.
-					...(parentListener
-						? { [PARENT_LISTENER_ENV]: '1' }
-						: {}),
+					...(parentListener ? { [PARENT_LISTENER_ENV]: '1' } : {}),
 					...bootTimelineChildEnv(),
 					...(prescanForSpawn
 						? { ABSOLUTE_DEV_PRESCAN: prescanForSpawn.path }
