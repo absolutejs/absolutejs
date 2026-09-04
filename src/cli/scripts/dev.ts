@@ -20,7 +20,6 @@ import {
 } from '../../constants';
 import { startTunnelClient } from '../../dev/tunnel/client';
 import { createDevPrescan } from '../../dev/devPrescan';
-import { importCostEnabled } from '../../dev/importCost/recorder';
 import {
 	PARENT_HANDOFF_MARKER,
 	PARENT_LISTENER_ENV,
@@ -208,13 +207,6 @@ const sourceServerBootstrap = resolvePath(
 const serverBootstrap = existsSync(sourceServerBootstrap)
 	? sourceServerBootstrap
 	: resolvePath(import.meta.dir, '../dev/serverBootstrap.js');
-const sourceImportCostPreload = resolvePath(
-	import.meta.dir,
-	'../../dev/importCostPreload.ts'
-);
-const importCostPreload = existsSync(sourceImportCostPreload)
-	? sourceImportCostPreload
-	: resolvePath(import.meta.dir, '../dev/importCostPreload.js');
 
 export const formatServerBootDiagnostic = (
 	output: string,
@@ -1938,14 +1930,6 @@ export const dev = async (
 				'--hot',
 				'--no-clear-screen',
 				...(heapSnapshotEnabled ? ['--preload', heapPreloadPath] : []),
-				// Off by default. With the flag on, this preload registers the
-				// module-evaluation recorder behind `absolute dev`'s import
-				// cost report (docs/DEV_PERFORMANCE.md); with it off no extra
-				// argument is passed and the child is spawned exactly as
-				// before.
-				...(importCostEnabled()
-					? ['--preload', importCostPreload]
-					: []),
 				serverBootstrap
 			],
 			{

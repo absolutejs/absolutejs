@@ -430,26 +430,6 @@ const build = async () => {
 		process.exit(1);
 	}
 
-	// Import-cost diagnostic (`ABSOLUTE_DEV_IMPORT_COST=1`), two entries:
-	// the preload the dev child registers its `onLoad` recorder from, and the
-	// report, which is imported lazily after boot so neither it nor its
-	// `typescript` dependency is parsed on a normal dev boot.
-	console.log('Building import-cost diagnostic...');
-	const importCostBuild = await Bun.build({
-		entrypoints: [
-			'src/dev/importCostPreload.ts',
-			'src/dev/importCostReport.ts'
-		],
-		external: EXTERNALS,
-		outdir: join(DIST, 'dev'),
-		target: 'bun'
-	});
-	if (!importCostBuild.success) {
-		console.error('Import-cost diagnostic build failed:');
-		for (const log of importCostBuild.logs) console.error(log);
-		process.exit(1);
-	}
-
 	console.log('Building dev server bootstrap...');
 	const serverBootstrapBuild = await Bun.build({
 		entrypoints: ['src/dev/serverBootstrap.ts'],
@@ -1147,8 +1127,6 @@ const verifyExports = async () => {
 	await runSequentially(
 		[
 			join(DIST, 'build', 'buildWorker.js'),
-			join(DIST, 'dev', 'importCostPreload.js'),
-			join(DIST, 'dev', 'importCostReport.js'),
 			join(DIST, 'dev', 'serverBootstrap.js')
 		],
 		async (entryPath) => {
