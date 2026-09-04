@@ -1,4 +1,5 @@
 import { Elysia } from 'elysia';
+import { noteDevRequestEnd, noteDevRequestStart } from './devActivity';
 
 // Dev-only request inspector. A named plugin whose request/afterResponse
 // hooks are cast to GLOBAL scope via `.as('global')` — the only form that makes
@@ -64,12 +65,16 @@ export const requestInspector = new Elysia({
 })
 	.get('/__absolute/requests', () => requestLog())
 	.request(({ request }) => {
+		// Also the dev server's "am I busy?" signal — background boot work
+		// (the module prewarm) pauses while requests are in flight.
+		noteDevRequestStart();
 		pending.set(request, {
 			headers: toHeaderRecord(Object.fromEntries(request.headers)),
 			start: performance.now()
 		});
 	})
 	.afterResponse(({ request, set, responseValue }) => {
+		noteDevRequestEnd();
 		const path = pathOf(request.url);
 		// Skip the inspector's own introspection traffic (observer effect).
 		if (path.startsWith('/__absolute')) return;

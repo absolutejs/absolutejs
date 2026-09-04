@@ -56,6 +56,36 @@ declare global {
 	/** Label of the boot step currently running (shown on the placeholder
 	 *  page). See `src/dev/bootLifecycle.ts`. */
 	var __absoluteBootPhase: string | undefined;
+	/** Shared dev-boot timeline origin (epoch ms of the CLI process start)
+	 *  and marks, filled by `src/utils/bootTimeline.ts`. On globalThis
+	 *  because the CLI, the dev bootstrap and the framework runtime are
+	 *  three separate bundles with no shared module state. */
+	var __absoluteBootOrigin: number | undefined;
+	var __absoluteBootMarks:
+		| Array<import('../src/utils/bootTimeline').BootMark>
+		| undefined;
+	var __absoluteBootMarksAdopted: boolean | undefined;
+	/** In-flight `prepare()` started by the dev bootstrap before the user's
+	 *  server entry finished importing (`startDevPrebuild`). The user's own
+	 *  `prepare()` call joins this promise. */
+	var __absoluteDevPrepare:
+		| {
+				claimed: boolean;
+				key: string;
+				promise: Promise<
+					import('../src/core/prepare').PrepareResult
+				>;
+		  }
+		| undefined;
+	/** Dev-server activity counters (`src/dev/devActivity.ts`) — the
+	 *  "is the server busy?" signal the idle prewarm scheduler pauses on. */
+	var __absoluteDevActivity:
+		| {
+				inFlight: number;
+				lastStartedAt: number;
+				lastFinishedAt: number;
+		  }
+		| undefined;
 	/** Boot work deferred until the server is serving real traffic. */
 	var __absoluteDeferredBootTasks:
 		| Array<() => void | Promise<void>>
