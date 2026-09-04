@@ -300,12 +300,12 @@
 	"main": "./dist/index.js",
 	"name": "@absolutejs/absolute",
 	"optionalDependencies": {
-		"@absolutejs/native-darwin-arm64": "0.20.0-beta.71",
-		"@absolutejs/native-darwin-x64": "0.20.0-beta.71",
-		"@absolutejs/native-linux-arm64": "0.20.0-beta.71",
-		"@absolutejs/native-linux-x64": "0.20.0-beta.71",
-		"@absolutejs/native-windows-arm64": "0.20.0-beta.71",
-		"@absolutejs/native-windows-x64": "0.20.0-beta.71"
+		"@absolutejs/native-darwin-arm64": "0.20.0-beta.72",
+		"@absolutejs/native-darwin-x64": "0.20.0-beta.72",
+		"@absolutejs/native-linux-arm64": "0.20.0-beta.72",
+		"@absolutejs/native-linux-x64": "0.20.0-beta.72",
+		"@absolutejs/native-windows-arm64": "0.20.0-beta.72",
+		"@absolutejs/native-windows-x64": "0.20.0-beta.72"
 	},
 	"overrides": {
 		"@sinclair/typebox": "0.34.52",
@@ -525,7 +525,7 @@
 			]
 		}
 	},
-	"version": "0.20.0-beta.71",
+	"version": "0.20.0-beta.72",
 	"workspaces": [
 		"tests/fixtures/*",
 		"tests/fixtures/_packages/*"
