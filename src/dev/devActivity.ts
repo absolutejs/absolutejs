@@ -12,40 +12,12 @@ const REQUEST_QUIET_MS = 250;
  *  forever. Treat a stuck counter older than this as idle. */
 const REQUEST_STALE_MS = 5_000;
 
-type DevActivity = {
-	inFlight: number;
-	lastStartedAt: number;
-	lastFinishedAt: number;
-};
-
-const activity = (): DevActivity =>
+const activity = () =>
 	(globalThis.__absoluteDevActivity ??= {
 		inFlight: 0,
 		lastFinishedAt: 0,
 		lastStartedAt: 0
 	});
-
-export const noteDevRequestStart = () => {
-	const state = activity();
-	state.inFlight += 1;
-	state.lastStartedAt = Date.now();
-};
-
-export const noteDevRequestEnd = () => {
-	const state = activity();
-	state.inFlight = Math.max(0, state.inFlight - 1);
-	state.lastFinishedAt = Date.now();
-};
-
-/** True while a request is being served, or was served so recently that
- *  more of the same page load is almost certainly on the way. */
-export const devRequestsActive = (now = Date.now()) => {
-	const state = activity();
-	const busy =
-		state.inFlight > 0 && now - state.lastStartedAt < REQUEST_STALE_MS;
-
-	return busy || now - state.lastFinishedAt < REQUEST_QUIET_MS;
-};
 
 /** True while any build is running: the boot/incremental rebuild lock or
  *  an on-demand page build. */
@@ -60,4 +32,26 @@ export const devBuildActive = () => {
 	);
 };
 
+/** True while a request is being served, or was served so recently that
+ *  more of the same page load is almost certainly on the way. */
+export const devRequestsActive = (now = Date.now()) => {
+	const state = activity();
+	const busy =
+		state.inFlight > 0 && now - state.lastStartedAt < REQUEST_STALE_MS;
+
+	return busy || now - state.lastFinishedAt < REQUEST_QUIET_MS;
+};
+
 export const devServerBusy = () => devRequestsActive() || devBuildActive();
+
+export const noteDevRequestEnd = () => {
+	const state = activity();
+	state.inFlight = Math.max(0, state.inFlight - 1);
+	state.lastFinishedAt = Date.now();
+};
+
+export const noteDevRequestStart = () => {
+	const state = activity();
+	state.inFlight += 1;
+	state.lastStartedAt = Date.now();
+};

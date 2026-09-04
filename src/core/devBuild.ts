@@ -927,9 +927,9 @@ export const devBuild = async (config: BuildConfig) => {
 			: Promise.resolve(undefined),
 		buildDepVendor(state.resolvedPaths.buildDir, sourceDirs, sourceFiles)
 		]);
-	const [, angularSpecs, , , , , builtDepPaths] = restoredVendor
-		? ([] as unknown as Awaited<ReturnType<typeof buildAllVendors>>)
-		: await buildAllVendors();
+
+	const builtVendors = restoredVendor ? [] : await buildAllVendors();
+	const [, angularSpecs, , , , , builtDepPaths] = builtVendors;
 	const depPaths = restoredVendor
 		? restoredVendor.depPaths
 		: (builtDepPaths ?? {});

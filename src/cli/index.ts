@@ -1,12 +1,5 @@
 #!/usr/bin/env bun
 
-import { dev } from './scripts/dev';
-import { eslint } from './scripts/eslint';
-import { info } from './scripts/info';
-import { prettier } from './scripts/prettier';
-import { start } from './scripts/start';
-import { workspace } from './scripts/workspace';
-import { telemetry } from './scripts/telemetry';
 import { sendTelemetryEvent } from './telemetryEvent';
 import {
 	CLI_ARGS_OFFSET,
@@ -71,6 +64,7 @@ if (command === 'dev') {
 		'--ios-device'
 	).filter((arg) => arg !== '--no-mobile' && arg !== '--eager');
 	const serverEntry = positionalArgs[0] ?? DEFAULT_SERVER_ENTRY;
+	const { dev } = await import('./scripts/dev');
 	await dev(serverEntry, configPath, {
 		androidDevice,
 		eager: args.includes('--eager'),
@@ -85,6 +79,7 @@ if (command === 'dev') {
 		(arg) => arg !== '--prebuilt'
 	);
 	const serverEntry = positionalArgs[0] ?? DEFAULT_SERVER_ENTRY;
+	const { start } = await import('./scripts/start');
 	await start(serverEntry, outdir, configPath, {
 		prebuilt: args.includes('--prebuilt')
 	});
@@ -94,6 +89,7 @@ if (command === 'dev') {
 	const configPath = parseNamedArg('--config');
 	const positionalArgs = stripNamedArgs('--outdir', '--config');
 	const serverEntry = positionalArgs[0] ?? DEFAULT_SERVER_ENTRY;
+	const { start } = await import('./scripts/start');
 	await start(serverEntry, outdir, configPath, { prepareOnly: true });
 } else if (command === 'build') {
 	sendTelemetryEvent('cli:command', { command });
@@ -106,6 +102,7 @@ if (command === 'dev') {
 		command: `workspace:${workspaceCommand ?? 'unknown'}`
 	});
 	const configPath = parseNamedArg('--config');
+	const { workspace } = await import('./scripts/workspace');
 	await workspace(workspaceCommand, {
 		configPath,
 		noTui: args.includes('--no-tui')
@@ -120,6 +117,7 @@ if (command === 'dev') {
 	await launchConfig(args);
 } else if (command === 'eslint') {
 	sendTelemetryEvent('cli:command', { command });
+	const { eslint } = await import('./scripts/eslint');
 	await eslint(args);
 } else if (command === 'lint-proof') {
 	sendTelemetryEvent('cli:command', { command });
@@ -127,6 +125,7 @@ if (command === 'dev') {
 	process.exitCode = await runLintProof(args);
 } else if (command === 'prettier') {
 	sendTelemetryEvent('cli:command', { command });
+	const { prettier } = await import('./scripts/prettier');
 	await prettier(args);
 } else if (command === 'ls') {
 	sendTelemetryEvent('cli:command', { command: 'ls' });
@@ -196,9 +195,11 @@ if (command === 'dev') {
 	await runIslands(args);
 } else if (command === 'info') {
 	sendTelemetryEvent('cli:command', { command });
+	const { info } = await import('./scripts/info');
 	info();
 } else if (command === 'telemetry') {
 	sendTelemetryEvent('cli:command', { command });
+	const { telemetry } = await import('./scripts/telemetry');
 	telemetry(args);
 } else if (command === 'compile') {
 	sendTelemetryEvent('cli:command', { command });

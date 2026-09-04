@@ -25,57 +25,16 @@ export type BootMark = {
 const ORIGIN_ENV = 'ABSOLUTE_BOOT_ORIGIN_MS';
 const MARKS_ENV = 'ABSOLUTE_BOOT_CLI_MARKS';
 const MARK_LABEL_WIDTH = 34;
+const MARK_TIME_WIDTH = 6;
 const MS_DECIMALS = 0;
 
-/** Epoch ms at which the current process actually started (including the
- *  runtime's own startup and the bundle parse), not "now". */
-export const processStartEpochMs = () =>
-	Date.now() - process.uptime() * MILLISECONDS_IN_A_SECOND;
-
-export const bootTimelineEnabled = () => devProfileEnabled;
-
-export const getBootOrigin = () => {
-	const existing = globalThis.__absoluteBootOrigin;
-	if (typeof existing === 'number') return existing;
-	const fromEnv = Number(process.env[ORIGIN_ENV]);
-	const origin =
-		Number.isFinite(fromEnv) && fromEnv > 0
-			? fromEnv
-			: processStartEpochMs();
-	globalThis.__absoluteBootOrigin = origin;
-
-	return origin;
-};
-
 const marks = () => (globalThis.__absoluteBootMarks ??= []);
-
-/** Record a mark that happened at `epochMs` (defaults to now). Cheap and a
- *  no-op unless `ABSOLUTE_DEV_PROFILE=1`, so it is safe on hot boot paths. */
-export const markBootAt = (label: string, epochMs: number) => {
-	if (!devProfileEnabled) return;
-	marks().push({ atMs: epochMs - getBootOrigin(), label });
-};
-
-export const markBoot = (label: string) => markBootAt(label, Date.now());
-
-export const getBootMarks = (): BootMark[] => [...marks()];
-
-/** Environment for the `bun --hot` child: the shared origin plus every mark
- *  the CLI recorded before the spawn. */
-export const bootTimelineChildEnv = (): Record<string, string> => {
-	if (!devProfileEnabled) return {};
-
-	return {
-		[MARKS_ENV]: JSON.stringify(marks()),
-		[ORIGIN_ENV]: String(getBootOrigin())
-	};
-};
 
 const isBootMark = (value: unknown): value is BootMark =>
 	typeof value === 'object' &&
 	value !== null &&
-	typeof (value as BootMark).label === 'string' &&
-	typeof (value as BootMark).atMs === 'number';
+	typeof Reflect.get(value, 'label') === 'string' &&
+	typeof Reflect.get(value, 'atMs') === 'number';
 
 /** Pull the CLI's marks into this process's timeline. Called once, first
  *  thing in the dev bootstrap. */
@@ -94,7 +53,15 @@ export const adoptParentBootMarks = () => {
 		/* malformed marks never break a boot */
 	}
 };
+export const bootTimelineChildEnv = (): Record<string, string> => {
+	if (!devProfileEnabled) return {};
 
+	return {
+		[MARKS_ENV]: JSON.stringify(marks()),
+		[ORIGIN_ENV]: String(getBootOrigin())
+	};
+};
+export const bootTimelineEnabled = () => devProfileEnabled;
 export const formatBootTimeline = (entries: readonly BootMark[]) => {
 	const sorted = [...entries].sort((left, right) => left.atMs - right.atMs);
 	const lines = sorted.map((mark, index) => {
@@ -103,19 +70,36 @@ export const formatBootTimeline = (entries: readonly BootMark[]) => {
 
 		return `  ${mark.label.padEnd(MARK_LABEL_WIDTH)} ${mark.atMs
 			.toFixed(MS_DECIMALS)
-			.padStart(6)}ms  (+${delta.toFixed(MS_DECIMALS)}ms)`;
+			.padStart(MARK_TIME_WIDTH)}ms  (+${delta.toFixed(MS_DECIMALS)}ms)`;
 	});
 
 	return ['AbsoluteJS boot timeline (ms since CLI start)', ...lines].join(
 		'\n'
 	);
 };
+export const getBootMarks = () => [...marks()];
+export const getBootOrigin = () => {
+	const existing = globalThis.__absoluteBootOrigin;
+	if (typeof existing === 'number') return existing;
+	const fromEnv = Number(process.env[ORIGIN_ENV]);
+	const origin =
+		Number.isFinite(fromEnv) && fromEnv > 0
+			? fromEnv
+			: processStartEpochMs();
+	globalThis.__absoluteBootOrigin = origin;
 
-/** Print the timeline. Goes to stderr so it never interleaves with the
- *  server's stdout (the `Local:` line is scraped by tooling). */
+	return origin;
+};
 export const logBootTimeline = () => {
 	if (!devProfileEnabled) return;
 	const entries = marks();
 	if (entries.length === 0) return;
 	console.error(formatBootTimeline(entries));
 };
+export const markBoot = (label: string) => markBootAt(label, Date.now());
+export const markBootAt = (label: string, epochMs: number) => {
+	if (!devProfileEnabled) return;
+	marks().push({ atMs: epochMs - getBootOrigin(), label });
+};
+export const processStartEpochMs = () =>
+	Date.now() - process.uptime() * MILLISECONDS_IN_A_SECOND;

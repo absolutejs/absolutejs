@@ -55,26 +55,6 @@ export type VendorCacheInputs = {
 	lockfileHash: string;
 };
 
-export const vendorCacheEnabled = () =>
-	process.env.ABSOLUTE_DEV_VENDOR_CACHE !== '0';
-
-/** Hash of whichever lockfile the project uses. `null` when the project
- *  has none — without it there is nothing to pin the cache to, so the
- *  cache stays off rather than risking a stale vendor bundle. */
-export const readLockfileHash = (projectRoot = process.cwd()) => {
-	const hash = createHash('sha256');
-	let found = false;
-	for (const name of LOCKFILES) {
-		const path = join(projectRoot, name);
-		if (!existsSync(path)) continue;
-		found = true;
-		hash.update(name);
-		hash.update(readFileSync(path));
-	}
-
-	return found ? hash.digest('hex') : null;
-};
-
 export const computeVendorCacheKey = (inputs: VendorCacheInputs) => {
 	const hash = createHash('sha256');
 	hash.update(String(CACHE_FORMAT_VERSION));
@@ -99,19 +79,59 @@ export const computeVendorCacheKey = (inputs: VendorCacheInputs) => {
 
 	return hash.digest('hex').slice(0, KEY_LENGTH);
 };
+export const readLockfileHash = (projectRoot = process.cwd()) => {
+	const hash = createHash('sha256');
+	let found = false;
+	for (const name of LOCKFILES) {
+		const path = join(projectRoot, name);
+		if (!existsSync(path)) continue;
+		found = true;
+		hash.update(name);
+		hash.update(readFileSync(path));
+	}
+
+	return found ? hash.digest('hex') : null;
+};
+export const vendorCacheEnabled = () =>
+	process.env.ABSOLUTE_DEV_VENDOR_CACHE !== '0';
 
 /** `fs.cp` walks and stats far more than this needs; a plain parallel
  *  recursive copy of a flat vendor directory is an order of magnitude
  *  faster and is all the cache ever has to move. */
-const copyTree = (from: string, to: string) => {
-	mkdirSync(to, { recursive: true });
-	for (const entry of readdirSync(from, { withFileTypes: true })) {
-		const source = join(from, entry.name);
-		const destination = join(to, entry.name);
+const copyTree = (fromDir: string, toDir: string) => {
+	mkdirSync(toDir, { recursive: true });
+	for (const entry of readdirSync(fromDir, { withFileTypes: true })) {
+		const source = join(fromDir, entry.name);
+		const destination = join(toDir, entry.name);
 		if (entry.isDirectory()) copyTree(source, destination);
 		else copyFileSync(source, destination);
 	}
 };
+
+/** Cache entry → build dir. Throws on an incomplete entry, which the
+ *  caller turns into a cache miss. */
+const copySlotsInto = (cacheDir: string, vendorDirs: string[]) => {
+	for (const [index, dir] of vendorDirs.entries()) {
+		const source = join(cacheDir, slotName(index, dir));
+		if (!existsSync(source)) {
+			throw new Error(`missing cached vendor dir ${source}`);
+		}
+		copyTree(source, dir);
+	}
+};
+
+/** Build dir → staging dir of a new cache entry. */
+const copySlotsFrom = (stagingDir: string, vendorDirs: string[]) => {
+	for (const [index, dir] of vendorDirs.entries()) {
+		if (!existsSync(dir)) continue;
+		copyTree(dir, join(stagingDir, slotName(index, dir)));
+	}
+};
+
+const isVendorCachePayload = (value: unknown): value is VendorCachePayload =>
+	typeof value === 'object' &&
+	value !== null &&
+	typeof Reflect.get(value, 'depPaths') === 'object';
 
 const cacheDirFor = (key: string, projectRoot: string) =>
 	resolve(projectRoot, CACHE_ROOT, key);
@@ -125,7 +145,7 @@ export const restoreVendorCache = async (
 	key: string,
 	vendorDirs: string[],
 	projectRoot = process.cwd()
-): Promise<VendorCachePayload | null> => {
+) => {
 	const cacheDir = cacheDirFor(key, projectRoot);
 	const payloadPath = join(cacheDir, 'payload.json');
 	if (!existsSync(payloadPath)) return null;
@@ -133,16 +153,10 @@ export const restoreVendorCache = async (
 		const payload: unknown = JSON.parse(
 			await readFile(payloadPath, 'utf8')
 		);
-		if (typeof payload !== 'object' || payload === null) return null;
-		for (const [index, dir] of vendorDirs.entries()) {
-			const source = join(cacheDir, slotName(index, dir));
-			if (!existsSync(source)) {
-				throw new Error(`missing cached vendor dir ${source}`);
-			}
-			copyTree(source, dir);
-		}
+		if (!isVendorCachePayload(payload)) return null;
+		copySlotsInto(cacheDir, vendorDirs);
 
-		return payload as VendorCachePayload;
+		return payload;
 	} catch {
 		// A half-written or unreadable cache entry is a miss, never a
 		// build failure.
@@ -165,10 +179,7 @@ export const saveVendorCache = async (
 	try {
 		await rm(stagingDir, { force: true, recursive: true });
 		await mkdir(stagingDir, { recursive: true });
-		for (const [index, dir] of vendorDirs.entries()) {
-			if (!existsSync(dir)) continue;
-			copyTree(dir, join(stagingDir, slotName(index, dir)));
-		}
+		copySlotsFrom(stagingDir, vendorDirs);
 		await writeFile(
 			join(stagingDir, 'payload.json'),
 			JSON.stringify(payload)
