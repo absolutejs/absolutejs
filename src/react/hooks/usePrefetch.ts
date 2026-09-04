@@ -17,7 +17,9 @@ export type UsePrefetchOptions = {
 	/** `'viewport'` (production default), `'hover'` (development default)
 	 *  or `'none'`. */
 	mode?: PrefetchMode;
-	/** Defaults to `'document'`. */
+	/** What to warm. Defaults to `'document'` for the viewport trigger and
+	 *  `'route'` (document + route data + the modules / CSS it names) for
+	 *  hover and pointerdown. */
 	kind?: PrefetchKind;
 	/** Also inject a prerender speculation rule when the hover /
 	 *  pointerdown trigger fires. */
@@ -39,7 +41,9 @@ export const usePrefetch = <TElement extends HTMLElement = HTMLElement>(
 	href: string | undefined,
 	options: UsePrefetchOptions = {}
 ) => {
-	const { kind = 'document', mode, prerender = false } = options;
+	const { kind, mode, prerender = false } = options;
+	const viewportKind = kind ?? 'document';
+	const triggerKind = kind ?? 'route';
 	const elementRef = useRef<TElement | null>(null);
 	const hoverHandle = useRef<HoverPrefetchHandle | null>(null);
 
@@ -61,23 +65,26 @@ export const usePrefetch = <TElement extends HTMLElement = HTMLElement>(
 		const resolved = mode ?? resolveDefaultPrefetchMode();
 		if (resolved !== 'viewport') return undefined;
 
-		return observeViewport(element, href, { kind });
-	}, [href, isActive, kind, mode]);
+		return observeViewport(element, href, { kind: viewportKind });
+	}, [href, isActive, mode, viewportKind]);
 
 	useEffect(() => cancelHover, [cancelHover]);
 
 	const onPointerEnter = useCallback(() => {
 		if (href === undefined || !isActive()) return;
 		cancelHover();
-		hoverHandle.current = scheduleHoverPrefetch(href, { kind, prerender });
-	}, [cancelHover, href, isActive, kind, prerender]);
+		hoverHandle.current = scheduleHoverPrefetch(href, {
+			kind: triggerKind,
+			prerender
+		});
+	}, [cancelHover, href, isActive, prerender, triggerKind]);
 
 	const onPointerDown = useCallback(() => {
 		if (href === undefined || !isActive()) return;
 		cancelHover();
-		prefetch(href, { kind });
+		prefetch(href, { kind: triggerKind });
 		if (prerender) speculate(href);
-	}, [cancelHover, href, isActive, kind, prerender]);
+	}, [cancelHover, href, isActive, prerender, triggerKind]);
 
 	return {
 		onBlur: cancelHover,

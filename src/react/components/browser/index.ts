@@ -3,3 +3,8 @@ export { Image } from '../Image';
 export { JsonLd } from '../JsonLd';
 export { SuspenseSlot } from '../SuspenseSlot.browser';
 export { StreamSlot } from '../StreamSlot.browser';
+export { Link } from '../../router/Link';
+export type { LinkProps } from '../../router/Link';
+export { usePrefetch } from '../../hooks/usePrefetch';
+export type { UsePrefetchOptions } from '../../hooks/usePrefetch';
+export type { PrefetchKind, PrefetchMode } from '../../../../types/prefetch';

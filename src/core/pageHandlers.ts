@@ -49,7 +49,11 @@ const finalizeStaticMobilePage = (
 			runtimes: [String(ABSOLUTE_MOBILE_PAGE_PROTOCOL_VERSION)]
 		},
 		props: {},
-		request: getCurrentAbsoluteRequest()
+		request: getCurrentAbsoluteRequest(),
+		// Static pages carry their own asset links in the file the
+		// browser is about to fetch, so route data only confirms the
+		// route exists and names the page.
+		route: { assets: { css: [] } }
 	});
 };
 

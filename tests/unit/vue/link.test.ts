@@ -21,7 +21,8 @@ describe('Vue <Link>', () => {
 		expect(exitCode).toBe(0);
 		expect(JSON.parse(stdout)).toEqual({
 			external: [],
-			hover: { after: ['/docs'], before: [] },
+			// Hover / pointerdown warm the document AND the route data.
+			hover: { after: ['/docs', '/docs'], before: [] },
 			none: [],
 			passthrough: {
 				blankPrevented: false,
@@ -31,7 +32,7 @@ describe('Vue <Link>', () => {
 				unmatchedPrevented: false
 			},
 			plainClickPrevented: false,
-			pointerdown: ['/pricing'],
+			pointerdown: ['/pricing', '/pricing'],
 			push: { prevented: true, pushed: ['/two'] },
 			render: { href: '/pricing', text: 'Pricing' },
 			replace: { prevented: true, pushed: [], replaced: ['/two'] }

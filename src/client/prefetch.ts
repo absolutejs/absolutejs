@@ -13,8 +13,13 @@
  *    with a 304 instead of re-rendering.
  *  - `'module'`   — `<link rel="modulepreload">` parses + compiles the
  *    client module graph ahead of time.
- *  - `'data'`     — the route-data payload (server side lands in a later
- *    workstream; today a 404 / 406 is remembered as "no data").
+ *  - `'data'`     — the route-data payload
+ *    (`application/vnd.absolute.route+json`): the page's props plus the
+ *    client entry and stylesheets it needs, which are `modulepreload`ed
+ *    / prefetched as the payload lands. A 404 / 406 from a server that
+ *    doesn't speak route data is remembered as "no data".
+ *  - `'route'`    — `'document'` + `'data'`, i.e. everything a click
+ *    needs. What a `<Link>` warms on hover / pointerdown.
  *  - `speculate()` — a prerender speculation rule; the browser renders
  *    the whole target page in a hidden tab so the click is instant.
  *
@@ -56,11 +61,19 @@ const queue: QueuedTask[] = [];
 let inFlight = 0;
 
 const preloadedModules = new Set<string>();
+const prefetchedStyles = new Set<string>();
 const liveSpeculationRules = new Map<string, HTMLScriptElement>();
 
 const offlineResponse = () => new Response(null, { status: 0 });
 
-const cacheKey = (kind: PrefetchKind, url: string) => `${kind}:${url}`;
+/** `'route'` is a compound trigger, not a cache entry of its own: it
+ *  warms the `'document'` and `'data'` entries, so lookups for it read
+ *  the document it warmed. */
+const storageKind = (kind: PrefetchKind) =>
+	kind === 'route' ? 'document' : kind;
+
+const cacheKey = (kind: PrefetchKind, url: string) =>
+	`${storageKind(kind)}:${url}`;
 
 const resolveHref = (url: string) => {
 	if (typeof window === 'undefined') return url;
@@ -296,6 +309,22 @@ const supportsLinkRel = (rel: string) => {
 	);
 };
 
+/** Inject `<link rel="prefetch" as="style">` once per resolved href, so
+ *  the target page's stylesheets are in the HTTP cache before the click.
+ *  `prefetch` rather than `preload`: the sheet is for the NEXT document,
+ *  so preloading it would warn about an unused preload on this one. */
+export const prefetchStylesheet = (href: string) => {
+	if (typeof document === 'undefined') return false;
+	const resolved = resolveHref(href);
+	if (prefetchedStyles.has(resolved)) return false;
+	prefetchedStyles.add(resolved);
+	// No `relList.supports` gate: a browser that doesn't know `prefetch`
+	// simply ignores the tag, and there is no fallback worth branching to.
+	injectLink('prefetch', href, 'style');
+
+	return true;
+};
+
 /** Inject `<link rel="modulepreload">` once per resolved href. Returns
  *  `true` when a new tag was added. */
 export const preloadModule = (href: string) => {
@@ -318,6 +347,38 @@ export const preloadModule = (href: string) => {
 	return true;
 };
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+	typeof value === 'object' && value !== null;
+
+const isHref = (value: unknown): value is string =>
+	typeof value === 'string' && value.length > 0;
+
+/** Warm what a route-data envelope points at: `modulepreload` for the
+ *  page's client entry (and a separate client module when it has one),
+ *  `<link rel="prefetch">` for its stylesheets. Anything unexpected in
+ *  the payload is ignored — a prefetch must never break a page. */
+const warmRouteDataAssets = (envelope: unknown) => {
+	if (!isRecord(envelope)) return;
+	const { assets } = envelope;
+	if (!isRecord(assets)) return;
+	const { client, css, index } = assets;
+	for (const href of [index, client].filter(isHref)) preloadModule(href);
+	if (!Array.isArray(css)) return;
+	for (const href of css.filter(isHref)) prefetchStylesheet(href);
+};
+
+/** Read the envelope out of a clone so the cached response body is still
+ *  unconsumed for whoever calls `consumePrefetch`. */
+const warmFromRouteData = async (response: Response) => {
+	try {
+		warmRouteDataAssets(await response.clone().json());
+	} catch {
+		/* malformed payload — the document prefetch still stands */
+	}
+
+	return response;
+};
+
 const fetchDocument = (url: string, signal: AbortSignal) =>
 	fetch(url, { credentials: 'same-origin', signal });
 
@@ -330,7 +391,7 @@ const fetchRouteData = async (url: string, signal: AbortSignal) => {
 	const contentType = response.headers.get('content-type') ?? '';
 	const isRouteData =
 		response.ok && contentType.includes(ROUTE_DATA_MEDIA_TYPE);
-	if (isRouteData) return response;
+	if (isRouteData) return warmFromRouteData(response);
 
 	// The server doesn't speak route data (yet) — 404 / 406 / HTML fallback.
 	// Remember that as "no data" so the URL isn't asked again, and drain
@@ -355,6 +416,15 @@ export const prefetch = (url: string, options: PrefetchOptions = {}) => {
 
 	if (kind === 'module') {
 		preloadModule(url);
+
+		return;
+	}
+
+	// `'route'` is document + data: the HTML for the navigation itself and
+	// the payload that names the modules and CSS to warm alongside it.
+	if (kind === 'route') {
+		prefetch(url, { kind: 'document' });
+		prefetch(url, { kind: 'data' });
 
 		return;
 	}
@@ -435,6 +505,10 @@ const noopHandle: HoverPrefetchHandle = {
  * Wrap a prefetch trigger in a hover-debounce so glancing across many links
  * doesn't fire a fetch storm. The returned handle's `cancel()` aborts the
  * pending hover prefetch (e.g. on `pointerleave`).
+ *
+ * Defaults to `kind: 'route'` — a hover is deliberate enough to be worth
+ * the document AND the route data (and the modules + CSS that payload
+ * names). Viewport prefetching stays document-only.
  */
 export const scheduleHoverPrefetch = (
 	url: string,
@@ -443,7 +517,7 @@ export const scheduleHoverPrefetch = (
 	if (typeof window === 'undefined') return noopHandle;
 
 	const timer = window.setTimeout(() => {
-		prefetch(url, { kind: options.kind });
+		prefetch(url, { kind: options.kind ?? 'route' });
 		if (options.prerender) speculate(url);
 	}, HOVER_DEBOUNCE_MS);
 
@@ -508,6 +582,7 @@ export const resetPrefetchState = () => {
 	clearPrefetchCache();
 	queue.length = 0;
 	preloadedModules.clear();
+	prefetchedStyles.clear();
 	for (const script of liveSpeculationRules.values()) script.remove();
 	liveSpeculationRules.clear();
 	viewportObserver?.disconnect();

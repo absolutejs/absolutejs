@@ -230,6 +230,82 @@ describe('prefetch kinds', () => {
 		expect(response?.ok).toBe(true);
 	});
 
+	test('data prefetch warms the modules and CSS the envelope names', async () => {
+		prefetch('/account', { kind: 'data' });
+		await flush();
+		pending[0]?.resolve(
+			new Response(
+				JSON.stringify({
+					assets: {
+						client: '/react/client/Account-def.js',
+						css: ['/css/Account-abc.css', ''],
+						index: '/react/indexes/Account-abc.js'
+					},
+					framework: 'react',
+					kind: 'route',
+					pageId: 'Account',
+					props: { displayName: 'Ada' },
+					protocol: 1,
+					status: 200
+				}),
+				{
+					headers: { 'content-type': ROUTE_DATA_MEDIA_TYPE },
+					status: 200
+				}
+			)
+		);
+		const response = await consumePrefetch('/account', 'data');
+
+		expect(
+			Array.from(
+				document.head.querySelectorAll('link[rel="modulepreload"]')
+			).map((link) => link.getAttribute('href'))
+		).toEqual([
+			'/react/indexes/Account-abc.js',
+			'/react/client/Account-def.js'
+		]);
+		expect(
+			Array.from(
+				document.head.querySelectorAll('link[rel="prefetch"]')
+			).map((link) => link.getAttribute('href'))
+		).toEqual(['/css/Account-abc.css']);
+		// The cached response body is still readable by the navigation.
+		expect(await response?.json()).toMatchObject({ kind: 'route' });
+	});
+
+	test('a malformed route-data body is ignored, not thrown', async () => {
+		prefetch('/broken-data', { kind: 'data' });
+		await flush();
+		pending[0]?.resolve(
+			new Response('not json', {
+				headers: { 'content-type': ROUTE_DATA_MEDIA_TYPE },
+				status: 200
+			})
+		);
+		const response = await consumePrefetch('/broken-data', 'data');
+
+		expect(response?.ok).toBe(true);
+		expect(
+			document.head.querySelectorAll('link[rel="modulepreload"]')
+		).toHaveLength(0);
+	});
+
+	test('route prefetch warms the document and the route data together', async () => {
+		prefetch('/pricing', { kind: 'route' });
+		await flush();
+
+		expect(pending.map((entry) => entry.url)).toEqual([
+			'/pricing',
+			'/pricing'
+		]);
+		expect(
+			pending.map((entry) => new Headers(entry.headers).get('accept'))
+		).toEqual([null, ROUTE_DATA_MEDIA_TYPE]);
+		// The document entry is what a `'route'` lookup reports.
+		expect(hasPrefetched('/pricing', 'route')).toBe(true);
+		expect(hasPrefetched('/pricing', 'data')).toBe(true);
+	});
+
 	test('module prefetch injects one modulepreload link per href', () => {
 		expect(preloadModule('/react/indexes/Home.js')).toBe(true);
 		prefetch('/react/indexes/Home.js', { kind: 'module' });
@@ -309,7 +385,18 @@ describe('triggers', () => {
 
 		scheduleHoverPrefetch('/hover');
 		await Bun.sleep(300);
-		expect(pending.map((entry) => entry.url)).toEqual(['/hover']);
+		// Hover defaults to `kind: 'route'`: the document plus the route
+		// data that names the page's modules and stylesheets.
+		expect(pending.map((entry) => entry.url)).toEqual(['/hover', '/hover']);
+		expect(
+			pending.map((entry) => new Headers(entry.headers).get('accept'))
+		).toEqual([null, ROUTE_DATA_MEDIA_TYPE]);
+	});
+
+	test('an explicit hover kind overrides the route default', async () => {
+		scheduleHoverPrefetch('/hover-doc', { kind: 'document' });
+		await Bun.sleep(300);
+		expect(pending.map((entry) => entry.url)).toEqual(['/hover-doc']);
 	});
 
 	test('viewport observation shares one IntersectionObserver and prefetches on intersect', async () => {

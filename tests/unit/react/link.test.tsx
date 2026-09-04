@@ -13,17 +13,22 @@ import type { ReactNode } from 'react';
 import { flushSync } from 'react-dom';
 import { createRoot, type Root } from 'react-dom/client';
 import { Route, Routes } from 'react-router';
-import { resetPrefetchState } from '../../../src/client/prefetch';
+import {
+	resetPrefetchState,
+	ROUTE_DATA_MEDIA_TYPE
+} from '../../../src/client/prefetch';
 import { Link } from '../../../src/react/router/Link';
 import { UniversalRouter } from '../../../src/react/router/UniversalRouter';
 
 const fetched: string[] = [];
+const accepted: (string | null)[] = [];
 const originalFetch = globalThis.fetch;
 let root: Root | undefined;
 let container: HTMLElement | undefined;
 
-const fakeFetch = (input: string | URL | Request) => {
+const fakeFetch = (input: string | URL | Request, init?: RequestInit) => {
 	fetched.push(typeof input === 'string' ? input : input.toString());
+	accepted.push(new Headers(init?.headers).get('accept'));
 
 	return Promise.resolve(new Response('<html></html>', { status: 200 }));
 };
@@ -38,6 +43,7 @@ afterAll(async () => {
 
 beforeEach(() => {
 	fetched.length = 0;
+	accepted.length = 0;
 	globalThis.fetch = Object.assign(mock(fakeFetch), {
 		preconnect: originalFetch.preconnect
 	});
@@ -119,7 +125,10 @@ describe('React <Link>', () => {
 		);
 		anchor(target).dispatchEvent(new Event('pointerdown', { bubbles: true }));
 		await Bun.sleep(0);
-		expect(fetched).toEqual(['/pricing']);
+		// A deliberate trigger warms the document AND the route data, so
+		// the click has the page's props, modules and CSS too.
+		expect(fetched).toEqual(['/pricing', '/pricing']);
+		expect(accepted).toEqual([null, ROUTE_DATA_MEDIA_TYPE]);
 	});
 
 	test('hover prefetches after the debounce window', async () => {
@@ -131,7 +140,8 @@ describe('React <Link>', () => {
 		anchor(target).dispatchEvent(new Event('pointerover', { bubbles: true }));
 		expect(fetched).toEqual([]);
 		await Bun.sleep(320);
-		expect(fetched).toEqual(['/docs']);
+		expect(fetched).toEqual(['/docs', '/docs']);
+		expect(accepted).toEqual([null, ROUTE_DATA_MEDIA_TYPE]);
 	});
 
 	test('prefetch="none" never fetches', async () => {
