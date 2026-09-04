@@ -4,10 +4,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { maskLiterals, SENTINEL } from '../../../src/build/maskLiterals';
 import {
-	describeNativeRewriteFallback,
-	nativeRewriteImports
-} from '../../../src/build/nativeRewrite';
-import {
 	compileClientRewriteFamilies,
 	reduceVendorPaths,
 	rewriteClientContent,
@@ -217,7 +213,6 @@ const legacyUrl = (content: string, map: Map<string, string>) =>
 	);
 
 type LegacyOptions = {
-	native: boolean;
 	react?: Record<string, string>;
 	refresh?: boolean;
 	url?: Map<string, string>;
@@ -229,26 +224,18 @@ const legacyPipeline = (original: string, options: LegacyOptions) => {
 	let content = original;
 	if (options.react) {
 		const { masked, restore } = maskLiterals(content);
-		const native = options.native
-			? nativeRewriteImports(masked, sortedReplacements(options.react))
-			: null;
-		const main = native ?? legacyReactMain(masked, options.react);
+		const main = legacyReactMain(masked, options.react);
 		content = restore(legacyReactSweep(main, options.react));
 	}
 	if (options.refresh) content = legacyRefresh(content);
 	if (options.vendor) {
 		const { masked, restore } = maskLiterals(content);
-		const native = options.native
-			? nativeRewriteImports(masked, sortedReplacements(options.vendor))
-			: null;
-		content = restore(native ?? legacyVendorMain(masked, options.vendor));
+		content = restore(legacyVendorMain(masked, options.vendor));
 	}
 	if (options.url) content = legacyUrl(content, options.url);
 
 	return content;
 };
-
-const nativeAvailable = describeNativeRewriteFallback() === null;
 
 let dir: string;
 let counter = 0;
@@ -271,7 +258,7 @@ describe('rewriteClientContent — each family in isolation', () => {
 		const families = compileClientRewriteFamilies({ reactPaths });
 		const out = rewriteClientContent(fixture, families, true);
 		expect(out).toBe(
-			legacyPipeline(fixture, { native: nativeAvailable, react: reactPaths })
+			legacyPipeline(fixture, { react: reactPaths })
 		);
 		expect(out).toContain('from "/react/vendor/react_jsx-runtime.js"');
 		expect(out).toContain('from/* keep */"/react/vendor/react-dom_client.js"');
@@ -288,10 +275,7 @@ describe('rewriteClientContent — each family in isolation', () => {
 		const families = compileClientRewriteFamilies({ vendorPaths });
 		const out = rewriteClientContent(fixture, families, true);
 		expect(out).toBe(
-			legacyPipeline(fixture, {
-				native: nativeAvailable,
-				vendor: vendorPaths
-			})
+			legacyPipeline(fixture, { vendor: vendorPaths })
 		);
 		expect(out).toContain('from "/vue/vendor/vue.js"');
 		expect(out).toContain('from "/angular/vendor/angular_core.js"');
@@ -314,7 +298,7 @@ describe('rewriteClientContent — each family in isolation', () => {
 	test('url references: mapped targets rewritten, unmapped left alone', () => {
 		const families = compileClientRewriteFamilies({ urlFileMap });
 		const out = rewriteClientContent(fixture, families, true);
-		expect(out).toBe(legacyPipeline(fixture, { native: false, url: urlFileMap }));
+		expect(out).toBe(legacyPipeline(fixture, { url: urlFileMap }));
 		expect(out).toContain(
 			"new URL('/@src/example/worker.ts?v=1', import.meta.url)"
 		);
@@ -349,7 +333,7 @@ describe('rewriteClientContent — all families together', () => {
 		expect(rewriteClientContent(fixture, families, true)).toBe(expectedAll);
 	});
 
-	test('matches the legacy four-pass pipeline (native and JS fallback)', () => {
+	test('matches the legacy four-pass pipeline', () => {
 		const legacyOptions = {
 			react: reactPaths,
 			refresh: true,
@@ -357,17 +341,7 @@ describe('rewriteClientContent — all families together', () => {
 			vendor: vendorPaths
 		};
 		expect(rewriteClientContent(fixture, families, true)).toBe(
-			legacyPipeline(fixture, { ...legacyOptions, native: nativeAvailable })
-		);
-		const jsFamilies = compileClientRewriteFamilies({
-			native: false,
-			reactPaths,
-			refreshGlobals: true,
-			urlFileMap,
-			vendorPaths
-		});
-		expect(rewriteClientContent(fixture, jsFamilies, true)).toBe(
-			legacyPipeline(fixture, { ...legacyOptions, native: false })
+			legacyPipeline(fixture, legacyOptions)
 		);
 	});
 
@@ -442,16 +416,12 @@ describe('reduceVendorPaths', () => {
 		expect(rewriteClientContent(fixture, withVendor, true)).toBe(out);
 		// ...and equals the old react-then-vendor pipeline on the same maps.
 		expect(out).toBe(
-			legacyPipeline(fixture, {
-				native: nativeAvailable,
-				react: combined,
-				vendor: vendorPaths
-			})
+			legacyPipeline(fixture, { react: combined, vendor: vendorPaths })
 		);
 	});
 });
 
-describe('rewriteSpecifiers — JS fallback equals the per-specifier passes', () => {
+describe('rewriteSpecifiers — combined regex equals the per-specifier passes', () => {
 	const cases = [
 		fixture,
 		'import{jsx as a}from"react/jsx-runtime";import"react-dom";',
@@ -469,7 +439,7 @@ describe('rewriteSpecifiers — JS fallback equals the per-specifier passes', ()
 		for (const source of cases) {
 			const { masked } = maskLiterals(source);
 			expect(
-				rewriteSpecifiers(masked, rewriter, { native: false, sweep: true })
+				rewriteSpecifiers(masked, rewriter, { sweep: true })
 			).toBe(legacyReactSweep(legacyReactMain(masked, combined), combined));
 		}
 	});
@@ -478,7 +448,7 @@ describe('rewriteSpecifiers — JS fallback equals the per-specifier passes', ()
 		for (const source of cases) {
 			const { masked } = maskLiterals(source);
 			expect(
-				rewriteSpecifiers(masked, rewriter, { native: false, sweep: false })
+				rewriteSpecifiers(masked, rewriter, { sweep: false })
 			).toBe(legacyVendorMain(masked, combined));
 			expect(jsRewriteImports(masked, sortedReplacements(combined))).toBe(
 				legacyVendorMain(masked, combined)
@@ -486,13 +456,10 @@ describe('rewriteSpecifiers — JS fallback equals the per-specifier passes', ()
 		}
 	});
 
-	test('native path: native scanner + combined sweep == legacy native + sweep', () => {
-		if (!nativeAvailable) return;
+	test('sweeping pass == legacy main + sweep, non-sweeping == legacy main', () => {
 		for (const source of cases) {
 			const { masked } = maskLiterals(source);
-			const legacyMain =
-				nativeRewriteImports(masked, sortedReplacements(combined)) ??
-				legacyReactMain(masked, combined);
+			const legacyMain = legacyReactMain(masked, combined);
 			expect(rewriteSpecifiers(masked, rewriter, { sweep: true })).toBe(
 				legacyReactSweep(legacyMain, combined)
 			);

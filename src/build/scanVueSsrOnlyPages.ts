@@ -23,6 +23,7 @@
 import { readdirSync, readFileSync, type Dirent } from 'node:fs';
 import { join } from 'node:path';
 import ts from 'typescript';
+import { createStampedFileCache } from './stampedFileCache';
 
 const SKIP_DIRS = new Set([
 	'.absolutejs',
@@ -171,15 +172,16 @@ const extractSsrOnlyPageName = (
 	return pageAssetKey;
 };
 
-const extractFromFile = (filePath: string, out: Set<string>) => {
+const extractFromFile = (filePath: string) => {
+	const out = new Set<string>();
 	let source: string;
 	try {
 		source = readFileSync(filePath, 'utf-8');
 	} catch {
-		return;
+		return [];
 	}
 
-	if (!fileMayContainVueHandler(source)) return;
+	if (!fileMayContainVueHandler(source)) return [];
 
 	const sourceFile = ts.createSourceFile(
 		filePath,
@@ -204,20 +206,37 @@ const extractFromFile = (filePath: string, out: Set<string>) => {
 	};
 
 	ts.forEachChild(sourceFile, visit);
+
+	return [...out];
 };
+
+/* Dev builds pages on demand, so this whole-project walk reruns on every
+ * page open against an unchanged tree. The walk stays (it is a few
+ * milliseconds and it is what makes the memo sound); only the per-file
+ * read + `ts.createSourceFile` is reused while a file's `(mtimeMs, size)`
+ * stamp holds. Each cached value is purely content-derived, so the union
+ * below is identical to an uncached scan. See `stampedFileCache.ts`. */
+const ssrOnlyNameCache = createStampedFileCache<string[]>();
 
 /** Walk every TypeScript source file under `projectRoot` and collect
  *  the set of Vue page manifest keys flagged `client: 'none'` at
  *  registration time. The returned names correspond to the PascalCased
  *  basenames of the .vue source files (e.g. `LandingPage` matches
- *  `LandingPage.vue`). */
-export const scanVueSsrOnlyPages = (projectRoot: string) => {
+ *  `LandingPage.vue`).
+ *
+ *  `memoise` is set for dev builds only; a production build scans once and
+ *  opts out so it pays no stat pass. */
+export const scanVueSsrOnlyPages = (projectRoot: string, memoise = false) => {
 	const files = collectSourceFiles(projectRoot);
 	const ssrOnlyPageNames = new Set<string>();
 
 	for (const file of files) {
-		extractFromFile(file, ssrOnlyPageNames);
+		const names = memoise
+			? ssrOnlyNameCache.read(file, () => extractFromFile(file))
+			: extractFromFile(file);
+		for (const name of names) ssrOnlyPageNames.add(name);
 	}
+	if (memoise) ssrOnlyNameCache.endPass();
 
 	return ssrOnlyPageNames;
 };

@@ -36,9 +36,6 @@ import {
 } from './specifierRewriter';
 
 export type ClientRewriteOptions = {
-	/** Use the native Zig scanner when available (default true); tests force
-	 *  the JavaScript fallback with `false`. */
-	native?: boolean;
 	/** React/vendor externals rewritten with the masked-comment sweep. */
 	reactPaths?: Record<string, string>;
 	/** Prepend the `$RefreshReg$`/`$RefreshSig$` stubs (dev builds only). */
@@ -57,7 +54,6 @@ export type ClientRewriteStats = {
 };
 
 export type ClientRewriteFamilies = {
-	native: boolean;
 	react?: SpecifierRewriter;
 	refreshGlobals: boolean;
 	urlFileMap?: Map<string, string>;
@@ -94,7 +90,6 @@ export const compileClientRewriteFamilies = (
 		: undefined;
 
 	return {
-		native: options.native !== false,
 		react,
 		refreshGlobals: options.refreshGlobals === true,
 		urlFileMap: options.urlFileMap,
@@ -112,15 +107,14 @@ const hasAnyFamily = (families: ClientRewriteFamilies) =>
 const rewriteImportFamilies = (
 	content: string,
 	react: SpecifierRewriter | undefined,
-	vendor: SpecifierRewriter | undefined,
-	native: boolean
+	vendor: SpecifierRewriter | undefined
 ) => {
 	const { masked, restore } = maskLiterals(content);
 	const afterReact = react
-		? rewriteSpecifiers(masked, react, { native, sweep: true })
+		? rewriteSpecifiers(masked, react, { sweep: true })
 		: masked;
 	const afterVendor = vendor
-		? rewriteSpecifiers(afterReact, vendor, { native, sweep: false })
+		? rewriteSpecifiers(afterReact, vendor, { sweep: false })
 		: afterReact;
 
 	return restore(afterVendor);
@@ -147,13 +141,11 @@ export const rewriteClientContent = (
 			? families.vendor
 			: undefined;
 	const refresh =
-		isJavaScript &&
-		families.refreshGlobals &&
-		needsRefreshStubs(original);
+		isJavaScript && families.refreshGlobals && needsRefreshStubs(original);
 
 	let content = original;
 	if (react || vendor)
-		content = rewriteImportFamilies(content, react, vendor, families.native);
+		content = rewriteImportFamilies(content, react, vendor);
 	if (refresh) content = REFRESH_STUBS + content;
 	if (families.urlFileMap)
 		content = rewriteUrlReferencesInContent(content, families.urlFileMap);
