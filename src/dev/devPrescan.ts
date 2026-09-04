@@ -25,7 +25,12 @@
  * itself, so a failure here can only cost the optimisation, never the
  * boot.
  *
- * Opt out with `ABSOLUTE_DEV_PRESCAN=0`. */
+ * Off by default: scanning in the parent delays the child spawn, and the
+ * child cannot adopt the result until the user's own import graph has
+ * finished evaluating anyway. Measured on a 74-page app it cost more than
+ * it saved (first paint 3.8s without it, 8.5s with it). Opt in with
+ * `ABSOLUTE_DEV_PRESCAN=1` for a project whose source tree is slow to scan
+ * but whose server entry imports little. */
 
 import { existsSync, readdirSync, rmSync } from 'node:fs';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
@@ -82,7 +87,7 @@ export const collectConfigVendorSourceDirs = (config: BuildConfig) =>
 		)
 	);
 
-export const devPrescanEnabled = () => process.env.ABSOLUTE_DEV_PRESCAN !== '0';
+export const devPrescanEnabled = () => process.env.ABSOLUTE_DEV_PRESCAN === '1';
 
 const prescanPath = (projectRoot: string, token: string) =>
 	join(projectRoot, PRESCAN_DIR, `${token}.json`);

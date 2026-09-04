@@ -71,8 +71,15 @@ followed by near-zero `initialize dependency graph` and
 `prepare dep vendor paths` steps). The payload records which directories
 the scan covered; if they do not match what this process would have
 scanned, or the file is late or malformed, the child simply scans for
-itself. On a 1,400-file app this moves ~1.3s off the child's critical
-path. Turn it off with `ABSOLUTE_DEV_PRESCAN=0`.
+itself.
+
+This is **off by default**, because on a real app it costs more than it
+saves. Scanning in the parent delays the child's spawn, and the child
+cannot adopt the payload until the user's own import graph has finished
+evaluating — one thread runs both. Measured on a 74-page app: first paint
+3.8s with the pre-scan off, 8.5s with it on. Turn it on with
+`ABSOLUTE_DEV_PRESCAN=1` when a project's source tree is slow to scan but
+its server entry imports little.
 
 ## Knobs
 
@@ -83,8 +90,8 @@ path. Turn it off with `ABSOLUTE_DEV_PRESCAN=0`.
 | `ABSOLUTE_BUILD_WORKERS=n` | `max(2, min(cpus, 8))`, capped by free memory | Build-worker threads for `@vue/compiler-sfc` and the dev sourcemap chain. `0` or `1` runs every job inline on the main thread — the supported path for debugging. |
 | `ABSOLUTE_COMPILE_CACHE=0` | on | Disable the restart-surviving Vue compile cache in `.absolutejs/compile-cache/vue/`. A cold boot then recompiles every SFC. |
 | `ABSOLUTE_EARLY_LISTEN=0` | on | Don't bind the port during the boot build. With it on (default) the port answers `503` + `Retry-After` while building, instead of refusing connections. |
-| `ABSOLUTE_DEV_PRESCAN=0` | on | Don't pre-scan the source tree in the CLI parent; the dev child scans it itself during its own boot. See above. |
-| `ABSOLUTE_DEV_PRESCAN_WAIT_MS=n` | `2000` | How long the child waits for the parent's pre-scan before giving up and scanning itself. The parent starts ~2s before the child needs the result, so the wait is normally zero. |
+| `ABSOLUTE_DEV_PRESCAN=1` | off | Pre-scan the source tree in the CLI parent instead of the dev child. Measured slower on a real app — see above before turning it on. |
+| `ABSOLUTE_DEV_PRESCAN_WAIT_MS=n` | `2000` | With the pre-scan on, how long the child waits for the parent's payload before giving up and scanning itself. |
 | `ABSOLUTE_DEV_PREBUILD=0` | on | Don't start the boot build from the dev bootstrap; wait for the user's `prepare()` call. |
 | `dev.bundleServerDependencies` | built-in detection | Force-bundle `node_modules` packages into SSR page bundles. See below. |
 
