@@ -1,4 +1,5 @@
 import { $, type BunPlugin } from 'bun';
+import { rmSync } from 'node:fs';
 import {
 	rm,
 	cp,
@@ -110,14 +111,41 @@ const acquireBuildLock = async (start = Date.now()) => {
 	}
 };
 
+/**
+ * Deletes `path` when this process ends, however it ends, and returns a
+ * function that deletes it now and cancels the handler.
+ *
+ * Every failure in this build reports its own diagnostics and calls
+ * `process.exit(1)`, which runs no `finally` block. Anything those blocks
+ * were meant to clean up therefore survives a failed build: the build lock,
+ * which then makes the *next* build wait for a process that is already gone,
+ * and the Angular compiler's workspace, which accumulates one directory per
+ * failure at the repo root. An `exit` handler is the one hook `process.exit`
+ * still runs, so cleanup registered here happens on every path.
+ */
+const removeOnExit = (path: string) => {
+	const remove = () => {
+		try {
+			rmSync(path, { force: true, recursive: true });
+		} catch {
+			/* already gone */
+		}
+	};
+	process.on('exit', remove);
+
+	return () => {
+		process.off('exit', remove);
+		remove();
+	};
+};
+
 const withBuildLock = async (action: () => Promise<void>) => {
 	await acquireBuildLock();
+	const releaseLock = removeOnExit(BUILD_LOCK_DIR);
 	try {
 		await action();
 	} finally {
-		await rm(BUILD_LOCK_DIR, { force: true, recursive: true }).catch(() => {
-			/* lock dir already removed */
-		});
+		releaseLock();
 	}
 };
 
@@ -951,6 +979,7 @@ const compileAngularComponentsPartial = async () => {
 	// Use a unique temp output dir outside dist/ so parallel build calls cannot
 	// remove each other's Angular partial compilation workspace.
 	const tmpDir = await mkdtemp('.angular-partial-tmp-');
+	const removeTmpDir = removeOnExit(tmpDir);
 	const outDir = join(tmpDir, 'out');
 	const srcDir = join(tmpDir, 'src');
 	try {
@@ -1117,9 +1146,7 @@ const compileAngularComponentsPartial = async () => {
 			target: 'bun'
 		});
 	} finally {
-		await rm(tmpDir, { force: true, recursive: true }).catch(() => {
-			/* temp dir already gone */
-		});
+		removeTmpDir();
 	}
 };
 
