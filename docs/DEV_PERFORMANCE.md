@@ -244,6 +244,215 @@ parsing, which is exactly the misattribution the flag exists to avoid.
 paths and the event log) alongside the report, so an attribution can be
 re-derived without another boot.
 
+## Deferring a route-owning plugin
+
+The verdict column above has one entry it cannot help you with. A plugin that
+owns routes is `used at module scope` by construction: `.use(apiPlugin(db))`
+runs during module evaluation, because Elysia composes routes at `.use()` time
+and freezes them into Bun.serve's handler table at `.listen()`. Moving the
+import into a function is not an option — there is no function. On the 74-page
+app that one plugin is the largest attributable import in the entry, and no
+amount of care in the app's own code removes it.
+
+`lazyPlugin` makes the deferral something you call:
+
+```ts
+import { lazyPlugin } from '@absolutejs/absolute';
+
+export const app = new Elysia()
+	.use(
+		lazyPlugin({
+			args: [db],
+			prefix: '/api',
+			load: () => import('./plugins/apiPlugin')
+		})
+	);
+```
+
+It registers two placeholder routes at composition time — `/api` and
+`/api/*` — so the app answers under that prefix from the moment it listens.
+The first request that lands on one of them imports the module, composes it
+onto the live app with the real `.use()`, and re-dispatches. Concurrent first
+requests share one import. Every request after that matches the plugin's own
+routes directly: the placeholders never win against a concrete route, so the
+steady-state cost is nothing at all, not even a prefix check.
+
+### The prefix is the requirement
+
+A lazy plugin has to own a path prefix, and own it exclusively. That prefix is
+the entire reason the app can answer before the module exists — it is what the
+placeholders are registered for. `lazyPlugin` throws at composition time if the
+prefix is missing, `/`, or does not start with a slash.
+
+- The plugin's routes must all live under it. In practice this means the
+  plugin already looks like `new Elysia({ prefix: '/api' })`, which is how a
+  mounted API surface is usually written anyway.
+- Nothing else may claim it. The placeholders are registered where you call
+  `lazyPlugin`, so a route the parent declared at exactly `/api` earlier in the
+  chain would be shadowed until the mount happens.
+- Matching is by path segment, not by string: `/api` covers `/api` and
+  `/api/anything`, and never `/apiary`.
+
+A request under the prefix that the plugin turns out not to serve gets the same
+`404` the app would have produced with an eager `.use()` — including a custom
+not-found page, because the placeholder raises Elysia's own `NotFound` rather
+than writing a response of its own.
+
+### What `load` may return
+
+`load` is called once. It may resolve to any of these:
+
+| shape | example |
+| --- | --- |
+| the plugin | `load: () => apiPlugin(db)` |
+| a module's default export | `load: () => import('./api')` with `export default` |
+| a module with exactly one plugin export | `load: () => import('./api')` |
+| a factory, called with `args` | `load: () => import('./api')`, `args: [db]` |
+
+The last two are the ergonomic ones and cover the common case — a module whose
+only export is `apiPlugin`, a factory taking the database — but they resolve at
+runtime, so TypeScript cannot check that `args` matches the factory. When you
+want that checked, bind the dependencies in the closure instead and let `load`
+return the finished plugin:
+
+```ts
+load: async () => (await import('./plugins/apiPlugin')).apiPlugin(db)
+```
+
+Anything else — an ambiguous namespace, a factory that returns something other
+than an Elysia instance — fails on the first request with an error that names
+the exports it found. A `load` that throws is retried by the next request, so a
+module you are in the middle of fixing does not need a restart; a failure while
+composing the resolved plugin is replayed instead, because the plugin is
+already spliced into the app and cannot be composed twice.
+
+### In production it is a plain `.use()`
+
+`lazyPlugin` defers only outside production. With `NODE_ENV=production` (or
+inside a compiled binary) it takes the eager path: it hands the loaded plugin
+straight to `.use()`, which `.listen()` awaits before it serves anything. No
+placeholder routes are registered, no request pays for a mount, and the route
+table is the one the plugin declares. Force either path with `eager: true` /
+`eager: false`.
+
+This is deliberate, and it is the honest version of "identical to `.use()`".
+Two things about a deferred mount cannot be reproduced exactly, and both are
+inherent to `import()` rather than to this implementation:
+
+- **Registration order.** A plugin composed on the first request lands at the
+  end of the chain, so a global hook the parent registers *after* the
+  `lazyPlugin(...)` call also wraps its routes, where an inline `.use()` at
+  that position would have run before those hooks existed. Elysia's own
+  `use(import('./x'))` has the same property.
+- **One doubled lifecycle.** The single request that triggers the mount passes
+  through the app's outermost request lifecycle twice — once to reach the
+  placeholder, once for the re-dispatch. Fetch-level `request` hooks, and
+  anything counting requests, see that one request twice.
+
+Neither is a fair trade in production, where the module has to load before the
+first request anyway and there is nothing to win. Both are invisible in dev,
+which is where the whole saving is.
+
+Everything else goes through untouched, because the re-dispatch hands the
+original `Request` to the app's own fetch handler: request bodies (the
+placeholder never parses them), streaming and SSE responses, and the
+`Sec-Purpose: prefetch` requests `<Link>` makes — a prefetch under the prefix
+warms the plugin exactly like a real navigation. WebSocket routes upgrade too:
+if the plugin is the first thing on the app to declare one, the socket handler
+is installed at mount time through the same Bun reload the dev HMR path uses.
+
+### The before and after
+
+On the 74-page app, converting one registration —
+
+```diff
+-import { apiPlugin } from './plugins/apiPlugin';
+-
+-	.use(apiPlugin(db))
++	.use(
++		lazyPlugin({
++			args: [db],
++			prefix: '/v1',
++			load: () => import('./plugins/apiPlugin')
++		})
++	)
+```
+
+— takes the diagnostic from this:
+
+```
+AbsoluteJS import cost — src/backend/server.ts
+5429ms of module evaluation across 1726 modules, 111 top-level imports.
+
+    saving modules  import                                      verdict
+    1051ms     158  ./plugins/apiPlugin                         used at module scope
+      48ms       3  ./plugins/uploadthingFileRouterPlugin       used at module scope
+  109 more          imports below 15ms — 61ms between them
+```
+
+to this:
+
+```
+AbsoluteJS import cost — src/backend/server.ts
+5322ms of module evaluation across 1568 modules, 110 top-level imports.
+
+    saving modules  import                                      verdict
+     971ms      20  ./integrations/syncEngine                   used at module scope
+      19ms       4  ./plugins/uploadthingFileRouterPlugin       used at module scope
+      16ms       4  ./plugins/smsPlugin                         used at module scope
+  107 more          imports below 15ms — 54ms between them
+```
+
+The 158 modules are gone from the graph — 1726 down to 1568, exactly the set
+the report named — and the entry no longer has an import it cannot defer.
+
+Read the new top line the way the section above says to read it: the cost did
+not vanish from the process, it moved to whichever import now reaches the
+shared subgraph first. That is the diagnostic working, not failing. The `saving`
+column has always meant "the size of the thing you would be removing", and what
+was removed here is real: those 158 modules are not parsed, not evaluated, and
+not on the path to a ready server.
+
+The stopwatch, on this app and this machine, does not move. Two alternating
+five-run comparisons of the same app — eager `.use()` against the deferred
+mount, warm boots, nothing else running — came back a tie on every metric, and
+the direction flipped between sessions:
+
+| | eager | lazy | |
+| --- | --- | --- | --- |
+| ready (session 1) | 7.20s | 7.26s | tie |
+| first page (session 1) | 9.24s | 10.55s | tie |
+| ready (session 2) | 6.40s | 6.61s | tie |
+| first page (session 2) | 9.23s | 8.76s | tie |
+
+Run-to-run spread on that machine is 3–7s, so a ~1s change cannot be seen
+through it. That is the honest result, and it is consistent with the section
+above: the boot build runs concurrently with the entry's imports and hands most
+of its work to the build-worker pool, so main-thread import work removed from
+the critical path partly lands in a gap the boot was going to spend waiting
+anyway.
+
+So the reason to reach for `lazyPlugin` is not a promised second off `ready`.
+It is that the largest single item in the diagnostic stops being unfixable —
+158 modules leave the boot's graph, the entry's import list gets shorter, and
+on a machine or a codebase where import work *is* the bottleneck the saving is
+there to collect. Measure your own app before and after; a tie is a legitimate
+answer, and so is finding that this one plugin was the whole problem.
+
+### What it costs
+
+- **The first request under the prefix waits for the import.** On the app
+  above that is most of a second, once, for whoever hits the API first. A dev
+  who only loads pages never pays it at all.
+- **The plugin's routes leave the app's TypeScript type.** `lazyPlugin`
+  returns the app unchanged, so an Eden treaty client built from `typeof app`
+  no longer sees those routes. Apps that anchor their client types per feature
+  rather than off the root server type are unaffected; apps that do not should
+  keep the eager path.
+- **Two placeholder routes stay in the route table** for the life of the
+  process. They are hidden from the OpenAPI document and unreachable once the
+  plugin is mounted.
+
 ## Knobs
 
 | Setting | Default | Effect |
@@ -259,6 +468,7 @@ re-derived without another boot.
 | `ABSOLUTE_DEV_PRESCAN_WAIT_MS=n` | `2000` | With the pre-scan on, how long the child waits for the parent's payload before giving up and scanning itself. |
 | `ABSOLUTE_DEV_PREBUILD=0` | on | Don't start the boot build from the dev bootstrap; wait for the user's `prepare()` call. |
 | `dev.bundleServerDependencies` | built-in detection | Force-bundle `node_modules` packages into SSR page bundles. See below. |
+| `lazyPlugin({ eager })` | production and compiled binaries | Force a lazily mounted plugin onto the eager `.use()` path (`true`) or the deferred one (`false`). See above. |
 
 ### Server dependencies stay external in dev
 
