@@ -12,15 +12,22 @@ import {
 } from '../build/stylePreprocessor';
 import { lowerSvelteAwaitSlotSyntax } from '../svelte/lowerAwaitSlotSyntax';
 import { lowerSvelteIslandSyntax } from '../svelte/lowerIslandSyntax';
-import type { StylePreprocessorConfig } from '../../types/build';
+import type { DevPageEntry, StylePreprocessorConfig } from '../../types/build';
 import type { BindingMetadata, SFCDescriptor } from '@vue/compiler-sfc';
-import { logWarn } from '../utils/logger';
+import { logPageBuild, logWarn } from '../utils/logger';
 import {
 	getInvalidationVersion,
 	getTransformed,
 	invalidate,
 	setTransformed
 } from './transformCache';
+import type { DevPageWarmer } from '../core/requestContext';
+import { logStartupTimingBlock } from '../utils/startupTimings';
+import {
+	createPageProbe,
+	isPageBuilt,
+	resolveLazyPageEntry
+} from './lazyPages';
 
 const SRC_PREFIX = '/@src/';
 
@@ -1812,4 +1819,143 @@ export const SRC_URL_PREFIX = SRC_PREFIX;
 
 export const setGlobalModuleServer = (handler: typeof globalModuleServer) => {
 	globalModuleServer = handler;
+};
+
+/* ---------------------------------------------------------------------
+ * On-demand page builds — the page-level analogue of `warmCache`.
+ *
+ * The lazy dev boot builds everything except page entries. `warmPage`
+ * maps a manifest key (`PortalIndex`, `Portal`, `PortalCSS`, …) or a page
+ * source path to its page and bundles it through the same incremental
+ * `triggerRebuild` path a watcher edit takes, so the manifest merge,
+ * asset-store population, chunk handling and SPA side manifests all
+ * happen exactly once and exactly as they do mid-session. Concurrent
+ * requests for one page share a build; different pages queue on the
+ * rebuild lock. State lives on `globalThis.__hmrDevResult.hmrState.lazyPages`
+ * so it survives `bun --hot` re-evaluation of this module.
+ * ------------------------------------------------------------------- */
+
+const REBUILD_IDLE_POLL_MS = 10;
+
+const getDevResult = () => globalThis.__hmrDevResult;
+
+const resolveDevPageEntry = (keyOrPath: string) => {
+	const cached = getDevResult();
+	const lazy = cached?.hmrState.lazyPages;
+	if (!cached || !lazy) return undefined;
+
+	return resolveLazyPageEntry(
+		lazy.registry,
+		keyOrPath,
+		createPageProbe(cached.hmrState.config)
+	);
+};
+
+/** The ambient warmer `asset()` and the page handlers reach through
+ *  `src/core/requestContext.ts`. */
+export const createDevPageWarmer = () => {
+	const warmer: DevPageWarmer = {
+		describe: (key) => {
+			const cached = getDevResult();
+			const entry = resolveDevPageEntry(key);
+			if (!cached || !entry) return undefined;
+
+			return {
+				built: isPageBuilt(entry, cached.manifest),
+				name: entry.name
+			};
+		},
+		lookup: (key) => getDevResult()?.manifest[key],
+		warm: (key) => warmPage(key)
+	};
+
+	return warmer;
+};
+
+/** Build one page now. Runs under the rebuild lock; resolves `true` once
+ *  the page's manifest entries exist. Wired into the per-page dedupe by
+ *  `devBuild` (`createOnDemandPageBuilder(runOnDemandPageBuild)`). */
+export const runOnDemandPageBuild = async (entry: DevPageEntry) => {
+	const cached = getDevResult();
+	const state = cached?.hmrState;
+	const lazy = state?.lazyPages;
+	if (!cached || !state || !lazy) return false;
+
+	const startedAt = performance.now();
+	// From now on every full rebuild (server entry reload, cold-start
+	// recovery) re-emits this page too — the set is shared by identity
+	// with `config.options.deferPageEntries.except`.
+	lazy.warmed.add(entry.source);
+	lazy.lastError = undefined;
+
+	const { triggerRebuild } = await import('./rebuildTrigger');
+	// `triggerRebuild` flips `isRebuilding` synchronously, so the idle
+	// check and the call must sit in one continuation with no `await`
+	// between them — otherwise two waiters could both proceed and one
+	// would be dropped by the re-entry guard.
+	const triggerWhenIdle = async (): Promise<unknown> => {
+		if (state.isRebuilding) {
+			await Bun.sleep(REBUILD_IDLE_POLL_MS);
+
+			return triggerWhenIdle();
+		}
+
+		return triggerRebuild(
+			state,
+			state.config,
+			lazy.onRebuildComplete,
+			[entry.source],
+			{ onDemandPage: entry }
+		);
+	};
+	await triggerWhenIdle();
+
+	const built = isPageBuilt(entry, cached.manifest);
+	const durationMs = performance.now() - startedAt;
+	lazy.buildCount += 1;
+	if (!built) {
+		const reason = lazy.lastError ? `: ${lazy.lastError}` : '';
+		logWarn(`on-demand build of ${entry.name} produced no bundle${reason}`);
+
+		return false;
+	}
+
+	// Same first-load contract as an eager boot: serve the hydration index
+	// through the module server (`/@src/…/_src_indexes/<Page>`) so the page
+	// loads on the same module graph HMR patches later.
+	const { patchManifestIndexes } = await import('../core/prepare');
+	patchManifestIndexes(
+		cached.manifest,
+		resolve(state.resolvedPaths.buildDir, '_src_indexes'),
+		SRC_PREFIX
+	);
+	logPageBuild(entry.source, entry.framework, Math.round(durationMs));
+	// `ABSOLUTE_DEV_PROFILE=1`: one timing block per on-demand page build.
+	logStartupTimingBlock('AbsoluteJS on-demand page build', [
+		{ durationMs, label: entry.name }
+	]);
+
+	return true;
+};
+
+/** Build the page a manifest key or page source path belongs to, unless
+ *  it is already in the manifest. `unknown` means the key is not a
+ *  deferred page (eager mode, production, or a key that maps to nothing). */
+export const warmPage = async (keyOrPath: string) => {
+	const cached = getDevResult();
+	const state = cached?.hmrState;
+	const lazy = state?.lazyPages;
+	if (!cached || !state || !lazy || state.initialBuildFailed) {
+		return 'unknown';
+	}
+	const entry = resolveDevPageEntry(keyOrPath);
+	if (!entry) return 'unknown';
+	if (
+		!lazy.builder.isInFlight(entry.source) &&
+		isPageBuilt(entry, cached.manifest)
+	) {
+		return 'ready';
+	}
+
+	return (await lazy.builder.warm(entry)) ? 'built' : 'failed';
 };

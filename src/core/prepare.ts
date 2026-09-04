@@ -195,7 +195,7 @@ const resolveDevIndexFileName = (manifestValue: string, baseName: string) => {
 	return null;
 };
 
-const patchManifestIndexes = (
+export const patchManifestIndexes = (
 	manifest: Record<string, string>,
 	devIndexDir: string,
 	SRC_URL_PREFIX: string

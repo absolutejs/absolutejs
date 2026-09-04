@@ -45,6 +45,30 @@ export type BuildOptions = {
 	};
 	/** Base manifest to merge into for incremental builds */
 	baseManifest?: Record<string, string>;
+	/** DEV ONLY (ignored unless `injectHMR` is set). Build pages on demand:
+	 *  every page entry (React hydration indexes, Vue/Svelte/Angular/Ember
+	 *  pages) is skipped unless its source file is in `except`, while
+	 *  everything else — conventions, vendor bundles, CSS/Tailwind, workers,
+	 *  islands, HTML/HTMX pages — still builds. The dev server passes the
+	 *  live set of pages that have been requested so far, so a full rebuild
+	 *  (server entry reload, cold-start recovery) only re-emits the pages
+	 *  someone actually opened. Set by `devBuild`, never by user config. */
+	deferPageEntries?: {
+		except: ReadonlySet<string>;
+	};
+};
+
+export type DevPageFramework = 'angular' | 'ember' | 'react' | 'svelte' | 'vue';
+
+/** One page entry discovered by the build's entry scan. Returned from dev
+ *  builds so the on-demand page path can map a manifest key (`PortalIndex`,
+ *  `Portal`, `PortalCSS`, …) back to the source file to build. */
+export type DevPageEntry = {
+	framework: DevPageFramework;
+	/** PascalCase manifest base name, e.g. `Portal` for `portal.vue`. */
+	name: string;
+	/** Absolute path of the page source (`pages/Portal.vue`, `pages/Portal.tsx`). */
+	source: string;
 };
 
 export type MobilePlatform = 'android' | 'ios';

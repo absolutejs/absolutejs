@@ -34,6 +34,12 @@ afterAll(async () => {
 describe('Static asset serving survives rapid HMR rebuilds (#224)', () => {
 	test('setup', async () => {
 		server = await startDevServer();
+		// Dev builds pages on first request: open the pages whose bundle
+		// URLs the test hammers so their manifest entries exist before the
+		// HMR client reads the manifest.
+		for (const path of ['/vue', '/svelte', '/angular']) {
+			expect((await fetch(`${server.baseUrl}${path}`)).status).toBe(200);
+		}
 		client = await connectHMR(server.port);
 		const manifestMsg = await client.waitFor('manifest');
 		await client.waitFor('connected');

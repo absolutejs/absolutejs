@@ -28,6 +28,9 @@ const pageComponent = resolve(
  * `manifest` WebSocket frame. */
 const startAndConnect = async () => {
 	server = await startDevServer();
+	// Dev builds pages on first request: open the Angular page so its
+	// manifest entries are part of the snapshot the WebSocket pushes.
+	expect((await fetch(`${server.baseUrl}/angular`)).status).toBe(200);
 	client = await connectHMR(server.port);
 	const manifestMsg = await client.waitFor('manifest');
 	const initialManifest =

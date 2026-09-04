@@ -6,7 +6,11 @@ import { resolveSpaChildCss } from '../utils/spaRouteCss';
 import { renderSpaNotFound } from '../utils/spaRouteManifest';
 import { injectIslandPageContextStream } from '../core/islandPageContext';
 import { getCurrentRouteRegistrationCallsite } from '../core/devRouteRegistrationCallsite';
-import { getCurrentAbsoluteRequest } from '../core/requestContext';
+import {
+	getCurrentAbsoluteRequest,
+	resolveDeferredPageAssets,
+	withDeferredStylesheets
+} from '../core/requestContext';
 import type { AbsoluteMobileBuildPageMetadata } from '../mobile/buildMetadata';
 import {
 	ABSOLUTE_MOBILE_PAGE_PROTOCOL_VERSION,
@@ -161,8 +165,27 @@ export const handleVuePageRequest = async <Component extends VueComponent>(
 ) => {
 	const passedPageComponent = input.Page;
 	const request = input.request ?? getCurrentAbsoluteRequest();
-	const pageId =
-		input.__absoluteMobile?.pageId ?? derivePageName(input.pagePath);
+	const clientMode: 'auto' | 'none' = input.client ?? 'auto';
+	// Dev on-demand pages: `asset()` returned `''` for a page that has not
+	// been built yet. Build it now and re-read the manifest; if that is
+	// not possible (eager mode, production, build failure) fall through to
+	// the manifest error below so the overlay shows the real cause.
+	const deferredAssets =
+		input.pagePath === '' ||
+		(clientMode === 'auto' && input.indexPath === '')
+			? await resolveDeferredPageAssets()
+			: null;
+	const resolvedPagePath =
+		deferredAssets && input.pagePath === ''
+			? deferredAssets.lookup(deferredAssets.name)
+			: input.pagePath;
+	const resolvedIndexPath =
+		deferredAssets && input.indexPath === ''
+			? deferredAssets.lookup(`${deferredAssets.name}Index`)
+			: input.indexPath;
+	const resolvedOptions = input;
+	const pageName = deferredAssets?.name ?? derivePageName(resolvedPagePath);
+	const pageId = input.__absoluteMobile?.pageId ?? pageName;
 	const currentContract =
 		input.__absoluteMobile?.contract ??
 		`vue:${pageId}:${ABSOLUTE_MOBILE_PAGE_PROTOCOL_VERSION}`;
@@ -179,9 +202,10 @@ export const handleVuePageRequest = async <Component extends VueComponent>(
 		request
 	});
 	if (mobileResponse) return mobileResponse;
-	const userHeadTag = input.headTag ?? '<head></head>';
-	const resolvedOptions = input;
-	const resolvedPagePath = input.pagePath;
+	const userHeadTag = withDeferredStylesheets(
+		input.headTag ?? '<head></head>',
+		deferredAssets
+	);
 	// Inline per-page compiled CSS so scoped styles ship in the SSR head
 	// instead of loading after client hydration. See utils/inlinePageCss.
 	//
@@ -199,8 +223,9 @@ export const handleVuePageRequest = async <Component extends VueComponent>(
 		spaChildCss
 	);
 	const maybeProps = input.props;
-	const clientMode: 'auto' | 'none' = input.client ?? 'auto';
-	const resolvedIndexPath = input.indexPath;
+	if (resolvedPagePath === '') {
+		throw new Error(`Asset "${pageName || 'Page'}" not found in manifest.`);
+	}
 	if (clientMode === 'auto' && resolvedIndexPath === '') {
 		// Dev-mode `asset()` soft-returns '' for a manifest key that
 		// hasn't been built yet (or whose build failed). Throw the
@@ -210,7 +235,7 @@ export const handleVuePageRequest = async <Component extends VueComponent>(
 		// Production never reaches this branch: prod `asset()` throws
 		// this same error itself before the handler runs.
 		throw new Error(
-			`Asset "${derivePageName(resolvedPagePath)}Index" not found in manifest.`
+			`Asset "${pageName || 'Page'}Index" not found in manifest.`
 		);
 	}
 	if (clientMode === 'auto' && !resolvedIndexPath) {
@@ -220,11 +245,7 @@ export const handleVuePageRequest = async <Component extends VueComponent>(
 	}
 
 	try {
-		const spaNotFound = await renderSpaNotFound(
-			'vue',
-			derivePageName(resolvedPagePath),
-			request
-		);
+		const spaNotFound = await renderSpaNotFound('vue', pageName, request);
 		if (spaNotFound) return withPageCacheHeaders(spaNotFound, request);
 		const handlerCallsite =
 			resolvedOptions?.collectStreamingSlots === true
@@ -434,7 +455,6 @@ export const handleVuePageRequest = async <Component extends VueComponent>(
 	} catch (error) {
 		console.error('[SSR] Vue render error:', error);
 
-		const pageName = derivePageName(resolvedPagePath);
 		const conventionResponse = await renderConventionError(
 			'vue',
 			pageName,

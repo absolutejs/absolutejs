@@ -8,6 +8,7 @@ import type { HMRWebSocket } from '../../types/websocket';
 import type { HMRClientTarget } from '../../types/messages';
 import type { BuildConfig, BuildPassError } from '../../types/build';
 import { resolveBuildPaths, type ResolvedBuildPaths } from './configResolver';
+import type { LazyPageState } from './lazyPages';
 
 type HMRUpdateMetadata = {
 	framework?: string;
@@ -68,6 +69,12 @@ export type HMRState = {
 	 * component-local state) for files the fast path already swapped in
 	 * place. Reset at the start of each rebuild. */
 	svelteSurgicallyHandled?: Set<string>;
+	/* On-demand page builds (dev default). Set by `devBuild` when the
+	 * initial build deferred page entries; absent under `--eager`. Holds
+	 * the key → source registry, the set of pages built so far (shared by
+	 * identity with `config.options.deferPageEntries.except`), and the
+	 * per-page in-flight dedupe. See `src/dev/lazyPages.ts`. */
+	lazyPages?: LazyPageState;
 };
 
 /* Initialize HMR state */

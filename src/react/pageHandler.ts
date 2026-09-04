@@ -1,7 +1,10 @@
 import type { ComponentType as ReactComponent } from 'react';
 import { injectIslandPageContextStream } from '../core/islandPageContext';
 import { getCurrentRouteRegistrationCallsite } from '../core/devRouteRegistrationCallsite';
-import { getCurrentAbsoluteRequest } from '../core/requestContext';
+import {
+	getCurrentAbsoluteRequest,
+	resolveDeferredPageAssets
+} from '../core/requestContext';
 import {
 	ABSOLUTE_MOBILE_PAGE_PROTOCOL_VERSION,
 	finalizeAbsoluteMobilePage
@@ -93,7 +96,16 @@ export const handleReactPageRequest = async <
 	input: ReactPageRequestInput<Props>
 ) => {
 	const { Page } = input;
-	const resolvedIndex = input.index;
+	// Dev on-demand pages: `asset()` returned `''` for an index that has
+	// not been built yet. Build the page now and re-read the manifest;
+	// otherwise fall through to the manifest error so the overlay shows
+	// the real cause.
+	const deferredAssets =
+		input.index === '' ? await resolveDeferredPageAssets() : null;
+	const resolvedIndex =
+		deferredAssets && input.index === ''
+			? deferredAssets.lookup(`${deferredAssets.name}Index`)
+			: input.index;
 	const options = input;
 	const userProps = input.props;
 	const request = input.request ?? getCurrentAbsoluteRequest();
@@ -106,6 +118,11 @@ export const handleReactPageRequest = async <
 			? withRequestUrl(userProps, requestPathname)
 			: userProps;
 	const pageName = Page.name || Page.displayName || '';
+	if (resolvedIndex === '') {
+		throw new Error(
+			`Asset "${deferredAssets?.name || pageName || 'Page'}Index" not found in manifest.`
+		);
+	}
 	const pageId =
 		input.__absoluteMobile?.pageId ?? (pageName || resolvedIndex);
 	const currentContract =

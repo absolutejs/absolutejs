@@ -174,6 +174,18 @@ export const logInfo = (message: string) => {
 };
 
 /**
+ * Dev on-demand page build (first request for a page bundles it)
+ * Format: "10:30:45 AM [hmr] page build vue/pages/Home.vue (1250ms)"
+ */
+export const logPageBuild = (
+	path: string,
+	framework?: string,
+	duration?: number
+) => {
+	log('page build', { duration, framework, path });
+};
+
+/**
  * Page reload message
  * Format: "10:30:45 AM [hmr] page reload /src/App.tsx (125ms)"
  */

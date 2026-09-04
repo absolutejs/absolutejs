@@ -18,7 +18,11 @@ import { buildRouterRedirectProviders } from './routerRedirectProviders';
 import { renderSpaNotFound } from '../utils/spaRouteManifest';
 import { lowerAngularServerIslands } from './lowerServerIslands';
 import { getCurrentRouteRegistrationCallsite } from '../core/devRouteRegistrationCallsite';
-import { getCurrentAbsoluteRequest } from '../core/requestContext';
+import {
+	getCurrentAbsoluteRequest,
+	resolveDeferredPageAssets,
+	withDeferredStylesheets
+} from '../core/requestContext';
 import type { AbsoluteMobileBuildPageMetadata } from '../mobile/buildMetadata';
 import {
 	ABSOLUTE_MOBILE_PAGE_PROTOCOL_VERSION,
@@ -360,8 +364,29 @@ export const handleAngularPageRequest = async <Page = unknown>(
 ) => {
 	const requestId = `angular_${Date.now()}_${Math.random().toString(BASE_36_RADIX).substring(2, RANDOM_ID_END_INDEX)}`;
 	const request = input.request ?? getCurrentAbsoluteRequest();
-	const pageId =
-		input.__absoluteMobile?.pageId ?? derivePageName(input.pagePath);
+	// Dev on-demand pages: `asset()` returned `''` for a page that has not
+	// been built yet. Build it now and re-read the manifest; otherwise fall
+	// through to the manifest error so the overlay shows the real cause.
+	const deferredAssets =
+		input.pagePath === '' || input.indexPath === ''
+			? await resolveDeferredPageAssets()
+			: null;
+	const deferredPagePath =
+		deferredAssets && input.pagePath === ''
+			? deferredAssets.lookup(deferredAssets.name)
+			: input.pagePath;
+	const deferredIndexPath =
+		deferredAssets && input.indexPath === ''
+			? deferredAssets.lookup(`${deferredAssets.name}Index`)
+			: input.indexPath;
+	const pageName = deferredAssets?.name ?? derivePageName(deferredPagePath);
+	if (deferredPagePath === '' || deferredIndexPath === '') {
+		const missingName = pageName || 'Page';
+		throw new Error(
+			`Asset "${deferredPagePath === '' ? missingName : `${missingName}Index`}" not found in manifest.`
+		);
+	}
+	const pageId = input.__absoluteMobile?.pageId ?? pageName;
 	const currentContract =
 		input.__absoluteMobile?.contract ??
 		`angular:${pageId}:${ABSOLUTE_MOBILE_PAGE_PROTOCOL_VERSION}`;
@@ -385,16 +410,19 @@ export const handleAngularPageRequest = async <Page = unknown>(
 	return angularSsrContext.run(requestId, async () => {
 		const spaNotFound = await renderSpaNotFound(
 			'angular',
-			derivePageName(input.pagePath),
+			pageName,
 			request
 		);
 		if (spaNotFound) return withPageCacheHeaders(spaNotFound, request);
 		await ensureAngularCompiler();
 
-		const userHeadTag = input.headTag ?? '<head></head>';
-		const resolvedIndexPath = input.indexPath;
+		const userHeadTag = withDeferredStylesheets(
+			input.headTag ?? '<head></head>',
+			deferredAssets
+		);
+		const resolvedIndexPath = deferredIndexPath;
 		const options = input;
-		const resolvedPagePath = input.pagePath;
+		const resolvedPagePath = deferredPagePath;
 		const maybeRequestContext = input.requestContext;
 		const responseInit = input.responseInit ?? {};
 		const resolvedUrl = resolveRequestRenderUrl(request);
@@ -551,7 +579,6 @@ export const handleAngularPageRequest = async <Page = unknown>(
 		} catch (error) {
 			console.error('[SSR] Angular render error:', error);
 
-			const pageName = derivePageName(resolvedPagePath);
 			const conventionResponse = await renderConventionError(
 				'angular',
 				pageName,
