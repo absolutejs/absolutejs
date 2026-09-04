@@ -244,6 +244,83 @@ parsing, which is exactly the misattribution the flag exists to avoid.
 paths and the event log) alongside the report, so an attribution can be
 re-derived without another boot.
 
+### Finding out you needed this
+
+Nobody runs a flag they have never heard of, and nobody re-runs it a year
+later when a colleague adds a heavy import. So a dev boot that would benefit
+says so itself, in one line:
+
+```
+[absolute] 2.65s of this boot was your server entry's imports — ABSOLUTE_DEV_IMPORT_COST=1 shows which ones own it.
+```
+
+The number is not wall clock. Most of a dev boot is the build, which no
+import can move, so the trigger is the window between two boot marks —
+`server entry import start` to `framework runtime imported`. It opens when
+the bootstrap begins importing your entry and closes when the framework
+runtime starts its own body, which is strictly before your entry can reach
+`prepare()`. Everything inside it is module evaluation; none of it is build
+work.
+
+It is deliberately a *lower* bound on your entry graph — on the app above the
+entry keeps importing for another three seconds after the framework runtime
+lands. Under-reporting is the right direction: a hint that fires when there
+is nothing to find becomes noise, while one that misses a boot with a second
+of imports left in it costs nothing but an opportunity.
+
+The default threshold is 1500ms (`ABSOLUTE_DEV_IMPORT_COST_HINT_MS`). Below
+about a second a restart still reads as continuous; the margin over that is
+so a single boot on a loaded machine cannot trip a hint the app does not
+deserve; and the diagnostic being suggested costs a slower boot to run, so
+suggesting it for a sub-second graph asks for more time than could ever be
+recovered.
+
+A hint on every boot is read once and ignored forever, so it stays silent for
+anyone it cannot help. It does not print when the boot was under the
+threshold, on a `bun --hot` re-evaluation (a warm graph describes nothing you
+can act on), under `--eager` (you asked for one long boot), in CI
+(`process.env.CI`), when stdout is not a terminal (a pipe, a log scraper, a
+benchmark harness), when `ABSOLUTE_DEV_IMPORT_COST=1` is already on, or when
+`ABSOLUTE_DEV_IMPORT_COST_HINT=0`. Suppressed, it costs a few environment
+reads. `ABSOLUTE_DEV_IMPORT_COST_HINT=1` forces it past the interactivity
+gates — useful through a pipe — but never past the threshold.
+
+The boot marks behind it are recorded on every dev boot (about twenty
+`Date.now()` calls); `ABSOLUTE_DEV_PROFILE=1` still controls whether the
+timeline is *printed*.
+
+### The same verdicts in CI
+
+A heavy import lands in a pull request, not in a boot, and the measurement
+needs a dev boot. But the `verdict` column above is static — one parse with
+the TypeScript compiler API — so it also runs in `absolute typecheck`, which
+already walks the project and already runs in CI.
+
+A passing check adds two lines when your server entry has any:
+
+```
+✓ Typecheck passed
+i 49 imports are used only inside functions in src/backend/server.ts — deferrable in shape, not necessarily worth deferring.
+  Run `absolute typecheck --import-advice` to list them, or ABSOLUTE_DEV_IMPORT_COST=1 on a dev boot to measure what they cost.
+```
+
+`absolute typecheck --import-advice` (or `ABSOLUTE_IMPORT_ADVICE=1`) lists
+them with line numbers. That listing is behind a flag on purpose: a green run
+that printed a hundred lines of advice would train everyone to stop reading
+the output, and the advice would go with it.
+
+**It reports shape, not cost, and it never fails the build.** A `deferrable`
+verdict means every binding the import introduces is referenced only inside a
+function body, so moving the import into that function is a mechanical change
+rather than a refactor. It says nothing about whether that is worth doing —
+static analysis cannot tell a 5ms import from an 800ms one. On the app above
+it finds 49 of 111 top-level imports deferrable in shape, and the measured
+report rates exactly one of them worth 27ms. Failing on the other 48 would
+gate merges on a measurement nobody has taken, and a check that fails for no
+good reason stops being run. So the exit code stays governed by real type
+errors, and the advice points at `ABSOLUTE_DEV_IMPORT_COST=1` for the number.
+
+
 ## Deferring a route-owning plugin
 
 The verdict column above has one entry it cannot help you with. A plugin that
@@ -461,6 +538,9 @@ answer, and so is finding that this one plugin was the whole problem.
 | `ABSOLUTE_DEV_PROFILE=1` | off | Startup timings + build trace + on-demand build lines + pool utilisation. |
 | `ABSOLUTE_DEV_IMPORT_COST=1` | off | Per-import cost report for your server entry: how much boot time deferring each top-level import would actually remove. Slows the boot it measures — see above. |
 | `ABSOLUTE_DEV_IMPORT_COST_DUMP=path` | off | With the above, also write the raw measurement to `path` as JSON. |
+| `ABSOLUTE_DEV_IMPORT_COST_HINT=0` | on | Silence the one-line hint a slow dev boot prints pointing at `ABSOLUTE_DEV_IMPORT_COST=1`. `=1` forces it past the CI/`--eager`/terminal gates, but never past the threshold. |
+| `ABSOLUTE_DEV_IMPORT_COST_HINT_MS=n` | `1500` | Milliseconds of entry-graph module evaluation above which that hint prints. |
+| `absolute typecheck --import-advice` / `ABSOLUTE_IMPORT_ADVICE=1` | off | List the server entry's deferrable-in-shape imports instead of the two-line summary. Never changes the exit code. |
 | `ABSOLUTE_BUILD_WORKERS=n` | `max(2, min(cpus, 8))`, capped by free memory | Build-worker threads for `@vue/compiler-sfc` and the dev sourcemap chain. `0` or `1` runs every job inline on the main thread — the supported path for debugging. |
 | `ABSOLUTE_COMPILE_CACHE=0` | on | Disable the restart-surviving Vue compile cache in `.absolutejs/compile-cache/vue/`. A cold boot then recompiles every SFC. |
 | `ABSOLUTE_EARLY_LISTEN=0` | on | Don't bind the port during the boot build. With it on (default) the port answers `503` + `Retry-After` while building, instead of refusing connections. |
@@ -483,6 +563,56 @@ Force extra packages to be bundled with `dev.bundleServerDependencies`:
 package names (`'three'`), scoped globs (`'@scope/*'`), exact specifiers,
 or `'*'` for the legacy inline-everything behaviour. Production builds are
 unaffected.
+
+### Whole-project scans
+
+Two build phases do not scope to the page being built: `scan/worker-references`
+walks every source file under the framework directories looking for
+`new URL('./x', import.meta.url)` and `import.meta.resolve('./x')`, and
+`scan/vue-ssr-only` walks every `.ts` under the project root looking for
+`handleVuePageRequest({ client: 'none', ... })`. A production build runs each
+once. Dev runs them on every on-demand page build, against a tree that
+usually has not changed since the last page opened — on a 1451-file app that
+was ~116ms and ~64ms of pure repeated work per warm page build.
+
+Each file's contribution is now memoised behind a `(mtimeMs, size)` stamp
+(`src/build/stampedFileCache.ts`). The directory walk still runs every time —
+it is 3-5ms and it is what makes the memo sound — and only the per-file read,
+regex and `ts.createSourceFile` are skipped for files that have not changed.
+Warm, that is ~24ms and ~16ms.
+
+The memo is keyed on the file stamp rather than on the dev watcher's change
+stream, because the watcher's positive roots are directories
+(`getWatchPaths`): a file sitting directly at the project root — `server.ts`,
+`vueImporter.ts` — never reaches `queueFileChange` at all, and
+`htmlDirectory`/`htmxDirectory` are watched only under `pages/`, `scripts/`
+and `styles/`. Both scans read outside that coverage, and the Vue SSR-only
+scan reads the entire project root, so an event-driven memo would go stale on
+exactly the edit that matters: a `client: 'none'` added to a root-level server
+entry. Re-stat'ing the walked files has no such hole and costs about 1ms per
+1500 files.
+
+Two rules keep the memo equal to an uncached scan rather than merely close to
+one:
+
+- only the *content-derived* part of a file's contribution is cached. The
+  worker scan caches the raw specifiers a file references and redoes the
+  existence check for each one on every pass, because a specifier's target can
+  appear or disappear without the referencing file changing at all;
+- a stamp is only trusted once it is two seconds old. Most filesystems a
+  source tree lives on stamp with nanosecond resolution, but a few (ext3,
+  HFS+, some network mounts) round to the second, and there a second edit of
+  the same byte length within the same second would carry a stamp already
+  recorded. Files touched inside that window are recomputed and deliberately
+  left out of the cache — which is the same set that had to be recomputed
+  anyway.
+
+Memoisation is dev-only. A production build scans once, so it opts out and
+pays no stat pass.
+
+The benchmark harness cannot show this saving: it opens one page, so the only
+on-demand build it measures is the first one — the build whose scans are cold
+and populate the memo. The win starts at the second page open.
 
 ### Vue helper emission
 
@@ -507,6 +637,23 @@ Three things keep it small:
   has not changed. Entries are content addressed and superseded entries
   for a path are removed as it is rewritten. `ABSOLUTE_COMPILE_CACHE=0`
   disables this along with the SFC compile cache.
+
+On a 667-helper app the scan and the emit split roughly 100ms to 50ms per
+warm page build. The scan traces the import graph from source and runs
+whether or not the generated tree was wiped, so it is the larger target — but
+it is not read-bound (reading all 667 files is ~6ms); it is dominated by the
+`existsSync` probes that resolve each relative helper specifier, which depend
+on the state of the filesystem and so cannot be memoised on file content.
+
+Not wiping the generated tree would remove the ~50ms emit entirely, and that
+was measured and rejected. The tree is served as executable code by the dev
+module server, so a stale file in it is shipped to the browser; a
+version-plus-content key catches edits but not deletions, so a helper removed
+by a branch switch would leave a resolvable orphan behind; and the same
+directory holds compiled SFC intermediates and hydration indexes, so retaining
+it selectively means a per-framework cleanup contract — which is what the
+Angular exemption already is, and it carries a comment about the races that
+caused. 50ms is not worth that.
 
 ### Shared chunks in dev
 
