@@ -169,6 +169,31 @@ function still becomes an edge in the graph. That can only make a module look
 failure this whole diagnostic exists to avoid, so every judgement call goes
 that way.
 
+### What the saving is, and is not
+
+The saving is the **module-graph work that stops happening**: the parse and
+evaluation of the modules that edge alone reaches. On the app above, deleting
+`./plugins/apiPlugin` really does take the graph from 2056 modules to 1896 —
+exactly the 160 the report named — so the *set* is not an estimate.
+
+The stopwatch moves by less than the number. Measured on that app, removing
+that import cut `ready` by ~0.3s against ~0.55s of module work. Two things
+account for the difference and both are worth knowing:
+
+- a normal dev boot runs `startDevPrebuild()` **concurrently** with your
+  entry's import, so import work removed from the CPU partly hides under
+  build work that happens either way. This flag turns that overlap off while
+  measuring, which is what makes per-module attribution possible at all;
+- parse time is inferred from the wall-clock gap between one module's load
+  and the next one's. A gap is only credited to a module when everything it
+  imports was itself instrumented — otherwise Bun spent part of it on a
+  CommonJS subtree with no events of its own — but a gap can still catch a
+  garbage collection or another thread landing on this one.
+
+So read a saving as *the size of the thing you would be removing*, and treat
+the milliseconds as an upper bound on what the clock will show. The ordering
+and the shared-base split are what tell you where effort is worth spending.
+
 ### The verdict column
 
 A saving you cannot collect is worthless, so every candidate is also checked
