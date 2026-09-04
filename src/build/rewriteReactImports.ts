@@ -1,11 +1,10 @@
 /** Post-process bundled output files to rewrite bare React specifiers
  *  (e.g. `from "react"`) to stable vendor paths (e.g. `from "/vendor/react.js"`).
  *
- *  Uses the native Zig scanner when available (15x faster on large files),
- *  falls back to a single combined-regex JS pass otherwise. The build pipeline
- *  runs this family through `rewriteClientOutputs` (one read/mask/write per
- *  file together with the other rewrite families); the standalone functions
- *  here stay for callers that only need one family. */
+ *  One combined-regex pass per file. The build pipeline runs this family
+ *  through `rewriteClientOutputs` (one read/mask/write per file together with
+ *  the other rewrite families); the standalone functions here stay for callers
+ *  that only need one family. */
 
 import {
 	compileSpecifierRewriter,
@@ -52,9 +51,9 @@ export const rewriteReactImports = async (
 	await Promise.all(
 		jsFiles.map(async (filePath) => {
 			const original = await Bun.file(filePath).text();
-			// Native main pass + safety-net sweep for any real import the main
-			// pass skipped (keyword separated from its specifier by a masked
-			// comment / whitespace); single union-regex pass without native.
+			// Main pass plus the safety-net sweep for any real import the
+			// main pass would skip (keyword separated from its specifier by a
+			// masked comment / whitespace): one union-regex pass.
 			const content = rewriteContentSpecifiers(original, rewriter, {
 				sweep: true
 			});

@@ -122,8 +122,8 @@ const collectMissingNamespaceImports = (content: string) => {
 	return missing;
 };
 
-/** JS fallback: one combined-regex pass over the (already masked) content —
- *  O(content), not O(specifiers × content). Exported for tests. */
+/** One combined-regex pass over the (already masked) content — O(content),
+ *  not O(specifiers × content). Exported for tests. */
 export const jsRewriteImports = (
 	content: string,
 	replacements: [string, string][]
@@ -131,7 +131,7 @@ export const jsRewriteImports = (
 	rewriteSpecifiers(
 		content,
 		compileSpecifierRewriter(Object.fromEntries(replacements)),
-		{ native: false, sweep: false }
+		{ sweep: false }
 	);
 
 /** In-pipeline output rewrite. Reads each emitted .js artifact, applies the

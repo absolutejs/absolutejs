@@ -9,14 +9,13 @@
  *
  *  Three regexes are compiled:
  *  - `mainRegex`  — the adjacency forms `from "X"` / `import "X"` /
- *    `import("X")` (whitespace allowed). Same coverage as the native Zig
- *    scanner's JS fallback.
+ *    `import("X")` (whitespace allowed).
  *  - `sweepRegex` — the safety net: the keyword may be separated from the
  *    opening quote by whitespace and masked comments (`from`, a masked
  *    comment, then `"X"`),
  *    plus `require("X")`. Runs on MASKED text only.
- *  - `unionRegex` — main ∪ sweep in one pass, for the JS fallback of a family
- *    that sweeps. Every alternative re-emits its matched prefix/suffix
+ *  - `unionRegex` — main ∪ sweep in one pass, for a family that sweeps. Every
+ *    alternative re-emits its matched prefix/suffix
  *    verbatim and swaps only the specifier, so the union rewrites exactly the
  *    occurrences the sequential main-then-sweep passes did.
  *
@@ -24,31 +23,25 @@
  *  and never contain quotes, so a rewritten specifier can't re-match. */
 
 import { maskLiterals, SENTINEL } from './maskLiterals';
-import { nativeRewriteImports } from './nativeRewrite';
 
 export type SpecifierRewriter = {
 	lookup: Map<string, string>;
-	/** Adjacency forms only: what the native scanner / plain JS pass match. */
+	/** Adjacency forms only. */
 	mainRegex: RegExp;
 	/** `"spec` / `'spec` for every specifier — the raw-content precheck. */
 	quotedSpecifiers: string[];
-	/** `[specifier, webPath]` pairs, longest specifier first. */
-	replacements: [string, string][];
 	/** Keyword + whitespace/masked-comment gap + quote; masked text only. */
 	sweepRegex: RegExp;
-	/** main ∪ sweep — the single-pass JS fallback for a sweeping family. */
+	/** main ∪ sweep — the single pass for a sweeping family. */
 	unionRegex: RegExp;
 };
 
 export type RewriteSpecifierOptions = {
-	/** Use the native Zig scanner when it is available (default true). */
-	native?: boolean;
 	/** Also run the masked-comment safety-net sweep. */
 	sweep: boolean;
 };
 
-const escapeRegex = (str: string) =>
-	str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const escapeRegex = (str: string) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 // `maskLiterals` keeps the `/* */` and `//` delimiters and turns only the
 // comment body into a placeholder, so an intervening comment appears as
@@ -109,7 +102,6 @@ export const compileSpecifierRewriter = (
 			`"${specifier}`,
 			`'${specifier}`
 		]),
-		replacements,
 		sweepRegex: compileRegex(SWEEP_PREFIXES, alternation, false),
 		unionRegex: compileRegex(
 			[...ADJACENT_PREFIXES, ...SWEEP_PREFIXES],
@@ -169,26 +161,14 @@ export const rewriteContentSpecifiers = (
 	return restore(rewriteSpecifiers(masked, rewriter, options));
 };
 
-/** Rewrite the specifiers of one family in MASKED text: native scanner (plus
- *  the JS sweep when requested), or the single combined-regex JS fallback. */
+/** Rewrite the specifiers of one family in MASKED text with a single
+ *  combined-regex pass. */
 export const rewriteSpecifiers = (
 	masked: string,
 	rewriter: SpecifierRewriter,
 	options: RewriteSpecifierOptions
-) => {
-	const replacer = replaceSpecifier(rewriter.lookup);
-	const native =
-		options.native === false
-			? null
-			: nativeRewriteImports(masked, rewriter.replacements);
-	if (native !== null) {
-		return options.sweep
-			? native.replace(rewriter.sweepRegex, replacer)
-			: native;
-	}
-
-	return masked.replace(
+) =>
+	masked.replace(
 		options.sweep ? rewriter.unionRegex : rewriter.mainRegex,
-		replacer
+		replaceSpecifier(rewriter.lookup)
 	);
-};

@@ -26,6 +26,7 @@ import { createHTMLScriptHMRPlugin } from '../build/htmlScriptHMRPlugin';
 import { transformStaticPagesWithIslands } from '../build/staticIslandPages';
 import { outputLogs } from '../build/outputLogs';
 import { scanEntryPoints } from '../build/scanEntryPoints';
+import { createStampedFileCache } from '../build/stampedFileCache';
 import { scanConventions } from '../build/scanConventions';
 import { writeSpaSideManifests } from '../build/spaSideManifests';
 import {
@@ -59,7 +60,6 @@ import {
 	rewriteClientOutputs,
 	type ClientRewriteStats
 } from '../build/rewriteClientOutputs';
-import { describeNativeRewriteFallback } from '../build/nativeRewrite';
 import { maskLiterals } from '../build/maskLiterals';
 import { sendTelemetryEvent } from '../cli/telemetryEvent';
 import {
@@ -419,36 +419,38 @@ const addWorkerPathIfExists = (
 	}
 };
 
-const collectWorkerPathsFromContent = (
-	content: string,
-	pattern: RegExp,
-	file: string,
-	workerPaths: Set<string>
-) => {
-	pattern.lastIndex = 0;
-	let match;
-	while ((match = pattern.exec(content)) !== null) {
-		const [, relPath] = match;
-		if (!relPath) continue;
-		addWorkerPathIfExists(file, relPath, workerPaths);
+/* The specifiers a single file references, in source order. Purely
+ * content-derived, so it is safe to memoise on the file's stamp — the
+ * existence check that turns a specifier into an emitted path is redone by
+ * `scanWorkerReferences` on every pass, because a specifier's target can
+ * appear or disappear without the referencing file changing at all. */
+const extractWorkerSpecifiers = (file: string, patterns: RegExp[]) => {
+	const content = readFileSync(file, 'utf-8');
+	const specifiers: string[] = [];
+	for (const pattern of patterns) {
+		pattern.lastIndex = 0;
+		let match;
+		while ((match = pattern.exec(content)) !== null) {
+			const [, relPath] = match;
+			if (!relPath) continue;
+			specifiers.push(relPath);
+		}
 	}
+
+	return specifiers;
 };
 
-const collectWorkerPathsFromFile = (
-	file: string,
-	patterns: RegExp[],
-	workerPaths: Set<string>
-) => {
-	const content = readFileSync(file, 'utf-8');
-	for (const pattern of patterns) {
-		collectWorkerPathsFromContent(content, pattern, file, workerPaths);
-	}
-};
+/* Dev opens pages on demand, so this whole-project walk runs once per page
+ * open with an unchanged tree. Reuse each file's extracted specifiers while
+ * its `(mtimeMs, size)` stamp holds; see `stampedFileCache.ts` for why the
+ * stamp rather than the watcher's change stream. */
+const workerSpecifierCache = createStampedFileCache<string[]>();
 
 const scanWorkerReferencesInDir = async (
 	dir: string,
 	patterns: RegExp[],
-	workerPaths: Set<string>
+	references: Array<[string, string]>,
+	memoise: boolean
 ) => {
 	const glob = new Glob('**/*.{ts,tsx,js,jsx,svelte,vue}');
 	for await (const file of glob.scan({ absolute: true, cwd: dir })) {
@@ -458,26 +460,44 @@ const scanWorkerReferencesInDir = async (
 		const [firstSegment] = relToDir.split('/');
 		if (firstSegment && SKIP_DIRS.has(firstSegment)) continue;
 
-		collectWorkerPathsFromFile(file, patterns, workerPaths);
+		const specifiers = memoise
+			? workerSpecifierCache.read(file, () =>
+					extractWorkerSpecifiers(file, patterns)
+				)
+			: extractWorkerSpecifiers(file, patterns);
+		for (const relPath of specifiers) references.push([file, relPath]);
 	}
 };
 
-export const scanWorkerReferences = async (dirs: string[]) => {
+/** Files referenced by `new URL('./x', import.meta.url)` or
+ *  `import.meta.resolve('./x')` anywhere under `dirs`.
+ *
+ *  `memoise` is set for dev builds only: it reuses the per-file extraction
+ *  across the repeated on-demand page builds of one dev session. A
+ *  production build scans once, so it opts out and pays no stat pass. */
+export const scanWorkerReferences = async (dirs: string[], memoise = false) => {
 	const urlPattern =
 		/new\s+URL\(\s*["'](\.\.?\/[^"']+)["']\s*,\s*import\.meta\.url\s*\)/g;
 	const resolvePattern =
 		/import\.meta\.resolve\(\s*["'](\.\.?\/[^"']+)["']\s*\)/g;
-	const workerPaths = new Set<string>();
+	const references: Array<[string, string]> = [];
 
 	await Promise.all(
 		dirs.map((dir) =>
 			scanWorkerReferencesInDir(
 				dir,
 				[urlPattern, resolvePattern],
-				workerPaths
+				references,
+				memoise
 			)
 		)
 	);
+	if (memoise) workerSpecifierCache.endPass();
+
+	const workerPaths = new Set<string>();
+	for (const [file, relPath] of references) {
+		addWorkerPathIfExists(file, relPath, workerPaths);
+	}
 
 	return [...workerPaths];
 };
@@ -1523,7 +1543,7 @@ const buildUnlocked = async ({
 		htmxDir
 	].filter((dir): dir is string => Boolean(dir));
 	const urlReferencedFilesPromise = tracePhase('scan/worker-references', () =>
-		scanWorkerReferences(allFrameworkDirs)
+		scanWorkerReferences(allFrameworkDirs, hmr)
 	);
 
 	// Angular HMR Optimization — Skip Svelte/Vue compilation when their entries are
@@ -1545,7 +1565,7 @@ const buildUnlocked = async ({
 				const { scanVueSsrOnlyPages } = await import(
 					'../build/scanVueSsrOnlyPages'
 				);
-				const ssrOnlyPageNames = scanVueSsrOnlyPages(projectRoot);
+				const ssrOnlyPageNames = scanVueSsrOnlyPages(projectRoot, hmr);
 				if (ssrOnlyPageNames.size === 0) return new Set<string>();
 				const resolved = new Set<string>();
 				for (const entry of vueEntries) {
@@ -2852,10 +2872,6 @@ const buildUnlocked = async ({
 					nonReactClientOutputs
 				)
 			: undefined;
-	const nativeRewriteFallback = describeNativeRewriteFallback();
-	if (nativeRewriteFallback) {
-		console.warn(`[absolute] ${nativeRewriteFallback}`);
-	}
 	const clientRewriteStats: ClientRewriteStats = { files: 0, rewritten: 0 };
 	const rewriteClientGroups = async () => {
 		await rewriteClientOutputs(
