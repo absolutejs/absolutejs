@@ -14,9 +14,23 @@
  * listen still fails loudly if something else grabs it in between.
  *
  * Lives on `globalThis` because the bootstrap and the runtime are
- * separate bundles (see `bootLifecycle.ts`). */
+ * separate bundles (see `bootLifecycle.ts`).
+ *
+ * Binding early stopped "connection refused" but did NOT make the port
+ * responsive: the child is a single JS thread, and while it synchronously
+ * evaluates the user's module graph it cannot run this handler. On a large
+ * app the socket exists at ~0.6s and the first byte still arrives at ~4.5s.
+ * So the CLI parent — a separate process whose event loop is free — binds
+ * the same placeholder first (`parent listener bound` in the boot
+ * timeline) and hands the port to the child. The hand-off rides
+ * `SO_REUSEPORT`: parent and child are briefly bound at the same time, so
+ * there is never an instant with no listener, and the parent closes as
+ * soon as the child signals that the real server is up. Everything below
+ * that mentions "parent" belongs to that path; the placeholder itself is
+ * unchanged and stays the fallback for when the parent cannot bind. */
 
 import type { Server } from 'bun';
+import { writeSync } from 'node:fs';
 import { MILLISECONDS_IN_A_SECOND } from '../constants';
 import { getBootPhase } from './bootLifecycle';
 
@@ -29,6 +43,20 @@ const NOSCRIPT_REFRESH_SECONDS = 10;
 
 export const BOOT_STATUS_HEADER = 'X-Absolute-Boot';
 
+/** Written by the child on fd 3 the instant the real server is bound, so
+ *  the CLI can close its placeholder. A dedicated pipe rather than stdout:
+ *  the marker must never reach the developer's terminal or the instance
+ *  log, and stdout chunks coalesce in ways that make stripping a line out
+ *  of the forwarded stream unreliable. */
+export const PARENT_HANDOFF_MARKER = 'absolute:listening';
+
+/** Set on the child by the CLI when the CLI itself holds the placeholder
+ *  on the dev port. The child then skips its own placeholder and binds the
+ *  real server with `reusePort` so the two can overlap. */
+export const PARENT_LISTENER_ENV = 'ABSOLUTE_PARENT_LISTENER';
+
+const PARENT_HANDOFF_FD = 3;
+
 // True while the placeholder itself is inside `Bun.serve`, so the
 // defensive serve guard does not mistake that bind for the real server.
 let bindingPlaceholder = false;
@@ -37,6 +65,10 @@ export type EarlyListenerOptions = {
 	host: string;
 	port: number;
 	tls?: { cert: string; key: string } | null;
+	/** Bind with `SO_REUSEPORT` so the child's real server can bind the
+	 *  same port before this placeholder goes away. Only the CLI parent
+	 *  sets it. */
+	reusePort?: boolean;
 };
 
 export type EarlyListener = {
@@ -173,6 +205,41 @@ export const installEarlyListenerServeGuard = (port: number) => {
 		globalThis.__absoluteEarlyListenerServeGuard = true;
 	}
 };
+/** Defensive hand-off for the parent-owned path: any `Bun.serve` that
+ *  targets the dev port is bound with `reusePort` (so it can come up while
+ *  the CLI's placeholder is still listening) and reports the bind back to
+ *  the CLI. The `networking` plugin does both explicitly; this guard is
+ *  what makes entries that call `.listen()` without it work too, mirroring
+ *  `installEarlyListenerServeGuard` on the child-owned path. */
+export const installParentPortHandoffGuard = (port: number) => {
+	if (globalThis.__absoluteParentPortHandoffGuard) return;
+	const originalServe = Bun.serve;
+	const guardedServe = (serveOptions: Parameters<typeof Bun.serve>[0]) => {
+		if (Number(serveOptions.port) !== port) {
+			return originalServe.call(Bun, serveOptions);
+		}
+		// Mutated rather than spread: `Bun.serve`'s options are a union of
+		// mutually exclusive shapes (unix vs hostname/port, fetch vs
+		// routes), and spreading collapses them into something assignable
+		// to none of them. Elysia builds a fresh literal for every
+		// `.listen()`, so nothing else observes this object.
+		Reflect.set(serveOptions, 'reusePort', true);
+		const server = originalServe.call(Bun, serveOptions);
+		signalParentPortHandoff(port);
+
+		return server;
+	};
+	if (Reflect.set(Bun, 'serve', guardedServe)) {
+		globalThis.__absoluteParentPortHandoffGuard = true;
+	}
+};
+/** `SO_REUSEPORT` is POSIX-only; Windows has no equivalent that lets two
+ *  processes share a listening socket, so the parent-side placeholder is
+ *  not offered there and the child's own placeholder stays in charge. */
+export const parentListenerSupported = () => process.platform !== 'win32';
+/** True when the CLI parent, not this process, owns the placeholder. */
+export const parentOwnsDevPort = () =>
+	process.env[PARENT_LISTENER_ENV] === '1';
 export const releaseEarlyListener = () => {
 	const listener = globalThis.__absoluteEarlyListener;
 	if (!listener) return false;
@@ -181,6 +248,22 @@ export const releaseEarlyListener = () => {
 	globalThis.__absoluteEarlyListener = undefined;
 
 	return hadServer;
+};
+/** Tell the CLI parent that the real server is bound, so it can close its
+ *  placeholder. Idempotent, and silent when there is no hand-off pipe (the
+ *  bootstrap run directly, or a parent that never bound) — the CLI also
+ *  releases on the ready banner, so a missed signal is not fatal. */
+export const signalParentPortHandoff = (port: number) => {
+	if (globalThis.__absoluteParentHandoffSignalled) return;
+	globalThis.__absoluteParentHandoffSignalled = true;
+	try {
+		writeSync(
+			PARENT_HANDOFF_FD,
+			`${PARENT_HANDOFF_MARKER} ${port}\n`
+		);
+	} catch {
+		/* no hand-off pipe on fd 3 */
+	}
 };
 /** Bind the placeholder. A failed bind (the previous child's socket is
  *  still draining, or the port genuinely conflicts) is retried in the
@@ -204,6 +287,7 @@ export const startEarlyListener = (options: EarlyListenerOptions) => {
 				hostname: options.host,
 				port: options.port,
 				fetch: (request) => buildingResponse(request, startedAt),
+				...(options.reusePort ? { reusePort: true } : {}),
 				...(options.tls ? { tls: options.tls } : {})
 			});
 		} catch {

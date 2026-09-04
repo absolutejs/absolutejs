@@ -85,14 +85,26 @@ if (!globalThis.__absoluteEntryCleanupRegistered) {
 // right before the real `app.listen()`. Skipped on `bun --hot`
 // re-evaluation (the real server is already bound) and when
 // `ABSOLUTE_EARLY_LISTEN=0` opts out.
+//
+// When the CLI parent already holds that placeholder (it binds the port
+// before spawning us, on an event loop that is not about to be blocked by
+// the user's module graph), this process must NOT bind a second listener:
+// with `SO_REUSEPORT` the kernel would hand roughly half the connections
+// to a socket this thread cannot accept from until the import finishes,
+// which is the exact stall the parent listener exists to remove. All we do
+// then is arrange for the real server to bind alongside the parent's
+// socket and to report the bind back.
 if (
 	!isHotReevaluation &&
 	!globalThis.__absoluteBunServer &&
 	process.env.ABSOLUTE_EARLY_LISTEN !== '0'
 ) {
-	const { startEarlyListener, installEarlyListenerServeGuard } = await import(
-		'./earlyListener'
-	);
+	const {
+		installEarlyListenerServeGuard,
+		installParentPortHandoffGuard,
+		parentOwnsDevPort,
+		startEarlyListener
+	} = await import('./earlyListener');
 	const earlyHost =
 		process.env.ABSOLUTE_HOST ?? process.env.HOST ?? 'localhost';
 	const earlyPort = Number(
@@ -110,13 +122,18 @@ if (
 		}
 	};
 	if (Number.isInteger(earlyPort) && earlyPort > 0) {
-		startEarlyListener({
-			host: earlyHost,
-			port: earlyPort,
-			tls: await loadEarlyTls()
-		});
-		installEarlyListenerServeGuard(earlyPort);
-		markBoot('early listener bound');
+		if (parentOwnsDevPort()) {
+			installParentPortHandoffGuard(earlyPort);
+			markBoot('parent listener adopted');
+		} else {
+			startEarlyListener({
+				host: earlyHost,
+				port: earlyPort,
+				tls: await loadEarlyTls()
+			});
+			installEarlyListenerServeGuard(earlyPort);
+			markBoot('early listener bound');
+		}
 	}
 }
 
