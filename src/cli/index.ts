@@ -14,6 +14,12 @@ import {
 	WORKSPACE_COMMAND_ARGS_OFFSET
 } from '../constants';
 import { DEFAULT_SERVER_ENTRY } from './utils';
+import { markBoot } from '../utils/bootTimeline';
+
+// First statement of the CLI bundle's body: everything before it (Bun's own
+// startup plus parsing/evaluating this bundle) is the gap between the boot
+// origin and this mark.
+markBoot('cli imports evaluated');
 
 const [command] = process.argv.slice(2);
 const [workspaceCommand] = process.argv.slice(WORKSPACE_COMMAND_ARGS_OFFSET);

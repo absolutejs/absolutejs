@@ -1,7 +1,19 @@
 import { copyFileSync, existsSync, readdirSync, unlinkSync } from 'node:fs';
 import { dirname, extname, join, resolve } from 'node:path';
 import { DEFAULT_PORT } from '../constants';
+import {
+	adoptParentBootMarks,
+	markBoot,
+	markBootAt,
+	processStartEpochMs
+} from '../utils/bootTimeline';
 import { isStaleAbsoluteServerEntryCopy } from './serverEntryCopies';
+
+// The dev bootstrap is the first module the `bun --hot` child evaluates, so
+// this is where the CLI's marks join this process's timeline.
+adoptParentBootMarks();
+markBootAt('child process start', processStartEpochMs());
+markBoot('bootstrap imports evaluated');
 
 const originalEntry = process.env.ABSOLUTE_SERVER_ENTRY;
 if (!originalEntry) {
@@ -104,10 +116,47 @@ if (
 			tls: await loadEarlyTls()
 		});
 		installEarlyListenerServeGuard(earlyPort);
+		markBoot('early listener bound');
 	}
+}
+
+// Start the framework's boot work NOW, in parallel with the user's entry
+// import. On a large app that import graph is seconds of module evaluation
+// before `prepare()` is even reached, while the framework build is mostly
+// I/O and native `Bun.build` work — so the two overlap. The user's
+// `prepare()` joins this promise instead of starting a second build.
+// The specifier is built at runtime so the bundler leaves it as a real
+// import of the framework runtime (`dist/index.js`) — the exact module the
+// user's entry imports — instead of inlining a second copy in here.
+if (
+	!isHotReevaluation &&
+	process.env.NODE_ENV === 'development' &&
+	process.env.ABSOLUTE_DEV_PREBUILD !== '0'
+) {
+	const compiledRuntime = join(import.meta.dir, '..', 'index.js');
+	const runtimeEntry = existsSync(compiledRuntime)
+		? compiledRuntime
+		: join(import.meta.dir, '..', 'index.ts');
+	void import(runtimeEntry)
+		.then((runtime: { startDevPrebuild?: () => Promise<unknown> }) => {
+			markBoot('prebuild started');
+
+			return runtime.startDevPrebuild?.();
+		})
+		.catch((error: unknown) => {
+			// A failed prebuild must never take the boot down: the user's
+			// own `prepare()` runs the same work on the normal path.
+			console.error(
+				`[dev] boot prebuild failed: ${
+					error instanceof Error ? error.message : String(error)
+				}`
+			);
+		});
 }
 
 // Keep the user's original entry out of Bun's --hot module graph. Bun can
 // still hot-refresh its framework dependencies, while AbsoluteJS exclusively
 // owns server-entry replacement through unique sibling imports.
+markBoot('server entry import start');
 await import(bootstrapCopy);
+markBoot('server entry import done');

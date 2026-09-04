@@ -5,6 +5,11 @@
 // short-circuits this in normal dev/prod, but the patch is cheap and
 // idempotent, and a no-op when `@angular/core` isn't installed.
 import './angular/injectorPatch';
+import { markBoot } from './utils/bootTimeline';
+
+// Runs after the whole framework module graph has been evaluated (import
+// declarations are hoisted), so it measures the cost of `dist/index.js`.
+markBoot('framework runtime imported');
 
 export * from '../types';
 export * from './build/index';

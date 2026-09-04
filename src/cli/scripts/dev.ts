@@ -20,6 +20,7 @@ import {
 } from '../../constants';
 import { startTunnelClient } from '../../dev/tunnel/client';
 import { formatTimestamp } from '../../utils/startupBanner';
+import { bootTimelineChildEnv, markBoot } from '../../utils/bootTimeline';
 import { createInteractiveHandler } from '../interactive';
 import { sendTelemetryEvent } from '../telemetryEvent';
 import {
@@ -475,8 +476,10 @@ export const dev = async (
 				remoteIos?: AbsoluteRemoteExpoIosDevProject;
 		  }
 		| undefined;
+	markBoot('dev command entered');
 	try {
 		const config = await loadConfig(configPath);
+		markBoot('dev config loaded');
 		mobileConfig = config?.mobile;
 		if (mobileConfig) {
 			mobileDev = await loadAbsoluteMobileDevModules();
@@ -940,6 +943,7 @@ export const dev = async (
 	// §1.2 + §1.3 — record the resolved port in the lock file so a second
 	// `bun dev` invocation that finds the lock held can include the port
 	// in its "PID X holds port Y" error message.
+	markBoot('dev port resolved');
 	updateLockMetadata(buildDirectory, { port });
 
 	// Publish this dev server to the global instance registry so `absolute ps`
@@ -1805,6 +1809,7 @@ export const dev = async (
 
 	const spawnServer = async () => {
 		await refreshDevConfigForSpawn();
+		markBoot('dev child spawn requested');
 		const proc = nodeSpawn(
 			'bun',
 			[
@@ -1825,6 +1830,7 @@ export const dev = async (
 					ABSOLUTE_INSTANCE_MANAGED: '1',
 					ABSOLUTE_PORT: String(port),
 					ABSOLUTE_SERVER_ENTRY: resolvePath(serverEntry),
+					...bootTimelineChildEnv(),
 					...(options.eager ? { ABSOLUTE_DEV_EAGER: '1' } : {}),
 					...(mobileConfig ? { ABSOLUTE_MOBILE_PREVIEW: '1' } : {}),
 					FORCE_COLOR: '1',

@@ -19,6 +19,7 @@ import {
 } from '../utils/instanceRegistry';
 import { getLocalIPAddress } from '../utils/networking';
 import { startupBanner } from '../utils/startupBanner';
+import { logBootTimeline, markBoot } from '../utils/bootTimeline';
 
 // Env-var precedence: ABSOLUTE_HOST/ABSOLUTE_PORT (set by `bun dev` after
 // resolving config-file values + Vite-style port fallback) → legacy
@@ -187,6 +188,7 @@ export const networking = <A extends AnyElysia>(app: A) => {
 	// synchronously, so the real bind below cannot see EADDRINUSE from it.
 	releaseEarlyListener();
 
+	markBoot('listen() called');
 	const listened = app.listen(
 		{
 			hostname: host,
@@ -202,6 +204,7 @@ export const networking = <A extends AnyElysia>(app: A) => {
 				: {})
 		},
 		() => {
+			markBoot('server listening');
 			selfRegisterInstance();
 			// The port is serving real traffic now — flush boot work that
 			// was deferred off the critical path (module prewarm, etc.).
@@ -241,6 +244,8 @@ export const networking = <A extends AnyElysia>(app: A) => {
 				readyDuration,
 				version
 			});
+			markBoot('ready banner printed');
+			logBootTimeline();
 		}
 	);
 

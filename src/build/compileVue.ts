@@ -29,6 +29,7 @@ import { parseVueSpaRoutes, type ParsedVueSpaRoute } from './parseVueSpaRoutes';
 import { inlineLineMapComment } from './chainInlineSourcemaps';
 import { addAutoRouterSetupApp } from './vueAutoRouterTransform';
 import { getBuildWorkerPool } from './workerPool';
+import { devProfileEnabled } from '../utils/startupTimings';
 import {
 	addStyleImporter,
 	compileStyleSource,
@@ -390,6 +391,59 @@ const writeVueOutputs = async ({
 	]);
 };
 
+/* `ABSOLUTE_DEV_PROFILE=1` breakdown of one `compileVue` call: how many
+ * SFCs the pass touched, how many came back from the restart-surviving
+ * cache, and where the wall time went. The counters are always updated
+ * (the adds are noise next to the work they measure); only the printing
+ * is gated. */
+type VueCompileProfile = {
+	files: number;
+	memoHits: number;
+	diskHits: number;
+	compiles: number;
+	readMs: number;
+	parseMs: number;
+	keyMs: number;
+	materialiseMs: number;
+	sfcMs: number;
+};
+
+const newVueCompileProfile = (): VueCompileProfile => ({
+	compiles: 0,
+	diskHits: 0,
+	files: 0,
+	keyMs: 0,
+	materialiseMs: 0,
+	memoHits: 0,
+	parseMs: 0,
+	readMs: 0,
+	sfcMs: 0
+});
+
+let vueCompileProfile = newVueCompileProfile();
+
+const timed = async <Value>(
+	bucket: keyof VueCompileProfile,
+	operation: () => Promise<Value>
+) => {
+	const startedAt = performance.now();
+	const value = await operation();
+	vueCompileProfile[bucket] += performance.now() - startedAt;
+
+	return value;
+};
+
+const timedSync = <Value>(
+	bucket: keyof VueCompileProfile,
+	operation: () => Value
+) => {
+	const startedAt = performance.now();
+	const value = operation();
+	vueCompileProfile[bucket] += performance.now() - startedAt;
+
+	return value;
+};
+
 const compileVueFile = async (
 	sourceFilePath: string,
 	outputDirs: { client: string; server: string; css: string },
@@ -401,7 +455,11 @@ const compileVueFile = async (
 	stylePreprocessors?: StylePreprocessorConfig
 ) => {
 	const memoised = cacheMap.get(sourceFilePath);
-	if (memoised) return memoised;
+	if (memoised) {
+		vueCompileProfile.memoHits += 1;
+
+		return memoised;
+	}
 	const compilation = compileVueFileUncached(
 		sourceFilePath,
 		outputDirs,
@@ -439,7 +497,10 @@ const compileVueFileUncached = async (
 	const fileBaseName = basename(sourceFilePath, '.vue');
 	const componentId = toKebab(fileBaseName);
 
-	const rawSourceContent = await file(sourceFilePath).text();
+	vueCompileProfile.files += 1;
+	const rawSourceContent = await timed('readMs', () =>
+		file(sourceFilePath).text()
+	);
 	// Pages exporting `routes` get an auto-synthesized setupApp that owns
 	// the vue-router lifecycle, using the page bundle's own vue-router
 	// instance (avoids dual-instance provide/inject mismatches).
@@ -469,9 +530,11 @@ const compileVueFileUncached = async (
 	}
 
 	vueSourceHashCache.set(sourceFilePath, contentHash);
-	const { descriptor } = compiler.parse(sourceContent, {
-		filename: sourceFilePath
-	});
+	const { descriptor } = timedSync('parseMs', () =>
+		compiler.parse(sourceContent, {
+			filename: sourceFilePath
+		})
+	);
 
 	// `export const routes = defineRoutes([...])` declarations live in the
 	// module-level `<script>` block. Parse them so core/build.ts can emit
@@ -580,6 +643,7 @@ const compileVueFileUncached = async (
 	// its ancestors, exactly like a fresh compile would re-emit them. All
 	// in-memory side effects (HMR metadata, style importers) were already
 	// applied above, so a hit only has to re-materialise the outputs.
+	const cacheKeyStartedAt = performance.now();
 	const cacheKey = computeVueCompileCacheKey({
 		childResults: childBuildResults,
 		contentHash,
@@ -593,15 +657,21 @@ const compileVueFileUncached = async (
 		isEntryPoint,
 		relativeWithoutExtension
 	});
+	const restored = cacheKey
+		? readVueCompileCacheEntry(sourceFilePath, cacheKey)
+		: undefined;
+	vueCompileProfile.keyMs += performance.now() - cacheKeyStartedAt;
 	if (cacheKey) {
-		const restored = readVueCompileCacheEntry(sourceFilePath, cacheKey);
 		if (restored) {
-			const result = await materialiseVueCompileCacheEntry(
-				restored,
-				cacheKey,
-				isEntryPoint,
-				outputDirs,
-				fileBaseName
+			vueCompileProfile.diskHits += 1;
+			const result = await timed('materialiseMs', () =>
+				materialiseVueCompileCacheEntry(
+					restored,
+					cacheKey,
+					isEntryPoint,
+					outputDirs,
+					fileBaseName
+				)
 			);
 			cacheMap.set(sourceFilePath, result);
 			persistentBuildCache.set(sourceFilePath, result);
@@ -650,17 +720,20 @@ const compileVueFileUncached = async (
 		]);
 	});
 
+	vueCompileProfile.compiles += 1;
 	const { clientOutput, localCss, serverOutput, typeDepHashes } =
-		await runSfc({
-			clientOutputPath,
-			componentId,
-			hmrId,
-			packageImportRewrites,
-			serverOutputPath,
-			sourceContent,
-			sourceFilePath,
-			styleSources
-		});
+		await timed('sfcMs', () =>
+			runSfc({
+				clientOutputPath,
+				componentId,
+				hmrId,
+				packageImportRewrites,
+				serverOutputPath,
+				sourceContent,
+				sourceFilePath,
+				styleSources
+			})
+		);
 
 	const allCss = [
 		...localCss,
@@ -724,8 +797,12 @@ export const compileVue = async (
 	stylePreprocessors?: StylePreprocessorConfig,
 	ssrOnlyEntries?: ReadonlySet<string>
 ) => {
+	const compileStartedAt = performance.now();
+	vueCompileProfile = newVueCompileProfile();
 	const runSfc = selectSfcRunner(entryPoints.length);
+	const compilerLoadStartedAt = performance.now();
 	const compiler: VueCompiler = await loadVueCompiler();
+	const compilerLoadMs = performance.now() - compilerLoadStartedAt;
 
 	// Generated output lives at <projectRoot>/.absolutejs/generated/vue/.
 	// See `src/utils/generatedDir.ts` for rationale (keeps `src/` clean).
@@ -1056,6 +1133,23 @@ export const compileVue = async (
 	);
 
 	await Promise.all(pendingWrites);
+
+	if (devProfileEnabled) {
+		const profile = vueCompileProfile;
+		console.error(
+			`[profile] compileVue ${entryPoints.length} entr${
+				entryPoints.length === 1 ? 'y' : 'ies'
+			} → ${profile.files} SFCs (${profile.diskHits} cache hits, ` +
+				`${profile.compiles} compiled, ${profile.memoHits} memo hits) in ` +
+				`${Math.round(performance.now() - compileStartedAt)}ms: ` +
+				`compiler load ${Math.round(compilerLoadMs)}ms, ` +
+				`read ${Math.round(profile.readMs)}ms, ` +
+				`parse ${Math.round(profile.parseMs)}ms, ` +
+				`key+cache read ${Math.round(profile.keyMs)}ms, ` +
+				`materialise ${Math.round(profile.materialiseMs)}ms, ` +
+				`sfc compile ${Math.round(profile.sfcMs)}ms`
+		);
+	}
 
 	const isString = (value: string | null): value is string => value !== null;
 

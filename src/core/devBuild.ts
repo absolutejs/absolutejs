@@ -41,7 +41,7 @@ import { cleanStaleAssets, populateAssetStore } from '../dev/assetStore';
 import { drainPendingQueue, queueFileChange } from '../dev/rebuildTrigger';
 import { logServerReload } from '../utils/logger';
 import { logStartupTimingBlock } from '../utils/startupTimings';
-import { setBootPhase } from '../dev/bootLifecycle';
+import { deferUntilServing, setBootPhase } from '../dev/bootLifecycle';
 import {
 	createLazyPageRegistry,
 	createOnDemandPageBuilder,
@@ -787,6 +787,57 @@ export const devBuild = async (config: BuildConfig) => {
 
 	const { buildDepVendor } = await import('../build/buildDepVendor');
 
+	const activeVendorDirs = [
+		config.reactDirectory ? reactVendorDir : null,
+		config.angularDirectory ? angularVendorDir : null,
+		config.svelteDirectory ? svelteVendorDir : null,
+		config.vueDirectory ? vueVendorDir : null,
+		depVendorDir
+	].filter((dir): dir is string => dir !== null);
+
+	// Restart-surviving vendor cache. The bundles below are a pure
+	// function of the installed dependency tree, the framework/Bun
+	// versions and the scanned specifier set, so an unchanged project
+	// restores them (already cross-rewritten) instead of rebuilding.
+	const {
+		computeVendorCacheKey,
+		readLockfileHash,
+		restoreVendorCache,
+		saveVendorCache,
+		vendorCacheEnabled
+	} = await import('../build/vendorCache');
+	const lockfileHash = vendorCacheEnabled() ? readLockfileHash() : null;
+	const vendorCacheKey =
+		lockfileHash === null
+			? null
+			: computeVendorCacheKey({
+					frameworkVersion: globalThis.__absoluteVersion ?? 'unknown',
+					lockfileHash,
+					runtimeVersion: Bun.version,
+					sourceDirs,
+					specifiers: [
+						...Object.keys(globalThis.__depVendorPaths ?? {}),
+						...Object.keys(getDevVendorPaths() ?? {}),
+						...Object.keys(getAngularVendorPaths() ?? {}),
+						...Object.keys(getSvelteVendorPaths() ?? {}),
+						...Object.keys(getVueVendorPaths() ?? {})
+					],
+					vendorDirs: activeVendorDirs
+				});
+	const restoredVendor = vendorCacheKey
+		? await restoreVendorCache(vendorCacheKey, activeVendorDirs)
+		: null;
+	if (restoredVendor) {
+		globalThis.__depVendorPaths = restoredVendor.depPaths;
+		if (restoredVendor.angularSpecifiers) {
+			globalThis.__angularVendorSpecifiers =
+				restoredVendor.angularSpecifiers;
+		}
+		if (config.emberDirectory) {
+			setEmberVendorPaths(computeEmberVendorPaths());
+		}
+	}
+
 	// §1.1 — dev mode SKIPS `buildAngularServerVendor`. The build was the
 	// load-bearing source of two `@angular/core` instances co-existing in
 	// the SSR runtime after an HMR cycle (NG0203 / `currentInjector ===
@@ -796,7 +847,8 @@ export const devBuild = async (config: BuildConfig) => {
 	// node_modules path, giving exactly one instance per process. The
 	// production path in `core/build.ts` still builds + uses the server
 	// vendor (linker pre-link perf win at prod start time).
-	const [, angularSpecs, , , , , depPaths] = await Promise.all([
+	const buildAllVendors = () =>
+		Promise.all([
 		config.reactDirectory
 			? buildReactVendor(state.resolvedPaths.buildDir)
 			: Promise.resolve(undefined),
@@ -821,7 +873,13 @@ export const devBuild = async (config: BuildConfig) => {
 			? buildEmberVendor(state.resolvedPaths.buildDir)
 			: Promise.resolve(undefined),
 		buildDepVendor(state.resolvedPaths.buildDir, sourceDirs, sourceFiles)
-	]);
+		]);
+	const [, angularSpecs, , , , , builtDepPaths] = restoredVendor
+		? ([] as unknown as Awaited<ReturnType<typeof buildAllVendors>>)
+		: await buildAllVendors();
+	const depPaths = restoredVendor
+		? restoredVendor.depPaths
+		: (builtDepPaths ?? {});
 	if (angularSpecs) globalThis.__angularVendorSpecifiers = angularSpecs;
 	// Intentionally NOT calling setAngularServerVendorPaths in dev — the
 	// absence of these paths is what makes `compileAngular`'s server-bundle
@@ -831,7 +889,10 @@ export const devBuild = async (config: BuildConfig) => {
 		setEmberVendorPaths(computeEmberVendorPaths());
 	}
 	globalThis.__depVendorPaths = depPaths;
-	recordStep('build vendor bundles', stepStartedAt);
+	recordStep(
+		restoredVendor ? 'restore vendor bundles (cached)' : 'build vendor bundles',
+		stepStartedAt
+	);
 
 	// Cross-vendor specifier rewriting: a vendor file may externalize packages
 	// owned by a different vendor pipeline (e.g. /vendor/sentry_angular.js
@@ -848,18 +909,25 @@ export const devBuild = async (config: BuildConfig) => {
 		...(getVueVendorPaths() ?? {}),
 		...depPaths
 	};
-	const activeVendorDirs = [
-		config.reactDirectory ? reactVendorDir : null,
-		config.angularDirectory ? angularVendorDir : null,
-		config.svelteDirectory ? svelteVendorDir : null,
-		config.vueDirectory ? vueVendorDir : null,
-		depVendorDir
-	].filter((d): d is string => d !== null);
-	const { rewriteVendorDirectories } = await import(
-		'../build/rewriteImportsPlugin'
-	);
-	await rewriteVendorDirectories(activeVendorDirs, combinedVendorPaths);
-	recordStep('rewrite vendor cross-references', stepStartedAt);
+	if (!restoredVendor) {
+		const { rewriteVendorDirectories } = await import(
+			'../build/rewriteImportsPlugin'
+		);
+		await rewriteVendorDirectories(activeVendorDirs, combinedVendorPaths);
+		recordStep('rewrite vendor cross-references', stepStartedAt);
+		// Cache the rewritten result, so a restart restores exactly what
+		// the browser would have been served this run.
+		if (vendorCacheKey) {
+			// After the port is serving: the copy is pure I/O that must
+			// not sit on the boot path.
+			deferUntilServing(() =>
+				saveVendorCache(vendorCacheKey, activeVendorDirs, {
+					...(angularSpecs ? { angularSpecifiers: angularSpecs } : {}),
+					depPaths
+				})
+			);
+		}
+	}
 
 	// Load the (now-rewritten) vendor files into the in-memory asset store.
 	stepStartedAt = performance.now();
