@@ -16,8 +16,9 @@ import type {
 	compileTemplate as CompileTemplateFn,
 	parse as ParseFn
 } from '@vue/compiler-sfc';
-import { file, write, Transpiler } from 'bun';
+import { file, write } from 'bun';
 import type {
+	TsHelperEmitInput,
 	VueSfcCompileInput,
 	VueSfcCompileOutput
 } from '../../types/workerPool';
@@ -26,7 +27,6 @@ import { loadVueCompiler } from '../utils/vueCompiler';
 import { getFrameworkGeneratedDir } from '../utils/generatedDir';
 import { resolvePackageImport } from './resolvePackageImport';
 import { parseVueSpaRoutes, type ParsedVueSpaRoute } from './parseVueSpaRoutes';
-import { inlineLineMapComment } from './chainInlineSourcemaps';
 import { addAutoRouterSetupApp } from './vueAutoRouterTransform';
 import { getBuildWorkerPool } from './workerPool';
 import { devProfileEnabled } from '../utils/startupTimings';
@@ -65,8 +65,6 @@ const resolveDevClientDir = () => {
 const devClientDir = resolveDevClientDir();
 
 const hmrClientPath = join(devClientDir, 'hmrClient.ts').replace(/\\/g, '/');
-
-const transpiler = new Transpiler({ loader: 'ts', target: 'browser' });
 
 type BuildResult = {
 	clientPath: string;
@@ -230,6 +228,36 @@ type SfcRunner = (input: VueSfcCompileInput) => Promise<VueSfcCompileOutput>;
  *  main thread; a cold dev boot or `absolute build` fans the SFCs out
  *  across the worker pool. Jobs carry the source directory as affinity
  *  so a worker keeps seeing the same imported-type files. */
+/* Helper batches: one job per worker rather than one per file, so a
+ * few hundred helpers cost a handful of `postMessage` round trips. Small
+ * batches (a single-component HMR edit) stay inline — the pool's own
+ * `shouldUse` makes that call. */
+const HELPER_JOB_MIN_BATCH = 24;
+
+const runHelperEmit = async (files: TsHelperEmitInput['files']) => {
+	if (files.length === 0) return;
+	const pool = getBuildWorkerPool();
+	const inline = !pool.shouldUse(files.length);
+	if (inline) {
+		const { emitTsHelpers } = await import('./emitTsHelpers');
+		await emitTsHelpers({ files });
+
+		return;
+	}
+	pool.warm('ts-helper-emit');
+	const chunkSize = Math.max(
+		HELPER_JOB_MIN_BATCH,
+		Math.ceil(files.length / Math.max(1, pool.size))
+	);
+	const batches: TsHelperEmitInput['files'][] = [];
+	for (let index = 0; index < files.length; index += chunkSize) {
+		batches.push(files.slice(index, index + chunkSize));
+	}
+	await Promise.all(
+		batches.map((batch) => pool.run('ts-helper-emit', { files: batch }))
+	);
+};
+
 const selectSfcRunner = (entryCount: number) => {
 	const pool = getBuildWorkerPool();
 	const inline = !pool.shouldUse(entryCount);
@@ -406,18 +434,35 @@ type VueCompileProfile = {
 	keyMs: number;
 	materialiseMs: number;
 	sfcMs: number;
+	/** Sequential stages of `compileVue` itself. Unlike the buckets above
+	 *  (awaited operations that overlap), these partition the phase's wall
+	 *  clock, so they add up to the reported total. */
+	stageCompilerMs: number;
+	stageExpandMs: number;
+	stagePagesMs: number;
+	stageHelperScanMs: number;
+	stageHelperEmitMs: number;
+	stageFlushMs: number;
+	helpers: number;
 };
 
 const newVueCompileProfile = (): VueCompileProfile => ({
 	compiles: 0,
 	diskHits: 0,
 	files: 0,
+	helpers: 0,
 	keyMs: 0,
 	materialiseMs: 0,
 	memoHits: 0,
 	parseMs: 0,
 	readMs: 0,
-	sfcMs: 0
+	sfcMs: 0,
+	stageCompilerMs: 0,
+	stageExpandMs: 0,
+	stageFlushMs: 0,
+	stageHelperEmitMs: 0,
+	stageHelperScanMs: 0,
+	stagePagesMs: 0
 });
 
 let vueCompileProfile = newVueCompileProfile();
@@ -803,6 +848,7 @@ export const compileVue = async (
 	const compilerLoadStartedAt = performance.now();
 	const compiler: VueCompiler = await loadVueCompiler();
 	const compilerLoadMs = performance.now() - compilerLoadStartedAt;
+	vueCompileProfile.stageCompilerMs = compilerLoadMs;
 
 	// Generated output lives at <projectRoot>/.absolutejs/generated/vue/.
 	// See `src/utils/generatedDir.ts` for rationale (keeps `src/` clean).
@@ -857,7 +903,11 @@ export const compileVue = async (
 
 		return [...expanded];
 	};
+	let stageStartedAt = performance.now();
 	const expandedEntryPoints = await expandSpaRouteChildren(entryPoints);
+	vueCompileProfile.stageExpandMs = performance.now() - stageStartedAt;
+
+	stageStartedAt = performance.now();
 
 	const compiledPages = await Promise.all(
 		expandedEntryPoints.map(async (entryPath) => {
@@ -1083,56 +1133,81 @@ export const compileVue = async (
 		})
 	);
 
+	vueCompileProfile.stagePagesMs = performance.now() - stageStartedAt;
+	stageStartedAt = performance.now();
+
 	// Recursively trace .ts helpers. Helpers can import other helpers
 	// (e.g. `state/index.ts` re-exports `./auth`, `./profile`), and those
 	// transitive dependencies need to be transpiled + copied too so their
 	// relative `import "./auth"` resolves in the generated tree.
-	const queue = Array.from(allTsHelperPaths);
-	while (queue.length > 0) {
-		const tsPath = queue.shift();
-		if (!tsPath) continue;
-		const sourceCode = await file(tsPath).text();
-		const helperDir = dirname(tsPath);
-		for (const dep of extractImports(sourceCode)) {
-			if (
-				!dep.startsWith('.') ||
-				isStylePath(dep) ||
-				dep.endsWith('.vue')
-			) {
-				continue;
-			}
-			const resolved = resolveHelperTsPath(helperDir, dep);
-			if (!existsSync(resolved)) continue;
-			if (allTsHelperPaths.has(resolved)) continue;
-			allTsHelperPaths.add(resolved);
-			queue.push(resolved);
-		}
-	}
-
-	await Promise.all(
-		Array.from(allTsHelperPaths).map(async (tsPath) => {
-			const sourceCode = await file(tsPath).text();
-			const transpiledCode = transpiler.transformSync(sourceCode);
-			// Append an inline map back to the .ts source (TS-stripping is
-			// line-preserving) so the production external-sourcemap chain
-			// resolves stacks to the .ts, not this transpiled intermediate.
-			const withMap =
-				transpiledCode +
-				inlineLineMapComment(tsPath, sourceCode, transpiledCode);
-			const relativeJsPath = relative(vueRootDir, tsPath).replace(
-				/\.ts$/,
-				'.js'
+	// Breadth-first in waves: a helper graph is hundreds of files wide on
+	// a real app and reading them one await at a time serialised hundreds
+	// of filesystem round trips into the critical path.
+	const helperDependencies = (tsPath: string, sourceCode: string) =>
+		extractImports(sourceCode)
+			.filter(
+				(dep) =>
+					dep.startsWith('.') &&
+					!isStylePath(dep) &&
+					!dep.endsWith('.vue')
+			)
+			.map((dep) => resolveHelperTsPath(dirname(tsPath), dep))
+			.filter(
+				(resolved) =>
+					existsSync(resolved) && !allTsHelperPaths.has(resolved)
 			);
-			const outClientPath = join(clientOutputDir, relativeJsPath);
-			const outServerPath = join(serverOutputDir, relativeJsPath);
-			await mkdir(dirname(outClientPath), { recursive: true });
-			await mkdir(dirname(outServerPath), { recursive: true });
-			await write(outClientPath, withMap);
-			await write(outServerPath, withMap);
-		})
-	);
+	const readHelperWave = (paths: readonly string[]) =>
+		Promise.all(
+			paths.map((tsPath) =>
+				file(tsPath)
+					.text()
+					.then((sourceCode) => helperDependencies(tsPath, sourceCode))
+					.catch(() => [])
+			)
+		);
+	const expandHelpers = async (
+		frontier: readonly string[]
+	): Promise<void> => {
+		if (frontier.length === 0) return;
+		const nextFrontier: string[] = [];
+		for (const discovered of await readHelperWave(frontier)) {
+			for (const resolved of discovered) {
+				if (allTsHelperPaths.has(resolved)) continue;
+				allTsHelperPaths.add(resolved);
+				nextFrontier.push(resolved);
+			}
+		}
+		await expandHelpers(nextFrontier);
+	};
+	await expandHelpers(Array.from(allTsHelperPaths));
+
+	vueCompileProfile.stageHelperScanMs = performance.now() - stageStartedAt;
+	vueCompileProfile.helpers = allTsHelperPaths.size;
+	stageStartedAt = performance.now();
+
+	// Transpile every helper into both generated trees. Pure per-file
+	// work, so it fans out across the build worker pool exactly like the
+	// SFC compiles do; `emitTsHelpers` is the same handler either way, so
+	// the emitted bytes do not depend on which thread ran it.
+	const helperFiles = Array.from(allTsHelperPaths).map((tsPath) => {
+		const relativeJsPath = relative(vueRootDir, tsPath).replace(
+			/\.ts$/,
+			'.js'
+		);
+
+		return {
+			clientOutputPath: join(clientOutputDir, relativeJsPath),
+			serverOutputPath: join(serverOutputDir, relativeJsPath),
+			sourcePath: tsPath
+		};
+	});
+	await runHelperEmit(helperFiles);
+
+	vueCompileProfile.stageHelperEmitMs = performance.now() - stageStartedAt;
+	stageStartedAt = performance.now();
 
 	await Promise.all(pendingWrites);
+	vueCompileProfile.stageFlushMs = performance.now() - stageStartedAt;
 
 	if (devProfileEnabled) {
 		const profile = vueCompileProfile;
@@ -1147,7 +1222,14 @@ export const compileVue = async (
 				`parse ${Math.round(profile.parseMs)}ms, ` +
 				`key+cache read ${Math.round(profile.keyMs)}ms, ` +
 				`materialise ${Math.round(profile.materialiseMs)}ms, ` +
-				`sfc compile ${Math.round(profile.sfcMs)}ms`
+				`sfc compile ${Math.round(profile.sfcMs)}ms` +
+				` | stages: compiler ${Math.round(profile.stageCompilerMs)}ms, ` +
+				`expand ${Math.round(profile.stageExpandMs)}ms, ` +
+				`pages ${Math.round(profile.stagePagesMs)}ms, ` +
+				`helper scan ${Math.round(profile.stageHelperScanMs)}ms ` +
+				`(${profile.helpers} helpers), ` +
+				`helper emit ${Math.round(profile.stageHelperEmitMs)}ms, ` +
+				`flush ${Math.round(profile.stageFlushMs)}ms`
 		);
 	}
 

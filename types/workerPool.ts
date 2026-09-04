@@ -44,6 +44,21 @@ export type VueSfcCompileOutput = {
 	typeDepHashes: Record<string, string>;
 };
 
+/** One batch of plain `.ts` helpers to transpile into the generated
+ *  client and server trees. The worker reads each source itself, so only
+ *  paths cross the thread boundary. */
+export type TsHelperEmitInput = {
+	files: {
+		clientOutputPath: string;
+		serverOutputPath: string;
+		sourcePath: string;
+	}[];
+};
+
+export type TsHelperEmitOutput = {
+	emitted: number;
+};
+
 export type SourcemapChainInput = {
 	bundleFilePath: string;
 	/** Keep `sourcesContent` in the rewritten map. Dev server bundles
@@ -77,6 +92,7 @@ export type BuildWorkerJobs = {
 		input: SourcemapChainInput;
 		output: SourcemapChainOutput;
 	};
+	'ts-helper-emit': { input: TsHelperEmitInput; output: TsHelperEmitOutput };
 	'vue-sfc': { input: VueSfcCompileInput; output: VueSfcCompileOutput };
 };
 

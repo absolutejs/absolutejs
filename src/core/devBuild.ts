@@ -1,5 +1,5 @@
 import { readdir } from 'node:fs/promises';
-import { statSync } from 'node:fs';
+import { existsSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { build } from './build';
 import {
@@ -35,6 +35,12 @@ import {
 import { createHMRState } from '../dev/clientManager';
 import { resolveBuildPaths } from '../dev/configResolver';
 import { buildInitialDependencyGraph } from '../dev/dependencyGraph';
+import {
+	adoptDependencyGraph,
+	collectConfigVendorSourceDirs,
+	prescanVendorPaths,
+	readDevPrescan
+} from '../dev/devPrescan';
 import { addFileWatchers, startFileWatching } from '../dev/fileWatcher';
 import { getWatchPaths } from '../dev/pathUtils';
 import { cleanStaleAssets, populateAssetStore } from '../dev/assetStore';
@@ -59,19 +65,19 @@ const FRAMEWORK_DIR_KEYS = [
 	'angularDirectory'
 ] as const;
 
+/* The browser HMR runtime has its own package imports (for example Sync
+ * diagnostics). They join the same vendor/rewrite graph as application
+ * imports so split dev chunks never leak bare specifiers. Resolved
+ * relative to this bundle, which is why it is scanned separately from the
+ * config-derived directories the CLI's pre-scan covers — the two
+ * processes load different bundles. */
+const devClientVendorSourceDir = () => resolve(import.meta.dir, '../dev/client');
+
 export const collectDepVendorSourceDirs = (config: BuildConfig) => {
 	const configuredDirs = [
-		config.reactDirectory,
-		config.svelteDirectory,
-		config.vueDirectory,
-		config.angularDirectory,
-		config.htmlDirectory,
-		config.htmxDirectory,
-		// The browser HMR runtime has its own package imports (for example
-		// Sync diagnostics). Include them in the same vendor/rewrite graph as
-		// application imports so split dev chunks never leak bare specifiers.
-		resolve(import.meta.dir, '../dev/client')
-	].filter((dir): dir is string => Boolean(dir));
+		...collectConfigVendorSourceDirs(config),
+		devClientVendorSourceDir()
+	];
 
 	// Only scan the configured framework directories themselves. Including the
 	// parent dir would sweep in sibling backend code (e.g. src/backend when
@@ -514,12 +520,12 @@ export const devBuild = async (config: BuildConfig) => {
 	process.env.ABSOLUTE_BUILD_DIR ??= state.resolvedPaths.buildDir;
 	recordStep('create HMR state', stepStartedAt);
 
-	// Initialize dependency graph by scanning all source files
-	stepStartedAt = performance.now();
+	// The CLI parent scans the source tree for us while this process is
+	// still evaluating the user's import graph — see `dev/devPrescan.ts`.
+	// Started here, awaited a few steps down, so the cheap local setup
+	// runs during whatever is left of the parent's scan.
 	setBootPhase('scan source tree');
-	const watchPaths = getWatchPaths(config, state.resolvedPaths);
-	buildInitialDependencyGraph(state.dependencyGraph, watchPaths);
-	recordStep('initialize dependency graph', stepStartedAt);
+	const prescanPromise = readDevPrescan();
 
 	// Pre-compute vendor paths so build() can externalize frameworks.
 	// The actual vendor files are built after build() creates the output dir.
@@ -545,17 +551,64 @@ export const devBuild = async (config: BuildConfig) => {
 		// server bundle, which Bun resolves through node_modules — one
 		// canonical instance per process across HMR cycles.
 	}
-	const sourceFiles = await collectDepVendorSourceFiles(config);
-	const { computeDepVendorPaths } = await import('../build/buildDepVendor');
-	globalThis.__depVendorPaths = await computeDepVendorPaths(
-		sourceDirs,
-		sourceFiles
-	);
-	recordStep('prepare vendor paths', stepStartedAt);
+	recordStep('prepare framework vendor paths', stepStartedAt);
 
 	stepStartedAt = performance.now();
 	await resolveAbsoluteVersion();
 	recordStep('resolve version', stepStartedAt);
+
+	// Everything below falls back to scanning here when the handshake is
+	// off, late, or covered a different set of directories.
+	stepStartedAt = performance.now();
+	const prescan = await prescanPromise;
+	recordStep('adopt CLI pre-scan', stepStartedAt);
+
+	// Initialize dependency graph by scanning all source files
+	stepStartedAt = performance.now();
+	const watchPaths = getWatchPaths(config, state.resolvedPaths);
+	if (prescan?.dependencies) {
+		adoptDependencyGraph(state.dependencyGraph, prescan.dependencies);
+	} else {
+		buildInitialDependencyGraph(state.dependencyGraph, watchPaths);
+	}
+	recordStep('initialize dependency graph', stepStartedAt);
+
+	stepStartedAt = performance.now();
+	const sourceFiles = await collectDepVendorSourceFiles(config);
+	const configVendorDirs = collectConfigVendorSourceDirs(config);
+	const prescannedVendorPaths = prescanVendorPaths(prescan, configVendorDirs);
+	// A hit still has to cover whatever the parent could not agree on:
+	// the framework's own browser-runtime directory (resolved relative to
+	// each process's bundle) and any mobile preview entry. Specifier
+	// discovery is per-source and transitive expansion is monotone, so
+	// scanning the remainder and merging gives the set one combined scan
+	// would have produced — and when the remainder is empty (the common
+	// case: a published package whose runtime directory sits inside the
+	// bundle dir) there is nothing left to scan at all.
+	const remainingVendorDirs = prescannedVendorPaths
+		? sourceDirs.filter(
+				(dir) => !configVendorDirs.includes(dir) && existsSync(dir)
+			)
+		: sourceDirs;
+	if (
+		prescannedVendorPaths &&
+		remainingVendorDirs.length === 0 &&
+		sourceFiles.length === 0
+	) {
+		globalThis.__depVendorPaths = prescannedVendorPaths;
+	} else {
+		const { computeDepVendorPaths } = await import(
+			'../build/buildDepVendor'
+		);
+		const scanned = await computeDepVendorPaths(
+			remainingVendorDirs,
+			sourceFiles
+		);
+		globalThis.__depVendorPaths = prescannedVendorPaths
+			? { ...prescannedVendorPaths, ...scanned }
+			: scanned;
+	}
+	recordStep('prepare dep vendor paths', stepStartedAt);
 
 	/* Created BEFORE the initial build so the file watcher (started below,
 	 * also before the build) can close over a stable object identity. The
