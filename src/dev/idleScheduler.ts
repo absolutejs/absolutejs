@@ -11,6 +11,8 @@
  * are all injected, so the batching/pausing policy is unit-testable
  * without a server. */
 
+export type IdleTask = () => unknown | Promise<unknown>;
+
 export type IdleSchedulerOptions = {
 	/** True while real work is happening — pause until it clears. */
 	isBusy: () => boolean;
@@ -22,25 +24,28 @@ export type IdleSchedulerOptions = {
 	 *  degrades to slow progress instead of no progress. */
 	maxPauseMs?: number;
 	/** Injected timer, so tests can run without real delays. */
-	sleep?: (ms: number) => Promise<void>;
-	/** Called when the run finishes (or is cancelled) with the number of
-	 *  tasks that actually ran. */
-	onDone?: (completed: number) => void;
-};
-
-export type IdleRun = {
-	/** Resolves when every task has run (or the run was cancelled). */
-	done: Promise<number>;
-	cancel: () => void;
+	sleep?: (delayMs: number) => Promise<void>;
 };
 
 const DEFAULT_BATCH_SIZE = 12;
 const DEFAULT_POLL_MS = 25;
 const DEFAULT_MAX_PAUSE_MS = 2_000;
+const NO_ENTRIES_YET = -1;
 
-const defaultSleep = (ms: number) =>
+const takeBatch = (iterator: Iterator<IdleTask>, batchSize: number) => {
+	const batch: IdleTask[] = [];
+	while (batch.length < batchSize) {
+		const next = iterator.next();
+		if (next.done === true) break;
+		batch.push(next.value);
+	}
+
+	return batch;
+};
+
+const defaultSleep = (delayMs: number) =>
 	new Promise<void>((resolve) => {
-		const timer = setTimeout(resolve, ms);
+		const timer = setTimeout(resolve, delayMs);
 		// Background warm-up must never hold the process open.
 		if (typeof timer === 'object' && 'unref' in timer) timer.unref();
 	});
@@ -48,10 +53,60 @@ const defaultSleep = (ms: number) =>
 /** Run `tasks` in the background, yielding between batches and pausing
  *  while `isBusy()` is true. Tasks are pulled lazily from the iterator so
  *  a cancelled run stops immediately. */
+export const dependencyOrderedSequence = function* (
+	files: readonly string[],
+	getEntrySources: () => readonly string[],
+	getDependencies: () => ReadonlyMap<string, ReadonlySet<string>>
+) {
+	const remaining = new Set(files);
+	let lastEntryCount = NO_ENTRIES_YET;
+	let queue: string[] = [];
+	while (remaining.size > 0) {
+		const entries = getEntrySources();
+		const stale = entries.length !== lastEntryCount || queue.length === 0;
+		lastEntryCount = stale ? entries.length : lastEntryCount;
+		queue = stale
+			? prioritiseByDependencies(
+					[...remaining],
+					entries,
+					getDependencies()
+				)
+			: queue;
+		const next = queue.shift();
+		if (next === undefined) break;
+		if (remaining.delete(next)) yield next;
+	}
+};
+export const prioritiseByDependencies = (
+	files: readonly string[],
+	entrySources: readonly string[],
+	dependencies: ReadonlyMap<string, ReadonlySet<string>>
+) => {
+	const remaining = new Set(files);
+	const ordered: string[] = [];
+	const seen = new Set<string>();
+	const queue = [...entrySources];
+	while (queue.length > 0) {
+		const current = queue.shift();
+		if (current === undefined || seen.has(current)) continue;
+		seen.add(current);
+		if (remaining.delete(current)) ordered.push(current);
+		const dependenciesOfCurrent = dependencies.get(current) ?? [];
+		queue.push(
+			...[...dependenciesOfCurrent].filter(
+				(dependency) => !seen.has(dependency)
+			)
+		);
+	}
+	ordered.push(...files.filter((file) => remaining.has(file)));
+
+	return ordered;
+};
+
 export const runWhenIdle = (
-	tasks: Iterable<() => unknown | Promise<unknown>>,
+	tasks: Iterable<IdleTask>,
 	options: IdleSchedulerOptions
-): IdleRun => {
+) => {
 	const batchSize = Math.max(1, options.batchSize ?? DEFAULT_BATCH_SIZE);
 	const pollMs = options.pollMs ?? DEFAULT_POLL_MS;
 	const maxPauseMs = options.maxPauseMs ?? DEFAULT_MAX_PAUSE_MS;
@@ -73,13 +128,7 @@ export const runWhenIdle = (
 		while (!cancelled) {
 			// eslint-disable-next-line no-await-in-loop
 			await waitForIdle();
-			if (cancelled) break;
-			const batch: Array<() => unknown | Promise<unknown>> = [];
-			while (batch.length < batchSize) {
-				const next = iterator.next();
-				if (next.done === true) break;
-				batch.push(next.value);
-			}
+			const batch = cancelled ? [] : takeBatch(iterator, batchSize);
 			if (batch.length === 0) break;
 			// eslint-disable-next-line no-await-in-loop
 			await Promise.all(batch.map((task) => task()));
@@ -89,69 +138,14 @@ export const runWhenIdle = (
 			// eslint-disable-next-line no-await-in-loop
 			await sleep(0);
 		}
-		options.onDone?.(completed);
 
 		return completed;
 	};
 
 	return {
+		done: run(),
 		cancel: () => {
 			cancelled = true;
-		},
-		done: run()
+		}
 	};
 };
-
-/** Order prewarm files so the modules of pages that already exist in the
- *  browser come first: the entry sources, then their transitive imports
- *  (breadth-first), then everything else in the original order. */
-export const prioritiseByDependencies = (
-	files: readonly string[],
-	entrySources: readonly string[],
-	dependencies: ReadonlyMap<string, ReadonlySet<string>>
-) => {
-	const remaining = new Set(files);
-	const ordered: string[] = [];
-	const seen = new Set<string>();
-	const queue = [...entrySources];
-	while (queue.length > 0) {
-		const current = queue.shift();
-		if (current === undefined || seen.has(current)) continue;
-		seen.add(current);
-		if (remaining.delete(current)) ordered.push(current);
-		for (const dependency of dependencies.get(current) ?? []) {
-			if (!seen.has(dependency)) queue.push(dependency);
-		}
-	}
-	for (const file of files) if (remaining.has(file)) ordered.push(file);
-
-	return ordered;
-};
-
-/** Lazily yield `files` in dependency-priority order, re-prioritising
- *  whenever the set of entry sources grows (a page built while the
- *  prewarm was paused moves its imports to the front of the queue). */
-export function* dependencyOrderedSequence(
-	files: readonly string[],
-	getEntrySources: () => readonly string[],
-	getDependencies: () => ReadonlyMap<string, ReadonlySet<string>>
-) {
-	const remaining = new Set(files);
-	let lastEntryCount = -1;
-	let queue: string[] = [];
-	while (remaining.size > 0) {
-		const entries = getEntrySources();
-		if (entries.length !== lastEntryCount || queue.length === 0) {
-			lastEntryCount = entries.length;
-			queue = prioritiseByDependencies(
-				[...remaining],
-				entries,
-				getDependencies()
-			);
-		}
-		const next = queue.shift();
-		if (next === undefined) break;
-		if (!remaining.delete(next)) continue;
-		yield next;
-	}
-}

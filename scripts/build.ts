@@ -378,10 +378,20 @@ const build = async () => {
 	// The config server is built as a separate bundle below (it carries React
 	// for SSR). The CLI imports it via a runtime-resolved specifier, so the
 	// bundler leaves it out of this lean main chunk automatically.
+	// `splitting: true` + the command modules being dynamically imported in
+	// `src/cli/index.ts` keeps the entry down to a few KB: `absolute dev`
+	// parses the dev command's chunk and nothing of eslint/prettier/
+	// workspace/generate/…, which used to be ~1.9 MB of bundle parsed on
+	// every invocation. Chunks deliberately land in `dist/cli/` itself, not
+	// a subdirectory: several CLI modules resolve sibling assets through
+	// `import.meta.dir` (for example `../dev/serverBootstrap.js`), and that
+	// only stays correct while chunks share the entry's directory.
 	const cliBuild = await Bun.build({
 		entrypoints: ['src/cli/index.ts'],
 		external: EXTERNALS,
+		naming: { chunk: '[name]-[hash].[ext]', entry: '[name].[ext]' },
 		outdir: join(DIST, 'cli'),
+		splitting: true,
 		target: 'bun'
 	});
 

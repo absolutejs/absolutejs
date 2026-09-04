@@ -180,6 +180,24 @@ const collectPrewarmFiles = async (prewarmDirs: PrewarmEntry[]) => {
 	return files;
 };
 
+/** A page build must never be interrupted by warm-up work, so the pause
+ *  budget is generous: the prewarm is pure optimisation and can wait out
+ *  any burst of real traffic. */
+const PREWARM_MAX_PAUSE_MS = 60_000;
+
+/** One warm-up task per source file: transpile it into the module
+ *  server's transform cache under its `/@src/` URL. */
+const toWarmTasks = function* (
+	files: Iterable<string>,
+	warmCache: (url: string) => Promise<void> | void,
+	srcUrlPrefix: string
+) {
+	for (const file of files) {
+		const rel = relative(process.cwd(), file).replace(/\\/g, '/');
+		yield () => warmCache(`${srcUrlPrefix}${rel}`);
+	}
+};
+
 /** Source files of the pages that have already been built, so their
  *  module graph is warmed before anything else. */
 const builtPageSources = () => {
@@ -208,14 +226,12 @@ const warmPrewarmDirs = async (
 			globalThis.__hmrDevResult?.hmrState.dependencyGraph.dependencies ??
 			new Map()
 	);
-	const tasks = (function* toTasks() {
-		for (const file of ordered) {
-			const rel = relative(process.cwd(), file).replace(/\\/g, '/');
-			yield () => warmCache(`${SRC_URL_PREFIX}${rel}`);
-		}
-	})();
+	const tasks = toWarmTasks(ordered, warmCache, SRC_URL_PREFIX);
 
-	return runWhenIdle(tasks, { isBusy: devServerBusy }).done;
+	return runWhenIdle(tasks, {
+		isBusy: devServerBusy,
+		maxPauseMs: PREWARM_MAX_PAUSE_MS
+	}).done;
 };
 
 const resolveDevIndexFileName = (manifestValue: string, baseName: string) => {
@@ -806,6 +822,45 @@ const resolveConfigKey = (configOrPath?: string) =>
 		configOrPath ?? process.env.ABSOLUTE_CONFIG ?? 'absolute.config.ts'
 	);
 
+/** Join an in-flight prebuild, or `undefined` when this `prepare()` has
+ *  to do the work itself. A prebuild started against a different config
+ *  is awaited (so two builds never run at once) and then discarded. */
+const claimDevPrebuild = async (key: string) => {
+	const pending = globalThis.__absoluteDevPrepare;
+	if (!pending || pending.claimed) return undefined;
+	pending.claimed = true;
+	if (pending.key === key) {
+		const prepared = await pending.promise;
+		markBoot('prepare() joined prebuild');
+
+		return prepared;
+	}
+	// `prepare()` was handed a different config than the one the dev
+	// bootstrap prebuilt against. Let the prebuild settle, then drop its
+	// cached result and build the requested config from scratch.
+	await pending.promise.catch(() => undefined);
+	globalThis.__hmrDevResult = undefined;
+	logWarn(
+		`prepare() was called with a different config than ${pending.key}; rebuilding.`
+	);
+
+	return undefined;
+};
+
+export const prepare = async (configOrPath?: string) => {
+	markBoot('prepare() entered');
+	const key = resolveConfigKey(configOrPath);
+	const joined = await claimDevPrebuild(key);
+	if (joined) return joined;
+	// Publish this run so a prebuild that only gets its turn on the event
+	// loop now (the user's entry finished importing first) joins it instead
+	// of starting a second build.
+	const promise = runPrepare(configOrPath);
+	globalThis.__absoluteDevPrepare = { claimed: true, key, promise };
+
+	return promise;
+};
+
 /** Start the dev runtime's boot work (config load, build, plugin assembly)
  *  WITHOUT waiting for the user's server entry to finish importing.
  *
@@ -824,37 +879,6 @@ export const startDevPrebuild = (configOrPath?: string) => {
 		key: resolveConfigKey(configOrPath),
 		promise
 	};
-
-	return promise;
-};
-
-export const prepare = async (configOrPath?: string) => {
-	markBoot('prepare() entered');
-	const key = resolveConfigKey(configOrPath);
-	const pending = globalThis.__absoluteDevPrepare;
-	if (pending && !pending.claimed) {
-		pending.claimed = true;
-		if (pending.key === key) {
-			const prepared = await pending.promise;
-			markBoot('prepare() joined prebuild');
-
-			return prepared;
-		}
-		// `prepare()` was handed a different config than the one the dev
-		// bootstrap prebuilt against. Let the prebuild settle (so two
-		// builds never run at once), then drop its cached result and build
-		// the requested config from scratch.
-		await pending.promise.catch(() => undefined);
-		globalThis.__hmrDevResult = undefined;
-		logWarn(
-			`prepare() was called with a different config than ${pending.key}; rebuilding.`
-		);
-	}
-	// Publish this run so a prebuild that only gets its turn on the event
-	// loop now (the user's entry finished importing first) joins it instead
-	// of starting a second build.
-	const promise = runPrepare(configOrPath);
-	globalThis.__absoluteDevPrepare = { claimed: true, key, promise };
 
 	return promise;
 };

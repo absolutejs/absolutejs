@@ -446,7 +446,7 @@ type VueCompileProfile = {
 	helpers: number;
 };
 
-const newVueCompileProfile = (): VueCompileProfile => ({
+const EMPTY_VUE_COMPILE_PROFILE: VueCompileProfile = {
 	compiles: 0,
 	diskHits: 0,
 	files: 0,
@@ -463,9 +463,11 @@ const newVueCompileProfile = (): VueCompileProfile => ({
 	stageHelperEmitMs: 0,
 	stageHelperScanMs: 0,
 	stagePagesMs: 0
-});
+};
 
-let vueCompileProfile = newVueCompileProfile();
+let vueCompileProfile: VueCompileProfile = {
+	...EMPTY_VUE_COMPILE_PROFILE
+};
 
 const timed = async <Value>(
 	bucket: keyof VueCompileProfile,
@@ -843,7 +845,7 @@ export const compileVue = async (
 	ssrOnlyEntries?: ReadonlySet<string>
 ) => {
 	const compileStartedAt = performance.now();
-	vueCompileProfile = newVueCompileProfile();
+	vueCompileProfile = { ...EMPTY_VUE_COMPILE_PROFILE };
 	const runSfc = selectSfcRunner(entryPoints.length);
 	const compilerLoadStartedAt = performance.now();
 	const compiler: VueCompiler = await loadVueCompiler();
