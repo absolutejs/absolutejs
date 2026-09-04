@@ -1,12 +1,14 @@
 import { resolve, join } from 'node:path';
 import { existsSync, readFileSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
+import { parse as parseJsonc } from 'jsonc-parser';
 import {
 	getWorkspaceServices,
 	isWorkspaceConfig,
 	loadConfig,
 	loadRawConfig
 } from '../../utils/loadConfig';
+import { getString, isRecord } from '../config/guards';
 import { ANSI_ESCAPE_CODE } from '../../constants';
 import type {
 	AbsoluteServiceConfig,
@@ -226,43 +228,100 @@ const ABSOLUTE_TYPECHECK_FILES = [
 	resolveAbsoluteTypeFile('style-module-shim.d.ts')
 ];
 
+const EMPTY_TSCONFIG: Record<string, unknown> = {};
+
+// `tsconfig.json` is JSONC — comments and trailing commas are legal there and
+// TypeScript's own reader accepts them. `JSON.parse` throws on both, and this
+// reader's failure mode is silent: every generated config quietly degraded to
+// the `**/*` fallback below, which widens each checker's program past the one
+// the project's own tsconfig describes.
 const readProjectTsconfig = () => {
 	try {
-		return JSON.parse(readFileSync(resolve('tsconfig.json'), 'utf-8'));
+		const parsed: unknown = parseJsonc(
+			readFileSync(resolve('tsconfig.json'), 'utf-8')
+		);
+
+		return isRecord(parsed) ? parsed : EMPTY_TSCONFIG;
 	} catch {
-		return {};
+		return EMPTY_TSCONFIG;
 	}
 };
+
+const toStringArray = (value: unknown) =>
+	Array.isArray(value)
+		? value.filter((entry): entry is string => typeof entry === 'string')
+		: [];
 
 const toGeneratedConfigPath = (path: string) =>
 	path.startsWith('/') ? path : `../${path}`;
 
-const getProjectTypecheckIncludes = () => {
+const getProjectSourceEntries = () => {
 	const config = readProjectTsconfig();
 	// If the user's tsconfig specifies `include`, respect it. Otherwise fall
 	// back to tsc's default behavior (everything reachable from rootDir).
-	const includes =
-		Array.isArray(config.include) && config.include.length > 0
-			? config.include
-			: ['**/*'];
-	const files = Array.isArray(config.files) ? config.files : [];
+	const includes = toStringArray(config.include);
 
 	return [
-		...includes.map(toGeneratedConfigPath),
-		...files.map(toGeneratedConfigPath),
-		...ABSOLUTE_TYPECHECK_FILES
+		...(includes.length > 0 ? includes : ['**/*']),
+		...toStringArray(config.files)
 	];
 };
 
+const getProjectTypecheckIncludes = () => [
+	...getProjectSourceEntries().map(toGeneratedConfigPath),
+	...ABSOLUTE_TYPECHECK_FILES
+];
+
+const LEAF_SEGMENT_REGEX = /[*?]|\.[^./]+$/;
+
+// An include entry names sources; this rewrites it to name the same tree's
+// declaration files instead — the entry is truncated at its first wildcard or
+// filename segment and re-anchored on a recursive `.d.ts` glob, so `src` and
+// `src/**/*` both become `src` + `/**/*.d.ts`. An entry that already names a
+// `.d.ts` file is kept as it is.
+const toDeclarationGlob = (entry: string) => {
+	if (entry.endsWith('.d.ts')) return entry;
+	const segments = entry.split('/');
+	const leaf = segments.findIndex((segment) =>
+		LEAF_SEGMENT_REGEX.test(segment)
+	);
+	const base = segments.slice(0, leaf < 0 ? segments.length : leaf).join('/');
+
+	return base.length > 0 ? `${base}/**/*.d.ts` : '**/*.d.ts';
+};
+
+/**
+ * The declaration-file subset of whatever the project's tsconfig includes.
+ *
+ * Ambient declarations — `declare global`, `declare module 'stylus'` — only
+ * apply to a program that has the declaring file among its roots; an import
+ * never pulls one in. The framework-scoped checkers (ngc, svelte-check)
+ * narrow `include` to a single framework directory, so every ambient
+ * declaration the project ships drops out of their programs, and any module
+ * they reach through an import is then checked without the declarations it
+ * legitimately relies on. Re-adding the declaration files — and only those —
+ * restores them without making a scoped checker re-check the whole project.
+ */
+const getProjectDeclarationIncludes = () =>
+	[...new Set(getProjectSourceEntries().map(toDeclarationGlob))].map(
+		toGeneratedConfigPath
+	);
+
 const getProjectTypecheckExcludes = () => {
 	const config = readProjectTsconfig();
-	const excludes = Array.isArray(config.exclude) ? config.exclude : [];
+	// Naming `exclude` at all turns off tsc's defaults, and one of those
+	// defaults is the project's own output directory. Left off, a built
+	// project would typecheck its emitted declarations back in as source.
+	const outDir = getString(config.compilerOptions, 'outDir');
 
 	return [
-		...new Set([
-			...ABSOLUTE_INTERNAL_EXCLUDES.map(toGeneratedConfigPath),
-			...excludes.map(toGeneratedConfigPath)
-		])
+		...new Set(
+			[
+				...ABSOLUTE_INTERNAL_EXCLUDES,
+				...toStringArray(config.exclude),
+				...(outDir === null ? [] : [outDir])
+			].map(toGeneratedConfigPath)
+		)
 	];
 };
 
@@ -331,9 +390,12 @@ const buildAngularCheck = async (cacheDir: string, angularDir: string) => {
 					noEmit: true,
 					rootDir: '..'
 				},
-				exclude: ABSOLUTE_INTERNAL_EXCLUDES.map(toGeneratedConfigPath),
+				exclude: getProjectTypecheckExcludes(),
 				extends: resolve('tsconfig.json'),
-				include: [`../${angularDir}/**/*`]
+				include: [
+					...getProjectDeclarationIncludes(),
+					`../${angularDir}/**/*`
+				]
 			},
 			null,
 			'\t'
@@ -401,7 +463,10 @@ const buildSvelteCheck = async (cacheDir: string, svelteDir: string) => {
 			{
 				extends: resolve('tsconfig.json'),
 				files: ABSOLUTE_TYPECHECK_FILES,
-				include: [`../${svelteDir}/**/*`]
+				include: [
+					...getProjectDeclarationIncludes(),
+					`../${svelteDir}/**/*`
+				]
 			},
 			null,
 			'\t'
