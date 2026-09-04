@@ -1,4 +1,4 @@
-import { resolve, join } from 'node:path';
+import { resolve, join, relative } from 'node:path';
 import { existsSync, readFileSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { parse as parseJsonc } from 'jsonc-parser';
@@ -8,8 +8,14 @@ import {
 	loadConfig,
 	loadRawConfig
 } from '../../utils/loadConfig';
+import {
+	deferrableEntryImports,
+	formatImportAdvice,
+	summarizeImportAdvice
+} from '../../dev/importCost/advice';
 import { getString, isRecord } from '../config/guards';
 import { ANSI_ESCAPE_CODE } from '../../constants';
+import { DEFAULT_SERVER_ENTRY } from '../utils';
 import type {
 	AbsoluteServiceConfig,
 	ServiceConfig
@@ -487,6 +493,78 @@ const buildSvelteCheck = async (cacheDir: string, svelteDir: string) => {
 	]);
 };
 
+/* Import advice: the static half of the import-cost diagnostic, run where a
+ * heavy import can still be caught cheaply.
+ *
+ * It reports *shape* — an import whose bindings are only ever referenced
+ * inside function bodies, and which could therefore be moved into them
+ * without a refactor. It reports nothing about cost, because it cannot know
+ * any: only a measured boot can, and this is not one.
+ *
+ * ## It never fails the build
+ *
+ * Deferring an import is a judgement call, not a defect. A deferrable import
+ * worth 5ms should stay exactly where it is, and nothing here can tell that
+ * one from the import worth 800ms. Failing on either would gate merges on a
+ * measurement that has not been taken — which would make `absolute typecheck`
+ * useless in the one place it currently earns its keep, because the way teams
+ * respond to a check that fails for no good reason is to stop running it.
+ *
+ * So the exit code stays governed by real type errors, and the volume is
+ * graded: one summary line unasked, the full listing behind
+ * `--import-advice`.
+ */
+
+const IMPORT_ADVICE_FLAG = '--import-advice';
+
+const importAdviceRequested = () =>
+	process.argv.includes(IMPORT_ADVICE_FLAG) ||
+	process.env.ABSOLUTE_IMPORT_ADVICE === '1';
+
+/** Every service's server entry, deduplicated, keeping only the ones that are
+ *  actually on disk — `absolute typecheck` also runs in plain TypeScript
+ *  libraries, which have no server entry at all. */
+export const serverEntryPaths = (targets: readonly AbsoluteServiceConfig[]) => [
+	...new Set(
+		targets
+			.map((target) =>
+				resolve(target.cwd ?? '.', target.entry ?? DEFAULT_SERVER_ENTRY)
+			)
+			.filter((path) => existsSync(path))
+	)
+];
+
+const adviceFor = (path: string, detailed: boolean) => {
+	const label = relative(process.cwd(), path) || path;
+	const entries = deferrableEntryImports(readFileSync(path, 'utf-8'), path);
+
+	return detailed
+		? formatImportAdvice(entries, label)
+		: summarizeImportAdvice(entries, label);
+};
+
+/** Advice must never be able to break the check it rides on, so an
+ *  unreadable or unparseable entry is simply not advised about. */
+const printAdviceFor = (path: string, detailed: boolean) => {
+	try {
+		const advice = adviceFor(path, detailed);
+		if (advice !== null) console.log(advice);
+	} catch {
+		/* never at the expense of the typecheck */
+	}
+};
+
+const reportImportAdvice = (
+	targets: readonly AbsoluteServiceConfig[],
+	detailed: boolean,
+	passed: boolean
+) => {
+	if (!detailed && !passed) return;
+	for (const path of serverEntryPaths(targets)) {
+		printAdviceFor(path, detailed);
+	}
+};
+
 export const typecheck = async (configPath?: string) => {
 	const targets = await getTypecheckTargets(configPath);
 
@@ -536,13 +614,16 @@ export const typecheck = async (configPath?: string) => {
 
 	const results = await Promise.all(checks);
 	const failed = results.filter((res) => res.exitCode !== 0);
+	const detailedAdvice = importAdviceRequested();
 
 	if (failed.length === 0) {
 		console.log('\x1b[32m✓\x1b[0m Typecheck passed');
+		reportImportAdvice(targets, detailedAdvice, true);
 
 		return;
 	}
 
+	reportImportAdvice(targets, detailedAdvice, false);
 	for (const result of failed) {
 		console.error(`\n\x1b[31m[${result.name}]\x1b[0m`);
 		const output =

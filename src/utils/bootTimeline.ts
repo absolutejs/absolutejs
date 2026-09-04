@@ -1,4 +1,4 @@
-/* Cross-process dev-boot timeline (`ABSOLUTE_DEV_PROFILE=1`).
+/* Cross-process dev-boot timeline.
  *
  * `absolute dev` boots in two processes: the CLI (`dist/cli/index.js`) and
  * the `bun --hot` child that actually serves. Neither the per-step
@@ -11,7 +11,15 @@
  * every number in the printed timeline is directly comparable. The origin
  * and the CLI's own marks cross the process boundary through the child's
  * environment; inside a process the marks live on `globalThis` because the
- * bundles that record them do not share module state. */
+ * bundles that record them do not share module state.
+ *
+ * Recording is unconditional; only the printed timeline is behind
+ * `ABSOLUTE_DEV_PROFILE=1`. A boot records about twenty marks, each one a
+ * `Date.now()` and a two-field object, so the always-on cost is far below
+ * the resolution of anything it measures — and it is what lets a diagnostic
+ * that fires on a slow boot (`importCost/hint.ts`) know how slow the boot
+ * actually was without asking the developer to have profiled it in
+ * advance. */
 
 import { MILLISECONDS_IN_A_SECOND } from '../constants';
 import { devProfileEnabled } from './startupTimings';
@@ -27,6 +35,7 @@ const MARKS_ENV = 'ABSOLUTE_BOOT_CLI_MARKS';
 const MARK_LABEL_WIDTH = 34;
 const MARK_TIME_WIDTH = 6;
 const MS_DECIMALS = 0;
+const NOT_FOUND = -1;
 
 const marks = () => (globalThis.__absoluteBootMarks ??= []);
 
@@ -53,6 +62,37 @@ export const adoptParentBootMarks = () => {
 		/* malformed marks never break a boot */
 	}
 };
+/** Milliseconds between two marks of one boot, or `null` when this process
+ *  did not record the pair.
+ *
+ *  The *last* `startLabel` is the one that counts — under `bun --hot` the
+ *  bootstrap re-evaluates and records a second set — and the end mark has to
+ *  come after it, both in insertion order and in time. A label can legitimately
+ *  repeat (the framework runtime is marked once in the CLI, whose marks are
+ *  adopted at the front of this array, and again in the child), so anything
+ *  before that last start is ignored rather than averaged in. */
+export const bootIntervalBetween = (
+	entries: readonly BootMark[],
+	startLabel: string,
+	endLabel: string
+) => {
+	const startIndex = entries.findLastIndex(
+		(mark) => mark.label === startLabel
+	);
+	if (startIndex === NOT_FOUND) return null;
+	const start = entries[startIndex];
+	if (start === undefined) return null;
+	const end = entries
+		.slice(startIndex + 1)
+		.find((mark) => mark.label === endLabel);
+	if (end === undefined || end.atMs < start.atMs) return null;
+
+	return end.atMs - start.atMs;
+};
+
+export const bootIntervalMs = (startLabel: string, endLabel: string) =>
+	bootIntervalBetween(marks(), startLabel, endLabel);
+
 export const bootTimelineChildEnv = (): Record<string, string> => {
 	if (!devProfileEnabled) return {};
 
@@ -98,7 +138,6 @@ export const logBootTimeline = () => {
 };
 export const markBoot = (label: string) => markBootAt(label, Date.now());
 export const markBootAt = (label: string, epochMs: number) => {
-	if (!devProfileEnabled) return;
 	marks().push({ atMs: epochMs - getBootOrigin(), label });
 };
 export const processStartEpochMs = () =>

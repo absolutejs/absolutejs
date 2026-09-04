@@ -7,6 +7,7 @@ import {
 	markBootAt,
 	processStartEpochMs
 } from '../utils/bootTimeline';
+import { printImportCostHint } from './importCost/hint';
 import { isStaleAbsoluteServerEntryCopy } from './serverEntryCopies';
 
 // The dev bootstrap is the first module the `bun --hot` child evaluates, so
@@ -200,3 +201,10 @@ markBoot('server entry import done');
 // Runs only when `ABSOLUTE_DEV_IMPORT_COST=1` preloaded the recorder; with
 // the flag off this is one undefined property read.
 await globalThis.__absoluteImportCostReport?.();
+
+// Nobody runs a flag they have never heard of. If this boot spent long
+// enough evaluating the entry's module graph that the diagnostic above
+// would have something to say, say so in one line — and only to a
+// developer it can help. Every suppression rule lives in `hint.ts`; with
+// the hint suppressed this is a few environment reads.
+printImportCostHint({ hotReevaluation: isHotReevaluation });
