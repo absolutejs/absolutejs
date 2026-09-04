@@ -1969,6 +1969,14 @@ export const dev = async (
 						? { ABSOLUTE_DEV_PRESCAN: prescanForSpawn.path }
 						: {}),
 					...(options.eager ? { ABSOLUTE_DEV_EAGER: '1' } : {}),
+					// The child's stdout is a pipe by construction (this
+					// process prefixes and forwards it), so nothing over
+					// there can tell whether a human is watching. Only this
+					// process can. Interactive-only diagnostics in the child
+					// (the import-cost hint) gate on this.
+					...(process.stdout.isTTY === true
+						? { ABSOLUTE_DEV_TTY: '1' }
+						: {}),
 					...(mobileConfig ? { ABSOLUTE_MOBILE_PREVIEW: '1' } : {}),
 					FORCE_COLOR: '1',
 					NODE_ENV: 'development',
