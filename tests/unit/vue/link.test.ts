@@ -6,7 +6,10 @@ describe('Vue <Link>', () => {
 		// Vue runtime-dom captures `document` when its module is first evaluated,
 		// and the complete Bun suite may import Vue during SSR before happy-dom is
 		// installed. Exercise the component in a clean runtime instead.
-		const runner = resolve(import.meta.dir, '../../fixtures/vue-link/runtime.ts');
+		const runner = resolve(
+			import.meta.dir,
+			'../../fixtures/vue-link/runtime.ts'
+		);
 		const subprocess = Bun.spawn([process.execPath, runner], {
 			stderr: 'pipe',
 			stdout: 'pipe'

@@ -57,16 +57,13 @@ describe('runWhenIdle', () => {
 
 	test('a permanently busy server still makes progress after maxPauseMs', async () => {
 		const ran: string[] = [];
-		const completed = await runWhenIdle(
-			[() => ran.push('only')],
-			{
-				batchSize: 1,
-				maxPauseMs: 20,
-				pollMs: 10,
-				sleep: immediateSleep,
-				isBusy: () => true
-			}
-		).done;
+		const completed = await runWhenIdle([() => ran.push('only')], {
+			batchSize: 1,
+			maxPauseMs: 20,
+			pollMs: 10,
+			sleep: immediateSleep,
+			isBusy: () => true
+		}).done;
 
 		expect(ran).toEqual(['only']);
 		expect(completed).toBe(1);

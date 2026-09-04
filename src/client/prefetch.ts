@@ -266,7 +266,10 @@ export const clearPrefetchCache = () => {
 /** Take the prefetched response for `url` out of the cache. Returns
  *  `undefined` when nothing was prefetched (or it was evicted). Callers
  *  that fetch the same URL themselves can await this instead. */
-export const consumePrefetch = (url: string, kind: PrefetchKind = 'document') => {
+export const consumePrefetch = (
+	url: string,
+	kind: PrefetchKind = 'document'
+) => {
 	const key = cacheKey(kind, url);
 	const entry = cache.get(key);
 	if (!entry) return undefined;
@@ -446,7 +449,9 @@ export const prefetch = (url: string, options: PrefetchOptions = {}) => {
 	while (cache.size >= PREFETCH_CACHE_LIMIT) evictOldest();
 
 	const { abort, promise } = enqueue((signal) =>
-		kind === 'data' ? fetchRouteData(url, signal) : fetchDocument(url, signal)
+		kind === 'data'
+			? fetchRouteData(url, signal)
+			: fetchDocument(url, signal)
 	);
 	cache.set(key, { abort, kind, promise, url });
 };

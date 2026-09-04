@@ -10,8 +10,14 @@ import {
 describe('asset store shared chunks', () => {
 	test('populateAssetStore loads manifest chunk keys and never evicts chunks', async () => {
 		const buildDir = mkdtempSync(join(tmpdir(), 'asset-store-chunks-'));
-		writeFileSync(join(buildDir, 'chunk-aaaaaaaa.js'), 'export var a = 1;\n');
-		writeFileSync(join(buildDir, 'chunk-bbbbbbbb.js'), 'export var b = 2;\n');
+		writeFileSync(
+			join(buildDir, 'chunk-aaaaaaaa.js'),
+			'export var a = 1;\n'
+		);
+		writeFileSync(
+			join(buildDir, 'chunk-bbbbbbbb.js'),
+			'export var b = 2;\n'
+		);
 		const store = new Map<string, Uint8Array>();
 
 		await populateAssetStore(
@@ -36,7 +42,10 @@ describe('asset store shared chunks', () => {
 
 	test('cleanStaleAssets drops chunk entries whose file left the disk', async () => {
 		const buildDir = mkdtempSync(join(tmpdir(), 'asset-store-evict-'));
-		writeFileSync(join(buildDir, 'chunk-aaaaaaaa.js'), 'export var a = 1;\n');
+		writeFileSync(
+			join(buildDir, 'chunk-aaaaaaaa.js'),
+			'export var a = 1;\n'
+		);
 		const store = new Map<string, Uint8Array>([
 			['/chunk-aaaaaaaa.js', new Uint8Array([1])],
 			['/chunk-gone00000.js', new Uint8Array([2])]

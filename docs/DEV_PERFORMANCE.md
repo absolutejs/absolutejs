@@ -73,13 +73,25 @@ the scan covered; if they do not match what this process would have
 scanned, or the file is late or malformed, the child simply scans for
 itself.
 
-This is **off by default**, because on a real app it costs more than it
-saves. Scanning in the parent delays the child's spawn, and the child
-cannot adopt the payload until the user's own import graph has finished
-evaluating — one thread runs both. Measured on a 74-page app: first paint
-3.8s with the pre-scan off, 8.5s with it on. Turn it on with
-`ABSOLUTE_DEV_PRESCAN=1` when a project's source tree is slow to scan but
-its server entry imports little.
+It does remove real work from the child: on a 74-page app the two steps go
+from 275-659ms and 712-1380ms to single-digit milliseconds.
+
+It is still **off by default**, because on that app the saving does not
+reach the user. The child cannot adopt the payload until the user's own
+`server.ts` has finished importing, and those scans were running inside
+that same window — so removing them moves the finish line of a race that
+something else was already losing. An alternating A/B on an idle machine
+put the two within noise of each other:
+
+| | first paint | first page | ready |
+| --- | --- | --- | --- |
+| pre-scan on | 3.4s / 3.8s | 5.4s / 6.5s | 3.97s / 4.47s |
+| pre-scan off | 3.3s / 3.6s | 5.1s / 6.0s | 3.93s / 4.30s |
+
+Given a tie, the default is the one without a cross-process handshake.
+Turn it on with `ABSOLUTE_DEV_PRESCAN=1` when your source tree is large but
+your server entry imports little — then there is no import window for the
+scans to hide in, and the saving above should show up in wall clock.
 
 ## Knobs
 

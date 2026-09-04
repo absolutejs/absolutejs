@@ -141,7 +141,11 @@ results.plainClickPrevented = click(plain);
 teardown();
 
 const pushCase = fakeRouter();
-const matched = mountLink({ href: '/two', prefetch: 'none' }, 'Go', pushCase.router);
+const matched = mountLink(
+	{ href: '/two', prefetch: 'none' },
+	'Go',
+	pushCase.router
+);
 results.push = { prevented: click(matched), pushed: pushCase.pushed };
 teardown();
 
@@ -159,7 +163,11 @@ results.replace = {
 teardown();
 
 const passthrough = fakeRouter();
-const modifier = mountLink({ href: '/two', prefetch: 'none' }, 'Go', passthrough.router);
+const modifier = mountLink(
+	{ href: '/two', prefetch: 'none' },
+	'Go',
+	passthrough.router
+);
 const metaPrevented = click(modifier, { metaKey: true });
 const middlePrevented = click(modifier, { button: 1 });
 teardown();

@@ -123,7 +123,9 @@ describe('React <Link>', () => {
 				Pricing
 			</Link>
 		);
-		anchor(target).dispatchEvent(new Event('pointerdown', { bubbles: true }));
+		anchor(target).dispatchEvent(
+			new Event('pointerdown', { bubbles: true })
+		);
 		await Bun.sleep(0);
 		// A deliberate trigger warms the document AND the route data, so
 		// the click has the page's props, modules and CSS too.
@@ -137,7 +139,9 @@ describe('React <Link>', () => {
 				Docs
 			</Link>
 		);
-		anchor(target).dispatchEvent(new Event('pointerover', { bubbles: true }));
+		anchor(target).dispatchEvent(
+			new Event('pointerover', { bubbles: true })
+		);
 		expect(fetched).toEqual([]);
 		await Bun.sleep(320);
 		expect(fetched).toEqual(['/docs', '/docs']);
@@ -163,7 +167,9 @@ describe('React <Link>', () => {
 				Out
 			</Link>
 		);
-		anchor(target).dispatchEvent(new Event('pointerdown', { bubbles: true }));
+		anchor(target).dispatchEvent(
+			new Event('pointerdown', { bubbles: true })
+		);
 		await Bun.sleep(0);
 		expect(fetched).toEqual([]);
 	});

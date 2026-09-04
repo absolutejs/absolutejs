@@ -71,7 +71,8 @@ const FRAMEWORK_DIR_KEYS = [
  * relative to this bundle, which is why it is scanned separately from the
  * config-derived directories the CLI's pre-scan covers — the two
  * processes load different bundles. */
-const devClientVendorSourceDir = () => resolve(import.meta.dir, '../dev/client');
+const devClientVendorSourceDir = () =>
+	resolve(import.meta.dir, '../dev/client');
 
 export const collectDepVendorSourceDirs = (config: BuildConfig) => {
 	const configuredDirs = [
@@ -902,30 +903,34 @@ export const devBuild = async (config: BuildConfig) => {
 	// vendor (linker pre-link perf win at prod start time).
 	const buildAllVendors = () =>
 		Promise.all([
-		config.reactDirectory
-			? buildReactVendor(state.resolvedPaths.buildDir)
-			: Promise.resolve(undefined),
-		config.angularDirectory
-			? buildAngularVendor(
-					state.resolvedPaths.buildDir,
-					sourceDirs,
-					/* linkerJitMode */ true,
-					/* depVendorSpecifiers */ Object.keys(
-						globalThis.__depVendorPaths ?? {}
+			config.reactDirectory
+				? buildReactVendor(state.resolvedPaths.buildDir)
+				: Promise.resolve(undefined),
+			config.angularDirectory
+				? buildAngularVendor(
+						state.resolvedPaths.buildDir,
+						sourceDirs,
+						/* linkerJitMode */ true,
+						/* depVendorSpecifiers */ Object.keys(
+							globalThis.__depVendorPaths ?? {}
+						)
 					)
-				)
-			: Promise.resolve(undefined),
-		Promise.resolve(undefined),
-		config.svelteDirectory
-			? buildSvelteVendor(state.resolvedPaths.buildDir)
-			: Promise.resolve(undefined),
-		config.vueDirectory
-			? buildVueVendor(state.resolvedPaths.buildDir)
-			: Promise.resolve(undefined),
-		config.emberDirectory
-			? buildEmberVendor(state.resolvedPaths.buildDir)
-			: Promise.resolve(undefined),
-		buildDepVendor(state.resolvedPaths.buildDir, sourceDirs, sourceFiles)
+				: Promise.resolve(undefined),
+			Promise.resolve(undefined),
+			config.svelteDirectory
+				? buildSvelteVendor(state.resolvedPaths.buildDir)
+				: Promise.resolve(undefined),
+			config.vueDirectory
+				? buildVueVendor(state.resolvedPaths.buildDir)
+				: Promise.resolve(undefined),
+			config.emberDirectory
+				? buildEmberVendor(state.resolvedPaths.buildDir)
+				: Promise.resolve(undefined),
+			buildDepVendor(
+				state.resolvedPaths.buildDir,
+				sourceDirs,
+				sourceFiles
+			)
 		]);
 
 	const builtVendors = restoredVendor ? [] : await buildAllVendors();
@@ -943,7 +948,9 @@ export const devBuild = async (config: BuildConfig) => {
 	}
 	globalThis.__depVendorPaths = depPaths;
 	recordStep(
-		restoredVendor ? 'restore vendor bundles (cached)' : 'build vendor bundles',
+		restoredVendor
+			? 'restore vendor bundles (cached)'
+			: 'build vendor bundles',
 		stepStartedAt
 	);
 
@@ -975,7 +982,9 @@ export const devBuild = async (config: BuildConfig) => {
 			// not sit on the boot path.
 			deferUntilServing(() =>
 				saveVendorCache(vendorCacheKey, activeVendorDirs, {
-					...(angularSpecs ? { angularSpecifiers: angularSpecs } : {}),
+					...(angularSpecs
+						? { angularSpecifiers: angularSpecs }
+						: {}),
 					depPaths
 				})
 			);

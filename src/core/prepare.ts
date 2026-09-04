@@ -27,10 +27,7 @@ import { markBoot } from '../utils/bootTimeline';
 import { logWarn } from '../utils/logger';
 import { deferUntilServing, setBootPhase } from '../dev/bootLifecycle';
 import { devServerBusy } from '../dev/devActivity';
-import {
-	dependencyOrderedSequence,
-	runWhenIdle
-} from '../dev/idleScheduler';
+import { dependencyOrderedSequence, runWhenIdle } from '../dev/idleScheduler';
 
 const MS_PER_SECOND = 1000;
 const DEFAULT_PORT = 3000;

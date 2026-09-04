@@ -40,7 +40,12 @@ const deferredFetch = (input: string | URL | Request, init?: RequestInit) => {
 		settle = resolve;
 	});
 	const url = typeof input === 'string' ? input : input.toString();
-	pending.push({ headers: init?.headers, resolve: settle, signal: init?.signal, url });
+	pending.push({
+		headers: init?.headers,
+		resolve: settle,
+		signal: init?.signal,
+		url
+	});
 	init?.signal?.addEventListener('abort', () =>
 		settle(new Response(null, { status: 0 }))
 	);
@@ -77,7 +82,8 @@ beforeEach(() => {
 afterEach(async () => {
 	// Settle every fetch the test left hanging so the in-flight budget is
 	// released before the next test starts (a real fetch rejects on abort).
-	for (const entry of pending) entry.resolve(new Response(null, { status: 0 }));
+	for (const entry of pending)
+		entry.resolve(new Response(null, { status: 0 }));
 	await flush();
 	resetPrefetchState();
 	await flush();
@@ -312,7 +318,9 @@ describe('prefetch kinds', () => {
 		prefetch('http://localhost:3000/react/indexes/Home.js', {
 			kind: 'module'
 		});
-		const links = document.head.querySelectorAll('link[rel="modulepreload"]');
+		const links = document.head.querySelectorAll(
+			'link[rel="modulepreload"]'
+		);
 		expect(links).toHaveLength(1);
 		expect(links[0]?.getAttribute('href')).toBe('/react/indexes/Home.js');
 		expect(pending).toHaveLength(0);
@@ -417,8 +425,15 @@ describe('triggers', () => {
 				/* no-op */
 			}
 		}
-		const originalObserver = Reflect.get(globalThis, 'IntersectionObserver');
-		Reflect.set(globalThis, 'IntersectionObserver', FakeIntersectionObserver);
+		const originalObserver = Reflect.get(
+			globalThis,
+			'IntersectionObserver'
+		);
+		Reflect.set(
+			globalThis,
+			'IntersectionObserver',
+			FakeIntersectionObserver
+		);
 
 		try {
 			const first = document.createElement('a');
@@ -443,7 +458,10 @@ describe('triggers', () => {
 			};
 			const [observer] = instances;
 			if (!observer) throw new Error('observer missing');
-			observer.callback([entry], new IntersectionObserver(() => undefined));
+			observer.callback(
+				[entry],
+				new IntersectionObserver(() => undefined)
+			);
 			await flush();
 			expect(pending.map((item) => item.url)).toEqual(['/second']);
 		} finally {

@@ -72,9 +72,7 @@ declare global {
 		| {
 				claimed: boolean;
 				key: string;
-				promise: Promise<
-					import('../src/core/prepare').PrepareResult
-				>;
+				promise: Promise<import('../src/core/prepare').PrepareResult>;
 		  }
 		| undefined;
 	/** Dev-server activity counters (`src/dev/devActivity.ts`) — the

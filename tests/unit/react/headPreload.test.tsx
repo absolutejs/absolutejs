@@ -9,7 +9,11 @@ describe('React Head preload + speculation rules', () => {
 				preload={[
 					{ as: 'style', href: '/styles/main.css' },
 					{ href: '/react/indexes/Home.js', module: true },
-					{ as: 'font', crossorigin: 'anonymous', href: '/fonts/a.woff2' }
+					{
+						as: 'font',
+						crossorigin: 'anonymous',
+						href: '/fonts/a.woff2'
+					}
 				]}
 				speculationRules={{ prerender: ['/pricing'] }}
 			/>

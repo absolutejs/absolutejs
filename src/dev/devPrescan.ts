@@ -25,12 +25,14 @@
  * itself, so a failure here can only cost the optimisation, never the
  * boot.
  *
- * Off by default: scanning in the parent delays the child spawn, and the
- * child cannot adopt the result until the user's own import graph has
- * finished evaluating anyway. Measured on a 74-page app it cost more than
- * it saved (first paint 3.8s without it, 8.5s with it). Opt in with
- * `ABSOLUTE_DEV_PRESCAN=1` for a project whose source tree is slow to scan
- * but whose server entry imports little. */
+ * Off by default. It does remove real work from the child — the two scans
+ * drop from hundreds of milliseconds to single digits — but the child
+ * cannot adopt the payload until the user's own entry has finished
+ * importing, and those scans were running inside that same window.
+ * Measured end to end on a 74-page app the two settings tie, so the
+ * default is the one without a cross-process handshake. Opt in with
+ * `ABSOLUTE_DEV_PRESCAN=1` where the source tree is large but the server
+ * entry imports little, leaving no import window to hide the scans in. */
 
 import { existsSync, readdirSync, rmSync } from 'node:fs';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';

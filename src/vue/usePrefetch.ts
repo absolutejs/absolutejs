@@ -55,7 +55,8 @@ export const usePrefetch = (
 	let hoverHandle: HoverPrefetchHandle | null = null;
 
 	const currentHref = () => toValue(href);
-	const currentMode = () => toValue(options.mode) ?? resolveDefaultPrefetchMode();
+	const currentMode = () =>
+		toValue(options.mode) ?? resolveDefaultPrefetchMode();
 	const shouldPrerender = () => toValue(options.prerender) === true;
 
 	const isActive = () => {
@@ -89,13 +90,18 @@ export const usePrefetch = (
 	};
 
 	if (typeof window !== 'undefined') {
-		watchEffect((onCleanup) => {
-			const node = element.value;
-			const target = currentHref();
-			if (!node || target === undefined || !isActive()) return;
-			if (currentMode() !== 'viewport') return;
-			onCleanup(observeViewport(node, target, { kind: viewportKind }));
-		}, { flush: 'post' });
+		watchEffect(
+			(onCleanup) => {
+				const node = element.value;
+				const target = currentHref();
+				if (!node || target === undefined || !isActive()) return;
+				if (currentMode() !== 'viewport') return;
+				onCleanup(
+					observeViewport(node, target, { kind: viewportKind })
+				);
+			},
+			{ flush: 'post' }
+		);
 	}
 
 	if (getCurrentScope()) onScopeDispose(cancelHover);

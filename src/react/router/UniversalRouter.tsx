@@ -41,9 +41,10 @@ const readRouteProps = (props: unknown): RouteLikeProps => {
 	const children = Reflect.get(props, 'children');
 
 	return {
-		children: isValidElement(children) || Array.isArray(children)
-			? children
-			: undefined,
+		children:
+			isValidElement(children) || Array.isArray(children)
+				? children
+				: undefined,
 		index: index === true ? true : undefined,
 		path: typeof path === 'string' ? path : undefined
 	};
