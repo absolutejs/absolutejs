@@ -12,7 +12,11 @@ import {
 } from '../constants';
 import { runDeferredBootTasks } from '../dev/bootLifecycle';
 import { loadDevCert } from '../dev/devCert';
-import { releaseEarlyListener } from '../dev/earlyListener';
+import {
+	parentOwnsDevPort,
+	releaseEarlyListener,
+	signalParentPortHandoff
+} from '../dev/earlyListener';
 import {
 	registerInstance,
 	resolveProjectName
@@ -188,12 +192,22 @@ export const networking = <A extends AnyElysia>(app: A) => {
 	// synchronously, so the real bind below cannot see EADDRINUSE from it.
 	releaseEarlyListener();
 
+	// When the CLI parent holds the placeholder instead, the hand-off goes
+	// the other way: bind alongside its socket with `reusePort` (so no
+	// connection is ever refused in between) and tell it we are up, which
+	// is its cue to close. `parentOwnsDevPort()` is only true for a child
+	// the CLI spawned after binding, so a standalone server keeps the
+	// plain bind — and with it the loud EADDRINUSE that `strictPort` and
+	// the CLI's port probe rely on.
+	const parentHandoff = parentOwnsDevPort();
+
 	markBoot('listen() called');
 	const listened = app.listen(
 		{
 			hostname: host,
 			idleTimeout: httpIdleTimeout,
 			port: port,
+			...(parentHandoff ? { reusePort: true } : {}),
 			...(tls
 				? {
 						tls: {
@@ -205,6 +219,7 @@ export const networking = <A extends AnyElysia>(app: A) => {
 		},
 		() => {
 			markBoot('server listening');
+			if (parentHandoff) signalParentPortHandoff(Number(port));
 			selfRegisterInstance();
 			// The port is serving real traffic now — flush boot work that
 			// was deferred off the critical path (module prewarm, etc.).

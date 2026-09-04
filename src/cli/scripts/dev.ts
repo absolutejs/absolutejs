@@ -20,6 +20,13 @@ import {
 } from '../../constants';
 import { startTunnelClient } from '../../dev/tunnel/client';
 import { createDevPrescan } from '../../dev/devPrescan';
+import {
+	PARENT_HANDOFF_MARKER,
+	PARENT_LISTENER_ENV,
+	parentListenerSupported,
+	startEarlyListener,
+	type EarlyListener
+} from '../../dev/earlyListener';
 import { formatTimestamp } from '../../utils/startupBanner';
 import { bootTimelineChildEnv, markBoot } from '../../utils/bootTimeline';
 import { createInteractiveHandler } from '../interactive';
@@ -348,6 +355,12 @@ const setupHttpsCert = async (hosts: readonly string[] = []) => {
 	await setupCertWithPrompt(ensureDevCert, setupMkcert, hosts);
 
 	return getDevCertificateAuthorityPath();
+};
+
+/** PEM material for the dev certificate, as `loadDevCert` returns it. */
+type DevCertificateMaterial = {
+	cert: string;
+	key: string;
 };
 
 type ResolvedDevConfig = {
@@ -948,6 +961,83 @@ export const dev = async (
 	// in its "PID X holds port Y" error message.
 	markBoot('dev port resolved');
 	updateLockMetadata(buildDirectory, { port });
+
+	// §1.3b — bind the "Building…" placeholder HERE, in the CLI, rather
+	// than leaving it to the child.
+	//
+	// The child used to bind it a few hundred milliseconds after this
+	// point, which read as a fix but was not one: the child is a single JS
+	// thread, and it spends the next several seconds synchronously
+	// evaluating the user's module graph, during which it cannot run the
+	// placeholder's request handler. Measured on a 74-page app the socket
+	// existed at 0.86s and the first byte still arrived at 4.2s. This
+	// process has nothing to do but forward the child's output, so a
+	// placeholder bound here answers immediately and keeps answering for
+	// the whole boot.
+	//
+	// The hand-off to the child rides SO_REUSEPORT (`reusePort`), so the
+	// two sockets overlap for the millisecond between the child's bind and
+	// this one closing — there is never an instant with nothing bound, and
+	// nothing a client can observe as an error. The port probe above is
+	// still a plain, non-reusePort bind, so a genuinely occupied port
+	// fails exactly as loudly as before (`strictPort` included), and the
+	// child only sets `reusePort` when this listener actually came up.
+	const parentListenerAllowed =
+		env.ABSOLUTE_EARLY_LISTEN !== '0' && parentListenerSupported();
+	let parentListener: EarlyListener | null = null;
+	let parentListenerPort: number | null = null;
+	let parentListenerTls: DevCertificateMaterial | null | undefined;
+	const releaseParentListener = () => {
+		const listener = parentListener;
+		parentListener = null;
+		parentListenerPort = null;
+		if (!listener) return;
+		listener.release();
+		if (globalThis.__absoluteEarlyListener === listener) {
+			globalThis.__absoluteEarlyListener = undefined;
+		}
+	};
+	const loadParentListenerTls = async () => {
+		if (!httpsEnabled) return null;
+		try {
+			const { loadDevCert } = await import('../../dev/devCert');
+
+			return loadDevCert();
+		} catch {
+			return null;
+		}
+	};
+	/** Bind (or re-bind, after a restart or a config port change) the
+	 *  placeholder. Idempotent, and a no-op once it is already up on the
+	 *  current port. A failed bind is not an error: the child still has
+	 *  its own placeholder for exactly that case. */
+	const ensureParentListener = async () => {
+		if (!parentListenerAllowed) return;
+		if (parentListener && parentListenerPort === port) return;
+		releaseParentListener();
+		parentListenerTls ??= await loadParentListenerTls();
+		const listener = startEarlyListener({
+			host: resolvedDev.host,
+			port,
+			reusePort: true,
+			tls: parentListenerTls
+		});
+		if (!listener.server) {
+			// Something else holds the port right now (most often the
+			// previous child's socket still draining). Give up silently
+			// rather than retry in the background: the child's own
+			// placeholder covers this, and a stray retry could bind the
+			// port back out from under the real server.
+			listener.release();
+			globalThis.__absoluteEarlyListener = undefined;
+
+			return;
+		}
+		parentListener = listener;
+		parentListenerPort = port;
+		markBoot('parent listener bound');
+	};
+	await ensureParentListener();
 
 	// Publish this dev server to the global instance registry so `absolute ps`
 	// can list/manage it from anywhere on the machine. `command` is the
@@ -1608,6 +1698,10 @@ export const dev = async (
 		const chunk = value.toString();
 		if (!chunk.includes('Local:')) return;
 		serverReady = true;
+		// The child normally releases the placeholder over its hand-off
+		// pipe, well before this. This covers an entry that binds the port
+		// without going through `Bun.serve` on the patched global.
+		releaseParentListener();
 		startTunnelIfConfigured();
 		startAndroidDev();
 		startIosDev();
@@ -1815,8 +1909,18 @@ export const dev = async (
 	// after edits the parent has not re-scanned.
 	let prescan = prescanConfig ? createDevPrescan(prescanConfig) : null;
 
+	// Bumped on every spawn so a late `data` event from a replaced child's
+	// hand-off pipe cannot close the placeholder the replacement is still
+	// waiting to hand over from.
+	let spawnGeneration = 0;
 	const spawnServer = async () => {
+		spawnGeneration += 1;
+		const generation = spawnGeneration;
 		await refreshDevConfigForSpawn();
+		// Restarts and crash respawns come through here too, so this is
+		// also where the placeholder comes back after the previous child
+		// let go of the port.
+		await ensureParentListener();
 		markBoot('dev child spawn requested');
 		const prescanForSpawn = prescan;
 		prescan = null;
@@ -1840,6 +1944,12 @@ export const dev = async (
 					ABSOLUTE_INSTANCE_MANAGED: '1',
 					ABSOLUTE_PORT: String(port),
 					ABSOLUTE_SERVER_ENTRY: resolvePath(serverEntry),
+					// Only set when the placeholder is actually up here, so
+					// a failed parent bind falls straight back to the
+					// child's own placeholder and its plain (loud) listen.
+					...(parentListener
+						? { [PARENT_LISTENER_ENV]: '1' }
+						: {}),
 					...bootTimelineChildEnv(),
 					...(prescanForSpawn
 						? { ABSOLUTE_DEV_PRESCAN: prescanForSpawn.path }
@@ -1852,12 +1962,33 @@ export const dev = async (
 					...(configPath ? { ABSOLUTE_CONFIG: configPath } : {}),
 					...(httpsEnabled ? { ABSOLUTE_HTTPS: 'true' } : {})
 				},
-				stdio: ['ignore', 'pipe', 'pipe']
+				// fd 3 is the child's hand-off pipe (see below). Keeping it
+				// off stdout matters: the marker must never reach the
+				// developer's terminal or the instance log, and stdout
+				// chunks coalesce in ways that make stripping one line out
+				// of the forwarded stream unreliable.
+				stdio: ['ignore', 'pipe', 'pipe', 'pipe']
 			}
 		);
 
 		// Started after the spawn so the scan can never delay the child.
 		prescanForSpawn?.start();
+
+		// The child writes `absolute:listening <port>` here the instant the
+		// real server is bound — the cue to close this process's
+		// placeholder. Both sockets are `reusePort`, so the overlap costs
+		// nothing and no connection is refused in between.
+		const [, , , handoffPipe] = proc.stdio;
+		if (handoffPipe && 'on' in handoffPipe) {
+			handoffPipe.on('data', (chunk: Buffer) => {
+				if (generation !== spawnGeneration) return;
+				if (!chunk.toString().includes(PARENT_HANDOFF_MARKER)) return;
+				releaseParentListener();
+			});
+			handoffPipe.on('error', () => {
+				/* the child died; the exit monitor handles it */
+			});
+		}
 
 		let printedBootDiagnostic = false;
 		const forward = (
@@ -2192,6 +2323,7 @@ export const dev = async (
 			entry: serverEntry
 		});
 		if (interactive) interactive.dispose();
+		releaseParentListener();
 		tunnelClient?.close();
 		androidDevAbort.abort();
 		androidNativeWatcher?.close();

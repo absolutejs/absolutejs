@@ -53,6 +53,11 @@ declare global {
 		| import('../src/dev/earlyListener').EarlyListener
 		| undefined;
 	var __absoluteEarlyListenerServeGuard: boolean | undefined;
+	/** Parent-owned hand-off (see `src/dev/earlyListener.ts`): the CLI holds
+	 *  the "Building…" placeholder, so this child skips its own, binds the
+	 *  real server with `reusePort` and reports the bind back exactly once. */
+	var __absoluteParentPortHandoffGuard: boolean | undefined;
+	var __absoluteParentHandoffSignalled: boolean | undefined;
 	/** Label of the boot step currently running (shown on the placeholder
 	 *  page). See `src/dev/bootLifecycle.ts`. */
 	var __absoluteBootPhase: string | undefined;
