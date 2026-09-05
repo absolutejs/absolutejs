@@ -209,6 +209,25 @@ const scanRealImportSpecifiers = (code: string) => {
 	}
 };
 
+/** The named bindings of an import clause, so a stub can export exactly what
+ *  the importer expects. Aliases keep the source name (`{ a as b }` needs `a`
+ *  exported); a namespace or default import needs nothing extra. */
+export const importedBindingNames = (clause: string) => {
+	const braces = /\{([^}]*)\}/u.exec(clause);
+	const inner = braces?.[1];
+	if (inner === undefined) return [];
+
+	return inner
+		.split(',')
+		.map((part) => part.trim())
+		.filter((part) => part.length > 0)
+		.map(
+			(part) => part.replace(/^type\s+/u, '').split(/\s+as\s+/u)[0] ?? ''
+		)
+		.map((name) => name.trim())
+		.filter((name) => /^[A-Za-z_$][\w$]*$/u.test(name));
+};
+
 const buildImportRewriter = (vendorPaths: Record<string, string>) => {
 	const entries = Object.entries(vendorPaths).sort(
 		([a], [b]) => b.length - a.length
@@ -411,7 +430,19 @@ const rewriteImports = (
 			return `${prefix}${srcUrl(resolved, projectRoot)}${suffix}`;
 		}
 
-		return `${prefix}/@stub/${encodeURIComponent(specifier)}${suffix}`;
+		// Carry the names this import asked for. A stub that cannot satisfy
+		// them is not a fallback: the browser rejects the whole module with
+		// "does not provide an export named ...", which kills the bundle and
+		// every event handler on the page. The specifier is percent-encoded
+		// and so never contains a slash, which keeps the second segment
+		// unambiguous, and a stub URL without one still works.
+		const requested = importedBindingNames(prefix);
+		const namesSegment =
+			requested.length > 0
+				? `/${encodeURIComponent(requested.join(','))}`
+				: '';
+
+		return `${prefix}/@stub/${encodeURIComponent(specifier)}${namesSegment}${suffix}`;
 	};
 
 	// Combined: import/export from 'bare', import 'bare' (line-anchored)
@@ -1314,8 +1345,17 @@ const generateVueHmrBootstrap = (
 
 // Generate a stub module for a server-only package so browser imports resolve.
 const handleStubRequest = async (pathname: string) => {
-	const specifier = decodeURIComponent(pathname.slice('/@stub/'.length));
-	const stubCode = await buildStubCode(specifier);
+	const [encodedSpecifier = '', encodedNames] = pathname
+		.slice('/@stub/'.length)
+		.split('/');
+	const specifier = decodeURIComponent(encodedSpecifier);
+	const requested =
+		encodedNames === undefined
+			? []
+			: decodeURIComponent(encodedNames)
+					.split(',')
+					.filter((name) => name.length > 0);
+	const stubCode = await buildStubCode(specifier, requested);
 
 	return new Response(stubCode, {
 		headers: {
@@ -1368,22 +1408,32 @@ const handleBunWrapRequest = () =>
 	});
 
 // Introspect a module's exports and generate noop stubs for each.
-const buildStubCode = async (specifier: string) => {
-	try {
-		const mod = await import(specifier);
-		const names = Object.keys(mod).filter(
-			(key) => key !== 'default' && key !== '__esModule'
-		);
-		if (names.length === 0) return 'export default {};\n';
+/* A stub must export every name the importer asked for, even when the real
+ * module cannot be introspected here — a client-only runtime throws on a
+ * server-side `import()`, and the old fallback of `export default {}` left the
+ * browser to fail the whole module with "does not provide an export named
+ * ...". That kills the bundle, so nothing hydrates and every click on the page
+ * silently does nothing. The union matters in both directions: a module that
+ * loads may still be missing a name the importer wants. */
+const buildStubCode = async (
+	specifier: string,
+	requested: readonly string[] = []
+) => {
+	const discovered = await import(specifier).then(
+		(mod) =>
+			Object.keys(mod).filter(
+				(key) => key !== 'default' && key !== '__esModule'
+			),
+		() => []
+	);
+	const names = [...new Set([...discovered, ...requested])];
+	if (names.length === 0) return 'export default {};\n';
 
-		const noops = names
-			.map((n) => `export const ${n} = () => {};`)
-			.join('\n');
+	const noops = names
+		.map((name) => `export const ${name} = () => {};`)
+		.join('\n');
 
-		return `${noops}\nexport default {};\n`;
-	} catch {
-		return 'export default {};\n';
-	}
+	return `${noops}\nexport default {};\n`;
 };
 
 // Handle HMR bootstrap wrappers for non-React frameworks.
