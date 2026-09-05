@@ -1,7 +1,9 @@
 import { describe, expect, test } from 'bun:test';
 import {
 	dominatedByEdge,
+	dominatedByEdges,
 	reachableFrom,
+	reachableWithoutEdges,
 	summarizeImportSavings
 } from '../../../src/dev/importCost/dominators';
 
@@ -70,6 +72,49 @@ describe('import-cost dominators', () => {
 		expect(summary.totalMs).toBe(
 			SELF_MS.reduce((total, value) => total + value, 0)
 		);
+	});
+
+	test('deferring every import together removes the shared module too', () => {
+		// `shared` (5) is reached through both alpha (2) and beta (3), so no
+		// single edge dominates it — but it leaves once BOTH edges are gone.
+		expect([
+			...reachableWithoutEdges(EDGES, 0, 1, new Set([2, 3, 4]))
+		]).toEqual([1, 1, 0, 0, 0, 0, 0, 0, 1]);
+		expect(
+			dominatedByEdges(
+				EDGES,
+				0,
+				1,
+				new Set([2, 3, 4]),
+				reachableFrom(EDGES, 0)
+			)
+		).toEqual([2, 3, 4, 5, 6, 7]);
+	});
+
+	test('the combined saving exceeds the sum of the per-import savings', () => {
+		const summary = summarizeImportSavings({
+			candidates: [
+				{ specifier: './alpha', target: 2 },
+				{ specifier: './beta', target: 3 },
+				{ specifier: './gamma', target: 4 }
+			],
+			edges: EDGES,
+			entry: 1,
+			root: 0,
+			selfMs: SELF_MS
+		});
+		const rowTotal = summary.candidates.reduce(
+			(total, candidate) => total + candidate.savingMs,
+			0
+		);
+
+		// Rows alone: alpha 100 + beta 8 + gamma 16 = 124.
+		expect(rowTotal).toBe(124);
+		// Together they also take `shared` (100): 124 + 100 = 224.
+		expect(summary.combined.savingMs).toBe(224);
+		expect(summary.combined.count).toBe(6);
+		// The framework (500) is reached by the root, so it never leaves.
+		expect(summary.combined.savingMs).toBeLessThan(summary.totalMs);
 	});
 
 	test('an import whose module never loaded claims nothing', () => {

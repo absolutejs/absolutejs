@@ -142,6 +142,15 @@ const buildReport = (recorder: ImportCostRecorder) => {
 		candidates,
 		edges,
 		entry,
+		groupSpecifiers: new Set(
+			candidates
+				.filter(
+					(_candidate, index) =>
+						(declared[index]?.verdict ?? 'deferrable') ===
+						'deferrable'
+				)
+				.map((candidate) => candidate.specifier)
+		),
 		root,
 		selfMs
 	});
@@ -157,6 +166,8 @@ const buildReport = (recorder: ImportCostRecorder) => {
 		}))
 		.sort((left, right) => right.savingMs - left.savingMs);
 	const report: ImportCostReport = {
+		combinedCount: savings.combined.count,
+		combinedMs: savings.combined.savingMs,
 		entryBodyMs: entryMs,
 		entryLabel: relative(process.cwd(), entryPath) || entryPath,
 		// The root is still on the stack: the report runs from inside it.
