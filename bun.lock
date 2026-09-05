@@ -5,8 +5,8 @@
     "": {
       "name": "@absolutejs/absolute",
       "dependencies": {
-        "@absolutejs/auth": "0.75.0",
-        "@absolutejs/beacon": "0.7.0-beta.4",
+        "@absolutejs/auth": ">=0.75.0 <0.77.0",
+        "@absolutejs/beacon": ">=0.7.0-beta.4 <0.8.0",
         "@absolutejs/devices": "0.7.0",
         "@absolutejs/devices-capacitor": "0.8.0",
         "@absolutejs/devices-expo": "0.0.2",
