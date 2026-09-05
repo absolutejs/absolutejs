@@ -17,7 +17,6 @@ import {
 } from './hmrTiming';
 import { hideErrorOverlay, showErrorOverlay } from './errorOverlay';
 import { installAbsoluteNativeSyncDevtools } from './syncDevtools';
-import { installAbsoluteMobilePreview } from '../../mobile/mobilePreviewClient';
 import {
 	dispatchAngularComponentRemount,
 	dispatchAngularComponentUpdate
@@ -46,8 +45,24 @@ const isStringRecord = (value: unknown): value is Record<string, string> =>
 
 restoreAbsoluteHmrApply();
 const nativeDeviceAdapterPath = '/__absolute/native-device-adapter.js';
+// Mobile preview pulls in @absolutejs/devices; load it lazily via a dev route
+// (variable specifier the bundler leaves alone) so a plain web/native client
+// build never has to resolve it. Mirrors nativeDeviceAdapterPath below.
+const mobilePreviewClientPath = '/__absolute/mobile-preview-client.js';
 const hmrClientTarget = absoluteHmrClientTarget();
-if (hmrClientTarget === 'mobile-preview') installAbsoluteMobilePreview();
+if (hmrClientTarget === 'mobile-preview')
+	import(mobilePreviewClientPath)
+		.then((module) => {
+			(
+				module as { installAbsoluteMobilePreview?: () => void }
+			).installAbsoluteMobilePreview?.();
+		})
+		.catch((error: unknown) => {
+			console.error(
+				'[absolute] mobile preview client unavailable — is @absolutejs/devices installed?',
+				error
+			);
+		});
 const nativeDeviceAdapterReady =
 	hmrClientTarget === 'web' || hmrClientTarget === 'mobile-preview'
 		? Promise.resolve()

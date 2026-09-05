@@ -72,7 +72,12 @@ const shouldSkipFilename = (filename: string, isStylesDir: boolean) =>
 	filename.endsWith('.tmp') ||
 	filename.endsWith('~') ||
 	filename.startsWith('.#') ||
-	filename.startsWith('.absolutejs-hmr-') ||
+	filename.includes('/.#') ||
+	// Framework-owned `bun --hot` bootstrap copies (serverBootstrap.ts) live in
+	// the server-entry dir, so `filename` here is a nested path — match anywhere,
+	// not just as a basename, or a frontend edit's server re-bootstrap trips the
+	// restart fall-through and forces a full server restart instead of HMR.
+	filename.includes('.absolutejs-hmr-') ||
 	ATOMIC_WRITE_TEMP_PATTERNS.some((pattern) => pattern.test(filename));
 
 const setupWatcher = (

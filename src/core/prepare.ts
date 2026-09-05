@@ -290,6 +290,24 @@ const prepareDev = async (
 						)
 				)
 			: Promise.resolve('export {};'));
+	let mobilePreviewClientBundle: Promise<string> | undefined;
+	const mobilePreviewClientStub =
+		'export const installAbsoluteMobilePreview = () => {};';
+	const getMobilePreviewClientBundle = () =>
+		(mobilePreviewClientBundle ??= nativeMobileConfig
+			? import('../mobile/mobilePreviewClientBundle')
+					.then(({ buildAbsoluteMobilePreviewClientBundle }) =>
+						buildAbsoluteMobilePreviewClientBundle()
+					)
+					.catch((error: unknown) => {
+						console.error(
+							'[absolute] mobile preview client build failed — is @absolutejs/devices installed?',
+							error
+						);
+
+						return mobilePreviewClientStub;
+					})
+			: Promise.resolve(mobilePreviewClientStub));
 	const absolutejs = new Elysia({ name: 'absolutejs-runtime' })
 		// Must be first: the inspector's global request/afterResponse hooks
 		// only reach routes compiled after them, so it has to precede the
@@ -315,6 +333,16 @@ const prepareDev = async (
 			'/__absolute/native-device-adapter.js',
 			async () =>
 				new Response(await getNativeDevAdapterBundle(), {
+					headers: {
+						'Cache-Control': 'no-store',
+						'Content-Type': 'text/javascript; charset=utf-8'
+					}
+				})
+		)
+		.get(
+			'/__absolute/mobile-preview-client.js',
+			async () =>
+				new Response(await getMobilePreviewClientBundle(), {
 					headers: {
 						'Cache-Control': 'no-store',
 						'Content-Type': 'text/javascript; charset=utf-8'

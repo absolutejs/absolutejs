@@ -128,7 +128,14 @@ export const generateHeadElement = ({
 }: Metadata = {}) => {
 	const tags: string[] = [
 		'<meta charset="UTF-8">',
-		'<meta name="viewport" content="width=device-width, initial-scale=1.0">',
+		// `viewport-fit=cover` makes the iOS safe-area insets available via
+		// env(); it is a no-op on the web/desktop (insets resolve to 0). The
+		// paired style keeps content clear of the notch / status bar / home
+		// indicator in a native WKWebView (which fills the whole screen) while
+		// staying invisible everywhere the insets are 0. Exposed as custom
+		// properties so app styles can opt into finer control.
+		'<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">',
+		'<style>:root{--absolute-safe-area-inset-top:env(safe-area-inset-top);--absolute-safe-area-inset-right:env(safe-area-inset-right);--absolute-safe-area-inset-bottom:env(safe-area-inset-bottom);--absolute-safe-area-inset-left:env(safe-area-inset-left)}body{padding-top:env(safe-area-inset-top);padding-right:env(safe-area-inset-right);padding-bottom:env(safe-area-inset-bottom);padding-left:env(safe-area-inset-left)}</style>',
 		`<title>${title}</title>`,
 		`<meta name="description" content="${description}">`,
 		`<link rel="icon" href="${applyIconVersion(icon)}" type="${iconMimeType(icon)}">`

@@ -371,15 +371,29 @@ const didInlineScriptsChange = (oldInline: string[], newInline: string[]) =>
 	oldInline.length !== newInline.length ||
 	oldInline.some((content, idx) => content !== newInline[idx]);
 
+/* Reduce a script src to a stable identity so the SAME module matches across
+ * its built and raw-source forms. The live DOM carries the built, hashed,
+ * absolute src (`/src/frontend/html/scripts/typescript-example.nmxxe6hp.js`),
+ * while the HMR patch is extracted from the raw source file and carries the
+ * author's relative src (`../scripts/typescript-example.ts`). Comparing the
+ * full srcs makes every markup edit look like a script change, needlessly
+ * re-executing scripts (which here re-appends a 404 raw path and rips out the
+ * working module — freezing script-bound UI). Strip the directory, query, a
+ * trailing content-hash segment, and the extension, leaving the author name. */
+const scriptIdentity = (src: string) => {
+	const withoutQuery = src.split(/[?#]/)[0] ?? '';
+	const file = withoutQuery.split('/').pop() ?? withoutQuery;
+
+	return file.replace(/(\.[A-Za-z0-9]+)?\.(js|mjs|cjs|ts|tsx|jsx)$/i, '');
+};
+
 const didScriptsChange = (oldScripts: ScriptInfo[], newScripts: ScriptInfo[]) =>
 	oldScripts.length !== newScripts.length ||
 	oldScripts.some((oldScript, idx) => {
-		const [oldSrcBase] = oldScript.src.split('?')[0]?.split('&') ?? [''];
 		const newScript = newScripts[idx];
 		if (!newScript) return true;
-		const [newSrcBase] = newScript.src.split('?')[0]?.split('&') ?? [''];
 
-		return oldSrcBase !== newSrcBase;
+		return scriptIdentity(oldScript.src) !== scriptIdentity(newScript.src);
 	});
 
 const normalizeHTMLForComparison = (element: HTMLElement) => {

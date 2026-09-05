@@ -3235,20 +3235,6 @@ const buildUnlocked = async ({
 			(f) => f.includes('/htmx/') && f.endsWith('.html')
 		);
 
-	// Update asset paths if CSS changed (even if HTML files didn't change)
-	const shouldUpdateHtmlAssetPaths =
-		!isIncremental ||
-		normalizedIncrementalFiles?.some(
-			(f) =>
-				f.includes('/html/') && (f.endsWith('.html') || isStylePath(f))
-		);
-	const shouldUpdateHtmxAssetPaths =
-		!isIncremental ||
-		normalizedIncrementalFiles?.some(
-			(f) =>
-				f.includes('/htmx/') && (f.endsWith('.html') || isStylePath(f))
-		);
-
 	// Await the HMR client bundle that was started before the compile phase
 	const hmrClientBundle = hmrClientBundlePromise
 		? await hmrClientBundlePromise
@@ -3281,11 +3267,12 @@ const buildUnlocked = async ({
 			recursive: true
 		});
 
-		// Update asset paths if HTML files changed OR CSS changed
-		if (shouldUpdateHtmlAssetPaths) {
-			await updateAssetPaths(manifest, outputHtmlPages);
-			await optimizeHtmlImages(outputHtmlPages);
-		}
+		// The raw source pages are re-copied (cpSync above) on every build,
+		// so the manifest asset-path rewrite must always follow — gating it let
+		// an unrelated incremental edit leave pages pointing at un-hashed source
+		// paths (e.g. `../../styles/indexes/x.css` → 404 → unstyled).
+		await updateAssetPaths(manifest, outputHtmlPages);
+		await optimizeHtmlImages(outputHtmlPages);
 
 		// Add HTML pages to manifest (absolute paths for Bun.file())
 		const htmlPageFiles = await scanEntryPoints(outputHtmlPages, '*.html');
@@ -3330,11 +3317,10 @@ const buildUnlocked = async ({
 			copyHtmxVendor(htmxDir, htmxDestDir);
 		}
 
-		// Update asset paths if HTMX files changed OR CSS changed
-		if (shouldUpdateHtmxAssetPaths) {
-			await updateAssetPaths(manifest, outputHtmxPages);
-			await optimizeHtmlImages(outputHtmxPages);
-		}
+		// Re-copied raw every build (cpSync above), so always rewrite — see the
+		// HTML pages note above.
+		await updateAssetPaths(manifest, outputHtmxPages);
+		await optimizeHtmlImages(outputHtmxPages);
 
 		// Add HTMX pages to manifest (absolute paths for Bun.file())
 		const htmxPageFiles = await scanEntryPoints(outputHtmxPages, '*.html');

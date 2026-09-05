@@ -34,9 +34,19 @@ export const restoreDOMChanges = (
 		if (liveHTML === newInner || liveHTML.length <= newInner.length) return;
 
 		const liveEl = root.querySelector(`#${CSS.escape(elId)}`);
-		if (liveEl) {
-			liveEl.innerHTML = liveHTML;
-		}
+		if (!liveEl) return;
+
+		/* Skip the wholesale innerHTML restore when this subtree still holds an
+		 * id'd descendant: those are tracked and restored individually (the
+		 * text/children maps) and patchDOMInPlace already preserved their node
+		 * identity. Reassigning innerHTML here rebuilds them into fresh nodes,
+		 * orphaning any element reference (and its listeners) a user script
+		 * captured — e.g. a counter script holding `#counter` whose parent
+		 * `#counter-button` gets clobbered, freezing the button. Id-less
+		 * dynamic children (JS-appended list items) have no such descendant and
+		 * still restore. */
+		if (liveEl.querySelector('[id]')) return;
+		liveEl.innerHTML = liveHTML;
 	});
 };
 export const snapshotDOMChanges = (root: HTMLElement): DOMSnapshot => {

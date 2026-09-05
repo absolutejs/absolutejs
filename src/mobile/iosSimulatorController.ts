@@ -651,8 +651,20 @@ const writeDevProjection = async (
 	if (process.env.ABSOLUTE_HMR_DEBUG === '1')
 		developmentUrl.searchParams.set('__absolute_hmr_debug', '1');
 	const existingServer = parsed.server;
+	const existingAllowNavigation =
+		isRecord(existingServer) && Array.isArray(existingServer.allowNavigation)
+			? existingServer.allowNavigation.filter(
+					(entry): entry is string => typeof entry === 'string'
+				)
+			: [];
 	parsed.server = {
 		...(isRecord(existingServer) ? existingServer : {}),
+		// Keep same-host page navigations (e.g. framework nav links) inside the
+		// WKWebView during dev. With a remote `server.url` and no allowlist,
+		// Capacitor cancels every sub-navigation — even same-origin — and opens
+		// it in Safari. Dev-only: `mobile doctor release` flags `allowNavigation`
+		// as a leaked artifact, so it must never reach a production build.
+		allowNavigation: [...new Set([...existingAllowNavigation, serverHost])],
 		cleartext: !https,
 		url: developmentUrl.href
 	};

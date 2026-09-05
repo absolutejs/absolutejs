@@ -2373,15 +2373,23 @@ const getReactModuleUrl = getModuleUrl;
 // (Svelte lacks a component-level HMR runtime like React/Vue.)
 
 const resolveBroadcastTarget = async (primaryFile: string) => {
-	const isComponentFile =
-		primaryFile.endsWith('.tsx') || primaryFile.endsWith('.jsx');
-
-	if (isComponentFile) return primaryFile;
-
 	const { findNearestComponent } = await import('./transformCache');
-	const nearest = findNearestComponent(resolvePath(primaryFile));
+	// Walk the reverse-import graph up to the PAGE component — the topmost
+	// .tsx/.jsx in the chain, whose importer is the generated hydration index
+	// rather than another component. The client remount renders this target
+	// into `document`, so it must be the component that renders the full
+	// <html><head>…</head><body> document. Targeting a bare child component
+	// (e.g. an edited `components/App.tsx`) would remount just that fragment
+	// into `document`, dropping the page's <head> and its stylesheet links
+	// (the page renders styled but loses all CSS until a full reload).
+	let target = resolvePath(primaryFile);
+	for (let depth = 0; depth < 64; depth += 1) {
+		const nearest = findNearestComponent(target);
+		if (nearest === undefined || nearest === target) break;
+		target = nearest;
+	}
 
-	return nearest ?? primaryFile;
+	return target;
 };
 
 const handleReactModuleServerPath = async (

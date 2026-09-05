@@ -132,6 +132,7 @@ const SERVER_ENTRY_POINTS = [
 	'src/islands/index.ts',
 	'src/mobile/browser.ts',
 	'src/mobile/index.ts',
+	'src/mobile/mobilePreviewClient.ts',
 	'src/react/index.ts',
 	'src/react/browser.ts',
 	'src/react/server.ts',

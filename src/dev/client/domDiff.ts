@@ -14,7 +14,18 @@ const getElementKey = (elem: Node, index: number) => {
 	if (elem.hasAttribute('data-key'))
 		return `key_${elem.getAttribute('data-key')}`;
 
-	return `tag_${elem.tagName}_${index}`;
+	// Key unkeyed elements by tag name alone — NOT tag+index. The child list
+	// includes whitespace text nodes and runtime-injected siblings (dev
+	// devtools, scripts, overlays) that are absent from the freshly parsed
+	// server markup, so an absolute index shifts between the live DOM and the
+	// incoming HTML. That shift made unkeyed elements like <main> mismatch and
+	// get deep-cloned wholesale, rebuilding their subtree into fresh nodes and
+	// destroying element identity + event listeners (the counter button froze
+	// after an HMR edit). matchChildren buckets siblings per key and
+	// findBestMatch pairs same-tag siblings in document order, so tag-only keys
+	// reconcile unkeyed elements positionally (as React does) while tolerating
+	// inserted/removed siblings.
+	return `tag_${elem.tagName}`;
 };
 
 const updateElementAttributes = (oldEl: Element, newEl: Element) => {
