@@ -289,35 +289,65 @@ const collectBareImportsFromFile = async (
 // "main" is a tiny CJS wrapper that conditionally requires `./pkg.cjs.dev.js`
 // or `./pkg.cjs.prod.js` (the actual bare imports live deeper). See
 // collectBareImportsFromFile's comment for the full rationale.
-const collectTransitiveImports = async (
+/** Bounded so an unusually deep dependency graph cannot turn discovery into
+ *  a measurable part of boot. Reached only by pathological trees; the walk
+ *  below visits a package's entry file, not its whole source. */
+const MAX_DISCOVERY_FILES = 2000;
+
+/* Walk the dependency graph by FILE, resolving each import from the file that
+ * wrote it rather than from the project root.
+ *
+ * Resolving everything from `process.cwd()` stops at the first package that is
+ * not hoisted: with an isolated store, `postprocessing` is reachable from
+ * `@react-three/postprocessing` but not from the project root, so it fails to
+ * resolve, the walk gives up there, and everything beneath it becomes
+ * invisible — including `three/examples/jsm/postprocessing/Pass.js`, which
+ * resolves perfectly well and must be vendored. It survived into the built
+ * bundle as a bare specifier, where nothing rewrites it and the browser cannot
+ * load it.
+ *
+ * So traversal and vendorability are now separate questions. We walk THROUGH a
+ * package we cannot vendor, and only collect the specifiers the project root
+ * can resolve, since that is what a `/vendor/<name>.js` entry requires. */
+export const collectTransitiveImports = async (
 	specs: Iterable<string>,
 	alreadyVendored: Set<string>,
 	alreadyScanned: Set<string>
 ) => {
+	const { dirname } = await import('node:path');
 	const transpiler = new Bun.Transpiler({ loader: 'js' });
 	const newSpecs = new Set<string>();
+	const queue = [...specs].map((spec) => ({ from: process.cwd(), spec }));
+	let visited = 0;
 
-	for (const spec of specs) {
-		if (alreadyScanned.has(spec)) continue;
-		alreadyScanned.add(spec);
+	while (queue.length > 0 && visited < MAX_DISCOVERY_FILES) {
+		const next = queue.shift();
+		if (!next) break;
+		// Keyed by importer too: the same specifier resolves to different
+		// files from different packages, and collapsing them would hide one.
+		const key = `${next.from}\u0000${next.spec}`;
+		if (alreadyScanned.has(key)) continue;
+		alreadyScanned.add(key);
 		let resolved: string;
 		try {
-			resolved = Bun.resolveSync(spec, process.cwd());
+			resolved = Bun.resolveSync(next.spec, next.from);
 		} catch {
 			continue;
 		}
+		visited += 1;
 		const bareImports = await collectBareImportsFromFile(
 			resolved,
 			transpiler
 		);
+		const importerDirectory = dirname(resolved);
 		for (const child of bareImports) {
 			if (!isBareSpecifier(child)) continue;
 			if (isBuiltin(child)) continue;
 			if (isFrameworkSpecifier(child)) continue;
 			if (isAbsolutePackageSpecifier(child)) continue;
-			if (alreadyVendored.has(child)) continue;
-			if (!isResolvable(child)) continue;
-			newSpecs.add(child);
+			if (!alreadyVendored.has(child) && isResolvable(child))
+				newSpecs.add(child);
+			queue.push({ from: importerDirectory, spec: child });
 		}
 	}
 
