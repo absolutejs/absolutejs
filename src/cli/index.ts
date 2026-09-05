@@ -226,6 +226,10 @@ if (command === 'dev') {
 	const configPath = parseNamedArg('--config');
 	const { typecheck } = await import('./scripts/typecheck');
 	await typecheck(configPath);
+} else if (command === 'migrate') {
+	sendTelemetryEvent('cli:command', { command });
+	const { migrate } = await import('./scripts/migrate');
+	migrate(parseNamedArg('--path'));
 } else if (command === 'mkcert') {
 	sendTelemetryEvent('cli:command', { command });
 	const { setupMkcert } = await import('../dev/devCert');
@@ -318,6 +322,9 @@ if (command === 'dev') {
 		'  routes [--json] List every route (pages + API) of a running dev server'
 	);
 	console.error('  typecheck     Run type checkers for all frameworks');
+	console.error(
+		'  migrate       Report what moving this project to AbsoluteJS involves'
+	);
 	console.error('  telemetry     Manage anonymous telemetry');
 	console.error(
 		'  tunnel-relay  Run the public reverse-tunnel relay (for webhook dev)'
