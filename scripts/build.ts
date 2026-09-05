@@ -208,11 +208,7 @@ const EXTERNALS = [
 	'@absolutejs/pwa/*',
 	'typescript',
 	'debug',
-	'sharp',
-	'@absolutejs/native-linux-x64',
-	'@absolutejs/native-linux-arm64',
-	'@absolutejs/native-darwin-x64',
-	'@absolutejs/native-darwin-arm64'
+	'sharp'
 ];
 
 /* The config server bundles React (for SSR) so it works even in

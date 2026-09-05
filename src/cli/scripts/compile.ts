@@ -654,11 +654,11 @@ const toTopLevelPackage = (specifier: string) =>
 
 /** The framework's own package. Page chunks reference its subpath entries
  *  (e.g. `@absolutejs/absolute/svelte`), but it must NOT be copied into the
- *  compiled runtime's node_modules: its dependency graph pulls the platform
- *  `@absolutejs/native-*` packages whose `.node` binaries cannot be embedded
- *  (`Bun.file` rejects them), which aborts the whole embedded-runtime
- *  extraction. The framework runtime is provided by the embedded server
- *  bundle, not a node_modules copy. */
+ *  compiled runtime's node_modules: the framework runtime is already provided
+ *  by the embedded server bundle, so a node_modules copy is redundant weight in
+ *  the binary, and its dependency graph reaches packages whose files cannot be
+ *  raw-embedded (`Bun.file` rejects them), which would abort the whole
+ *  embedded-runtime extraction. */
 const FRAMEWORK_PACKAGE_NAME = '@absolutejs/absolute';
 
 /** Copy every package that the emitted SSR page chunks import as a bare

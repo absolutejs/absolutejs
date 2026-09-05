@@ -1,6 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { arch, platform } from 'node:os';
 import { join } from 'node:path';
 import { DEFAULT_PORT } from '../../constants';
 import { loadRawConfig } from '../../utils/loadConfig';
@@ -58,15 +57,6 @@ const checkAbsolute = () => {
 	return version === null
 		? check('fail', '@absolutejs/absolute', 'not resolvable here')
 		: check('ok', '@absolutejs/absolute', `v${version}`);
-};
-
-const checkNative = () => {
-	const target = `@absolutejs/native-${platform()}-${arch()}`;
-	const version = resolveVersion(target);
-
-	return version === null
-		? check('warn', 'Native binary', `${target} not installed`)
-		: check('ok', 'Native binary', `v${version}`);
 };
 
 const loadConfigOrNull = async () => {
@@ -196,7 +186,6 @@ const gatherChecks = async () => {
 	return [
 		checkBun(),
 		checkAbsolute(),
-		checkNative(),
 		typeGraphCheck(),
 		configCheck,
 		...(config === null ? [] : frameworkChecks(config)),

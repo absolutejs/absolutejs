@@ -299,14 +299,6 @@
 	"license": "BSL-1.1",
 	"main": "./dist/index.js",
 	"name": "@absolutejs/absolute",
-	"optionalDependencies": {
-		"@absolutejs/native-darwin-arm64": "0.20.0-beta.74",
-		"@absolutejs/native-darwin-x64": "0.20.0-beta.74",
-		"@absolutejs/native-linux-arm64": "0.20.0-beta.74",
-		"@absolutejs/native-linux-x64": "0.20.0-beta.74",
-		"@absolutejs/native-windows-arm64": "0.20.0-beta.74",
-		"@absolutejs/native-windows-x64": "0.20.0-beta.74"
-	},
 	"overrides": {
 		"@sinclair/typebox": "0.34.52",
 		"@typescript-eslint/utils": "8.56.1",
@@ -446,7 +438,6 @@
 	"scripts": {
 		"bd": "bun run scripts/build.ts && bun",
 		"build": "bun run scripts/build.ts",
-		"build:native": "./native/build.sh",
 		"config": "bun run src/cli/index.ts config",
 		"config:studio": "bun run src/cli/index.ts config --config example/absolute.config.ts",
 		"db:push": "drizzle-kit push",
@@ -456,8 +447,8 @@
 		"format:check": "bun run src/cli/index.ts prettier --check",
 		"lint": "bun run src/cli/index.ts eslint",
 		"ls": "bun run src/cli/index.ts ls",
-		"release": "bun run release:gate && ./native/publish.sh && bun publish",
-		"release:beta": "bun run release:gate && ./native/publish.sh --tag beta && bun publish --tag beta",
+		"release": "bun run release:gate && bun publish",
+		"release:beta": "bun run release:gate && bun publish --tag beta",
 		"release:gate": "bun run scripts/releaseGate.ts",
 		"start": "TELEMETRY_OFF=1 bun run src/cli/index.ts start example/server.ts --outdir example/dist --config example/absolute.config.ts",
 		"test": "bun run test:unit && bun run test:integration",
@@ -478,8 +469,7 @@
 		"test:packed-compile": "bun run scripts/testPackedCompile.ts",
 		"test:unit": "bun test --max-concurrency 1 tests/unit",
 		"typecheck": "bun run src/cli/index.ts typecheck --config example/absolute.config.ts",
-		"verify:client-bundle": "bun run scripts/verifyPublishedClientBundle.ts",
-		"verify:release-versions": "bun run scripts/verifyReleaseVersions.ts"
+		"verify:client-bundle": "bun run scripts/verifyPublishedClientBundle.ts"
 	},
 	"types": "./dist/src/index.d.ts",
 	"typesVersions": {
