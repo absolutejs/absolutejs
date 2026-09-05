@@ -872,6 +872,36 @@ const warnForSharedBuildDirectories = (
 	}
 };
 
+/** Start every service, and tear down whatever already started if any of them
+ *  never becomes ready.
+ *
+ *  Without this a readiness timeout rejects out of the whole command while the
+ *  children it already spawned keep running. The result is worse than a clean
+ *  failure: an orphaned server still holding the port, with no supervisor and
+ *  no hot reload, which looks like a working server right up until an edit
+ *  never lands or a click hits a stale bundle. Failing to start must leave
+ *  nothing behind. */
+export const startWorkspaceOrShutDown = async ({
+	onFailure,
+	shutdown,
+	start
+}: {
+	onFailure: (message: string) => void;
+	shutdown: (exitCode: number) => Promise<void> | void;
+	start: () => Promise<void>;
+}) => {
+	try {
+		await start();
+
+		return true;
+	} catch (error) {
+		onFailure(error instanceof Error ? error.message : String(error));
+		await shutdown(1);
+
+		return false;
+	}
+};
+
 export const workspace = async (
 	subcommand: string | undefined,
 	options: WorkspaceDevOptions
@@ -1206,7 +1236,17 @@ export const workspace = async (
 		await killProcesses();
 		restarting = false;
 		workspaceBootStartedAt = performance.now();
-		await startServices();
+		const restarted = await startWorkspaceOrShutDown({
+			shutdown,
+			start: startServices,
+			onFailure: (message) =>
+				addLog(
+					'workspace',
+					`Workspace failed to restart: ${message}`,
+					'error'
+				)
+		});
+		if (!restarted) return;
 		tui.setReadyDuration(performance.now() - workspaceBootStartedAt);
 	};
 
@@ -1300,7 +1340,17 @@ export const workspace = async (
 	});
 
 	tui.start();
-	await startServices();
+	const started = await startWorkspaceOrShutDown({
+		shutdown,
+		start: startServices,
+		onFailure: (message) =>
+			addLog(
+				'workspace',
+				`Workspace failed to start: ${message}`,
+				'error'
+			)
+	});
+	if (!started) return;
 	tui.setReadyDuration(performance.now() - workspaceBootStartedAt);
 	await Promise.withResolvers<void>().promise;
 };
