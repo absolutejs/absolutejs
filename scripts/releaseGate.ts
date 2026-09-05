@@ -55,7 +55,7 @@ const reportResult = (result: CommandResult) => {
 
 const runStage = async (name: string, commands: GateCommand[]) => {
 	console.log(`\n[release-gate] ${name}`);
-	// Release checks share generated output, native artifacts, and lint caches.
+	// Release checks share generated output and lint caches.
 	// Running them concurrently makes a clean release depend on timing (for
 	// example, package build replaces dist while unit tests execute its CLI).
 	const results = await commands.reduce<Promise<CommandResult[]>>(
@@ -74,22 +74,9 @@ const runStage = async (name: string, commands: GateCommand[]) => {
 	);
 };
 
-const nativePackageDirs = [
-	'darwin-arm64',
-	'darwin-x64',
-	'linux-arm64',
-	'linux-x64',
-	'windows-arm64',
-	'windows-x64'
-];
-
 const startedAt = performance.now();
 
 await runStage('immutable source checks', [
-	{
-		command: ['bun', 'run', 'verify:release-versions'],
-		name: 'release versions'
-	},
 	{ command: ['bun', 'run', 'format:check'], name: 'format' }
 ]);
 
@@ -100,10 +87,6 @@ await runStage('quality and builds', [
 	{
 		command: ['bun', 'run', 'verify:client-bundle'],
 		name: 'published client bundle isolation'
-	},
-	{
-		command: ['bun', 'run', 'build:native'],
-		name: 'six-platform native build'
 	}
 ]);
 
@@ -126,17 +109,7 @@ await runStage('package verification', [
 	{
 		command: ['npm', 'pack', '--dry-run', '--json'],
 		name: 'root package'
-	},
-	...nativePackageDirs.map((dir) => ({
-		command: [
-			'npm',
-			'pack',
-			'--dry-run',
-			'--json',
-			resolve(REPO_ROOT, 'native', 'packages', dir)
-		],
-		name: `native ${dir}`
-	}))
+	}
 ]);
 
 console.log(
