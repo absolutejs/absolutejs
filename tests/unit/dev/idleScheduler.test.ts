@@ -124,7 +124,7 @@ describe('runWhenIdle', () => {
 				ran.push(index);
 				if (index === 0) run.cancel();
 			}),
-			{ batchSize: 8, isBusy: () => false, sleep: immediateSleep }
+			{ batchSize: 8, sleep: immediateSleep, isBusy: () => false }
 		);
 		await run.done;
 
@@ -145,11 +145,11 @@ describe('runWhenIdle', () => {
 			}),
 			{
 				batchSize: 8,
-				isBusy: () => busy,
 				// A wedged busy signal must still make progress, so pauses are
 				// bounded; one task per pause is the floor, not zero.
 				maxPauseMs: 0,
-				sleep: immediateSleep
+				sleep: immediateSleep,
+				isBusy: () => busy
 			}
 		);
 		await run.done;

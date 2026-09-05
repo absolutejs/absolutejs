@@ -95,9 +95,22 @@ export const dominatedByEdge = (
 
 	return dominated;
 };
+export const dominatedByEdges = (
+	edges: ReadonlyArray<readonly number[]>,
+	root: number,
+	fromIndex: number,
+	targets: ReadonlySet<number>,
+	reachable: Uint8Array
+) => {
+	const without = reachableWithoutEdges(edges, root, fromIndex, targets);
+	const dominated: number[] = [];
+	for (let index = 0; index < edges.length; index += 1) {
+		if (reachable[index] === 1 && without[index] !== 1)
+			dominated.push(index);
+	}
 
-/** Modules reachable from `root`, optionally with the single edge
- *  `skipFrom -> skipTo` removed. */
+	return dominated;
+};
 export const reachableFrom = (
 	edges: ReadonlyArray<readonly number[]>,
 	root: number,
@@ -121,11 +134,6 @@ export const reachableFrom = (
 
 	return seen;
 };
-
-/** Modules reachable from `root` with EVERY edge `skipFrom -> t` removed for
- *  `t` in `skipTargets`. The single-edge `reachableFrom` cannot express this,
- *  and the difference is the whole point: subgraphs that overlap stay
- *  reachable through a sibling edge until every sibling is gone too. */
 export const reachableWithoutEdges = (
 	edges: ReadonlyArray<readonly number[]>,
 	root: number,
@@ -139,33 +147,29 @@ export const reachableWithoutEdges = (
 	while (stack.length > 0) {
 		const current = stack.pop();
 		if (current === undefined) break;
-		for (const target of edges[current] ?? []) {
-			if (current === skipFrom && skipTargets.has(target)) continue;
-			if (seen[target] === 1) continue;
-			seen[target] = 1;
-			stack.push(target);
-		}
+		pushNeighboursExcept(
+			edges[current] ?? [],
+			seen,
+			stack,
+			current === skipFrom ? skipTargets : null
+		);
 	}
 
 	return seen;
 };
 
-/** Modules that disappear when every one of `targets` is deferred together. */
-export const dominatedByEdges = (
-	edges: ReadonlyArray<readonly number[]>,
-	root: number,
-	fromIndex: number,
-	targets: ReadonlySet<number>,
-	reachable: Uint8Array
+const pushNeighboursExcept = (
+	targets: readonly number[],
+	seen: Uint8Array,
+	stack: number[],
+	skip: ReadonlySet<number> | null
 ) => {
-	const without = reachableWithoutEdges(edges, root, fromIndex, targets);
-	const dominated: number[] = [];
-	for (let index = 0; index < edges.length; index += 1) {
-		if (reachable[index] === 1 && without[index] !== 1)
-			dominated.push(index);
+	for (const target of targets) {
+		if (skip?.has(target) === true) continue;
+		if (seen[target] === 1) continue;
+		seen[target] = 1;
+		stack.push(target);
 	}
-
-	return dominated;
 };
 
 const sumSelfMs = (selfMs: readonly number[], indexes: readonly number[]) =>

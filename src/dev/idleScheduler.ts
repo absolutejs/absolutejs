@@ -151,9 +151,10 @@ export const runWhenIdle = (
 		while (!cancelled) {
 			// eslint-disable-next-line no-await-in-loop
 			await waitForIdle();
-			if (pending.length === 0) {
-				pending = cancelled ? [] : takeBatch(iterator, batchSize);
-			}
+			pending =
+				pending.length === 0 && !cancelled
+					? takeBatch(iterator, batchSize)
+					: pending;
 			if (pending.length === 0) break;
 			// eslint-disable-next-line no-await-in-loop
 			completed += await launchBatch(pending);
