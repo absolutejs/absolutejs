@@ -35,6 +35,11 @@ export type ImportSavings = {
 	attributedCount: number;
 	attributedMs: number;
 	candidates: ImportSaving[];
+	/** What deferring EVERY candidate at once removes. For overlapping
+	 *  subgraphs this is strictly larger than the sum of the per-candidate
+	 *  savings, because a shared module only leaves the graph when the last
+	 *  edge into it does. */
+	combined: { count: number; savingMs: number };
 	reachableCount: number;
 	sharedBaseCount: number;
 	sharedBaseMs: number;
@@ -49,6 +54,11 @@ export type SavingsInput = {
 	/** Process root (the dev bootstrap), where reachability starts. */
 	root: number;
 	selfMs: readonly number[];
+	/** Candidates the caller considers actually deferrable. The combined
+	 *  figure is computed over these alone, because a ceiling that includes
+	 *  imports nobody can defer is not a number anyone can act on. Defaults
+	 *  to every candidate. */
+	groupSpecifiers?: ReadonlySet<string>;
 };
 
 const NOT_FOUND = -1;
@@ -85,9 +95,22 @@ export const dominatedByEdge = (
 
 	return dominated;
 };
+export const dominatedByEdges = (
+	edges: ReadonlyArray<readonly number[]>,
+	root: number,
+	fromIndex: number,
+	targets: ReadonlySet<number>,
+	reachable: Uint8Array
+) => {
+	const without = reachableWithoutEdges(edges, root, fromIndex, targets);
+	const dominated: number[] = [];
+	for (let index = 0; index < edges.length; index += 1) {
+		if (reachable[index] === 1 && without[index] !== 1)
+			dominated.push(index);
+	}
 
-/** Modules reachable from `root`, optionally with the single edge
- *  `skipFrom -> skipTo` removed. */
+	return dominated;
+};
 export const reachableFrom = (
 	edges: ReadonlyArray<readonly number[]>,
 	root: number,
@@ -110,6 +133,43 @@ export const reachableFrom = (
 	}
 
 	return seen;
+};
+export const reachableWithoutEdges = (
+	edges: ReadonlyArray<readonly number[]>,
+	root: number,
+	skipFrom: number,
+	skipTargets: ReadonlySet<number>
+) => {
+	const seen = new Uint8Array(edges.length);
+	if (root < 0 || root >= edges.length) return seen;
+	seen[root] = 1;
+	const stack = [root];
+	while (stack.length > 0) {
+		const current = stack.pop();
+		if (current === undefined) break;
+		pushNeighboursExcept(
+			edges[current] ?? [],
+			seen,
+			stack,
+			current === skipFrom ? skipTargets : null
+		);
+	}
+
+	return seen;
+};
+
+const pushNeighboursExcept = (
+	targets: readonly number[],
+	seen: Uint8Array,
+	stack: number[],
+	skip: ReadonlySet<number> | null
+) => {
+	for (const target of targets) {
+		if (skip?.has(target) === true) continue;
+		if (seen[target] === 1) continue;
+		seen[target] = 1;
+		stack.push(target);
+	}
 };
 
 const sumSelfMs = (selfMs: readonly number[], indexes: readonly number[]) =>
@@ -190,10 +250,30 @@ export const summarizeImportSavings = (input: SavingsInput) => {
 		});
 	}
 	const totals = accumulate(input.selfMs, reachable, attributed);
+	const inGroup = (candidate: ImportCandidate) =>
+		input.groupSpecifiers === undefined ||
+		input.groupSpecifiers.has(candidate.specifier);
+	const groupTargets = new Set(
+		input.candidates
+			.filter(inGroup)
+			.map((candidate) => candidate.target)
+			.filter((target) => target >= 0)
+	);
+	const groupDominated = dominatedByEdges(
+		input.edges,
+		input.root,
+		input.entry,
+		groupTargets,
+		reachable
+	);
 	const result: ImportSavings = {
 		attributedCount: totals.attributedCount,
 		attributedMs: totals.attributedMs,
 		candidates: savings,
+		combined: {
+			count: groupDominated.length,
+			savingMs: sumSelfMs(input.selfMs, groupDominated)
+		},
 		reachableCount: totals.reachableCount,
 		sharedBaseCount: totals.reachableCount - totals.attributedCount,
 		sharedBaseMs: totals.totalMs - totals.attributedMs,

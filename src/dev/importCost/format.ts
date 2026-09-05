@@ -24,6 +24,10 @@ export type ImportCostReport = {
 	rows: readonly ImportCostRow[];
 	sharedBaseCount: number;
 	sharedBaseMs: number;
+	/** What deferring every listed import TOGETHER would remove. The per-row
+	 *  figures are single-edge dominators, so they do not sum to this. */
+	combinedCount: number;
+	combinedMs: number;
 	totalMs: number;
 };
 
@@ -129,6 +133,8 @@ export const formatImportCostReport = (report: ImportCostReport) => {
 		'',
 		`  shared base: ${formatMs(report.sharedBaseMs)} across ${report.sharedBaseCount} modules — reached through more than one`,
 		'  import (or loaded before the entry), so deferring any single import does not remove it.',
+		`  all together: deferring every deferrable import at once removes ${formatMs(report.combinedMs)}`,
+		`  across ${report.combinedCount} modules — each row above is measured alone, so they do not sum to this.`,
 		...caveats(report),
 		''
 	].join('\n');
