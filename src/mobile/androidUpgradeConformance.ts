@@ -134,6 +134,32 @@ const unchanged = (
 		throw new Error(`Android ${name} changed during the in-place upgrade.`);
 };
 
+/** Prove that two package inspections describe one app upgraded in place. */
+export const assertAbsoluteAndroidInstalledAppUpgrade = (
+	before: AbsoluteAndroidInstalledApp,
+	after: AbsoluteAndroidInstalledApp
+) => {
+	if (before.appId !== after.appId)
+		throw new Error(
+			`Android application ID changed during the in-place upgrade (${before.appId} -> ${after.appId}).`
+		);
+	unchanged('application UID', before.uid, after.uid);
+	unchanged('data directory', before.dataDirectory, after.dataDirectory);
+	unchanged(
+		'first install timestamp',
+		before.firstInstallTime,
+		after.firstInstallTime
+	);
+	if (before.versionCode === undefined || after.versionCode === undefined)
+		throw new Error(
+			'Android did not report versionCode for the upgrade proof.'
+		);
+	if (after.versionCode <= before.versionCode)
+		throw new Error(
+			`Android versionCode did not increase (${before.versionCode} -> ${after.versionCode}).`
+		);
+};
+
 export const runAbsoluteAndroidUpgradeConformance = async (
 	options: RunAbsoluteAndroidUpgradeConformanceOptions
 ): Promise<AbsoluteAndroidUpgradeConformanceResult> => {
@@ -165,21 +191,7 @@ export const runAbsoluteAndroidUpgradeConformance = async (
 		options.appId,
 		run
 	);
-	unchanged('application UID', before.uid, after.uid);
-	unchanged('data directory', before.dataDirectory, after.dataDirectory);
-	unchanged(
-		'first install timestamp',
-		before.firstInstallTime,
-		after.firstInstallTime
-	);
-	if (
-		before.versionCode !== undefined &&
-		after.versionCode !== undefined &&
-		after.versionCode <= before.versionCode
-	)
-		throw new Error(
-			`Android versionCode did not increase (${before.versionCode} -> ${after.versionCode}).`
-		);
+	assertAbsoluteAndroidInstalledAppUpgrade(before, after);
 	await options.afterInstall?.(after);
 	const state = await options.verifyState();
 	const compatibilityPass =

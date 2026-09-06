@@ -44,7 +44,7 @@ const fixture = async (
 		join(root, 'package.json'),
 		JSON.stringify({
 			dependencies: {
-				...(auth ? { '@absolutejs/auth': '0.75.6' } : {}),
+				...(auth ? { '@absolutejs/auth': '0.76.3' } : {}),
 				...(sync ? { '@absolutejs/sync': '2.31.0' } : {})
 			}
 		})
@@ -491,7 +491,9 @@ describe('experimental Expo project', () => {
 			)
 		]);
 
-		expect(packageSource).toContain('@absolutejs/auth-expo');
+		expect(packageSource).toContain('"@absolutejs/auth": "0.76.3"');
+		expect(packageSource).toContain('"@absolutejs/auth-expo": "0.0.6"');
+		expect(packageSource).toContain('"expo-crypto": "~57.0.2"');
 		expect(packageSource).toContain('expo-secure-store');
 		expect(packageSource).toContain('expo-web-browser');
 		expect(appConfig).toContain('expo-secure-store');
@@ -561,13 +563,26 @@ describe('experimental Expo project', () => {
 				)
 			]);
 
-		expect(packageSource).toContain('@absolutejs/sync-expo');
+		expect(packageSource).toContain('"@absolutejs/sync-expo": "0.0.4"');
 		expect(packageSource).toContain('expo-background-task');
 		expect(packageSource).toContain('expo-sqlite');
 		expect(appConfig).toContain('expo-background-task');
 		expect(layout).toContain('startAbsoluteExpoSync');
 		expect(syncSource).toContain('createExpoSyncLocalStore');
+		expect(syncSource).toContain('createId: expoSyncRandomId');
+		expect(syncSource).toContain('removeRuntimeTransport?.()');
+		expect(syncSource).toContain('installRuntimeTransport(principal)');
+		expect(syncSource).toContain(
+			'if (previousNamespace !== undefined) void Updates.reloadAsync()'
+		);
+		expect(syncSource).toContain('getAbsoluteExpoSyncSchemaStatus');
 		expect(syncSource).toContain('defineExpoSyncBackgroundTask');
+		expect(syncSource).toContain(
+			'void registerExpoSyncBackgroundTask(BACKGROUND_TASK'
+		);
+		expect(syncSource).toContain(
+			'AbsoluteJS could not register Expo background Sync.'
+		);
 		expect(syncSource).toContain('runHeadlessSync');
 		expect(syncSource).toContain('createAbsoluteExpoSyncBridge');
 		expect(syncSource).toContain('absoluteExpoAuth.socketTicket');
@@ -604,7 +619,7 @@ describe('experimental Expo project', () => {
 			url: 'https://api.example.com/__absolute/mobile/updates/production/update.json'
 		});
 		expect(packageSource).toContain('"expo-updates": "~57.0.19"');
-		expect(packageSource).toContain('"expo-crypto": "~57.0.1"');
+		expect(packageSource).toContain('"expo-crypto": "~57.0.2"');
 		const updateRuntime = await readFile(
 			join(project, 'src', 'generated', 'AbsoluteUpdates.ts'),
 			'utf8'

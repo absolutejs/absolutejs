@@ -76,7 +76,7 @@ export type AbsoluteExpoDevSession = {
 	timings: Partial<Record<AbsoluteExpoDevState, number>>;
 };
 
-const METRO_READY_TIMEOUT_MS = 60_000;
+const METRO_READY_TIMEOUT_MS = 120_000;
 const PROCESS_CLOSE_TIMEOUT_MS = 2_000;
 
 const preserveWindowsSubstRealpaths = `
@@ -173,20 +173,26 @@ const connectLocalExpoAndroid = (
 		['shell', 'am', 'force-stop', appId],
 		'Expo Android development-client reset failed.'
 	);
+	const openDevelopmentClient = () =>
+		run(
+			[
+				'shell',
+				'am',
+				'start',
+				'-a',
+				'android.intent.action.VIEW',
+				'-d',
+				expoDevelopmentClientUrl(appId, 'localhost', metroPort),
+				appId
+			],
+			'Expo Android development-client launch failed.'
+		);
+	openDevelopmentClient();
 	run(
-		[
-			'shell',
-			'am',
-			'start',
-			'-W',
-			'-a',
-			'android.intent.action.VIEW',
-			'-d',
-			expoDevelopmentClientUrl(appId, 'localhost', metroPort),
-			appId
-		],
-		'Expo Android development-client launch failed.'
+		['shell', 'sleep', '1'],
+		'Expo Android development-client readiness pause failed.'
 	);
+	openDevelopmentClient();
 
 	return serial;
 };
@@ -223,6 +229,9 @@ const encodedWindowsExpoAndroidCommand = (
 		'$env:ABSOLUTE_EXPO_PHYSICAL_ROOT = $directory',
 		'$env:ABSOLUTE_EXPO_MAPPED_ROOT = $mappedProject',
 		'$env:NODE_OPTIONS = "--require=$hook"',
+		// A persistent daemon launched through WSL can inherit the interop pipe
+		// and keep an otherwise completed Expo build open indefinitely.
+		"$env:GRADLE_OPTS = (($env:GRADLE_OPTS + ' -Dorg.gradle.daemon=false').Trim())",
 		"$autolinkingCache = Join-Path $mappedProject 'android\\build\\generated\\autolinking'",
 		'if ([IO.Directory]::Exists($autolinkingCache)) { [IO.Directory]::Delete($autolinkingCache, $true) }',
 		"$expo = Join-Path $mappedProject 'node_modules\\.bin\\expo.exe'",
@@ -245,8 +254,11 @@ const encodedWindowsExpoAndroidCommand = (
 		`& $adb -s $serial shell am force-stop '${appId}'`,
 		"if ($LASTEXITCODE -ne 0) { throw 'Expo Android development-client reset failed.' }",
 		`$developmentUrl = '${developmentScheme}://expo-development-client/?url=' + [Uri]::EscapeDataString('http://localhost:${metroPort}')`,
-		`& $adb -s $serial shell am start -W -a android.intent.action.VIEW -d $developmentUrl '${appId}'`,
-		"if ($LASTEXITCODE -ne 0) { throw 'Expo Android development-client launch failed.' }"
+		`& $adb -s $serial shell am start -a android.intent.action.VIEW -d $developmentUrl '${appId}'`,
+		"if ($LASTEXITCODE -ne 0) { throw 'Expo Android development-client launch failed.' }",
+		'Start-Sleep -Milliseconds 1000',
+		`& $adb -s $serial shell am start -a android.intent.action.VIEW -d $developmentUrl '${appId}'`,
+		"if ($LASTEXITCODE -ne 0) { throw 'Expo Android development-client retry failed.' }"
 	].join('; ');
 	const source = [
 		"$ErrorActionPreference = 'Stop'",
@@ -548,7 +560,7 @@ export const startAbsoluteExpoDevSession = async (
 		}
 		const timeout = setTimeout(() => {
 			reject(
-				new Error('Expo Metro did not become ready within 60 seconds.')
+				new Error('Expo Metro did not become ready within 120 seconds.')
 			);
 		}, METRO_READY_TIMEOUT_MS);
 		resolveMetro = () => {

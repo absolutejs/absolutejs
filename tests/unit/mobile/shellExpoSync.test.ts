@@ -12,7 +12,8 @@ test('provisions WebView Sync through a single native-owned principal', async ()
 	const nativeStore = createMemorySyncLocalStore();
 	const host = createExpoSyncBridgeHost({
 		namespace: 'principal-a',
-		store: nativeStore
+		store: nativeStore,
+		createId: () => 'transaction-1'
 	});
 	const listeners = new Map<
 		string,

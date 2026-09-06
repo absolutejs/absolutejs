@@ -225,11 +225,13 @@ describe('Expo development controller', () => {
 			'$env:ABSOLUTE_EXPO_MAPPED_ROOT = $mappedProject'
 		);
 		expect(script).toContain('$env:NODE_OPTIONS = "--require=$hook"');
+		expect(script).toContain('-Dorg.gradle.daemon=false');
 		expect(script).toContain('android\\build\\generated\\autolinking');
 		expect(script).toContain(
 			"$env:ORG_GRADLE_PROJECT_reactNativeArchitectures = 'x86_64'"
 		);
 		expect(script).toContain("shell am force-stop 'com.example.product'");
+		expect(script).toContain('Start-Sleep -Milliseconds 1000');
 		const argumentsMatch =
 			/FromBase64String\('([^']+)'\)\) \| ConvertFrom-Json/u.exec(script);
 		expect(argumentsMatch?.[1]).toBeString();

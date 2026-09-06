@@ -215,7 +215,7 @@ const expoPackage = (
 		expo: '~57.0.9',
 		'expo-asset': '~57.0.15',
 		'expo-constants': '~57.0.16',
-		...(updates ? { 'expo-crypto': '~57.0.1' } : {}),
+		...(auth || updates ? { 'expo-crypto': '~57.0.2' } : {}),
 		'expo-dev-client': '~57.0.16',
 		'expo-file-system': '~57.0.6',
 		'expo-haptics': '~57.0.2',
@@ -740,6 +740,7 @@ import {
 	createExpoSyncProtection,
 	createExpoSyncSocketBridgeHost,
 	defineExpoSyncBackgroundTask,
+	expoSyncRandomId,
 	installExpoSyncLifecycle,
 	registerExpoSyncBackgroundTask
 } from '@absolutejs/sync-expo';
@@ -756,6 +757,9 @@ const store = createExpoSyncLocalStore({
 	storageSchema: STORAGE_SCHEMA
 });
 
+/** Redacted generated-store migration state for diagnostics and conformance. */
+export const getAbsoluteExpoSyncSchemaStatus = () => store.getSchemaStatus?.();
+
 const runBackgroundSync = async () => {
 	await startAbsoluteExpoAuth();
 	const principal = await absoluteExpoAuth.principal();
@@ -770,19 +774,26 @@ const runBackgroundSync = async () => {
 defineExpoSyncBackgroundTask(BACKGROUND_TASK, runBackgroundSync);
 
 let activeNamespace: string | undefined;
+let removeRuntimeTransport: (() => void) | undefined;
 let started = false;
 let startPromise: Promise<void> | undefined;
+const installRuntimeTransport = (principal: Awaited<ReturnType<typeof absoluteExpoAuth.principal>>) => {
+	activeNamespace = principal?.namespace;
+	removeRuntimeTransport?.();
+	removeRuntimeTransport = installSyncClientRuntimeTransport({
+		...(principal ? { durable: { createId: expoSyncRandomId, namespace: principal.namespace, store }, socketTicket: () => absoluteExpoAuth.socketTicket() } : {}),
+		registerClient: client => installExpoSyncLifecycle({ client })
+	});
+};
 export const startAbsoluteExpoSync = () => {
 	startPromise ??= (async () => {
 		await startAbsoluteExpoAuth();
 		const principal = await absoluteExpoAuth.principal();
-		activeNamespace = principal?.namespace;
-		installSyncClientRuntimeTransport({
-			...(principal ? { durable: { namespace: principal.namespace, store }, socketTicket: () => absoluteExpoAuth.socketTicket() } : {}),
-			registerClient: client => installExpoSyncLifecycle({ client })
-		});
-		await registerExpoSyncBackgroundTask(BACKGROUND_TASK, { minimumInterval: 15 });
+		installRuntimeTransport(principal);
 		started = true;
+		void registerExpoSyncBackgroundTask(BACKGROUND_TASK, { minimumInterval: 15 }).catch(error => {
+			console.warn('AbsoluteJS could not register Expo background Sync.', error);
+		});
 	})();
 
 	return startPromise;
@@ -790,7 +801,9 @@ export const startAbsoluteExpoSync = () => {
 
 absoluteExpoAuth.onPrincipalChange(principal => {
 	if (!started || principal?.namespace === activeNamespace) return;
-	void Updates.reloadAsync();
+	const previousNamespace = activeNamespace;
+	installRuntimeTransport(principal);
+	if (previousNamespace !== undefined) void Updates.reloadAsync();
 });
 
 export const createAbsoluteExpoSyncBridge = async (
@@ -802,7 +815,7 @@ export const createAbsoluteExpoSyncBridge = async (
 		close: () => undefined,
 		request: async () => { throw new Error('Expo Sync requires an authenticated principal.'); }
 	};
-	const transactions = createExpoSyncBridgeHost({ namespace: principal.namespace, store });
+	const transactions = createExpoSyncBridgeHost({ createId: expoSyncRandomId, namespace: principal.namespace, store });
 	const sockets = createExpoSyncSocketBridgeHost({
 		allowedOrigin: PRODUCTION_ORIGIN,
 		emit: payload => emit('sync.socket', payload),

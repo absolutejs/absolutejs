@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import {
+	assertAbsoluteAndroidInstalledAppUpgrade,
 	parseAbsoluteAndroidInstalledApp,
 	runAbsoluteAndroidUpgradeConformance,
 	type AbsoluteAndroidUpgradeCommandResult
@@ -121,5 +122,31 @@ describe('Android installed-app upgrade conformance', () => {
 				})
 			})
 		).rejects.toThrow('application UID changed');
+	});
+
+	test('requires complete identity and monotonic version evidence', () => {
+		const before = parseAbsoluteAndroidInstalledApp(
+			'com.absolutejs.app',
+			dumpsys(41, 'before')
+		);
+		if (!before) throw new Error('Expected a parsed Android fixture.');
+		expect(() =>
+			assertAbsoluteAndroidInstalledAppUpgrade(before, {
+				...before,
+				versionCode: 42
+			})
+		).not.toThrow();
+		expect(() =>
+			assertAbsoluteAndroidInstalledAppUpgrade(before, {
+				...before,
+				versionCode: undefined
+			})
+		).toThrow('did not report versionCode');
+		expect(() =>
+			assertAbsoluteAndroidInstalledAppUpgrade(before, {
+				...before,
+				versionCode: 41
+			})
+		).toThrow('did not increase');
 	});
 });

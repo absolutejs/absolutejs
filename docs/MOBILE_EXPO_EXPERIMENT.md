@@ -13,6 +13,9 @@ Expo Android production builds, release auditing, immutable AAB retention,
 generated CI, and Google Play publishing are added in `0.20.0-beta.49`.
 Expo iOS production builds, release auditing, immutable IPA retention,
 generated CI, and TestFlight publishing are available in `0.20.0-beta.51`.
+`0.20.0-beta.79` adds the passing real-device-boundary Android installed-upgrade
+gate for native Auth and encrypted Sync, including process death, an AVD reboot,
+schema migration, package-identity preservation, and exactly-once outbox replay.
 
 AbsoluteJS can generate an experimental Expo Router shell in which explicitly
 selected routes render React Native UI and all other routes remain ordinary
@@ -62,7 +65,7 @@ Implemented in the first spike:
 - Expo iOS development through a paired developer-owned Remote Mac, including
   separate Bun and Metro tunnels and physical-device LAN relays;
 - live-history bridge synchronization across SPA navigation.
-- automatic `@absolutejs/auth-expo@0.0.2` provisioning whenever the application
+- automatic `@absolutejs/auth-expo@0.0.6` provisioning whenever the application
   depends on `@absolutejs/auth`;
 - system-browser S256 PKCE through Expo WebBrowser, cold/warm callback handling,
   and refresh-on-resume;
@@ -75,7 +78,7 @@ Implemented in the first spike:
   retry on `401`, bounded bodies, forbidden application Authorization headers,
   and rejected redirects.
 - automatic `@absolutejs/sync@2.31.0` and
-  `@absolutejs/sync-expo@0.0.2` provisioning when Auth and Sync are already
+  `@absolutejs/sync-expo@0.0.4` provisioning when Auth and Sync are already
   used by the application;
 - one encrypted Expo SQLite cache/outbox shared by native React routes and
   ordinary embedded routes, with Auth-principal partitioning and generated
@@ -87,6 +90,11 @@ Implemented in the first spike:
   bridge envelope;
 - foreground, resume, and connectivity flush/reconnect handling plus bounded
   Expo BackgroundTask push/pull acceleration;
+- non-blocking background-task registration so an unavailable scheduler cannot
+  stall foreground startup;
+- atomic signed-out-to-signed-in Sync transport replacement without a
+  first-login reload, while sign-out and account switches reload to discard old
+  route state;
 - process-restart durability, transactional migration rollback, schema
   downgrade rejection, readonly enforcement, quota/policy enforcement, and
   account-isolation conformance coverage;

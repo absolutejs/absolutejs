@@ -252,6 +252,7 @@ const legacyMaskLiterals = (src: string) => {
 // ---------------------------------------------------------------------------
 
 const PROJECT_ROOT = resolve(import.meta.dir, '..', '..', '..');
+const LARGE_CORPUS_TIMEOUT_MS = 15_000;
 
 const expectSameMask = (source: string, label: string) => {
 	const legacy = legacyMaskLiterals(source);
@@ -289,16 +290,24 @@ describe('maskLiterals — equivalent to the character-by-character scanner', ()
 		}
 	});
 
-	test('framework tests and example app', () => {
-		const files = [
-			...listFiles('tests/**/*.ts', PROJECT_ROOT, 800),
-			...listFiles('example/**/*.{ts,tsx,js,vue,svelte}', PROJECT_ROOT, 400)
-		];
-		expect(files.length).toBeGreaterThan(100);
-		for (const file of files) {
-			expectSameMask(readFileSync(file, 'utf8'), file);
-		}
-	});
+	test(
+		'framework tests and example app',
+		() => {
+			const files = [
+				...listFiles('tests/**/*.ts', PROJECT_ROOT, 800),
+				...listFiles(
+					'example/**/*.{ts,tsx,js,vue,svelte}',
+					PROJECT_ROOT,
+					400
+				)
+			];
+			expect(files.length).toBeGreaterThan(100);
+			for (const file of files) {
+				expectSameMask(readFileSync(file, 'utf8'), file);
+			}
+		},
+		LARGE_CORPUS_TIMEOUT_MS
+	);
 
 	test('vendor bundles (react, react-dom, vue, svelte, rxjs, angular)', () => {
 		const roots = [

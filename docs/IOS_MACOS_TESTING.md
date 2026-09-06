@@ -1,7 +1,7 @@
 # AbsoluteJS iOS and TestFlight macOS test runbook
 
 This runbook validates the iOS release path shipped in
-`@absolutejs/absolute@0.20.0-beta.70` and
+`@absolutejs/absolute@0.20.0-beta.79` and
 `@absolutejs/deploy@0.24.0`. It covers a signed local IPA, an internal
 TestFlight upload, retry behavior, and installation on an iPhone or iPad.
 
@@ -237,6 +237,8 @@ actual result, sanitized logs, and artifact or screenshot path in section 13.
   capabilities, privacy, bridge, push, and rebuild-boundary acceptance.
 - [ ] `EXPO-AUTH-01` through `EXPO-AUTH-08` Complete Expo system-browser Auth,
   secure restore, native/web parity, and credential-boundary acceptance.
+- [ ] `EXPO-UPGRADE-01` through `EXPO-UPGRADE-08` Complete the Expo iOS
+  installed-app Auth, encrypted Sync migration, and exactly-once replay proof.
 - [ ] `EXPO-REMOTE-01` through `EXPO-REMOTE-08` Complete the two-computer Expo
   Remote Mac workflow, or mark all eight `SKIPPED — no second developer host`.
 - [ ] `OBS-01` through `OBS-04` Complete the production-error correlation and
@@ -298,8 +300,8 @@ still requires the developer team setup described below.
 From the root of the AbsoluteJS application:
 
 ```sh
-bun add @absolutejs/absolute@0.20.0-beta.70 \
-  @absolutejs/auth@0.75.6 \
+bun add @absolutejs/absolute@0.20.0-beta.79 \
+  @absolutejs/auth@0.76.3 \
   @absolutejs/dispatch@0.9.0 \
   @absolutejs/sync@2.31.0 \
   @absolutejs/sync-capacitor@0.9.2 \
@@ -957,7 +959,7 @@ bunx absolute dev src/backend/server.ts --config absolute.config.ts
 ```
 
 - [ ] `EXPO-AUTH-01` Confirm the generated Expo `package.json` contains exact
-  `@absolutejs/auth@0.75.6` and `@absolutejs/auth-expo@0.0.2` dependencies plus
+  `@absolutejs/auth@0.76.3` and `@absolutejs/auth-expo@0.0.6` dependencies plus
   Expo SecureStore and WebBrowser. Confirm `app.json` includes the SecureStore
   config plugin. Do not edit either generated file.
 - [ ] `EXPO-AUTH-02` From an ordinary embedded AbsoluteJS route, initiate sign-in
@@ -995,7 +997,7 @@ values, tokens, SecureStore contents, bridge payloads, or user profile data.
 Run every command in this section from the **staging application root**—the
 directory containing its `package.json`, `absolute.config.ts`, and server
 entry. Do not run these commands from `.absolutejs/mobile/expo`. The staging
-application must depend on `@absolutejs/auth@0.75.6` and
+application must depend on `@absolutejs/auth@0.76.3` and
 `@absolutejs/sync@2.31.0`, mount Auth's OIDC provider and `syncSocket()`, and
 have one ordinary embedded route plus one application-owned native React route
 that use the normal `@absolutejs/sync` API. Neither route should import
@@ -1014,7 +1016,7 @@ staging account and non-sensitive fixture rows only.
 
 - [ ] `EXPO-SYNC-01` Confirm
   `.absolutejs/mobile/expo/package.json` contains exact
-  `@absolutejs/sync@2.31.0` and `@absolutejs/sync-expo@0.0.2`, plus Expo SQLite,
+  `@absolutejs/sync@2.31.0` and `@absolutejs/sync-expo@0.0.4`, plus Expo SQLite,
   Network, BackgroundTask, TaskManager, SecureStore, and Updates. Confirm
   `.absolutejs/mobile/expo/app.json` lists the SQLite, BackgroundTask, and
   TaskManager config plugins. Do not edit either generated file.
@@ -1080,6 +1082,53 @@ Return the ten `EXPO-SYNC` report rows with PASS/FAIL/SKIPPED, sanitized timing,
 pending/dead-letter counts, and whether native/embedded views matched. Never
 return database contents, encryption keys, SecureStore values, credentials,
 tokens, tickets, raw bridge frames, or personal account data.
+
+#### Expo iOS installed-upgrade acceptance
+
+Run this section from the **staging application root** after `EXPO-AUTH` and
+`EXPO-SYNC`; do not run it from `.absolutejs/mobile/expo` or Xcode's generated
+directory. Use a disposable account and fixture row. This is a replacement
+install test: keep one bundle ID, never uninstall the app, never clear its data,
+and increase the iOS build number for every build. Save the original
+`package.json` before the temporary migration fixture and restore it afterward.
+AbsoluteJS's automated Android counterpart has already passed this lifecycle,
+including a device reboot between versions; these eight rows are the remaining
+Apple Keychain/SQLite/replacement-install proof and cannot be substituted with
+the Android artifact.
+
+- [ ] `EXPO-UPGRADE-01` Build and install Expo version N with the normal
+  `bunx absolute mobile build ios ...` flow. Record the non-secret bundle ID,
+  marketing version, allocated build number, and generated `release.json` path.
+- [ ] `EXPO-UPGRADE-02` In version N complete system-browser sign-in, load one
+  confirmed Sync row shaped like `{ id, label }`, prevent the staging server
+  from acknowledging one disposable mutation, and confirm pending is `1`.
+- [ ] `EXPO-UPGRADE-03` Fully terminate and relaunch version N. Confirm Auth
+  silently restores, the confirmed row remains available, and pending remains
+  `1`. Record only booleans and counts; do not inspect Keychain or SQLite.
+- [ ] `EXPO-UPGRADE-04` Add the temporary v2 `rename-field` fixture from
+  “Generated Sync schema migration and rollback acceptance,” using the fixture
+  collection name and safe target `title`. Run `bunx absolute mobile sync ios`,
+  build with a higher build number, and install the IPA over version N. Do not
+  remove the installed app first. This metadata is only a conformance fixture;
+  ordinary application users do not manually version page props.
+- [ ] `EXPO-UPGRADE-05` Confirm the v2 app reports redacted schema state
+  `ready`, `storedVersion: 2`, and `targetVersion: 2`; Auth and the cached row
+  must restore without another interactive sign-in. Never return row contents.
+- [ ] `EXPO-UPGRADE-06` Re-enable acknowledgments. Confirm the retained
+  operation is delivered with one stable operation ID, its one business effect
+  occurs once, and pending reaches `0`. Report a count, not the ID or arguments.
+- [ ] `EXPO-UPGRADE-07` Fully terminate and relaunch v2 again. Wait through one
+  reconnect interval and confirm pending remains `0` and the staging server's
+  business-effect count remains exactly `1`.
+- [ ] `EXPO-UPGRADE-08` Run `bunx tsc --noEmit` inside
+  `.absolutejs/mobile/expo`, then return to the staging application root,
+  restore its original `package.json`, and run the normal mobile sync again.
+  Confirm no temporary fixture is left in source or generated release output.
+
+Return all eight rows with PASS/FAIL, the two non-secret build numbers, redacted
+schema versions, pending counts, and the server-side effect count. Never return
+tokens, callback parameters, operation IDs, mutation arguments, rows, database
+files, SecureStore/Keychain contents, signing material, or raw device logs.
 
 #### Expo Remote Mac acceptance from Windows or Linux
 
@@ -2397,8 +2446,8 @@ source change and build a new content-addressed release instead.
 - Mac architecture:
 - Xcode version:
 - Bun version:
-- AbsoluteJS version: 0.20.0-beta.70
-- Auth version: 0.75.6
+- AbsoluteJS version: 0.20.0-beta.79
+- Auth version: 0.76.3
 - Dispatch version: 0.9.0
 - Sync version: 2.31.0
 - Sync Capacitor version: 0.9.2
@@ -2515,6 +2564,14 @@ versus expected behavior. Do not report exact coordinates.
 | EXPO-SYNC-08 |  | resume / connectivity wake / duplicates: |  |
 | EXPO-SYNC-09 |  | physical background acceleration or skipped: |  |
 | EXPO-SYNC-10 |  | TypeScript / clean iOS CNG / plist: |  |
+| EXPO-UPGRADE-01 |  | version N / build number / release path: |  |
+| EXPO-UPGRADE-02 |  | signed in / confirmed row / pending 1: |  |
+| EXPO-UPGRADE-03 |  | process restore / row / pending 1: |  |
+| EXPO-UPGRADE-04 |  | replacement install / higher build: |  |
+| EXPO-UPGRADE-05 |  | Auth restore / schema ready 2 -> 2: |  |
+| EXPO-UPGRADE-06 |  | replay / pending 0 / effect count 1: |  |
+| EXPO-UPGRADE-07 |  | second relaunch / no duplicate: |  |
+| EXPO-UPGRADE-08 |  | TypeScript / fixture cleanup: |  |
 | EXPO-REMOTE-01 |  | pair / remote doctor: |  |
 | EXPO-REMOTE-02 |  | cold sync / build / trust / timings: |  |
 | EXPO-REMOTE-03 |  | HTTPS route / expo-ios connection: |  |

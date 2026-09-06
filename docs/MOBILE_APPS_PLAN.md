@@ -2,6 +2,50 @@
 
 Status: Capacitor Android development/release, all-framework embedded bundles, universal native Auth/Sync, Expo hybrid native Auth/Sync, background Sync, automatic device provisioning, provider-neutral native push registration, signed staged Capacitor updates, end-to-end RSA-signed self-hosted Expo production updates, and Android conformance are operational; iOS development/release automation is shipped and awaiting real macOS/physical-device acceptance
 
+Implementation checkpoint (September 6, 2026, Expo installed-upgrade
+conformance): the Expo Android provider has passed its opt-in installed-app gate
+for the state boundary that unit and CNG tests cannot prove. It installs versionCode
+1, completes real system-browser S256 PKCE, persists the renewable credential in
+Expo SecureStore, writes an encrypted Expo SQLite snapshot plus unacknowledged
+durable operation, and proves both restore after process death. It then generates
+a v2 store schema, installs versionCode 2 over the same application, requires the
+same UID/data directory/first-install timestamp, verifies stored/target schema
+version 2, acknowledges the replay with its stable operation ID, and proves a
+second relaunch causes no duplicate business effect. Generated code exposes only
+redacted schema state—not the store, rows, namespace, key, or credentials. Run
+the focused API 36 gate from this repository with
+`bun run test:native:expo:android:upgrade`; its artifact contains only booleans,
+versions, counts, and package-identity comparisons. The corresponding iOS
+installed-upgrade checklist is in
+[IOS_MACOS_TESTING.md](./IOS_MACOS_TESTING.md); real iOS acceptance remains the
+partner gate.
+
+The passing Android run retained the same Linux UID, private data directory, and
+first-install timestamp across versionCode 1 -> 2; on WSL it also rebooted the
+selected AVD between versions without clearing application data and restored the
+ADB reverse tunnel afterward. Foreground startup no longer waits for optional
+background-task registration. The first successful sign-in atomically replaces
+the signed-out Sync transport without reloading the app; sign-out and account
+switches still reload to guarantee that no prior principal's live route state is
+retained. The sanitized proof is written to
+`.absolutejs/expo-android-upgrade-conformance/artifacts/expo-android-upgrade-conformance.json`.
+
+The first real run of that gate caught a missing React Native cryptography
+boundary before release: browser WebCrypto was being assumed by native Auth.
+`@absolutejs/auth@0.76.3` now accepts a narrow cryptography provider while
+retaining WebCrypto as its default, and `@absolutejs/auth-expo@0.0.6` supplies
+Expo Crypto randomness/SHA-256 plus audited P-256 verification. AbsoluteJS
+provisions both exact versions and Expo Crypto automatically; application code
+continues to use only the ordinary `@absolutejs/auth` client.
+The Expo adapter also deduplicates identical callback URLs for the process
+lifetime with a bounded cache, preventing the system-browser result and Linking
+event from racing the same one-use authorization code.
+`@absolutejs/sync-expo@0.0.4` likewise owns encryption nonces, native bridge/socket
+identities, and durable operation IDs through Expo Crypto; generated Sync
+clients inject that native UUID source instead of assuming browser globals. Its
+WebView-facing subpaths remain free of Expo and React Native imports and use the
+browser Crypto API for non-secret WebSocket identities.
+
 Implementation checkpoint (September 3, 2026, Expo Android host bridge and
 native observability acceptance): Expo Android development now works from WSL
 without asking developers to edit or build inside generated native code.
