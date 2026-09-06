@@ -309,33 +309,37 @@ describe('maskLiterals — equivalent to the character-by-character scanner', ()
 		LARGE_CORPUS_TIMEOUT_MS
 	);
 
-	test('vendor bundles (react, react-dom, vue, svelte, rxjs, angular)', () => {
-		const roots = [
-			'react',
-			'react-dom',
-			'vue',
-			'@vue',
-			'svelte',
-			'rxjs',
-			'@angular/core',
-			'@angular/common'
-		];
-		const files = roots.flatMap((root) =>
-			listFiles(
-				'**/*.{js,mjs,cjs}',
-				resolve(PROJECT_ROOT, 'node_modules', root),
-				150
-			)
-		);
-		expect(files.length).toBeGreaterThan(200);
-		let bytes = 0;
-		for (const file of files) {
-			const source = readFileSync(file, 'utf8');
-			bytes += source.length;
-			expectSameMask(source, file);
-		}
-		expect(bytes).toBeGreaterThan(5_000_000);
-	});
+	test(
+		'vendor bundles (react, react-dom, vue, svelte, rxjs, angular)',
+		() => {
+			const roots = [
+				'react',
+				'react-dom',
+				'vue',
+				'@vue',
+				'svelte',
+				'rxjs',
+				'@angular/core',
+				'@angular/common'
+			];
+			const files = roots.flatMap((root) =>
+				listFiles(
+					'**/*.{js,mjs,cjs}',
+					resolve(PROJECT_ROOT, 'node_modules', root),
+					150
+				)
+			);
+			expect(files.length).toBeGreaterThan(200);
+			let bytes = 0;
+			for (const file of files) {
+				const source = readFileSync(file, 'utf8');
+				bytes += source.length;
+				expectSameMask(source, file);
+			}
+			expect(bytes).toBeGreaterThan(5_000_000);
+		},
+		LARGE_CORPUS_TIMEOUT_MS
+	);
 
 	test('hand-picked edge cases', () => {
 		const BT = String.fromCharCode(96);

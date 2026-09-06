@@ -1,8 +1,8 @@
 # AbsoluteJS iOS and TestFlight macOS test runbook
 
 This runbook validates the iOS release path shipped in
-`@absolutejs/absolute@0.20.0-beta.79` and
-`@absolutejs/deploy@0.24.0`. It covers a signed local IPA, an internal
+`@absolutejs/absolute@0.20.0-beta.80` and
+`@absolutejs/deploy@0.25.5`. It covers a signed local IPA, an internal
 TestFlight upload, retry behavior, and installation on an iPhone or iPad.
 
 Use a staging App Store Connect application if possible. Uploading a build
@@ -91,6 +91,65 @@ Return these Track A results:
 
 After Track A, continue with Track B only if the staging application checkout
 and Apple access were supplied.
+
+### Track A2 — Expo Android OTA gate from the same AbsoluteJS repository
+
+Run this track when the Mac has Android virtualization available. It does not
+need an application repository, Expo account, signing account, or persistent
+update server. Stay in the same AbsoluteJS repository root used by Track A—the
+directory containing `package.json`, `bun.lock`, `src`, and `tests`:
+
+```sh
+cd /absolute/path/to/the/absolutejs-clone
+pwd
+test -f tests/native/expo-android-update-conformance.test.ts && echo "AbsoluteJS root: OK"
+bun run src/cli/index.ts mobile doctor android
+```
+
+If the doctor reports missing Android requirements, install them through the
+first-class AbsoluteJS setup flow, then rerun the doctor:
+
+```sh
+bun run src/cli/index.ts mobile doctor android --fix
+bun run src/cli/index.ts mobile doctor android
+```
+
+When every Android check passes, start the framework's production OTA gate. Do
+not run it from the generated `.absolutejs` directory or from a staging app:
+
+```sh
+bun run test:native:expo:android:updates
+```
+
+The command launches or uses the managed Android emulator, generates a clean
+Expo project, builds and installs a non-debuggable release APK, and normally
+takes several minutes. A successful run ends with one passing test and seventeen
+assertions.
+
+Return these Track A2 results:
+
+- [ ] `EXPO-ANDROID-OTA-01` `AbsoluteJS root: OK` was printed.
+- [ ] `EXPO-ANDROID-OTA-02` Every `mobile doctor android` check passed.
+- [ ] `EXPO-ANDROID-OTA-03` The complete terminal output from
+  `bun run test:native:expo:android:updates`.
+- [ ] `EXPO-ANDROID-OTA-04` The test ended with `1 pass`, `0 fail`, and seventeen
+  assertions.
+- [ ] `EXPO-ANDROID-OTA-05`
+  `.absolutejs/expo-android-update/artifacts/expo-android-update-conformance.json`
+  exists and reports `outcome: "pass"`.
+- [ ] `EXPO-ANDROID-OTA-06` In that artifact, signature, corrupt-asset,
+  incompatible-runtime, interrupted-download, and broken-startup recovery fields
+  are `true`.
+- [ ] `EXPO-ANDROID-OTA-07` In that artifact, previous-release and embedded
+  rollback fields are `true`.
+- [ ] `EXPO-ANDROID-OTA-08` In that artifact, the Auth credential is retained,
+  Sync is delivered exactly once, and encrypted-at-rest is `true`.
+- [ ] `EXPO-ANDROID-OTA-09` Return `git rev-parse HEAD`, `bun --version`, and
+  `xcodebuild -version` with the report.
+
+If the Mac cannot run an Android emulator, record
+`SKIPPED — Android virtualization unavailable` for Track A2. This does not block
+the iOS Track A result.
 
 ### Track B — run from the staging application root
 
@@ -300,12 +359,12 @@ still requires the developer team setup described below.
 From the root of the AbsoluteJS application:
 
 ```sh
-bun add @absolutejs/absolute@0.20.0-beta.79 \
+bun add @absolutejs/absolute@0.20.0-beta.80 \
   @absolutejs/auth@0.76.3 \
   @absolutejs/dispatch@0.9.0 \
   @absolutejs/sync@2.31.0 \
   @absolutejs/sync-capacitor@0.9.2 \
-  @absolutejs/deploy@0.24.0 \
+  @absolutejs/deploy@0.25.5 \
   @absolutejs/blob@0.5.2 \
   @capacitor/core@8.5.0 \
   @capacitor/app@8.1.1 \
@@ -2446,7 +2505,7 @@ source change and build a new content-addressed release instead.
 - Mac architecture:
 - Xcode version:
 - Bun version:
-- AbsoluteJS version: 0.20.0-beta.79
+- AbsoluteJS version: 0.20.0-beta.80
 - Auth version: 0.76.3
 - Dispatch version: 0.9.0
 - Sync version: 2.31.0
@@ -2461,7 +2520,7 @@ source change and build a new content-addressed release instead.
 - File Viewer version: 2.0.2
 - Filesystem version: 8.1.3
 - Geolocation version: 8.2.2
-- Deploy version: 0.24.0
+- Deploy version: 0.25.5
 - App bundle ID (non-secret):
 - Marketing version:
 - Allocated build number:

@@ -4,6 +4,7 @@ import { PassThrough } from 'node:stream';
 import type { ChildProcess, spawn } from 'node:child_process';
 import { normalizeAbsoluteMobileConfig } from '../../../src/mobile/config';
 import {
+	installAbsoluteExpoAndroidRelease,
 	planAbsoluteExpoDevSession,
 	startAbsoluteExpoDevSession
 } from '../../../src/mobile/expoDevController';
@@ -213,6 +214,10 @@ describe('Expo development controller', () => {
 			'/XF bun.lock bun.lockb .absolutejs-preserve-subst.cjs'
 		);
 		expect(script).toContain('Get-Command bun.exe -ErrorAction Stop');
+		expect(script).toContain('$staleDrives = @(& subst.exe)');
+		expect(script).toContain(
+			'foreach ($staleDrive in $staleDrives) { & subst.exe $staleDrive /D'
+		);
 		expect(script).toContain('& subst.exe $drive $mirrorRoot');
 		expect(script).toContain('& subst.exe $drive /D');
 		expect(script).toContain('$mappedProject = Join-Path');
@@ -223,6 +228,9 @@ describe('Expo development controller', () => {
 		);
 		expect(script).toContain(
 			'$env:ABSOLUTE_EXPO_MAPPED_ROOT = $mappedProject'
+		);
+		expect(script).toContain(
+			'$env:ABSOLUTE_EXPO_APP_ROOT = $mappedProject'
 		);
 		expect(script).toContain('$env:NODE_OPTIONS = "--require=$hook"');
 		expect(script).toContain('-Dorg.gradle.daemon=false');
@@ -246,6 +254,66 @@ describe('Expo development controller', () => {
 		expect(script).toContain('android.intent.action.VIEW');
 		expect(logs.join('\n')).toContain('Windows host');
 		await session.close();
+	});
+
+	test('builds and launches an installable Expo Android release from WSL', async () => {
+		const harness = processHarness();
+		const release = await installAbsoluteExpoAndroidRelease({
+			androidRoot: '/mnt/c/AbsoluteJS/Android/Sdk',
+			config,
+			executable: '/workspace/expo',
+			forwardedPort: 3456,
+			host: 'wsl',
+			spawnProcess: harness.spawnProcess,
+			capture: ([command, flag, path]) => {
+				if (command?.endsWith('adb.exe') && flag === 'devices')
+					return { exitCode: 0, stdout: 'emulator-5554\tdevice\n' };
+				let stdout = 'C:\\AbsoluteJS\\Android\\Sdk\n';
+				if (path === '/workspace/.absolutejs/mobile/expo')
+					stdout =
+						'\\\\wsl.localhost\\Ubuntu\\workspace\\.absolutejs\\mobile\\expo\n';
+				else if (path?.startsWith('/mnt/c/AbsoluteJS/ExpoBuilds/'))
+					stdout = 'C:\\AbsoluteJS\\ExpoBuilds\\product\n';
+
+				return {
+					exitCode: command === 'wslpath' && flag === '-w' ? 0 : 1,
+					stdout
+				};
+			}
+		});
+
+		expect(release.serial).toBe('emulator-5554');
+		expect(harness.commands[0]).toEqual([
+			'/workspace/expo',
+			'prebuild',
+			'--clean',
+			'--no-install',
+			'--platform',
+			'android'
+		]);
+		const invocation = harness.commands.find(
+			([command]) => command === 'powershell.exe'
+		);
+		const script = Buffer.from(invocation?.at(-1) ?? '', 'base64').toString(
+			'utf16le'
+		);
+		expect(script).toContain("$env:NODE_ENV = 'production'");
+		expect(script).toContain(
+			'& $gradle --no-daemon --console=plain -p $androidProject assembleRelease'
+		);
+		expect(script).toContain('[DateTime]::UtcNow.AddSeconds(60)');
+		expect(script).toContain(
+			"Start-Process -FilePath $adb -ArgumentList @('-s', $serial, 'install', '-r', $apk)"
+		);
+		expect(script).toContain('$install.WaitForExit(900000)');
+		expect(script).toContain('$install.WaitForExit()');
+		expect(script).toContain("$installText -notmatch '(?m)^Success\\r?$'");
+		expect(script).toContain('shell pm path');
+		expect(script).toContain("reverse 'tcp:3456' 'tcp:3456'");
+		expect(script).toContain(
+			"shell monkey -p 'com.example.product' -c android.intent.category.LAUNCHER 1"
+		);
+		expect(script).not.toContain('expo-development-client/?url=');
 	});
 
 	test('restarts a local Android development client on the managed Metro URL', async () => {

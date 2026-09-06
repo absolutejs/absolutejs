@@ -140,6 +140,8 @@ describe('experimental Expo project', () => {
 			projectRoot: root
 		});
 		const project = config.nativeProjectDirectory;
+		const metro = await readFile(join(project, 'metro.config.js'), 'utf8');
+		expect(metro).toContain('process.env.ABSOLUTE_EXPO_APP_ROOT');
 		const [
 			appConfig,
 			dynamicConfig,
@@ -610,7 +612,7 @@ describe('experimental Expo project', () => {
 
 		expect(app.runtimeVersion).toMatch(/^[a-f0-9]{64}$/u);
 		expect(app.updates).toEqual({
-			checkAutomatically: 'NEVER',
+			checkAutomatically: 'ON_ERROR_RECOVERY',
 			fallbackToCacheTimeout: 20_000,
 			requestHeaders: {
 				'x-absolute-mobile-app': 'com.example.product',
@@ -624,11 +626,12 @@ describe('experimental Expo project', () => {
 			join(project, 'src', 'generated', 'AbsoluteUpdates.ts'),
 			'utf8'
 		);
-		expect(updateRuntime).toContain('setUpdateRequestHeadersOverride');
-		expect(updateRuntime).toContain('x-absolute-mobile-installation');
+		expect(updateRuntime).toContain('setExtraParamAsync');
+		expect(updateRuntime).toContain('absolute-installation');
 		expect(updateRuntime).toContain('SecureStore.setItemAsync');
 		expect(updateRuntime).toContain('Updates.fetchUpdateAsync');
 		expect(updateRuntime).toContain('result.isRollBackToEmbedded');
+		expect(updateRuntime).toContain('Updates.reloadAsync');
 	});
 
 	test('does not adopt a populated custom directory without force', async () => {

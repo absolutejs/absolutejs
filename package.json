@@ -31,6 +31,7 @@
 	},
 	"description": "A fullstack meta-framework for building web applications with TypeScript",
 	"devDependencies": {
+		"@absolutejs/deploy": "0.25.5",
 		"@absolutejs/dispatch": "0.9.0",
 		"@absolutejs/manifest": "0.9.0",
 		"@absolutejs/scoped-state": "0.2.2",
@@ -462,6 +463,7 @@
 		"test:native:android:updates": "ABSOLUTE_TEST_NATIVE_ANDROID=1 bun test tests/native/android-embedded-bundle-conformance.test.ts -t 'signed web updates'",
 		"test:native:android:upgrade": "ABSOLUTE_TEST_NATIVE_ANDROID=1 bun test tests/native/android-embedded-bundle-conformance.test.ts -t 'installed APK upgrade'",
 		"test:native:expo:android:observability": "ABSOLUTE_TEST_NATIVE_EXPO_ANDROID=1 bun test tests/native/expo-android-observability-conformance.test.ts",
+		"test:native:expo:android:updates": "ABSOLUTE_TEST_NATIVE_EXPO_ANDROID_UPDATES=1 bun test tests/native/expo-android-update-conformance.test.ts",
 		"test:native:expo:android:upgrade": "ABSOLUTE_TEST_NATIVE_EXPO_ANDROID_UPGRADE=1 bun test tests/native/expo-android-upgrade-conformance.test.ts",
 		"test:native:ios": "bun run test:native:ios:lifecycle && bun run test:native:ios:bundle",
 		"test:native:ios:bundle": "ABSOLUTE_TEST_NATIVE_IOS=1 bun test tests/native/ios-embedded-bundle-conformance.test.ts",
@@ -516,7 +518,7 @@
 			]
 		}
 	},
-	"version": "0.20.0-beta.79",
+	"version": "0.20.0-beta.80",
 	"workspaces": [
 		"tests/fixtures/*",
 		"tests/fixtures/_packages/*"

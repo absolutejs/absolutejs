@@ -117,9 +117,21 @@ watchdog and its deadline match this config before a store build can ship.
 For `mobile.engine: 'expo'`, the same config generates an exact Expo
 `runtimeVersion`, configures `expo-updates`, and installs the internal update
 controller. AbsoluteJS stores an anonymous installation UUID in Expo SecureStore,
-adds it to update requests, and checks after startup without exposing Expo APIs to
-application routes. No Auth principal, advertising identifier, or device
-fingerprint is used.
+adds it through Expo's protocol-defined extra parameters, and checks after startup
+without exposing Expo APIs to application routes. Static request headers remain
+identical for embedded and downloaded releases so Expo's native selection policy
+can always retain the embedded recovery image. No Auth principal, advertising
+identifier, or device fingerprint is used.
+
+Normal launches use the generated AbsoluteJS controller, so a downloaded update
+is applied deliberately with Expo's fetch-and-reload APIs. The generated native
+config also uses `ON_ERROR_RECOVERY`: a bundle that fails before its first root
+commit gives Expo one native recovery check even though routine automatic checks
+remain disabled. An incompatible runtime receives `204 No Content`; an empty
+channel alone receives Expo's rollback-to-embedded directive. Rolling back to a
+previous OTA creates a fresh activation identity and timestamp without changing
+the immutable release bytes, allowing Expo to recognize it as a newly selected
+update.
 
 For Expo, first generate the separate RSA key and public certificate through
 AbsoluteJS. The private-key destination is deliberately required to be outside
@@ -306,6 +318,26 @@ activation is pending, and checks local-storage continuity. Its result is
 `.absolutejs/mobile-native-conformance/ios-embedded-artifacts/ios-update-conformance.json`.
 The iOS suite requires macOS and Xcode and is included in
 `bun run test:native:ios`.
+
+Expo has a separate, opt-in production Android OTA gate. Run it from the
+AbsoluteJS repository root after `mobile doctor android` has prepared the
+managed Android SDK and AVD:
+
+```bash
+bun run test:native:expo:android:updates
+```
+
+The gate launches or reuses the managed emulator, creates a clean Expo CNG
+project, builds and installs a release APK, and uses an ephemeral registry-signing
+key plus Expo code-signing certificate. It
+proves healthy activation; rejection of invalid signatures, corrupt assets,
+incompatible runtimes, and interrupted downloads; recovery from a fatal update
+before its first root commit; activation of a later corrected release; rollback
+to a previous OTA and to the embedded bundle; retained native Auth; exactly-once
+Sync replay; and encrypted-at-rest SQLite/WAL bytes. The production APK stays
+non-debuggable: storage inspection occurs inside its own sandbox and exports only
+a boolean result. A passing artifact is written to
+`.absolutejs/expo-android-update/artifacts/expo-android-update-conformance.json`.
 
 ## Current limitations
 

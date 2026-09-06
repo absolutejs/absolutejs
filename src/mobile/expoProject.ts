@@ -387,7 +387,7 @@ const expoAppConfig = (
 			...(config.updates
 				? {
 						updates: {
-							checkAutomatically: 'NEVER',
+							checkAutomatically: 'ON_ERROR_RECOVERY',
 							fallbackToCacheTimeout:
 								config.updates.bootTimeoutMs,
 							requestHeaders: {
@@ -479,7 +479,7 @@ const metroConfig = (projectRoot: string) =>
 const path = require('node:path');
 
 const projectRoot = __dirname;
-const appRoot = ${JSON.stringify(projectRoot)};
+const appRoot = process.env.ABSOLUTE_EXPO_APP_ROOT || ${JSON.stringify(projectRoot)};
 const config = getDefaultConfig(projectRoot);
 config.resolver.assetExts.push('absasset');
 config.resolver.nodeModulesPaths = [
@@ -522,16 +522,12 @@ export default function AbsoluteLayout() {
 }
 `;
 
-const updatesRuntimeSource = (config: NormalizedAbsoluteMobileConfig) =>
+const updatesRuntimeSource = () =>
 	`${EXPO_GENERATED_HEADER}import { randomUUID } from 'expo-crypto';
 import * as SecureStore from 'expo-secure-store';
 import * as Updates from 'expo-updates';
 
 const INSTALLATION_KEY = 'absolutejs.mobile.update.installation.v1';
-const REQUEST_HEADERS = ${JSON.stringify({
-		'x-absolute-mobile-app': config.appId,
-		'x-absolute-mobile-channel': config.updates?.channel
-	})};
 
 let startPromise: Promise<void> | undefined;
 export const startAbsoluteExpoUpdates = () => {
@@ -542,13 +538,13 @@ export const startAbsoluteExpoUpdates = () => {
 			installationId = randomUUID();
 			await SecureStore.setItemAsync(INSTALLATION_KEY, installationId);
 		}
-		await Updates.setUpdateRequestHeadersOverride({
-			...REQUEST_HEADERS,
-			'x-absolute-mobile-installation': installationId
-		});
+		await Updates.setExtraParamAsync('absolute-installation', installationId);
 		const result = await Updates.checkForUpdateAsync();
 		if (result.isAvailable || result.isRollBackToEmbedded) {
 			await Updates.fetchUpdateAsync();
+			if (result.isRollBackToEmbedded) {
+				await Updates.reloadAsync();
+			}
 		}
 	})().catch(error => {
 		console.warn('[absolute:mobile-update] Expo update check failed', error instanceof Error ? error.message : 'unknown error');
@@ -1642,7 +1638,7 @@ export const writeAbsoluteExpoProject = async (
 	if (config.updates) {
 		files.set(
 			join(project, 'src', 'generated', 'AbsoluteUpdates.ts'),
-			updatesRuntimeSource(config)
+			updatesRuntimeSource()
 		);
 	}
 	const expoCodeSigning = config.updates?.expoCodeSigning;

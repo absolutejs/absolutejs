@@ -76,6 +76,25 @@ export type AbsoluteExpoDevSession = {
 	timings: Partial<Record<AbsoluteExpoDevState, number>>;
 };
 
+export type InstallAbsoluteExpoAndroidReleaseOptions = {
+	androidAdb?: string;
+	androidDevice?: string;
+	androidRoot?: string;
+	capture?: (command: string[]) => { exitCode: number; stdout: string };
+	config: NormalizedAbsoluteMobileConfig;
+	executable?: string;
+	forwardedPort: number;
+	host?: AbsoluteMobileHost;
+	log?: (message: string) => void;
+	signal?: AbortSignal;
+	spawnProcess?: typeof spawn;
+};
+
+export type AbsoluteExpoAndroidReleaseInstallation = {
+	durationMs: number;
+	serial: string;
+};
+
 const METRO_READY_TIMEOUT_MS = 120_000;
 const PROCESS_CLOSE_TIMEOUT_MS = 2_000;
 
@@ -116,8 +135,10 @@ const expoDevelopmentClientUrl = (appId: string, host: string, port: number) =>
 
 const captureCommand = (command: string[]) => {
 	const result = Bun.spawnSync(command, {
+		killSignal: 'SIGKILL',
 		stderr: 'ignore',
-		stdout: 'pipe'
+		stdout: 'pipe',
+		timeout: 30_000
 	});
 
 	return { exitCode: result.exitCode, stdout: result.stdout.toString() };
@@ -197,14 +218,67 @@ const connectLocalExpoAndroid = (
 	return serial;
 };
 
+const launchLocalExpoAndroidRelease = (
+	adb: string,
+	appId: string,
+	forwardedPort: number,
+	capture: NonNullable<StartAbsoluteExpoDevOptions['capture']>,
+	preferredDevice?: string
+) => {
+	const devices = capture([adb, 'devices']);
+	if (devices.exitCode !== 0)
+		throw new Error(
+			'Could not inspect devices after the Expo release build.'
+		);
+	const ready = devices.stdout.split(/\r?\n/u).flatMap((line) => {
+		const match = /^(\S+)\s+device$/u.exec(line.trim());
+
+		return match?.[1] ? [match[1]] : [];
+	});
+	const serial = preferredDevice
+		? ready.find((value) => value === preferredDevice)
+		: (ready.find((value) => value.startsWith('emulator-')) ?? ready[0]);
+	if (!serial)
+		throw new Error(
+			'Expo release build completed but no ready device was found.'
+		);
+	const run = (args: string[], message: string) => {
+		if (capture([adb, '-s', serial, ...args]).exitCode !== 0)
+			throw new Error(message);
+	};
+	run(
+		['reverse', `tcp:${forwardedPort}`, `tcp:${forwardedPort}`],
+		'Expo Android release forwarding failed.'
+	);
+	run(
+		['shell', 'am', 'force-stop', appId],
+		'Expo Android release reset failed.'
+	);
+	run(
+		[
+			'shell',
+			'monkey',
+			'-p',
+			appId,
+			'-c',
+			'android.intent.category.LAUNCHER',
+			'1'
+		],
+		'Expo Android release launch failed.'
+	);
+
+	return serial;
+};
+
 const encodedWindowsExpoAndroidCommand = (
 	project: string,
 	androidRoot: string,
 	appId: string,
 	args: readonly string[],
 	capture: NonNullable<StartAbsoluteExpoDevOptions['capture']>,
-	metroPort: number,
-	preferredDevice?: string
+	forwardedPort: number,
+	preferredDevice?: string,
+	mode: 'development' | 'release' = 'development'
 ) => {
 	const windowsSource = windowsPathFromWsl(project, capture);
 	const buildId = Bun.hash(resolvePath(project)).toString(16);
@@ -228,17 +302,28 @@ const encodedWindowsExpoAndroidCommand = (
 		`[IO.File]::WriteAllText($hook, [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${realpathHook}')))`,
 		'$env:ABSOLUTE_EXPO_PHYSICAL_ROOT = $directory',
 		'$env:ABSOLUTE_EXPO_MAPPED_ROOT = $mappedProject',
+		'$env:ABSOLUTE_EXPO_APP_ROOT = $mappedProject',
 		'$env:NODE_OPTIONS = "--require=$hook"',
 		// A persistent daemon launched through WSL can inherit the interop pipe
 		// and keep an otherwise completed Expo build open indefinitely.
 		"$env:GRADLE_OPTS = (($env:GRADLE_OPTS + ' -Dorg.gradle.daemon=false').Trim())",
 		"$autolinkingCache = Join-Path $mappedProject 'android\\build\\generated\\autolinking'",
 		'if ([IO.Directory]::Exists($autolinkingCache)) { [IO.Directory]::Delete($autolinkingCache, $true) }',
-		"$expo = Join-Path $mappedProject 'node_modules\\.bin\\expo.exe'",
-		'& $expo @expoArguments',
-		"if ($LASTEXITCODE -ne 0) { throw 'Expo Android native build failed.' }",
+		...(mode === 'development'
+			? [
+					"$expo = Join-Path $mappedProject 'node_modules\\.bin\\expo.exe'",
+					'& $expo @expoArguments',
+					"if ($LASTEXITCODE -ne 0) { throw 'Expo Android native build failed.' }"
+				]
+			: [
+					"$gradle = Join-Path $mappedProject 'android\\gradlew.bat'",
+					"$androidProject = Join-Path $mappedProject 'android'",
+					'& $gradle --no-daemon --console=plain -p $androidProject assembleRelease',
+					"if ($LASTEXITCODE -ne 0) { throw 'Expo Android release compilation failed.' }"
+				]),
 		"$adb = Join-Path $androidHome 'platform-tools\\adb.exe'",
-		"$readyDevices = @(& $adb devices) | Where-Object { $_ -match '\\tdevice$' } | ForEach-Object { ($_ -split '\\s+')[0] }",
+		'$deviceDeadline = [DateTime]::UtcNow.AddSeconds(60)',
+		"do { $readyDevices = @(& $adb devices) | Where-Object { $_ -match '\\tdevice$' } | ForEach-Object { ($_ -split '\\s+')[0] }; if (-not $readyDevices) { Start-Sleep -Milliseconds 500 } } while (-not $readyDevices -and [DateTime]::UtcNow -lt $deviceDeadline)",
 		...(preferredDevice
 			? [
 					`$serial = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${encode(preferredDevice)}'))`,
@@ -249,16 +334,40 @@ const encodedWindowsExpoAndroidCommand = (
 					'if (-not $serial) { $serial = $readyDevices | Select-Object -First 1 }'
 				]),
 		"if (-not $serial) { throw 'Expo Android build completed but no ready device was found.' }",
-		`& $adb -s $serial reverse 'tcp:${metroPort}' 'tcp:${metroPort}'`,
-		"if ($LASTEXITCODE -ne 0) { throw 'Expo Android Metro forwarding failed.' }",
+		...(mode === 'release'
+			? [
+					"$apk = Join-Path $mappedProject 'android\\app\\build\\outputs\\apk\\release\\app-release.apk'",
+					"$installOutput = Join-Path $env:TEMP ('absolutejs-adb-install-' + [Guid]::NewGuid().ToString('N') + '.out')",
+					"$installError = $installOutput + '.err'",
+					"$install = Start-Process -FilePath $adb -ArgumentList @('-s', $serial, 'install', '-r', $apk) -NoNewWindow -PassThru -RedirectStandardOutput $installOutput -RedirectStandardError $installError",
+					"if (-not $install.WaitForExit(900000)) { $install.Kill(); throw 'Expo Android release installation timed out after 15 minutes.' }",
+					'$install.WaitForExit()',
+					'$installText = ((Get-Content $installOutput -Raw -ErrorAction SilentlyContinue) + (Get-Content $installError -Raw -ErrorAction SilentlyContinue))',
+					'if ($installText) { Write-Output $installText.Trim() }',
+					'Remove-Item $installOutput, $installError -Force -ErrorAction SilentlyContinue',
+					"if ($install.ExitCode -ne 0 -and $installText -notmatch '(?m)^Success\\r?$') { throw 'Expo Android release installation failed.' }",
+					'$installedPackage = @(& $adb -s $serial shell pm path ' +
+						`'${appId}')`,
+					"if ($LASTEXITCODE -ne 0 -or $installedPackage -notmatch '^package:') { throw 'Expo Android release package verification failed.' }"
+				]
+			: []),
+		`& $adb -s $serial reverse 'tcp:${forwardedPort}' 'tcp:${forwardedPort}'`,
+		"if ($LASTEXITCODE -ne 0) { throw 'Expo Android port forwarding failed.' }",
 		`& $adb -s $serial shell am force-stop '${appId}'`,
-		"if ($LASTEXITCODE -ne 0) { throw 'Expo Android development-client reset failed.' }",
-		`$developmentUrl = '${developmentScheme}://expo-development-client/?url=' + [Uri]::EscapeDataString('http://localhost:${metroPort}')`,
-		`& $adb -s $serial shell am start -a android.intent.action.VIEW -d $developmentUrl '${appId}'`,
-		"if ($LASTEXITCODE -ne 0) { throw 'Expo Android development-client launch failed.' }",
-		'Start-Sleep -Milliseconds 1000',
-		`& $adb -s $serial shell am start -a android.intent.action.VIEW -d $developmentUrl '${appId}'`,
-		"if ($LASTEXITCODE -ne 0) { throw 'Expo Android development-client retry failed.' }"
+		"if ($LASTEXITCODE -ne 0) { throw 'Expo Android application reset failed.' }",
+		...(mode === 'development'
+			? [
+					`$developmentUrl = '${developmentScheme}://expo-development-client/?url=' + [Uri]::EscapeDataString('http://localhost:${forwardedPort}')`,
+					`& $adb -s $serial shell am start -a android.intent.action.VIEW -d $developmentUrl '${appId}'`,
+					"if ($LASTEXITCODE -ne 0) { throw 'Expo Android development-client launch failed.' }",
+					'Start-Sleep -Milliseconds 1000',
+					`& $adb -s $serial shell am start -a android.intent.action.VIEW -d $developmentUrl '${appId}'`,
+					"if ($LASTEXITCODE -ne 0) { throw 'Expo Android development-client retry failed.' }"
+				]
+			: [
+					`& $adb -s $serial shell monkey -p '${appId}' -c android.intent.category.LAUNCHER 1 | Out-Null`,
+					"if ($LASTEXITCODE -ne 0) { throw 'Expo Android release launch failed.' }"
+				])
 	].join('; ');
 	const source = [
 		"$ErrorActionPreference = 'Stop'",
@@ -269,7 +378,7 @@ const encodedWindowsExpoAndroidCommand = (
 		`$expoArguments = @([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${encode(JSON.stringify(args))}')) | ConvertFrom-Json)`,
 		'$env:ANDROID_HOME = $androidHome',
 		'$env:ANDROID_SDK_ROOT = $androidHome',
-		"$env:NODE_ENV = 'development'",
+		`$env:NODE_ENV = '${mode === 'development' ? 'development' : 'production'}'`,
 		...(preferredDevice
 			? []
 			: ["$env:ORG_GRADLE_PROJECT_reactNativeArchitectures = 'x86_64'"]),
@@ -281,9 +390,11 @@ const encodedWindowsExpoAndroidCommand = (
 		'$bun = (Get-Command bun.exe -ErrorAction Stop).Source',
 		'& $bun install',
 		'if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }',
+		'$mirrorRoot = Split-Path -Parent $directory',
+		"$staleDrives = @(& subst.exe) | ForEach-Object { if ($_ -match '^([A-Z]:)\\\\: => (.+)$' -and [String]::Equals($Matches[2].TrimEnd('\\'), $mirrorRoot.TrimEnd('\\'), [StringComparison]::OrdinalIgnoreCase)) { $Matches[1] } }",
+		'foreach ($staleDrive in $staleDrives) { & subst.exe $staleDrive /D | Out-Null }',
 		"$drive = @('Z:', 'Y:', 'X:', 'W:', 'V:', 'U:', 'T:') | Where-Object { -not (Test-Path ($_ + '\\')) } | Select-Object -First 1",
 		"if (-not $drive) { throw 'AbsoluteJS could not reserve a temporary drive letter for the Expo Android build.' }",
-		'$mirrorRoot = Split-Path -Parent $directory',
 		'& subst.exe $drive $mirrorRoot',
 		"if ($LASTEXITCODE -ne 0) { throw 'AbsoluteJS could not create the short Expo Android build path.' }",
 		`try { ${mappedBuild} } finally { Set-Location ($env:SystemDrive + '\\'); & subst.exe $drive /D | Out-Null }`,
@@ -456,6 +567,7 @@ const waitForExit = (process: ChildProcess) =>
 
 type ExpoUtilityCommandOptions = {
 	cwd: string;
+	env?: NodeJS.ProcessEnv;
 	signal?: AbortSignal;
 	log: (message: string) => void;
 };
@@ -468,7 +580,7 @@ const runUtilityCommand = async (
 ) => {
 	const child = run(command, args, {
 		cwd: options.cwd,
-		env: process.env,
+		env: options.env ?? process.env,
 		stdio: ['ignore', 'pipe', 'pipe']
 	});
 	forwardLines(child, options.log);
@@ -479,6 +591,117 @@ const runUtilityCommand = async (
 	if (options.signal?.aborted) throw abortError();
 
 	return exitCode;
+};
+
+export const installAbsoluteExpoAndroidRelease = async (
+	options: InstallAbsoluteExpoAndroidReleaseOptions
+): Promise<AbsoluteExpoAndroidReleaseInstallation> => {
+	if (options.config.engine !== 'expo')
+		throw new TypeError(
+			'The Expo Android release installer requires Expo.'
+		);
+	if (!options.config.platforms.includes('android'))
+		throw new TypeError(
+			'The Expo Android release installer requires the android platform.'
+		);
+	const host = options.host ?? detectAbsoluteMobileHost();
+	const project = options.config.nativeProjectDirectory;
+	const executable =
+		options.executable ?? (await absoluteExpoExecutable(project));
+	const capture = options.capture ?? captureCommand;
+	const run = options.spawnProcess ?? spawn;
+	const log = options.log ?? (() => undefined);
+	const env: NodeJS.ProcessEnv = { ...process.env, NODE_ENV: 'production' };
+	const utilityOptions: ExpoUtilityCommandOptions = {
+		cwd: project,
+		env,
+		log,
+		signal: options.signal
+	};
+	const started = performance.now();
+	const prebuildExit = await runUtilityCommand(
+		run,
+		executable,
+		['prebuild', '--clean', '--no-install', '--platform', 'android'],
+		utilityOptions
+	);
+	if (prebuildExit !== 0)
+		throw new Error(
+			`Expo Android production preparation exited with status ${prebuildExit}.`
+		);
+	const androidRoot =
+		options.androidRoot ??
+		process.env.ANDROID_HOME ??
+		process.env.ANDROID_SDK_ROOT ??
+		absoluteManagedAndroidSdkRoot(host);
+	const args = [
+		'run:android',
+		'--variant',
+		'release',
+		'--no-bundler',
+		...(options.androidDevice ? ['--device', options.androidDevice] : [])
+	];
+	const invocation =
+		host === 'wsl'
+			? encodedWindowsExpoAndroidCommand(
+					project,
+					androidRoot,
+					options.config.appId,
+					args,
+					capture,
+					options.forwardedPort,
+					options.androidDevice,
+					'release'
+				)
+			: [executable, ...args];
+	if (host === 'wsl')
+		log(
+			'[android] Mirroring native inputs to the Windows host for an installable Expo release build.'
+		);
+	const [releaseExecutable, ...releaseArguments] = invocation;
+	if (!releaseExecutable)
+		throw new Error('Expo Android release build command is empty.');
+	const releaseExit = await runUtilityCommand(
+		run,
+		releaseExecutable,
+		releaseArguments,
+		utilityOptions
+	);
+	if (releaseExit !== 0)
+		throw new Error(
+			`Expo Android release build exited with status ${releaseExit}.`
+		);
+	const adb =
+		options.androidAdb ??
+		join(
+			androidRoot,
+			'platform-tools',
+			host === 'windows' || host === 'wsl' ? 'adb.exe' : 'adb'
+		);
+	const serial =
+		host === 'wsl'
+			? (options.androidDevice ??
+				capture([adb, 'devices'])
+					.stdout.split(/\r?\n/u)
+					.flatMap((line) => {
+						const match = /^(\S+)\s+device$/u.exec(line.trim());
+
+						return match?.[1] ? [match[1]] : [];
+					})
+					.find((value) => value.startsWith('emulator-')))
+			: launchLocalExpoAndroidRelease(
+					adb,
+					options.config.appId,
+					options.forwardedPort,
+					capture,
+					options.androidDevice
+				);
+	if (!serial)
+		throw new Error(
+			'Expo Android release build completed but its device could not be identified.'
+		);
+
+	return { durationMs: performance.now() - started, serial };
 };
 
 export const startAbsoluteExpoDevSession = async (

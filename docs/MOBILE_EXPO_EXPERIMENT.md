@@ -16,6 +16,10 @@ generated CI, and TestFlight publishing are available in `0.20.0-beta.51`.
 `0.20.0-beta.79` adds the passing real-device-boundary Android installed-upgrade
 gate for native Auth and encrypted Sync, including process death, an AVD reboot,
 schema migration, package-identity preservation, and exactly-once outbox replay.
+`0.20.0-beta.80` adds the production Expo Updates protocol path and real Android
+OTA conformance: stable installation cohorts through Expo extra parameters,
+native fatal-startup recovery, incompatible-runtime no-update responses, fresh
+activation identities for previous-release rollback, and rollback to embedded.
 
 AbsoluteJS can generate an experimental Expo Router shell in which explicitly
 selected routes render React Native UI and all other routes remain ordinary
@@ -98,6 +102,10 @@ Implemented in the first spike:
 - process-restart durability, transactional migration rollback, schema
   downgrade rejection, readonly enforcement, quota/policy enforcement, and
   account-isolation conformance coverage;
+- signed provider-neutral Expo OTA delivery with native code-signing
+  verification, stable per-installation rollout selection, manual healthy-launch
+  checks, native pre-root error recovery, previous-release rollback, embedded
+  rollback, and retained Auth/Sync state;
 - clean production Android CNG, signed or explicitly unsigned AAB builds,
   immutable content-addressed release metadata, automatic Google Play version
   codes, release-doctor enforcement, generated protected CI, and the existing

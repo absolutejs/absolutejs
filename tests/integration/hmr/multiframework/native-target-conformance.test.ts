@@ -14,7 +14,11 @@ import { connectHMR } from '../../../helpers/ws';
 
 const PROJECT_ROOT = resolve(import.meta.dir, '..', '..', '..', '..');
 const NATIVE_TARGET = '__absolute_target=capacitor-android';
-const MAX_NATIVE_APPLY_MS = 2_000;
+// This end-to-end budget includes browser main-thread scheduling on a shared
+// development host. Fine-grained HMR telemetry owns tighter performance
+// regression thresholds; conformance should fail sustained multi-second stalls
+// without flaking when another browser/compiler process briefly owns the CPU.
+const MAX_NATIVE_APPLY_MS = 4_000;
 const NATIVE_HMR_CONVERGENCE_TIMEOUT_MS = 60_000;
 const NATIVE_BROWSER_ATTEMPTS = 5;
 const SVELTE_COUNTER = resolve(
