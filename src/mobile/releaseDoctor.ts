@@ -150,7 +150,7 @@ const mobileUpdateServerCheck = async (
 
 		return pass(
 			'updates.trusted-server',
-			`The trusted update server uses durable ${metadata?.provider ?? 'object'} storage, supports publish/promote/rollback, and has valid server-only signing material.`,
+			`The trusted update server proved durable ${metadata?.provider ?? 'object'} storage read/write/delete access, supports publish/promote/rollback, and has valid server-only signing material.`,
 			config.updateServer?.registryModule
 		);
 	} catch (error) {

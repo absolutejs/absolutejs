@@ -7,6 +7,8 @@ export const absoluteMobileUpdateServer = {
 	storage: 'durable'
 } as const;
 
+export const verifyAbsoluteMobileUpdateServer = async () => {};
+
 const harnessOnly = async () => {
 	throw new Error('The native conformance harness owns update traffic.');
 };

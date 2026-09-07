@@ -136,6 +136,26 @@ but no private key or storage credential.
 Set `ABSOLUTE_MOBILE_UPDATE_S3_FORCE_PATH_STYLE=1` only for providers such as a
 local MinIO deployment that require path-style bucket URLs.
 
+The production server and `mobile doctor release` do not trust the word
+`durable` by itself. At startup they write a random short-lived probe, read and
+compare it, and delete it. Missing buckets, invalid credentials, read-only
+credentials, incorrect endpoints, and cleanup-denied policies therefore fail
+before update traffic is accepted. Grant the update server `GetObject`,
+`PutObject`, and `DeleteObject` for its bucket prefix.
+
+Common provider settings are:
+
+| Provider | Bucket | Region | Endpoint | Path style |
+| --- | --- | --- | --- | --- |
+| AWS S3 | `ABSOLUTE_MOBILE_UPDATE_S3_BUCKET` | Set the bucket's AWS region | Omit | Omit |
+| Cloudflare R2 | Same | `auto` | Account-specific R2 S3 endpoint | Omit |
+| MinIO | Same | Usually `us-east-1` | MinIO API origin | Set to `1` when required |
+| Backblaze B2 | Same | B2 bucket region | Region-specific S3 endpoint | Omit unless required by the deployment |
+
+Use the provider's standard AWS credential variables or workload identity. Do
+not place access keys in `absolute.config.ts`, `mobile.update.ts`, a native
+project, or a mobile update artifact.
+
 `mobile init` and `mobile sync` offer to install the exact Capacitor Filesystem
 plugin only when updates are configured. They also generate a native Android/iOS
 boot watchdog. `absolute mobile doctor release` verifies that the generated
@@ -242,7 +262,13 @@ set `server.autoMount: false` and host the exact manifest URL separately.
 The generated durable module is equivalent to:
 
 ```ts
-import { S3Client } from '@aws-sdk/client-s3';
+import { randomUUID } from 'node:crypto';
+import {
+  DeleteObjectCommand,
+  GetObjectCommand,
+  PutObjectCommand,
+  S3Client
+} from '@aws-sdk/client-s3';
 import { awsS3BlobStore } from '@absolutejs/blob/aws-s3';
 import { createMobileUpdateRegistry } from '@absolutejs/deploy/mobile-update';
 
@@ -252,13 +278,32 @@ export const absoluteMobileUpdateServer = {
   storage: 'durable'
 } as const;
 
+const bucket = process.env.ABSOLUTE_MOBILE_UPDATE_S3_BUCKET!;
+const client = new S3Client({ region: 'us-east-1' });
+
+export const verifyAbsoluteMobileUpdateServer = async () => {
+  const key = `absolutejs/mobile-updates/_health/${randomUUID()}`;
+  const expected = randomUUID();
+  let stored = false;
+  try {
+    await client.send(new PutObjectCommand({ Bucket: bucket, Key: key, Body: expected }));
+    stored = true;
+    const result = await client.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
+    if ((await result.Body?.transformToString()) !== expected) {
+      throw new Error('Durability probe read did not match its write.');
+    }
+  } finally {
+    if (stored) await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
+  }
+};
+
 const updateRegistry = createMobileUpdateRegistry({
   publicKeys: {
     'production-2026': 'BASE64_ECDSA_P256_SPKI_DER'
   },
   store: awsS3BlobStore({
-    bucket: process.env.ABSOLUTE_MOBILE_UPDATE_S3_BUCKET!,
-    client: new S3Client({ region: 'us-east-1' })
+    bucket,
+    client
   })
 });
 
@@ -270,6 +315,13 @@ manifests and assets, keeps the prior confirmed release as the staged-rollout
 fallback, validates its own receipts, and assigns an anonymous installation UUID
 deterministically. It does not use a user, Auth
 principal, advertising identifier, device fingerprint, or credential.
+
+Immutable release files may be uploaded concurrently. Promotion and rollback
+each replace one complete channel document atomically, so readers never observe
+partial JSON or a release without its verified manifest. Operators should still
+serialize intentional changes to the same app/channel: simultaneous control
+commands are safe, but whichever complete channel write the object store orders
+last becomes policy.
 
 The handler validates each Expo RSA private key against its X.509 certificate at
 startup and rejects invalid, expired, mismatched, or non-RSA material. When the
@@ -372,3 +424,20 @@ a boolean result. A passing artifact is written to
   which already avoids an archive/unzip dependency and permits CDN caching.
 - EAS-hosted publishing is not yet an AbsoluteJS registry provider. The current
   Expo path is the provider-neutral self-hosted `@absolutejs/deploy` registry.
+
+## Durable storage conformance
+
+AbsoluteJS includes an opt-in production-storage gate using a pinned MinIO
+container:
+
+```bash
+bun run test:mobile:update:durable
+```
+
+Run it from the AbsoluteJS repository root on a machine with Docker. It creates
+an ephemeral bucket and proves generated-registry health verification,
+independent server instances, persistence across a MinIO restart, incomplete
+publication isolation, concurrent channel-state safety, previous-release and
+embedded rollback, Capacitor digest/signature verification, Expo RSA response
+signing, health-probe cleanup, and failure for invalid credentials or a missing
+bucket. It removes the container and temporary project afterward.

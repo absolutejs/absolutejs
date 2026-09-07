@@ -1295,7 +1295,7 @@ const provisionMobileUpdate = async (args: string[]) => {
 	const modulePath =
 		valueAfter(args, '--registry') ?? mobile.updateServer.registryModule;
 	const packages = [
-		'@absolutejs/deploy@0.25.5',
+		'@absolutejs/deploy@0.25.6',
 		'@absolutejs/blob@0.5.2',
 		...(requestedStorage === 's3'
 			? [

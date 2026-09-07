@@ -2,6 +2,18 @@
 
 Status: Capacitor Android development/release, all-framework embedded bundles, universal native Auth/Sync, Expo hybrid native Auth/Sync, background Sync, automatic device provisioning, provider-neutral native push registration, signed staged Capacitor updates, end-to-end RSA-signed self-hosted Expo production updates, and Android conformance are operational; iOS development/release automation is shipped and awaiting real macOS/physical-device acceptance
 
+Implementation checkpoint (September 7, 2026, durable update-serving
+conformance): production update registries now require an active durability
+verifier instead of trusting declarative metadata. The generated S3-compatible
+registry performs a bounded random write/read/delete probe during production
+startup and release doctor. A pinned real-MinIO gate proves independent server
+instances, storage restart persistence, incomplete-release invisibility,
+concurrent channel-document safety, rollback, Capacitor client verification,
+Expo RSA-signed protocol responses, probe cleanup, and fail-closed invalid
+credentials or missing buckets. Its first run found and fixed S3's lowercase
+user-metadata behavior in `@absolutejs/deploy@0.25.6`. Run the gate from this
+repository with `bun run test:mobile:update:durable`.
+
 Implementation checkpoint (September 6, 2026, Expo installed-upgrade
 conformance): the Expo Android provider has passed its opt-in installed-app gate
 for the state boundary that unit and CNG tests cannot prove. It installs versionCode

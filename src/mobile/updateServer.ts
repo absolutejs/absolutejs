@@ -22,6 +22,7 @@ export type AbsoluteMobileUpdateServerMetadata = {
 export type AbsoluteMobileUpdateServerModule = {
 	metadata: AbsoluteMobileUpdateServerMetadata;
 	registry: MobileUpdateRegistry;
+	verifyDurability?: () => Promise<void>;
 };
 
 const object = (value: unknown): value is Record<string, unknown> =>
@@ -97,10 +98,41 @@ export const loadAbsoluteMobileUpdateServerModule = async (
 			'Mobile update registry must implement publication, promotion, rollback, resolution, and file reads.'
 		);
 
+	const metadata = serverMetadata(loaded.absoluteMobileUpdateServer);
+	const verifier = loaded.verifyAbsoluteMobileUpdateServer;
+	if (metadata.storage === 'durable' && typeof verifier !== 'function')
+		throw new TypeError(
+			'Mobile update registries marked durable must export verifyAbsoluteMobileUpdateServer(). Re-run `absolute mobile update provision --storage s3 --force` or provide an active durability check.'
+		);
+
 	return {
-		metadata: serverMetadata(loaded.absoluteMobileUpdateServer),
-		registry
+		metadata,
+		registry,
+		...(typeof verifier === 'function'
+			? {
+					verifyDurability: async () => {
+						await verifier();
+					}
+				}
+			: {})
 	};
+};
+
+const verifyDurableModule = async (
+	module: AbsoluteMobileUpdateServerModule
+) => {
+	if (module.metadata.storage !== 'durable')
+		throw new TypeError(
+			'Mobile production updates require durable object storage. Re-run `absolute mobile update provision --storage s3 --force` or configure a durable adapter.'
+		);
+	try {
+		await module.verifyDurability?.();
+	} catch (error) {
+		throw new TypeError(
+			`Durable mobile update storage verification failed for ${module.metadata.provider}. Check the bucket, endpoint, credentials, and read/write/delete permissions.`,
+			{ cause: error }
+		);
+	}
 };
 
 const expoSigningOptions = (config: NormalizedAbsoluteMobileConfig) => {
@@ -154,10 +186,7 @@ export const createAbsoluteMobileUpdateServerPlugin = async (
 		projectRoot,
 		server.registryModule
 	);
-	if (options.production && module.metadata.storage !== 'durable')
-		throw new TypeError(
-			'Mobile production updates require durable object storage. Re-run `absolute mobile update provision --storage s3 --force` or configure a durable adapter.'
-		);
+	if (options.production) await verifyDurableModule(module);
 	const manifest = new URL(updates.manifestUrl);
 	if (!manifest.pathname.endsWith('/update.json'))
 		throw new TypeError(
@@ -192,10 +221,7 @@ export const inspectAbsoluteMobileUpdateServer = async (
 		projectRoot,
 		config.updateServer?.registryModule
 	);
-	if (module.metadata.storage !== 'durable')
-		throw new TypeError(
-			'Mobile production updates require durable object storage; the configured registry is local-only.'
-		);
+	await verifyDurableModule(module);
 	if (config.engine === 'expo') expoSigningOptions(config);
 
 	return module.metadata;
@@ -212,7 +238,7 @@ export const renderAbsoluteMobileUpdateRegistry = (options: {
 	if (options.storage === 'local')
 		return `import { fileURLToPath } from 'node:url';\nimport { localBlobStore } from '@absolutejs/blob/local';\nimport { createMobileUpdateRegistry } from '@absolutejs/deploy/mobile-update';\n\n${metadata}\n\nconst store = localBlobStore({\n\troot: process.env.ABSOLUTE_MOBILE_UPDATE_LOCAL_ROOT ??\n\t\tfileURLToPath(new URL('./.absolutejs/mobile/update-registry/', import.meta.url))\n});\n\nexport default createMobileUpdateRegistry({\n\tpublicKeys: ${publicKeysSource(options.publicKeys)},\n\tstore\n});\n`;
 
-	return `import { S3Client } from '@aws-sdk/client-s3';\nimport { awsS3BlobStore } from '@absolutejs/blob/aws-s3';\nimport { createMobileUpdateRegistry } from '@absolutejs/deploy/mobile-update';\n\n${metadata}\n\nconst required = (name: string) => {\n\tconst value = process.env[name];\n\tif (!value) throw new Error(\`Missing \${name}\`);\n\treturn value;\n};\n\nconst client = new S3Client({\n\tregion: process.env.ABSOLUTE_MOBILE_UPDATE_S3_REGION ?? 'auto',\n\tforcePathStyle: process.env.ABSOLUTE_MOBILE_UPDATE_S3_FORCE_PATH_STYLE === '1',\n\t...(process.env.ABSOLUTE_MOBILE_UPDATE_S3_ENDPOINT\n\t\t? { endpoint: process.env.ABSOLUTE_MOBILE_UPDATE_S3_ENDPOINT }\n\t\t: {})\n});\nconst store = awsS3BlobStore({\n\tbucket: required('ABSOLUTE_MOBILE_UPDATE_S3_BUCKET'),\n\tclient\n});\n\nexport default createMobileUpdateRegistry({\n\tpublicKeys: ${publicKeysSource(options.publicKeys)},\n\tstore\n});\n`;
+	return `import { randomUUID } from 'node:crypto';\nimport { DeleteObjectCommand, GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';\nimport { awsS3BlobStore } from '@absolutejs/blob/aws-s3';\nimport { createMobileUpdateRegistry } from '@absolutejs/deploy/mobile-update';\n\n${metadata}\n\nconst required = (name: string) => {\n\tconst value = process.env[name];\n\tif (!value) throw new Error(\`Missing \${name}\`);\n\treturn value;\n};\n\nconst bucket = required('ABSOLUTE_MOBILE_UPDATE_S3_BUCKET');\nconst client = new S3Client({\n\tregion: process.env.ABSOLUTE_MOBILE_UPDATE_S3_REGION ?? 'auto',\n\tforcePathStyle: process.env.ABSOLUTE_MOBILE_UPDATE_S3_FORCE_PATH_STYLE === '1',\n\t...(process.env.ABSOLUTE_MOBILE_UPDATE_S3_ENDPOINT\n\t\t? { endpoint: process.env.ABSOLUTE_MOBILE_UPDATE_S3_ENDPOINT }\n\t\t: {})\n});\nconst store = awsS3BlobStore({ bucket, client });\n\nexport const verifyAbsoluteMobileUpdateServer = async () => {\n\tconst key = \`absolutejs/mobile-updates/_health/\${randomUUID()}\`;\n\tconst expected = randomUUID();\n\tlet stored = false;\n\ttry {\n\t\tawait client.send(new PutObjectCommand({ Bucket: bucket, Key: key, Body: expected }));\n\t\tstored = true;\n\t\tconst response = await client.send(new GetObjectCommand({ Bucket: bucket, Key: key }));\n\t\tif ((await response.Body?.transformToString()) !== expected)\n\t\t\tthrow new Error('Durability probe read did not match its write.');\n\t} finally {\n\t\tif (stored) await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));\n\t}\n};\n\nexport default createMobileUpdateRegistry({\n\tpublicKeys: ${publicKeysSource(options.publicKeys)},\n\tstore\n});\n`;
 };
 
 export const writeAbsoluteMobileUpdateRegistry = async (options: {

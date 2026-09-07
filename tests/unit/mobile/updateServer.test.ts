@@ -39,8 +39,9 @@ const publicKeys = () => {
 	};
 };
 
-const registryModule = (storage: 'durable' | 'local') => `
+const registryModule = (storage: 'durable' | 'local', verifier = '') => `
 export const absoluteMobileUpdateServer = { format: 1, provider: 'test', storage: '${storage}' };
+${verifier}
 export default {
 	publishUpdate: async () => ({}),
 	promoteUpdate: async () => ({}),
@@ -65,8 +66,49 @@ describe('trusted mobile update server', () => {
 		expect(local).toContain('@absolutejs/blob/local');
 		expect(durable).toContain("storage: 'durable'");
 		expect(durable).toContain('ABSOLUTE_MOBILE_UPDATE_S3_BUCKET');
+		expect(durable).toContain('verifyAbsoluteMobileUpdateServer');
+		expect(durable).toContain('PutObjectCommand');
+		expect(durable).toContain('GetObjectCommand');
+		expect(durable).toContain('DeleteObjectCommand');
 		expect(local).not.toContain('PRIVATE_KEY');
 		expect(durable).not.toContain('PRIVATE_KEY');
+	});
+
+	test('requires and executes an active verifier for durable storage', async () => {
+		const projectRoot = await temporaryRoot();
+		await writeFile(
+			join(projectRoot, 'mobile.update.ts'),
+			registryModule('durable')
+		);
+		await expect(
+			loadAbsoluteMobileUpdateServerModule(projectRoot)
+		).rejects.toThrow('verifyAbsoluteMobileUpdateServer');
+
+		await writeFile(
+			join(projectRoot, 'verified.update.ts'),
+			registryModule(
+				'durable',
+				"export const verifyAbsoluteMobileUpdateServer = async () => { throw new Error('unreachable bucket'); };"
+			)
+		);
+		const config = normalizeAbsoluteMobileConfig(
+			{
+				appId: 'com.example.product',
+				appName: 'Product',
+				platforms: ['android'],
+				server: { productionOrigin: 'https://api.example.com' },
+				updates: {
+					publicKeys: publicKeys(),
+					server: { registry: 'verified.update.ts' }
+				}
+			},
+			projectRoot
+		);
+		await expect(
+			createAbsoluteMobileUpdateServerPlugin(config, projectRoot, {
+				production: true
+			})
+		).rejects.toThrow('bucket, endpoint, credentials');
 	});
 
 	test('writes safely and refuses accidental replacement', async () => {
