@@ -11,6 +11,7 @@ import {
 	type AbsoluteIosUsageDescription
 } from './deviceCapabilities';
 import { resolveAbsoluteMobileUpdateRuntime } from './updateRuntime';
+import { inspectAbsoluteMobileUpdateServer } from './updateServer';
 
 export type AbsoluteMobileReleaseCheck = {
 	detail: string;
@@ -135,6 +136,34 @@ const warn = (
 	remediation,
 	status: 'warn'
 });
+
+const mobileUpdateServerCheck = async (
+	config: NormalizedAbsoluteMobileConfig,
+	projectRoot: string
+) => {
+	if (!config.updates) return undefined;
+	try {
+		const metadata = await inspectAbsoluteMobileUpdateServer(
+			config,
+			projectRoot
+		);
+
+		return pass(
+			'updates.trusted-server',
+			`The trusted update server uses durable ${metadata?.provider ?? 'object'} storage, supports publish/promote/rollback, and has valid server-only signing material.`,
+			config.updateServer?.registryModule
+		);
+	} catch (error) {
+		return fail(
+			'updates.trusted-server',
+			error instanceof Error
+				? error.message
+				: 'The trusted mobile update server is not release-ready.',
+			config.updateServer?.registryModule ?? 'mobile.update.ts',
+			'Run `absolute mobile update provision --storage s3 --force`, provision its environment variables on the trusted server, and rerun the release doctor.'
+		);
+	}
+};
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
 	typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -1957,14 +1986,19 @@ export const inspectAbsoluteMobileRelease = async (
 		dependencyLockCheck(projectRoot),
 		config.engine === 'expo'
 			? expoVersionCheck(config)
-			: capacitorVersionCheck(config, projectRoot)
+			: capacitorVersionCheck(config, projectRoot),
+		mobileUpdateServerCheck(config, projectRoot)
 	]);
-	const checks: AbsoluteMobileReleaseCheck[] = globalChecks.map((check) => ({
-		...check,
-		path: check.path
-			? relative(projectRoot, check.path).replaceAll('\\', '/') || '.'
-			: undefined
-	}));
+	const checks: AbsoluteMobileReleaseCheck[] = globalChecks
+		.filter(
+			(check): check is AbsoluteMobileReleaseCheck => check !== undefined
+		)
+		.map((check) => ({
+			...check,
+			path: check.path
+				? relative(projectRoot, check.path).replaceAll('\\', '/') || '.'
+				: undefined
+		}));
 	if (config.platforms.includes('android'))
 		checks.push(
 			...(config.engine === 'expo'

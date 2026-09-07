@@ -2797,7 +2797,7 @@ directory containing the test application's `package.json` and
 repository, `mobile/ios`, Xcode's project directory, or `.absolutejs/mobile`.
 
 Before starting, follow `MOBILE_UPDATES.md` to configure a test-only ECDSA P-256
-public key and the trusted update handler. Keep the private PEM outside every
+public key. Keep the private PEM outside every
 repository and report archive. For this disposable acceptance build, set
 `mobile.updates.bootTimeoutMs: 5000` before building version N; changing it later
 changes the native-runtime fingerprint and correctly requires another store build.
@@ -2817,9 +2817,17 @@ Start with a store-style build containing version N and the configured public ke
 pwd
 test -f package.json
 test -f absolute.config.ts
+bunx absolute mobile update provision --storage local --yes
 bunx absolute mobile sync ios
 bunx absolute mobile build ios src/backend/server.ts
 ```
+
+The provision command creates `mobile.update.ts`; do not hand-write or mount an
+Elysia update route. AbsoluteJS mounts it automatically. Local storage is
+deliberate for this one-Mac acceptance test, but it cannot pass a production
+release doctor. A real deployment must run `absolute mobile update provision
+--storage s3 --force --yes` and supply the printed trusted-server environment
+variables.
 
 Install and launch that IPA through the existing physical-device steps in this
 document. Then make a visible page-only change that remains within the submitted
@@ -2837,7 +2845,7 @@ Use the exact `Release:` path printed by that command:
 
 ```bash
 bunx absolute mobile update publish ABSOLUTE_PRINTED_RELEASE_PATH \
-  --registry mobile.release.ts --rollout 1
+  --rollout 1
 ```
 
 For `OTA-08` and `OTA-14`, create a new page-only update by temporarily throwing
@@ -2849,6 +2857,8 @@ release.
 
 Complete this checklist and include the IDs verbatim in the report:
 
+- [ ] `OTA-00A` `pwd`, `test -f package.json`, and `test -f absolute.config.ts` all confirm the commands ran from the application repository root.
+- [ ] `OTA-00B` `absolute mobile update provision --storage local --yes` creates `mobile.update.ts` and installs its prompted packages without requiring a hand-written server route.
 - [ ] `OTA-01` The original store build opens and shows version N before an update is published.
 - [ ] `OTA-02` The build output contains an `amu_…` release ID, `update.json`, and `files/`; the report does not contain the private key or its contents.
 - [ ] `OTA-03` The installed app downloads, activates, and shows the visible N+1 page change without installing another IPA.
@@ -2857,8 +2867,8 @@ Complete this checklist and include the IDs verbatim in the report:
 - [ ] `OTA-06` Publish a file with one byte changed after signing. The app reports a failed update, remains on N+1, and does not partially activate it.
 - [ ] `OTA-07` Build an update after adding a native capability or changing the generated Sync schema. The installed N runtime receives no update; the CLI/registry reports a runtime mismatch requiring a store build.
 - [ ] `OTA-08` Publish a valid test bundle whose bootstrap throws before the first page can render. Without terminating or reopening the app, confirm the native watchdog restores N+1 within the configured `mobile.updates.bootTimeoutMs` window.
-- [ ] `OTA-09` Promote a valid N+2 update to 100%, confirm it, then run `bunx absolute mobile update rollback --release amu_N_PLUS_1 --registry mobile.release.ts`. Reopen and confirm N+1.
-- [ ] `OTA-10` Run `bunx absolute mobile update rollback --registry mobile.release.ts`, reinstall/reopen as directed, and confirm the embedded store bundle N is the final recovery image.
+- [ ] `OTA-09` Promote a valid N+2 update to 100%, confirm it, then run `bunx absolute mobile update rollback --release amu_N_PLUS_1`. Reopen and confirm N+1.
+- [ ] `OTA-10` Run `bunx absolute mobile update rollback`, reinstall/reopen as directed, and confirm the embedded store bundle N is the final recovery image.
 - [ ] `OTA-11` On a migrated/restored test device or by removing the confirmed snapshot only in a disposable test install, verify the generated iOS startup guard clears the dangling path and opens embedded N instead of a blank WebView.
 - [ ] `OTA-12` Confirm update requests send only app ID, channel, current release, anonymous installation UUID, and runtime fingerprint. They must not send cookies, bearer/refresh tokens, Sync data, page props, or a user identifier.
 - [ ] `OTA-13` After `OTA-08`, confirm the `absolute:mobile-update` detail contains only `kind: 'rolled-back'`, reason `boot-timeout`, the failed `amu_…` identity, and a numeric duration. Reopen while the same failed release remains published and confirm it is reported as quarantined without downloading its files or attempting activation again.

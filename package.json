@@ -9,6 +9,7 @@
 	"dependencies": {
 		"@absolutejs/auth": ">=0.75.0 <0.77.0",
 		"@absolutejs/beacon": ">=0.7.0-beta.4 <0.8.0",
+		"@absolutejs/deploy": "0.25.5",
 		"@absolutejs/devices": "0.7.0",
 		"@absolutejs/devices-capacitor": "0.8.0",
 		"@absolutejs/devices-expo": "0.0.2",
@@ -31,7 +32,7 @@
 	},
 	"description": "A fullstack meta-framework for building web applications with TypeScript",
 	"devDependencies": {
-		"@absolutejs/deploy": "0.25.5",
+		"@absolutejs/blob": "0.5.2",
 		"@absolutejs/dispatch": "0.9.0",
 		"@absolutejs/manifest": "0.9.0",
 		"@absolutejs/scoped-state": "0.2.2",
@@ -518,7 +519,7 @@
 			]
 		}
 	},
-	"version": "0.20.0-beta.80",
+	"version": "0.20.0-beta.81",
 	"workspaces": [
 		"tests/fixtures/*",
 		"tests/fixtures/_packages/*"

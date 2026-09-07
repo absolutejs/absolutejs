@@ -158,6 +158,11 @@ describe('mobile config normalization', () => {
 				'https://api.example.com/__absolute/mobile/updates/production/update.json',
 			publicKeys: { 'production-2026': encoded }
 		});
+		expect(config.updateServer).toEqual({
+			autoMount: true,
+			expoCodeSigningKeys: {},
+			registryModule: 'mobile.update.ts'
+		});
 		expect(() =>
 			normalizeAbsoluteMobileConfig(
 				{
@@ -169,6 +174,35 @@ describe('mobile config normalization', () => {
 				'/workspace'
 			)
 		).toThrow('at least one key');
+		expect(() =>
+			normalizeAbsoluteMobileConfig(
+				{
+					appId: 'com.example.product',
+					appName: 'Product',
+					server: { productionOrigin: 'https://api.example.com' },
+					updates: {
+						manifestUrl: 'https://updates.example.com/update.json',
+						publicKeys: { 'production-2026': encoded }
+					}
+				},
+				'/workspace'
+			)
+		).toThrow('autoMount');
+		expect(
+			normalizeAbsoluteMobileConfig(
+				{
+					appId: 'com.example.product',
+					appName: 'Product',
+					server: { productionOrigin: 'https://api.example.com' },
+					updates: {
+						manifestUrl: 'https://updates.example.com/update.json',
+						publicKeys: { 'production-2026': encoded },
+						server: { autoMount: false }
+					}
+				},
+				'/workspace'
+			).updateServer?.autoMount
+		).toBe(false);
 		expect(() =>
 			normalizeAbsoluteMobileConfig(
 				{

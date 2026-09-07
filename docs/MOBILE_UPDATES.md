@@ -101,6 +101,12 @@ export default {
       expoCodeSigning: {
         certificatePath: 'mobile/code-signing/expo-update-certificate.pem',
         keyId: 'main'
+      },
+      server: {
+        // Both are optional. The registry defaults to mobile.update.ts and
+        // AbsoluteJS mounts it automatically on productionOrigin.
+        registry: 'mobile.update.ts',
+        expoPrivateKeyEnv: 'ABSOLUTE_EXPO_UPDATE_PRIVATE_KEY'
       }
     }
   }
@@ -109,6 +115,27 @@ export default {
 
 The default manifest endpoint is
 `https://api.example.com/__absolute/mobile/updates/production/update.json`.
+Provision its trusted-server registry from the application root:
+
+```bash
+# Zero-configuration development and single-machine smoke tests.
+bunx absolute mobile update provision --storage local --yes
+
+# Required before a production deployment. Supports AWS S3, R2, MinIO,
+# Backblaze B2, and other S3-compatible storage.
+bunx absolute mobile update provision --storage s3 --force --yes
+```
+
+The first command generates `mobile.update.ts` with explicitly marked local
+storage. AbsoluteJS serves it during development, but `mobile doctor release`
+and the production runtime reject it. The durable form reads
+`ABSOLUTE_MOBILE_UPDATE_S3_BUCKET`, standard AWS credentials, and optional
+`ABSOLUTE_MOBILE_UPDATE_S3_ENDPOINT` / `ABSOLUTE_MOBILE_UPDATE_S3_REGION` only
+inside the trusted server. The generated file contains public verification keys
+but no private key or storage credential.
+Set `ABSOLUTE_MOBILE_UPDATE_S3_FORCE_PATH_STYLE=1` only for providers such as a
+local MinIO deployment that require path-style bucket URLs.
+
 `mobile init` and `mobile sync` offer to install the exact Capacitor Filesystem
 plugin only when updates are configured. They also generate a native Android/iOS
 boot watchdog. `absolute mobile doctor release` verifies that the generated
@@ -148,6 +175,12 @@ and defaults to a ten-year certificate. Run `absolute mobile sync` after adding
 the config. Since the certificate is part of the automatically generated runtime
 fingerprint, this correctly requires a new store build.
 
+Provision the printed private key PEM as the value of
+`ABSOLUTE_EXPO_UPDATE_PRIVATE_KEY` (or the configured
+`expoPrivateKeyEnv`) in the trusted server's secret manager. AbsoluteJS checks
+that it matches the embedded certificate before accepting update traffic. The
+path to the key is never placed in application config.
+
 Run these commands from the application root—the directory containing
 `package.json` and `absolute.config.ts`:
 
@@ -177,13 +210,13 @@ AbsoluteJS prints an immutable `amu_…` release directory. Publication starts a
 
 ```bash
 bunx absolute mobile update publish .absolutejs/mobile/updates/amu_RELEASE \
-  --registry mobile.release.ts
+  --rollout 0.05
 
 bunx absolute mobile update promote \
-  --release amu_RELEASE --rollout 0.25 --registry mobile.release.ts
+  --release amu_RELEASE --rollout 0.25
 
 bunx absolute mobile update promote \
-  --release amu_RELEASE --rollout 1 --registry mobile.release.ts
+  --release amu_RELEASE --rollout 1
 ```
 
 Roll back to a previously published update, or omit `--release` to return every
@@ -191,52 +224,45 @@ device to its embedded store build:
 
 ```bash
 bunx absolute mobile update rollback \
-  --release amu_PREVIOUS --registry mobile.release.ts
+  --release amu_PREVIOUS
 
-bunx absolute mobile update rollback --registry mobile.release.ts
+bunx absolute mobile update rollback
 ```
 
 ## Deployment registry
 
-`@absolutejs/deploy/mobile-update` implements the provider-neutral registry over
-the same `BlobStore` contract as native AAB/IPA publishing:
+`mobile.update.ts` is intentionally separate from `mobile.release.ts`: the first
+serves web-bundle updates from the application runtime, while the second may
+contain Google Play or App Store Connect release credentials used only by CI.
+Both use `@absolutejs/deploy` and the provider-neutral `BlobStore` contract.
+AbsoluteJS generates the normal update registry, imports it during server boot,
+and mounts its handler before page and static routes. Advanced deployments can
+set `server.autoMount: false` and host the exact manifest URL separately.
+
+The generated durable module is equivalent to:
 
 ```ts
-import {
-  createMobileUpdateHandler,
-  createMobileUpdateRegistry
-} from '@absolutejs/deploy/mobile-update';
-import { readFileSync } from 'node:fs';
+import { S3Client } from '@aws-sdk/client-s3';
+import { awsS3BlobStore } from '@absolutejs/blob/aws-s3';
+import { createMobileUpdateRegistry } from '@absolutejs/deploy/mobile-update';
+
+export const absoluteMobileUpdateServer = {
+  format: 1,
+  provider: 's3',
+  storage: 'durable'
+} as const;
 
 const updateRegistry = createMobileUpdateRegistry({
   publicKeys: {
     'production-2026': 'BASE64_ECDSA_P256_SPKI_DER'
   },
-  store
-});
-const updateHandler = createMobileUpdateHandler({
-  appId: 'com.example.product',
-  channel: 'production',
-  expoCodeSigning: {
-    keys: {
-      main: {
-        certificate: readFileSync(
-          'mobile/code-signing/expo-update-certificate.pem',
-          'utf8'
-        ),
-        privateKey: process.env.EXPO_UPDATE_PRIVATE_KEY!
-      }
-    }
-  },
-  registry: updateRegistry
+  store: awsS3BlobStore({
+    bucket: process.env.ABSOLUTE_MOBILE_UPDATE_S3_BUCKET!,
+    client: new S3Client({ region: 'us-east-1' })
+  })
 });
 
 export default updateRegistry;
-
-// Mount this through the trusted AbsoluteJS server at the configured update path.
-app.all('/__absolute/mobile/updates/production/*', ({ request }) =>
-  updateHandler(request)
-);
 ```
 
 The registry verifies the signature before storing anything, stores immutable
@@ -253,11 +279,12 @@ fails closed for missing or unsupported keys. The private key is never part of a
 published update artifact; provision it from the deployment platform's secret
 manager.
 
-For rotation, add the new certificate/key pair to `expoCodeSigning.keys`, update
-the application's certificate and `keyId`, and ship the resulting new native
-runtime through the stores. Keep the old server key while old binaries remain
-supported; each binary requests its own key ID. Retire the old key only after that
-binary population no longer receives updates.
+For rotation, update the active `expoCodeSigning` certificate/key ID and ship the
+resulting native runtime through the stores. Retain each prior public certificate
+and server-only environment reference under
+`mobile.updates.server.expoCodeSigningKeys`; each installed binary requests its
+own key ID. Retire an old entry only after that binary population is no longer
+supported.
 
 The handler permits Capacitor's standard `capacitor://localhost` and
 `https://localhost` origins by default. Supply `allowedOrigins` when the native

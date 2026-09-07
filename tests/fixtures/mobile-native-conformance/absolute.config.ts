@@ -55,6 +55,13 @@ export default defineConfig({
 								.ABSOLUTE_NATIVE_CONFORMANCE_UPDATE_MANIFEST,
 						publicKeys: {
 							'native-conformance': updatePublicKey
+						},
+						// The conformance harness deliberately owns an adversarial
+						// in-memory endpoint so it can corrupt and interrupt responses.
+						server: {
+							autoMount: false,
+							registry:
+								'tests/fixtures/mobile-native-conformance/mobile.update.ts'
 						}
 					}
 				}

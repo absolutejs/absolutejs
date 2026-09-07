@@ -38,6 +38,17 @@ export type NormalizedAbsoluteMobileConfig = {
 			keyId: string;
 		};
 	};
+	updateServer?: {
+		autoMount: boolean;
+		expoCodeSigningKeys: Record<
+			string,
+			{
+				certificatePem: string;
+				privateKeyEnv: string;
+			}
+		>;
+		registryModule: string;
+	};
 };
 
 const APP_ID_PATTERN = /^[A-Za-z][\w]*(?:\.[A-Za-z][\w]*)+$/;
@@ -46,6 +57,7 @@ const APPLE_APP_ID_PREFIX_PATTERN = /^[A-Z0-9]{10}$/;
 const CERTIFICATE_FINGERPRINT_PATTERN = /^[0-9A-F]{64}$/;
 const UPDATE_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/u;
 const UPDATE_PUBLIC_KEY_PATTERN = /^[A-Za-z0-9+/]+={0,2}$/u;
+const ENVIRONMENT_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/u;
 const DEFAULT_UPDATE_BOOT_TIMEOUT_MS = 20_000;
 const MINIMUM_UPDATE_BOOT_TIMEOUT_MS = 5_000;
 const MAXIMUM_UPDATE_BOOT_TIMEOUT_MS = 120_000;
@@ -445,6 +457,107 @@ const normalizeUpdates = (
 	};
 };
 
+const normalizeUpdateServer = (
+	config: MobileConfig,
+	productionOrigin: string,
+	projectRoot: string,
+	updates: NormalizedAbsoluteMobileConfig['updates']
+): NormalizedAbsoluteMobileConfig['updateServer'] => {
+	if (!updates || !config.updates) return undefined;
+	const registryModule = requireText(
+		config.updates.server?.registry ?? 'mobile.update.ts',
+		'mobile.updates.server.registry'
+	);
+	resolveProjectPath(
+		projectRoot,
+		registryModule,
+		'mobile.updates.server.registry'
+	);
+	const expoPrivateKeyEnv = requireText(
+		config.updates.server?.expoPrivateKeyEnv ??
+			'ABSOLUTE_EXPO_UPDATE_PRIVATE_KEY',
+		'mobile.updates.server.expoPrivateKeyEnv'
+	);
+	if (!ENVIRONMENT_NAME_PATTERN.test(expoPrivateKeyEnv))
+		throw new TypeError(
+			'mobile.updates.server.expoPrivateKeyEnv must be a valid environment variable name.'
+		);
+	const autoMount = config.updates.server?.autoMount ?? true;
+	if (autoMount) {
+		const manifest = new URL(updates.manifestUrl);
+		if (manifest.origin !== productionOrigin)
+			throw new TypeError(
+				'mobile.updates.manifestUrl must use mobile.server.productionOrigin while mobile.updates.server.autoMount is enabled.'
+			);
+		if (!manifest.pathname.endsWith('/update.json'))
+			throw new TypeError(
+				'mobile.updates.manifestUrl must end in /update.json while mobile.updates.server.autoMount is enabled.'
+			);
+	}
+
+	const expoCodeSigningKeys: NonNullable<
+		NormalizedAbsoluteMobileConfig['updateServer']
+	>['expoCodeSigningKeys'] = {};
+	if (updates.expoCodeSigning)
+		expoCodeSigningKeys[updates.expoCodeSigning.keyId] = {
+			certificatePem: updates.expoCodeSigning.certificatePem,
+			privateKeyEnv: expoPrivateKeyEnv
+		};
+	for (const [keyId, key] of Object.entries(
+		config.updates.server?.expoCodeSigningKeys ?? {}
+	).sort(([left], [right]) => left.localeCompare(right))) {
+		if (!updates.expoCodeSigning)
+			throw new TypeError(
+				'mobile.updates.server.expoCodeSigningKeys requires the Expo engine and expoCodeSigning.'
+			);
+		if (!UPDATE_NAME_PATTERN.test(keyId))
+			throw new TypeError(
+				'mobile.updates.server.expoCodeSigningKeys contains an invalid key ID.'
+			);
+		if (expoCodeSigningKeys[keyId])
+			throw new TypeError(
+				`mobile.updates.server.expoCodeSigningKeys.${keyId} duplicates the active Expo key.`
+			);
+		const privateKeyEnv = requireText(
+			key.privateKeyEnv,
+			`mobile.updates.server.expoCodeSigningKeys.${keyId}.privateKeyEnv`
+		);
+		if (!ENVIRONMENT_NAME_PATTERN.test(privateKeyEnv))
+			throw new TypeError(
+				`mobile.updates.server.expoCodeSigningKeys.${keyId}.privateKeyEnv must be a valid environment variable name.`
+			);
+		const certificatePath = resolveProjectPath(
+			projectRoot,
+			requireText(
+				key.certificatePath,
+				`mobile.updates.server.expoCodeSigningKeys.${keyId}.certificatePath`
+			),
+			`mobile.updates.server.expoCodeSigningKeys.${keyId}.certificatePath`
+		);
+		const { certificate, certificatePem } =
+			readExpoCodeSigningCertificate(certificatePath);
+		if (
+			certificate.publicKey.asymmetricKeyType !== 'rsa' ||
+			certificate.issuer !== certificate.subject ||
+			!certificate.verify(certificate.publicKey)
+		)
+			throw new TypeError(
+				`mobile.updates.server.expoCodeSigningKeys.${keyId} certificate must be a self-signed RSA root.`
+			);
+		const now = Date.now();
+		if (
+			now < Date.parse(certificate.validFrom) ||
+			now > Date.parse(certificate.validTo)
+		)
+			throw new TypeError(
+				`mobile.updates.server.expoCodeSigningKeys.${keyId} certificate is not currently valid.`
+			);
+		expoCodeSigningKeys[keyId] = { certificatePem, privateKeyEnv };
+	}
+
+	return { autoMount, expoCodeSigningKeys, registryModule };
+};
+
 const validateExpoNativeRouteSegment = (
 	path: string,
 	segment: string,
@@ -567,6 +680,12 @@ export const normalizeAbsoluteMobileConfig = (
 		);
 	}
 	const updates = normalizeUpdates(config, productionOrigin, projectRoot);
+	const updateServer = normalizeUpdateServer(
+		config,
+		productionOrigin,
+		projectRoot,
+		updates
+	);
 	const observability = normalizeObservability(config, productionOrigin);
 
 	return {
@@ -612,6 +731,7 @@ export const normalizeAbsoluteMobileConfig = (
 				'google-services.json',
 			'mobile.pushNotifications.android.googleServicesFile'
 		),
-		...(updates ? { updates } : {})
+		...(updates ? { updates } : {}),
+		...(updateServer ? { updateServer } : {})
 	};
 };

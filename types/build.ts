@@ -146,6 +146,27 @@ type MobileSharedConfig = {
 			/** Rotation identity. Defaults to `main`. */
 			keyId?: string;
 		};
+		/** Trusted-server update endpoint provisioning. Native clients receive only
+		 * the manifest URL and public verification material. */
+		server?: {
+			/** Mount the update endpoint in the AbsoluteJS runtime. Defaults to true. */
+			autoMount?: boolean;
+			/** Project-relative registry module. Defaults to `mobile.update.ts`. */
+			registry?: string;
+			/** Environment variable containing the Expo RSA private key PEM. */
+			expoPrivateKeyEnv?: string;
+			/** Older Expo certificate/private-key references retained while binaries
+			 * signed with those certificates are still supported. */
+			expoCodeSigningKeys?: Readonly<
+				Record<
+					string,
+					{
+						certificatePath: string;
+						privateKeyEnv: string;
+					}
+				>
+			>;
+		};
 	};
 	/** Capacitor webDir output. Defaults to `.absolutejs/mobile/web`. */
 	bundleDirectory?: string;

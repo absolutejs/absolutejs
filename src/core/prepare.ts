@@ -140,6 +140,26 @@ const loadMobileAssociationPlugin = async (
 	});
 };
 
+const loadMobileUpdatePlugin = async (
+	mobile: MobileConfig | undefined,
+	production: boolean
+) => {
+	if (!mobile?.updates)
+		return new Elysia({ name: 'absolutejs-mobile-updates-unconfigured' });
+	const [
+		{ normalizeAbsoluteMobileConfig },
+		{ createAbsoluteMobileUpdateServerPlugin }
+	] = await Promise.all([
+		import('../mobile/config'),
+		import('../mobile/updateServer')
+	]);
+	const normalized = normalizeAbsoluteMobileConfig(mobile, process.cwd());
+
+	return createAbsoluteMobileUpdateServerPlugin(normalized, process.cwd(), {
+		production
+	});
+};
+
 type PrewarmEntry = { dir: string; pattern: string };
 
 const buildPrewarmDirs = (config: Awaited<ReturnType<typeof loadConfig>>) => {
@@ -432,6 +452,10 @@ const prepareDev = async (
 	const { requestInspector } = await import('../dev/requestInspector');
 	const { serverTiming } = await import('@elysia/server-timing');
 	const mobileDevPlugin = await loadMobileDevPlugin(config.mobile);
+	const mobileUpdatePlugin = await loadMobileUpdatePlugin(
+		config.mobile,
+		false
+	);
 	const absolutejs = new Elysia({ name: 'absolutejs-runtime' })
 		// Must be first: the inspector's global request/afterResponse hooks
 		// only reach routes compiled after them, so it has to precede the
@@ -452,6 +476,7 @@ const prepareDev = async (
 		)
 		.use(imageOptimizer(config.images, buildDir))
 		.use(mobileDevPlugin)
+		.use(mobileUpdatePlugin)
 		.use(
 			await mountStaticPlugin(staticPlugin, {
 				alwaysStatic: true,
@@ -722,6 +747,10 @@ const runPrepare = async (configOrPath?: string) => {
 	const mobileAssociationPlugin = await loadMobileAssociationPlugin(
 		config.mobile
 	);
+	const mobileUpdatePlugin = await loadMobileUpdatePlugin(
+		config.mobile,
+		true
+	);
 	recordStep('load prerender map', stepStartedAt);
 
 	if (prerenderMap.size > 0) {
@@ -777,6 +806,7 @@ const runPrepare = async (configOrPath?: string) => {
 			.use(absoluteRequestContext)
 			.use(mobileAssociationPlugin)
 			.use(mobileCompatibilityPlugin)
+			.use(mobileUpdatePlugin)
 			.use(assetCachePlugin)
 			.use(imageOptimizer(config.images, buildDir))
 			.use(prerenderPlugin)
@@ -797,6 +827,7 @@ const runPrepare = async (configOrPath?: string) => {
 		.use(absoluteRequestContext)
 		.use(mobileAssociationPlugin)
 		.use(mobileCompatibilityPlugin)
+		.use(mobileUpdatePlugin)
 		.use(assetCachePlugin)
 		.use(imageOptimizer(config.images, buildDir))
 		.use(staticFiles)

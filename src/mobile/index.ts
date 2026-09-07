@@ -53,3 +53,4 @@ export * from './updatePublisher';
 export * from './updateRuntime';
 export * from './updateRollout';
 export * from './updateSigning';
+export * from './updateServer';
