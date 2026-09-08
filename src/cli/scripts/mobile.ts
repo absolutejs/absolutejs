@@ -123,12 +123,18 @@ import { finalizeAbsoluteExpoUpdateExport } from '../../mobile/expoUpdate';
 import { generateAbsoluteExpoCodeSigning } from '../../mobile/expoCodeSigning';
 import { resolveAbsoluteMobileUpdateRuntime } from '../../mobile/updateRuntime';
 import {
+	advanceAbsoluteMobileUpdateRollout,
+	cancelAbsoluteMobileUpdateRollout,
 	inspectAbsoluteMobileUpdateHealth,
+	inspectAbsoluteMobileUpdateRollout,
 	inspectAbsoluteMobileUpdateStorage,
 	loadAbsoluteMobileUpdatePublisher,
+	pauseAbsoluteMobileUpdateRollout,
 	promoteAbsoluteMobileUpdate,
 	pruneAbsoluteMobileUpdates,
 	publishAbsoluteMobileUpdate,
+	reconcileAbsoluteMobileUpdateRollout,
+	resumeAbsoluteMobileUpdateRollout,
 	rollbackAbsoluteMobileUpdate
 } from '../../mobile/updatePublisher';
 import { writeAbsoluteMobileUpdateRegistry } from '../../mobile/updateServer';
@@ -1277,6 +1283,7 @@ const mobileUpdatePublisher = async (args: string[]) => {
 		valueAfter(args, '--registry') ?? mobile.updateServer.registryModule;
 
 	return {
+		mobile,
 		projectRoot,
 		publisher: await loadAbsoluteMobileUpdatePublisher(
 			projectRoot,
@@ -1299,7 +1306,7 @@ const provisionMobileUpdate = async (args: string[]) => {
 	const modulePath =
 		valueAfter(args, '--registry') ?? mobile.updateServer.registryModule;
 	const packages = [
-		'@absolutejs/deploy@0.25.11',
+		'@absolutejs/deploy@0.25.13',
 		'@absolutejs/blob@0.5.2',
 		...(requestedStorage === 's3'
 			? [
@@ -1323,6 +1330,9 @@ const provisionMobileUpdate = async (args: string[]) => {
 		force: args.includes('--force'),
 		...(mobile.updateServer.health
 			? { health: mobile.updateServer.health }
+			: {}),
+		...(mobile.updateServer.rollout
+			? { rollout: mobile.updateServer.rollout }
 			: {}),
 		modulePath,
 		projectRoot,
@@ -1369,12 +1379,16 @@ const publishMobileUpdate = async (args: string[]) => {
 		throw new TypeError(
 			'mobile update publish requires a release directory.'
 		);
-	const { projectRoot, publisher } = await mobileUpdatePublisher(args);
+	const { mobile, projectRoot, publisher } =
+		await mobileUpdatePublisher(args);
 	const result = await publishAbsoluteMobileUpdate({
 		projectRoot,
 		publisher,
 		releaseDirectory,
-		rollout: updateRollout(args, 0.05)
+		rollout: updateRollout(
+			args,
+			mobile.updateServer?.rollout?.stages[0]?.rollout ?? 0.05
+		)
 	});
 	console.log(
 		`${result.reused ? 'Reused' : 'Published'} mobile update ${result.releaseId} to ${result.channel} at ${Math.round(result.rollout * 100)}%.`
@@ -1539,14 +1553,22 @@ const inspectMobileUpdateHealth = async (args: string[]) => {
 			'mobile update status requires mobile.updates config.'
 		);
 	const { publisher } = await mobileUpdatePublisher(args);
-	const report = await inspectAbsoluteMobileUpdateHealth({
-		appId: mobile.appId,
-		channel: mobile.updates.channel,
-		publisher,
-		...(valueAfter(args, '--release')
-			? { releaseId: valueAfter(args, '--release') }
-			: {})
-	});
+	const releaseId = valueAfter(args, '--release');
+	const rolloutReport = mobile.updateServer?.rollout
+		? await inspectAbsoluteMobileUpdateRollout({
+				appId: mobile.appId,
+				channel: mobile.updates.channel,
+				publisher
+			})
+		: undefined;
+	const report = mobile.updateServer?.rollout
+		? rolloutReport
+		: await inspectAbsoluteMobileUpdateHealth({
+				appId: mobile.appId,
+				channel: mobile.updates.channel,
+				publisher,
+				...(releaseId ? { releaseId } : {})
+			});
 	if (args.includes('--json')) console.log(JSON.stringify(report, null, 2));
 	else if (!report)
 		console.log(
@@ -1554,8 +1576,12 @@ const inspectMobileUpdateHealth = async (args: string[]) => {
 		);
 	else {
 		console.log(
-			`${report.releaseId} is ${report.paused ? 'PAUSED' : 'active'} at ${Math.round(report.rollout * 100)}%: ${report.terminalReports} terminal reports, ${report.failures} failures (${(report.failureRate * 100).toFixed(1)}%).`
+			`${report.releaseId} is ${rolloutReport?.status.toUpperCase() ?? (report.paused ? 'PAUSED' : 'ACTIVE')} at ${Math.round(report.rollout * 100)}%: ${report.terminalReports} terminal reports, ${report.failures} failures (${(report.failureRate * 100).toFixed(1)}%).`
 		);
+		if (rolloutReport)
+			console.log(
+				`  Stage ${rolloutReport.currentStage + 1} entered ${rolloutReport.enteredAt}; advancement is ${rolloutReport.automatic ? 'automatic' : 'manual'}${rolloutReport.nextStage ? `, next ${Math.round(rolloutReport.nextStage.rollout * 100)}%` : ''}${rolloutReport.pausedBy ? `, paused by ${rolloutReport.pausedBy}` : ''}.`
+			);
 		console.log(
 			`  ${report.activated} activated, ${report.rolledBack} rolled back, ${report.quarantined} quarantined, ${report.downloaded} downloaded, ${report.downloadFailed} download failures.`
 		);
@@ -1563,6 +1589,88 @@ const inspectMobileUpdateHealth = async (args: string[]) => {
 			`  Transfer: ${formatBytes(report.transfer.downloadedBytes)} downloaded, ${formatBytes(report.transfer.avoidedBytes)} avoided (${formatBytes(report.transfer.resumedBytes)} resumed, ${formatBytes(report.transfer.reusedBytes)} reused).`
 		);
 	}
+
+	return report;
+};
+
+type MobileUpdateRolloutAction =
+	| 'advance'
+	| 'cancel'
+	| 'pause'
+	| 'reconcile'
+	| 'resume';
+const MOBILE_UPDATE_ROLLOUT_ACTION_LABEL: Record<
+	MobileUpdateRolloutAction,
+	string
+> = {
+	advance: 'Advanced',
+	cancel: 'Cancelled',
+	pause: 'Paused',
+	reconcile: 'Reconciled',
+	resume: 'Resumed'
+};
+const isMobileUpdateRolloutAction = (
+	value: string | undefined
+): value is MobileUpdateRolloutAction =>
+	value !== undefined &&
+	Object.hasOwn(MOBILE_UPDATE_ROLLOUT_ACTION_LABEL, value);
+
+const controlMobileUpdateRollout = async (
+	action: MobileUpdateRolloutAction,
+	args: string[]
+) => {
+	const startedAt = performance.now();
+	const { mobile } = await loadMobile(valueAfter(args, '--config'));
+	if (!mobile.updates || !mobile.updateServer?.rollout)
+		throw new TypeError(
+			`mobile update ${action} requires mobile.updates.server.rollout config.`
+		);
+	const { publisher } = await mobileUpdatePublisher(args);
+	const options = {
+		appId: mobile.appId,
+		channel: mobile.updates.channel,
+		publisher
+	} satisfies Parameters<typeof pauseAbsoluteMobileUpdateRollout>[0];
+	const requestedRollout = valueAfter(args, '--rollout');
+	let report;
+	switch (action) {
+		case 'advance':
+			report = await advanceAbsoluteMobileUpdateRollout({
+				...options,
+				...(requestedRollout ? { rollout: updateRollout(args) } : {})
+			});
+			break;
+		case 'cancel':
+			report = await cancelAbsoluteMobileUpdateRollout(options);
+			break;
+		case 'pause':
+			report = await pauseAbsoluteMobileUpdateRollout(options);
+			break;
+		case 'reconcile':
+			report = await reconcileAbsoluteMobileUpdateRollout(options);
+			break;
+		case 'resume':
+			report = await resumeAbsoluteMobileUpdateRollout(options);
+	}
+	if (args.includes('--json')) console.log(JSON.stringify(report, null, 2));
+	else if (!report)
+		console.log(
+			`No active mobile update exists on ${mobile.updates.channel}.`
+		);
+	else
+		console.log(
+			`${MOBILE_UPDATE_ROLLOUT_ACTION_LABEL[action]} ${report.releaseId}: ${report.status.toUpperCase()} at ${Math.round(report.rollout * 100)}% (stage ${report.currentStage + 1}).`
+		);
+	sendTelemetryEvent('mobile:update-rollout', {
+		action,
+		durationMs: Math.round(performance.now() - startedAt),
+		...(report
+			? {
+					automatic: report.automatic,
+					status: report.status
+				}
+			: { status: 'empty' })
+	});
 
 	return report;
 };
@@ -3638,6 +3746,11 @@ export const runMobile = async (args: string[]) => {
 
 		return;
 	}
+	if (command === 'update' && isMobileUpdateRolloutAction(args[1])) {
+		await controlMobileUpdateRollout(args[1], args.slice(2));
+
+		return;
+	}
 	if (command === 'update' && args[1] === 'gc') {
 		await collectMobileUpdates(args.slice(2));
 
@@ -3655,6 +3768,6 @@ export const runMobile = async (args: string[]) => {
 	}
 
 	throw new TypeError(
-		'Usage: absolute mobile <pair mac <name> <user@host> [--port n] [--workspace path] | remotes [inspect [name] [--json] | clean [name] --yes | --json] | unpair mac <name> | init [--no-native] [--force] | sync [ios|android] | inspect [--json] [--require-bundle] | associations [--outdir dir] [--verify] | ci github [server-entry] [--publish] [--registry module] [--secret-env NAME] [--output path] [--force] [--json] | doctor [ios|android|release [ios|android]] [--remote name] [--json|--fix [--yes]] | build <android|ios> [server-entry] [--remote name] [--outdir dir] [--web-outdir dir] [--unsigned] | update provision [--storage local|s3] [--registry module] [--force] [--yes] | update signing generate --private-key path [--certificate path] [--public-key path] [--key-id id] [--common-name name] [--validity-years n] | update build [server-entry] --classification bug-fix|content|security --key-id id --signing-key path --within-submitted-purpose [--outdir dir] [--web-outdir dir] | update publish <release-directory> [--rollout fraction] [--registry module] | update promote --release id --rollout fraction [--registry module] | update rollback [--release id] [--registry module] | update status [--release id] [--registry module] [--json] | update storage [--retain count] [--min-age-days days] [--registry module] [--json] | update gc [--retain count] [--min-age-days days] [--grace-days days] [--apply] [--registry module] [--json] | publish android [server-entry] [--registry module] [--channel name] [--play-track track] [--play-status completed|draft|halted|in-progress] [--play-rollout fraction] [--play-name name] [--play-notes language=text] [--play-update-priority 0..5] [--play-hold-review] [--play-cancel-existing-review] [--outdir dir] [--web-outdir dir] [--unsigned] | publish ios [server-entry] [--remote name] [--registry module] [--channel name] [--testflight-group name-or-id] [--testflight-notes locale=text] [--testflight-submit-review] [--outdir dir] [--web-outdir dir] [--unsigned] | test android [--route path] [--wait-for-hmr] [--report [dir]] [--timeout ms] [--port n] [--serial id] [--artifacts dir] [--json]> [--config path]'
+		'Usage: absolute mobile <pair mac <name> <user@host> [--port n] [--workspace path] | remotes [inspect [name] [--json] | clean [name] --yes | --json] | unpair mac <name> | init [--no-native] [--force] | sync [ios|android] | inspect [--json] [--require-bundle] | associations [--outdir dir] [--verify] | ci github [server-entry] [--publish] [--registry module] [--secret-env NAME] [--output path] [--force] [--json] | doctor [ios|android|release [ios|android]] [--remote name] [--json|--fix [--yes]] | build <android|ios> [server-entry] [--remote name] [--outdir dir] [--web-outdir dir] [--unsigned] | update provision [--storage local|s3] [--registry module] [--force] [--yes] | update signing generate --private-key path [--certificate path] [--public-key path] [--key-id id] [--common-name name] [--validity-years n] | update build [server-entry] --classification bug-fix|content|security --key-id id --signing-key path --within-submitted-purpose [--outdir dir] [--web-outdir dir] | update publish <release-directory> [--rollout fraction] [--registry module] | update promote --release id --rollout fraction [--registry module] | update rollback [--release id] [--registry module] | update status [--registry module] [--json] | update advance [--rollout fraction] [--registry module] [--json] | update pause|resume|cancel|reconcile [--registry module] [--json] | update storage [--retain count] [--min-age-days days] [--registry module] [--json] | update gc [--retain count] [--min-age-days days] [--grace-days days] [--apply] [--registry module] [--json] | publish android [server-entry] [--registry module] [--channel name] [--play-track track] [--play-status completed|draft|halted|in-progress] [--play-rollout fraction] [--play-name name] [--play-notes language=text] [--play-update-priority 0..5] [--play-hold-review] [--play-cancel-existing-review] [--outdir dir] [--web-outdir dir] [--unsigned] | publish ios [server-entry] [--remote name] [--registry module] [--channel name] [--testflight-group name-or-id] [--testflight-notes locale=text] [--testflight-submit-review] [--outdir dir] [--web-outdir dir] [--unsigned] | test android [--route path] [--wait-for-hmr] [--report [dir]] [--timeout ms] [--port n] [--serial id] [--artifacts dir] [--json]> [--config path]'
 	);
 };

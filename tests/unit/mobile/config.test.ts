@@ -192,6 +192,55 @@ describe('mobile config normalization', () => {
 			minimumReports: 50,
 			secretEnv: 'UPDATE_HEALTH_SECRET'
 		});
+		const rollout = normalizeAbsoluteMobileConfig(
+			{
+				appId: 'com.example.product',
+				appName: 'Product',
+				server: { productionOrigin: 'https://api.example.com' },
+				updates: {
+					publicKeys: { 'production-2026': encoded },
+					server: { rollout: { automatic: true } }
+				}
+			},
+			'/workspace'
+		).updateServer?.rollout;
+		expect(rollout).toEqual({
+			automatic: true,
+			stages: [
+				{
+					maximumFailureRate: 0.05,
+					minimumReports: 20,
+					observationMs: 3_600_000,
+					rollout: 0.05
+				},
+				{
+					maximumFailureRate: 0.05,
+					minimumReports: 100,
+					observationMs: 21_600_000,
+					rollout: 0.25
+				},
+				{
+					maximumFailureRate: 0.05,
+					minimumReports: 100,
+					observationMs: 0,
+					rollout: 1
+				}
+			]
+		});
+		expect(() =>
+			normalizeAbsoluteMobileConfig(
+				{
+					appId: 'com.example.product',
+					appName: 'Product',
+					server: { productionOrigin: 'https://api.example.com' },
+					updates: {
+						publicKeys: { 'production-2026': encoded },
+						server: { health: false, rollout: {} }
+					}
+				},
+				'/workspace'
+			)
+		).toThrow('requires fleet health');
 		expect(() =>
 			normalizeAbsoluteMobileConfig(
 				{

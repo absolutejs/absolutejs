@@ -45,6 +45,15 @@ export type NormalizedAbsoluteMobileConfig = {
 			minimumReports: number;
 			secretEnv: string;
 		};
+		rollout?: {
+			automatic: boolean;
+			stages: {
+				maximumFailureRate: number;
+				minimumReports: number;
+				observationMs: number;
+				rollout: number;
+			}[];
+		};
 		expoCodeSigningKeys: Record<
 			string,
 			{
@@ -66,6 +75,19 @@ const ENVIRONMENT_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/u;
 const DEFAULT_UPDATE_BOOT_TIMEOUT_MS = 20_000;
 const DEFAULT_UPDATE_HEALTH_FAILURE_RATE = 0.2;
 const DEFAULT_UPDATE_HEALTH_MINIMUM_REPORTS = 20;
+const DEFAULT_UPDATE_ROLLOUT_FAILURE_RATE = 0.05;
+const DEFAULT_UPDATE_ROLLOUT_OBSERVATION_MINUTES = 60;
+const MINUTE_MS = 60 * 1000;
+const DEFAULT_UPDATE_ROLLOUT_STAGES: readonly {
+	maximumFailureRate?: number;
+	minimumReports?: number;
+	observationMinutes?: number;
+	rollout: number;
+}[] = [
+	{ minimumReports: 20, observationMinutes: 60, rollout: 0.05 },
+	{ minimumReports: 100, observationMinutes: 360, rollout: 0.25 },
+	{ minimumReports: 100, observationMinutes: 0, rollout: 1 }
+] as const;
 const MINIMUM_UPDATE_BOOT_TIMEOUT_MS = 5_000;
 const MAXIMUM_UPDATE_BOOT_TIMEOUT_MS = 120_000;
 const HOSTNAME_PATTERN =
@@ -523,6 +545,84 @@ const normalizeUpdateServer = (
 			);
 		health = { failureRate, minimumReports, secretEnv };
 	}
+	const configuredRollout = config.updates.server?.rollout;
+	let rollout: NonNullable<
+		NormalizedAbsoluteMobileConfig['updateServer']
+	>['rollout'];
+	if (configuredRollout !== undefined && configuredRollout !== false) {
+		if (!health)
+			throw new TypeError(
+				'mobile.updates.server.rollout requires fleet health to be enabled.'
+			);
+		if (
+			configuredRollout.automatic !== undefined &&
+			typeof configuredRollout.automatic !== 'boolean'
+		)
+			throw new TypeError(
+				'mobile.updates.server.rollout.automatic must be boolean.'
+			);
+		const configuredStages =
+			configuredRollout.stages ?? DEFAULT_UPDATE_ROLLOUT_STAGES;
+		const stages = configuredStages.map((stage, index) => {
+			const previousStage = configuredStages[index - 1];
+			const maximumFailureRate =
+				stage.maximumFailureRate ?? DEFAULT_UPDATE_ROLLOUT_FAILURE_RATE;
+			const minimumReports =
+				stage.minimumReports ?? DEFAULT_UPDATE_HEALTH_MINIMUM_REPORTS;
+			const observationMinutes =
+				stage.observationMinutes ??
+				DEFAULT_UPDATE_ROLLOUT_OBSERVATION_MINUTES;
+			const observationMs = observationMinutes * MINUTE_MS;
+			if (
+				!Number.isFinite(stage.rollout) ||
+				stage.rollout <= 0 ||
+				stage.rollout > 1 ||
+				(previousStage !== undefined &&
+					stage.rollout <= previousStage.rollout)
+			)
+				throw new TypeError(
+					'mobile.updates.server.rollout stages must be strictly increasing fractions greater than 0 and at most 1.'
+				);
+			if (
+				!Number.isFinite(maximumFailureRate) ||
+				maximumFailureRate < 0 ||
+				maximumFailureRate >= health.failureRate
+			)
+				throw new TypeError(
+					'mobile.updates.server.rollout maximumFailureRate must be non-negative and lower than the fleet-health pause rate.'
+				);
+			if (
+				!Number.isSafeInteger(minimumReports) ||
+				minimumReports < health.minimumReports
+			)
+				throw new TypeError(
+					'mobile.updates.server.rollout minimumReports must be an integer at least as large as the fleet-health minimumReports.'
+				);
+			if (
+				!Number.isFinite(observationMinutes) ||
+				observationMinutes < 0 ||
+				!Number.isSafeInteger(observationMs)
+			)
+				throw new TypeError(
+					'mobile.updates.server.rollout observationMinutes must produce a non-negative whole number of milliseconds.'
+				);
+
+			return {
+				maximumFailureRate,
+				minimumReports,
+				observationMs,
+				rollout: stage.rollout
+			};
+		});
+		if (stages.length === 0 || stages.at(-1)?.rollout !== 1)
+			throw new TypeError(
+				'mobile.updates.server.rollout stages must end at rollout 1.'
+			);
+		rollout = {
+			automatic: configuredRollout.automatic ?? false,
+			stages
+		};
+	}
 	if (autoMount) {
 		const manifest = new URL(updates.manifestUrl);
 		if (manifest.origin !== productionOrigin)
@@ -599,6 +699,7 @@ const normalizeUpdateServer = (
 		autoMount,
 		expoCodeSigningKeys,
 		...(health ? { health } : {}),
+		...(rollout ? { rollout } : {}),
 		registryModule
 	};
 };

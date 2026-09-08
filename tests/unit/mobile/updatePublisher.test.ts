@@ -5,16 +5,23 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, test } from 'bun:test';
 import type {
 	MobileUpdateHealthReport,
+	MobileUpdateRolloutReport,
 	MobileUpdateStorageReport
 } from '@absolutejs/deploy/mobile-update';
 import { buildAbsoluteMobileUpdate } from '../../../src/mobile/updateSigning';
 import {
+	advanceAbsoluteMobileUpdateRollout,
+	cancelAbsoluteMobileUpdateRollout,
 	inspectAbsoluteMobileUpdateHealth,
+	inspectAbsoluteMobileUpdateRollout,
 	inspectAbsoluteMobileUpdateStorage,
 	promoteAbsoluteMobileUpdate,
 	pruneAbsoluteMobileUpdates,
 	publishAbsoluteMobileUpdate,
+	reconcileAbsoluteMobileUpdateRollout,
+	resumeAbsoluteMobileUpdateRollout,
 	rollbackAbsoluteMobileUpdate,
+	pauseAbsoluteMobileUpdateRollout,
 	type AbsoluteMobileUpdatePublisher
 } from '../../../src/mobile/updatePublisher';
 
@@ -223,6 +230,84 @@ describe('mobile update publisher boundary', () => {
 				channel: report.channel,
 				publisher
 			})
+		).resolves.toEqual(report);
+	});
+
+	test('validates rollout inspection and operator lifecycle receipts', async () => {
+		const report: MobileUpdateRolloutReport = {
+			activated: 20,
+			appId: 'com.example.absolute',
+			automatic: false,
+			channel: 'production',
+			currentStage: 0,
+			downloaded: 20,
+			downloadFailed: 0,
+			enteredAt: '2026-09-08T12:00:00.000Z',
+			failureRate: 0,
+			failures: 0,
+			nextStage: {
+				maximumFailureRate: 0.05,
+				minimumReports: 100,
+				observationMs: 21_600_000,
+				rollout: 0.25
+			},
+			paused: false,
+			promotionId: 'a'.repeat(64),
+			quarantined: 0,
+			releaseId: `amu_${'b'.repeat(64)}`,
+			reportedInstallations: 20,
+			rolledBack: 0,
+			rollout: 0.05,
+			status: 'active',
+			terminalReports: 20,
+			transfer: {
+				avoidedBytes: 0,
+				downloadedBytes: 100,
+				durationMs: 50,
+				resumedBytes: 0,
+				reusedBytes: 0,
+				throughputBytesPerSecond: 2
+			}
+		};
+		const publisher = {
+			advanceUpdateRollout: async () => report,
+			cancelUpdateRollout: async () => report,
+			inspectUpdateRollout: async () => report,
+			pauseUpdateRollout: async () => report,
+			promoteUpdate: async () => {
+				throw new Error('unused');
+			},
+			publishUpdate: async () => {
+				throw new Error('unused');
+			},
+			reconcileUpdateRollout: async () => report,
+			resumeUpdateRollout: async () => report,
+			rollbackUpdate: async () => {
+				throw new Error('unused');
+			}
+		} satisfies AbsoluteMobileUpdatePublisher;
+		const options = {
+			appId: report.appId,
+			channel: report.channel,
+			publisher
+		} satisfies Parameters<typeof inspectAbsoluteMobileUpdateRollout>[0];
+		await expect(
+			inspectAbsoluteMobileUpdateRollout(options)
+		).resolves.toEqual(report);
+		await expect(
+			advanceAbsoluteMobileUpdateRollout(options)
+		).resolves.toEqual(report);
+		await expect(
+			pauseAbsoluteMobileUpdateRollout(options)
+		).resolves.toEqual(report);
+		await expect(
+			resumeAbsoluteMobileUpdateRollout(options)
+		).resolves.toEqual(report);
+		await expect(
+			cancelAbsoluteMobileUpdateRollout(options)
+		).resolves.toEqual(report);
+		await expect(
+			reconcileAbsoluteMobileUpdateRollout(options)
 		).resolves.toEqual(report);
 	});
 

@@ -6,6 +6,7 @@ import type {
 	MobileUpdatePruneOptions,
 	MobileUpdatePruneResult,
 	MobileUpdateRetentionOptions,
+	MobileUpdateRolloutReport,
 	MobileUpdateStorageReport
 } from '@absolutejs/deploy/mobile-update';
 import { readAbsoluteMobileUpdate } from './updateSigning';
@@ -39,11 +40,31 @@ export type AbsoluteMobileUpdateRollback = {
 };
 
 export type AbsoluteMobileUpdatePublisher = {
+	advanceUpdateRollout?: (options: {
+		appId: string;
+		channel: string;
+		rollout?: number;
+		signal?: AbortSignal;
+	}) => Promise<MobileUpdateRolloutReport>;
+	cancelUpdateRollout?: (options: {
+		appId: string;
+		channel: string;
+		signal?: AbortSignal;
+	}) => Promise<MobileUpdateRolloutReport>;
 	inspectUpdateHealth?: (options: {
 		appId: string;
 		channel: string;
 		releaseId?: string;
 	}) => Promise<MobileUpdateHealthReport | null>;
+	inspectUpdateRollout?: (options: {
+		appId: string;
+		channel: string;
+	}) => Promise<MobileUpdateRolloutReport | null>;
+	pauseUpdateRollout?: (options: {
+		appId: string;
+		channel: string;
+		signal?: AbortSignal;
+	}) => Promise<MobileUpdateRolloutReport>;
 	inspectUpdateStorage?: (
 		options: MobileUpdateRetentionOptions
 	) => Promise<MobileUpdateStorageReport>;
@@ -69,10 +90,29 @@ export type AbsoluteMobileUpdatePublisher = {
 		releaseId?: string;
 		signal?: AbortSignal;
 	}): Promise<AbsoluteMobileUpdateRollback>;
+	reconcileUpdateRollout?: (options: {
+		appId: string;
+		channel: string;
+		signal?: AbortSignal;
+	}) => Promise<MobileUpdateRolloutReport | null>;
+	resumeUpdateRollout?: (options: {
+		appId: string;
+		channel: string;
+		signal?: AbortSignal;
+	}) => Promise<MobileUpdateRolloutReport>;
 };
 
 const lifecycleMethod = <
-	Name extends 'inspectUpdateHealth' | 'inspectUpdateStorage' | 'pruneUpdates'
+	Name extends
+		| 'advanceUpdateRollout'
+		| 'cancelUpdateRollout'
+		| 'inspectUpdateHealth'
+		| 'inspectUpdateRollout'
+		| 'inspectUpdateStorage'
+		| 'pauseUpdateRollout'
+		| 'pruneUpdates'
+		| 'reconcileUpdateRollout'
+		| 'resumeUpdateRollout'
 >(
 	publisher: AbsoluteMobileUpdatePublisher,
 	name: Name
@@ -86,21 +126,10 @@ const lifecycleMethod = <
 	return method;
 };
 
-export const inspectAbsoluteMobileUpdateHealth = async (options: {
-	appId: string;
-	channel: string;
-	publisher: AbsoluteMobileUpdatePublisher;
-	releaseId?: string;
-}) => {
-	const report = await lifecycleMethod(
-		options.publisher,
-		'inspectUpdateHealth'
-	)({
-		appId: options.appId,
-		channel: options.channel,
-		...(options.releaseId ? { releaseId: options.releaseId } : {})
-	});
-	if (report === null) return null;
+const validateHealthReport = (
+	report: MobileUpdateHealthReport,
+	options: { appId: string; channel: string; releaseId?: string }
+) => {
 	if (
 		!object(report) ||
 		report.appId !== options.appId ||
@@ -140,6 +169,155 @@ export const inspectAbsoluteMobileUpdateHealth = async (options: {
 
 	return report;
 };
+
+export const inspectAbsoluteMobileUpdateHealth = async (options: {
+	appId: string;
+	channel: string;
+	publisher: AbsoluteMobileUpdatePublisher;
+	releaseId?: string;
+}) => {
+	const report = await lifecycleMethod(
+		options.publisher,
+		'inspectUpdateHealth'
+	)({
+		appId: options.appId,
+		channel: options.channel,
+		...(options.releaseId ? { releaseId: options.releaseId } : {})
+	});
+	if (report === null) return null;
+
+	return validateHealthReport(report, options);
+};
+
+const validateRolloutReport = (
+	report: MobileUpdateRolloutReport,
+	options: { appId: string; channel: string }
+) => {
+	validateHealthReport(report, options);
+	const validStage = (stage: MobileUpdateRolloutReport['nextStage']) =>
+		stage === undefined ||
+		(object(stage) &&
+			Number.isFinite(stage.rollout) &&
+			stage.rollout > 0 &&
+			stage.rollout <= 1 &&
+			Number.isSafeInteger(stage.minimumReports) &&
+			stage.minimumReports > 0 &&
+			Number.isSafeInteger(stage.observationMs) &&
+			stage.observationMs >= 0 &&
+			Number.isFinite(stage.maximumFailureRate) &&
+			stage.maximumFailureRate >= 0 &&
+			stage.maximumFailureRate < 1);
+	if (
+		typeof report.automatic !== 'boolean' ||
+		!Number.isSafeInteger(report.currentStage) ||
+		report.currentStage < 0 ||
+		!Number.isFinite(Date.parse(report.enteredAt)) ||
+		!['active', 'cancelled', 'complete', 'paused'].includes(
+			report.status
+		) ||
+		(report.pausedBy !== undefined &&
+			report.pausedBy !== 'fleet-health' &&
+			report.pausedBy !== 'operator') ||
+		!validStage(report.nextStage) ||
+		report.paused !==
+			(report.status === 'paused' || report.status === 'cancelled')
+	)
+		throw new TypeError(
+			'Mobile update registry returned an invalid rollout report.'
+		);
+
+	return report;
+};
+
+export const inspectAbsoluteMobileUpdateRollout = async (options: {
+	appId: string;
+	channel: string;
+	publisher: AbsoluteMobileUpdatePublisher;
+}) => {
+	const report = await lifecycleMethod(
+		options.publisher,
+		'inspectUpdateRollout'
+	)({ appId: options.appId, channel: options.channel });
+
+	return report === null ? null : validateRolloutReport(report, options);
+};
+
+const mutateAbsoluteMobileUpdateRollout = async (
+	method:
+		| 'advanceUpdateRollout'
+		| 'cancelUpdateRollout'
+		| 'pauseUpdateRollout'
+		| 'resumeUpdateRollout',
+	options: {
+		appId: string;
+		channel: string;
+		publisher: AbsoluteMobileUpdatePublisher;
+		rollout?: number;
+		signal?: AbortSignal;
+	}
+) =>
+	validateRolloutReport(
+		await lifecycleMethod(
+			options.publisher,
+			method
+		)({
+			appId: options.appId,
+			channel: options.channel,
+			...(method === 'advanceUpdateRollout' &&
+			options.rollout !== undefined
+				? { rollout: options.rollout }
+				: {}),
+			...(options.signal ? { signal: options.signal } : {})
+		}),
+		options
+	);
+
+export const advanceAbsoluteMobileUpdateRollout = (options: {
+	appId: string;
+	channel: string;
+	publisher: AbsoluteMobileUpdatePublisher;
+	rollout?: number;
+	signal?: AbortSignal;
+}) => mutateAbsoluteMobileUpdateRollout('advanceUpdateRollout', options);
+
+export const cancelAbsoluteMobileUpdateRollout = (options: {
+	appId: string;
+	channel: string;
+	publisher: AbsoluteMobileUpdatePublisher;
+	signal?: AbortSignal;
+}) => mutateAbsoluteMobileUpdateRollout('cancelUpdateRollout', options);
+
+export const pauseAbsoluteMobileUpdateRollout = (options: {
+	appId: string;
+	channel: string;
+	publisher: AbsoluteMobileUpdatePublisher;
+	signal?: AbortSignal;
+}) => mutateAbsoluteMobileUpdateRollout('pauseUpdateRollout', options);
+
+export const reconcileAbsoluteMobileUpdateRollout = async (options: {
+	appId: string;
+	channel: string;
+	publisher: AbsoluteMobileUpdatePublisher;
+	signal?: AbortSignal;
+}) => {
+	const report = await lifecycleMethod(
+		options.publisher,
+		'reconcileUpdateRollout'
+	)({
+		appId: options.appId,
+		channel: options.channel,
+		...(options.signal ? { signal: options.signal } : {})
+	});
+
+	return report === null ? null : validateRolloutReport(report, options);
+};
+
+export const resumeAbsoluteMobileUpdateRollout = (options: {
+	appId: string;
+	channel: string;
+	publisher: AbsoluteMobileUpdatePublisher;
+	signal?: AbortSignal;
+}) => mutateAbsoluteMobileUpdateRollout('resumeUpdateRollout', options);
 
 const validOptionalCounters = (values: readonly (number | undefined)[]) =>
 	values.every((value) => value === undefined) ||

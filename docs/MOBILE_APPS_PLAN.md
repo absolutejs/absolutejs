@@ -2,6 +2,19 @@
 
 Status: Capacitor Android development/release, all-framework embedded bundles, universal native Auth/Sync, Expo hybrid native Auth/Sync, background Sync, automatic device provisioning, provider-neutral native push registration, signed staged Capacitor updates, end-to-end RSA-signed self-hosted Expo production updates, and Android conformance are operational; iOS development/release automation is shipped and awaiting real macOS/physical-device acceptance
 
+Implementation checkpoint (September 8, 2026, health-gated rollout
+orchestration): `@absolutejs/deploy@0.25.13` freezes an ordered rollout plan into
+each promotion generation and advances through immutable stage markers, keeping
+the health sample and signed receipt scope stable across 5%, 25%, and 100%.
+Manual advancement is the default; opt-in automatic reconciliation uses the
+same cumulative terminal-report, failure-ceiling, and observation-window gates.
+Provider-neutral inspection, advancement, reconciliation, pause, resume, and
+terminal cancellation are exposed by the AbsoluteJS CLI. Immutable pause events
+use explicitly acknowledged pause IDs, and deterministic stage keys make
+concurrent trusted-server actions idempotent without allowing stale instances to
+regress a rollout. The future PAAS scheduler can call the same reconcile contract
+without becoming part of update correctness.
+
 Implementation checkpoint (September 7, 2026, update lifecycle management):
 `@absolutejs/deploy@0.25.7` and the AbsoluteJS CLI now expose provider-neutral
 storage accounting and two-phase garbage collection. The default policy keeps

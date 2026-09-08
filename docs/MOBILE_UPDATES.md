@@ -112,6 +112,10 @@ export default {
           failureRate: 0.2,
           minimumReports: 20,
           secretEnv: 'ABSOLUTE_MOBILE_UPDATE_HEALTH_SECRET'
+        },
+        // Opt-in. Defaults to manual advancement through 5%, 25%, and 100%.
+        rollout: {
+          automatic: false
         }
       }
     }
@@ -237,7 +241,7 @@ bunx absolute mobile update build src/backend/server.ts \
 ```
 
 AbsoluteJS prints an immutable `amu_…` release directory. Publication starts at
-5% unless `--rollout` is supplied:
+the configured first stage (5% by default) unless `--rollout` is supplied:
 
 ```bash
 bunx absolute mobile update publish .absolutejs/mobile/updates/amu_RELEASE \
@@ -311,6 +315,46 @@ re-promoting intentionally creates a fresh generation. Configure the sample and
 rate under `mobile.updates.server.health`. Receipt capabilities prevent tampering
 and replay inflation, but an anonymous installation is not hardware attestation;
 production ingress must still enforce ordinary request/body rate limits.
+
+When `server.rollout` is configured, AbsoluteJS freezes the normalized stage
+plan into each new promotion generation. The recommended default stages require
+20 terminal reports and one hour at 5%, then 100 cumulative terminal reports
+and six hours at 25%, with no more than a 5% rollback/quarantine rate at either
+gate. The final stage is 100%. Custom stages can set `rollout`,
+`minimumReports`, `observationMinutes`, and `maximumFailureRate`; they must be
+strictly increasing and end at 1. Every advancement minimum must be at least the
+fleet auto-pause minimum, and its failure ceiling must be lower than the pause
+threshold. `mobile update publish` defaults to the configured first stage, so a
+custom plan does not require a matching CLI flag.
+
+Advancement remains an explicit operator decision unless `automatic: true` is
+configured:
+
+```bash
+# Inspect health, current stage, next gate, and control state.
+bunx absolute mobile update status
+
+# Advance exactly one qualifying stage. --rollout is an optional assertion.
+bunx absolute mobile update advance --rollout 0.25
+
+# Stop and later resume selection without changing the promotion generation.
+bunx absolute mobile update pause
+bunx absolute mobile update resume
+
+# Permanently stop this generation, or ask an external scheduler to evaluate it.
+bunx absolute mobile update cancel
+bunx absolute mobile update reconcile
+```
+
+Both manual and automatic advancement enforce the same evidence, failure-rate,
+and observation gates. Automatic evaluation occurs on trusted-server receipt of
+terminal health evidence. A deployment scheduler may also run `reconcile`; it is
+idempotent when the gate is not ready or another server already advanced it.
+Stage advancements and operator controls are immutable promotion-scoped events,
+so a stale server cannot lower the effective rollout. Concurrent pause/resume is
+fail-safe: a resume acknowledges only the pauses it observed, while a concurrent
+new pause remains active. Cancellation is terminal. Fleet-health pauses cannot
+be resumed; they require an intentional re-promotion and fresh generation.
 
 Roll back to a previously published update, or omit `--release` to return every
 device to its embedded store build:

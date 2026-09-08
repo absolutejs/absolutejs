@@ -6,8 +6,9 @@ import { afterAll, describe, expect, test } from 'bun:test';
 import { normalizeAbsoluteMobileConfig } from '../../src/mobile/config';
 import { createAbsoluteMobileUpdateClient } from '../../src/mobile/updateClient';
 import {
+	advanceAbsoluteMobileUpdateRollout,
 	inspectAbsoluteMobileUpdateHealth,
-	promoteAbsoluteMobileUpdate,
+	inspectAbsoluteMobileUpdateRollout,
 	publishAbsoluteMobileUpdate,
 	rollbackAbsoluteMobileUpdate
 } from '../../src/mobile/updatePublisher';
@@ -54,11 +55,28 @@ describe('fresh application mobile update lifecycle', () => {
 		await writeAbsoluteMobileUpdateRegistry({
 			health: {
 				failureRate: 0.2,
-				minimumReports: 20,
+				minimumReports: 1,
 				secretEnv: 'ABSOLUTE_MOBILE_UPDATE_HEALTH_SECRET'
 			},
 			projectRoot,
 			publicKeys: { main: encodedPublicKey },
+			rollout: {
+				automatic: false,
+				stages: [
+					{
+						maximumFailureRate: 0.1,
+						minimumReports: 1,
+						observationMs: 0,
+						rollout: 0.05
+					},
+					{
+						maximumFailureRate: 0.1,
+						minimumReports: 1,
+						observationMs: 0,
+						rollout: 1
+					}
+				]
+			},
 			storage: 'local'
 		});
 		const release = await buildAbsoluteMobileUpdate({
@@ -80,13 +98,20 @@ describe('fresh application mobile update lifecycle', () => {
 			releaseDirectory: release.outputDirectory,
 			rollout: 0.05
 		});
-		await promoteAbsoluteMobileUpdate({
-			appId: release.manifest.appId,
-			channel: release.manifest.channel,
-			publisher: registry,
-			releaseId: release.manifest.releaseId,
-			rollout: 1
-		});
+		let installationId = '';
+		for (let index = 0; !installationId && index < 10_000; index += 1) {
+			const candidate = `${index.toString(16).padStart(8, '0')}-1111-4111-8111-111111111111`;
+			const selected = await registry.resolveUpdate({
+				appId: release.manifest.appId,
+				channel: release.manifest.channel,
+				installationId: candidate,
+				runtimeFingerprint: release.manifest.runtimeFingerprint
+			});
+			if (selected?.manifest.releaseId === release.manifest.releaseId)
+				installationId = candidate;
+		}
+		if (!installationId)
+			throw new Error('Expected an installation in the staged cohort.');
 		const config = normalizeAbsoluteMobileConfig(
 			{
 				appId: release.manifest.appId,
@@ -109,7 +134,7 @@ describe('fresh application mobile update lifecycle', () => {
 				appId: release.manifest.appId,
 				channel: release.manifest.channel,
 				currentReleaseId: 'embedded',
-				installationId: '11111111-1111-4111-8111-111111111111',
+				installationId,
 				manifestUrl: updates.manifestUrl,
 				runtimeFingerprint: release.manifest.runtimeFingerprint
 			},
@@ -165,6 +190,23 @@ describe('fresh application mobile update lifecycle', () => {
 			failures: 0,
 			paused: false
 		});
+		const beforeAdvance = await inspectAbsoluteMobileUpdateRollout({
+			appId: release.manifest.appId,
+			channel: release.manifest.channel,
+			publisher: registry
+		});
+		const advanced = await advanceAbsoluteMobileUpdateRollout({
+			appId: release.manifest.appId,
+			channel: release.manifest.channel,
+			publisher: registry,
+			rollout: 1
+		});
+		expect(advanced).toMatchObject({
+			currentStage: 1,
+			promotionId: beforeAdvance?.promotionId,
+			rollout: 1,
+			status: 'complete'
+		});
 		await client.activate(release.manifest.releaseId);
 		expect(events).toContain(`commit:${release.manifest.releaseId}`);
 		expect(events).toContain(`activate:${release.manifest.releaseId}`);
@@ -179,8 +221,7 @@ describe('fresh application mobile update lifecycle', () => {
 				headers: {
 					'x-absolute-mobile-app': config.appId,
 					'x-absolute-mobile-channel': updates.channel,
-					'x-absolute-mobile-installation':
-						'11111111-1111-4111-8111-111111111111',
+					'x-absolute-mobile-installation': installationId,
 					'x-absolute-mobile-release': release.manifest.releaseId,
 					'x-absolute-mobile-runtime':
 						release.manifest.runtimeFingerprint

@@ -162,6 +162,24 @@ type MobileSharedConfig = {
 						/** Trusted-server secret environment variable. */
 						secretEnv?: string;
 				  };
+			/** Health-gated staged rollout orchestration. Disabled unless configured. */
+			rollout?:
+				| false
+				| {
+						/** Advance qualifying stages from health reports. Defaults to false. */
+						automatic?: boolean;
+						/** Defaults to recommended 5%, 25%, and 100% stages. */
+						stages?: readonly {
+							/** Failure ceiling for advancement. Defaults to 0.05. */
+							maximumFailureRate?: number;
+							/** Cumulative terminal reports required. Defaults to 20. */
+							minimumReports?: number;
+							/** Time at this stage before advancement. Defaults to 60 minutes. */
+							observationMinutes?: number;
+							/** Installation cohort fraction, greater than 0 and at most 1. */
+							rollout: number;
+						}[];
+				  };
 			/** Project-relative registry module. Defaults to `mobile.update.ts`. */
 			registry?: string;
 			/** Environment variable containing the Expo RSA private key PEM. */

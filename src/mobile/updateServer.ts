@@ -150,6 +150,24 @@ const verifyHealthModule = (
 		);
 };
 
+const verifyRolloutModule = (
+	config: NormalizedAbsoluteMobileConfig,
+	module: AbsoluteMobileUpdateServerModule
+) => {
+	if (!config.updateServer?.rollout) return;
+	if (
+		typeof module.registry.advanceUpdateRollout !== 'function' ||
+		typeof module.registry.cancelUpdateRollout !== 'function' ||
+		typeof module.registry.inspectUpdateRollout !== 'function' ||
+		typeof module.registry.pauseUpdateRollout !== 'function' ||
+		typeof module.registry.reconcileUpdateRollout !== 'function' ||
+		typeof module.registry.resumeUpdateRollout !== 'function'
+	)
+		throw new TypeError(
+			'Mobile update rollout orchestration is enabled but the registry is not provisioned for it. Run `absolute mobile update provision --force`.'
+		);
+};
+
 const expoSigningOptions = (config: NormalizedAbsoluteMobileConfig) => {
 	if (!config.updates?.expoCodeSigning) return undefined;
 	const entries = Object.entries(
@@ -204,6 +222,7 @@ export const createAbsoluteMobileUpdateServerPlugin = async (
 	if (options.production) {
 		await verifyDurableModule(module);
 		verifyHealthModule(config, module);
+		verifyRolloutModule(config, module);
 	}
 	const manifest = new URL(updates.manifestUrl);
 	if (!manifest.pathname.endsWith('/update.json'))
@@ -241,6 +260,7 @@ export const inspectAbsoluteMobileUpdateServer = async (
 	);
 	await verifyDurableModule(module);
 	verifyHealthModule(config, module);
+	verifyRolloutModule(config, module);
 	if (config.engine === 'expo') expoSigningOptions(config);
 
 	return module.metadata;
@@ -266,20 +286,34 @@ export const renderAbsoluteMobileUpdateRegistry = (options: {
 		minimumReports: number;
 		secretEnv: string;
 	};
+	rollout?: {
+		automatic: boolean;
+		stages: {
+			maximumFailureRate: number;
+			minimumReports: number;
+			observationMs: number;
+			rollout: number;
+		}[];
+	};
 	publicKeys: Readonly<Record<string, string>>;
 	storage: 'local' | 's3';
 }) => {
 	const source = renderAbsoluteMobileUpdateRegistryBase(options);
-	if (!options.health) return source;
-	const secret =
-		options.storage === 'local'
-			? `process.env.${options.health.secretEnv} ?? 'absolutejs-local-health-secret-not-for-production'`
-			: `required('${options.health.secretEnv}')`;
-	const health = `\thealth: {\n\t\tautoPause: { failureRate: ${options.health.failureRate}, minimumReports: ${options.health.minimumReports} },\n\t\tsecret: ${secret}\n\t},\n`;
+	let generated = '';
+	if (options.health) {
+		const secret =
+			options.storage === 'local'
+				? `process.env.${options.health.secretEnv} ?? 'absolutejs-local-health-secret-not-for-production'`
+				: `required('${options.health.secretEnv}')`;
+		generated += `\thealth: {\n\t\tautoPause: { failureRate: ${options.health.failureRate}, minimumReports: ${options.health.minimumReports} },\n\t\tsecret: ${secret}\n\t},\n`;
+	}
+	if (options.rollout)
+		generated += `\trollout: ${JSON.stringify(options.rollout, null, '\t').replaceAll('\n', '\n\t')},\n`;
+	if (!generated) return source;
 
 	return source.replace(
 		'export default createMobileUpdateRegistry({\n',
-		`export default createMobileUpdateRegistry({\n${health}`
+		`export default createMobileUpdateRegistry({\n${generated}`
 	);
 };
 
@@ -289,6 +323,15 @@ export const writeAbsoluteMobileUpdateRegistry = async (options: {
 		failureRate: number;
 		minimumReports: number;
 		secretEnv: string;
+	};
+	rollout?: {
+		automatic: boolean;
+		stages: {
+			maximumFailureRate: number;
+			minimumReports: number;
+			observationMs: number;
+			rollout: number;
+		}[];
 	};
 	modulePath?: string;
 	projectRoot: string;
@@ -314,6 +357,7 @@ export const writeAbsoluteMobileUpdateRegistry = async (options: {
 		path,
 		renderAbsoluteMobileUpdateRegistry({
 			...(options.health ? { health: options.health } : {}),
+			...(options.rollout ? { rollout: options.rollout } : {}),
 			publicKeys: options.publicKeys,
 			storage: options.storage
 		})

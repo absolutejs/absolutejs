@@ -64,6 +64,17 @@ describe('trusted mobile update server', () => {
 				secretEnv: 'UPDATE_HEALTH_SECRET'
 			},
 			publicKeys: { main: 'public-only' },
+			rollout: {
+				automatic: false,
+				stages: [
+					{
+						maximumFailureRate: 0.05,
+						minimumReports: 50,
+						observationMs: 3_600_000,
+						rollout: 0.05
+					}
+				]
+			},
 			storage: 's3'
 		});
 
@@ -74,6 +85,8 @@ describe('trusted mobile update server', () => {
 		expect(durable).toContain("required('UPDATE_HEALTH_SECRET')");
 		expect(durable).toContain('failureRate: 0.1');
 		expect(durable).toContain('minimumReports: 50');
+		expect(durable).toContain('"automatic": false');
+		expect(durable).toContain('"observationMs": 3600000');
 		expect(durable).toContain('verifyAbsoluteMobileUpdateServer');
 		expect(durable).toContain('PutObjectCommand');
 		expect(durable).toContain('GetObjectCommand');
@@ -129,6 +142,17 @@ describe('trusted mobile update server', () => {
 			},
 			projectRoot,
 			publicKeys: { main: 'public-only' },
+			rollout: {
+				automatic: false,
+				stages: [
+					{
+						maximumFailureRate: 0.05,
+						minimumReports: 20,
+						observationMs: 0,
+						rollout: 1
+					}
+				]
+			},
 			storage: 'local'
 		});
 		expect(await readFile(path, 'utf8')).toContain(

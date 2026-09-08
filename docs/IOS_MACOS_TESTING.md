@@ -1,8 +1,8 @@
 # AbsoluteJS iOS and TestFlight macOS test runbook
 
 This runbook validates the iOS release path shipped in
-`@absolutejs/absolute@0.20.0-beta.86` and
-`@absolutejs/deploy@0.25.11`. It covers a signed local IPA, an internal
+`@absolutejs/absolute@0.20.0-beta.87` and
+`@absolutejs/deploy@0.25.13`. It covers a signed local IPA, an internal
 TestFlight upload, retry behavior, and installation on an iPhone or iPad.
 
 Use a staging App Store Connect application if possible. Uploading a build
@@ -360,12 +360,12 @@ still requires the developer team setup described below.
 From the root of the AbsoluteJS application:
 
 ```sh
-bun add @absolutejs/absolute@0.20.0-beta.86 \
+bun add @absolutejs/absolute@0.20.0-beta.87 \
   @absolutejs/auth@0.76.3 \
   @absolutejs/dispatch@0.9.0 \
   @absolutejs/sync@2.31.0 \
   @absolutejs/sync-capacitor@0.9.2 \
-  @absolutejs/deploy@0.25.11 \
+  @absolutejs/deploy@0.25.13 \
   @absolutejs/blob@0.5.2 \
   @capacitor/core@8.5.0 \
   @capacitor/app@8.1.1 \
@@ -2506,7 +2506,7 @@ source change and build a new content-addressed release instead.
 - Mac architecture:
 - Xcode version:
 - Bun version:
-- AbsoluteJS version: 0.20.0-beta.86
+- AbsoluteJS version: 0.20.0-beta.87
 - Auth version: 0.76.3
 - Dispatch version: 0.9.0
 - Sync version: 2.31.0
@@ -2521,7 +2521,7 @@ source change and build a new content-addressed release instead.
 - File Viewer version: 2.0.2
 - Filesystem version: 8.1.3
 - Geolocation version: 8.2.2
-- Deploy version: 0.25.11
+- Deploy version: 0.25.13
 - App bundle ID (non-secret):
 - Marketing version:
 - Allocated build number:
@@ -2886,6 +2886,42 @@ Complete this checklist and include the IDs verbatim in the report:
 - [ ] `OTA-18` Re-provision the disposable registry with `absolute mobile update provision --storage local --force --yes`, activate one healthy release, and run `bunx absolute mobile update status`. Confirm one activation/download is counted, the app UI/event stream never exposes the health capability, and the registry contains no raw installation UUID, Auth/Sync value, route, page data, cookie, or bearer token.
 - [ ] `OTA-19` In this disposable local registry only, set `mobile.updates.server.health` to `{ minimumReports: 2, failureRate: 0.5 }`, re-provision, then produce one healthy activation and one watchdog rollback on separate clean Simulator installations. Run `bunx absolute mobile update status`; confirm it reports `PAUSED`, two terminal reports, one failure, and 50.0%, then launch a third clean installation and confirm it receives the prior healthy release rather than the paused release.
 - [ ] `OTA-20` Promote the corrected release again and confirm `mobile update status` shows a fresh unpaused promotion generation. Replay the prior generation's captured health request only in this disposable test and confirm HTTP 403; the new generation's counts and pause state must not change. Do not include the capability value in the returned report.
+
+For `OTA-21` and `OTA-22`, replace the disposable application's temporary
+server policy with the exact configuration below, then run
+`bunx absolute mobile update provision --storage local --force --yes` from the
+application repository root:
+
+```ts
+server: {
+  health: { minimumReports: 2, failureRate: 0.5 },
+  rollout: {
+    automatic: false,
+    stages: [
+      {
+        rollout: 0.5,
+        minimumReports: 2,
+        observationMinutes: 0,
+        maximumFailureRate: 0.25
+      },
+      {
+        rollout: 1,
+        minimumReports: 2,
+        observationMinutes: 0,
+        maximumFailureRate: 0.25
+      }
+    ]
+  }
+}
+```
+
+Use `bunx absolute mobile update publish PATH_TO_RELEASE` without a rollout flag;
+it will select the configured first stage. For the automatic half of `OTA-22`,
+change only `automatic` to `true`, re-provision, and publish a newly built
+immutable release so it receives a fresh promotion generation.
+
+- [ ] `OTA-21` Configure `mobile.updates.server.rollout` with manual 50% and 100% stages, a two-report minimum, zero observation minutes, and a failure ceiling below the fleet-pause threshold. Publish at 50%, record two healthy clean-Simulator activations, and run `bunx absolute mobile update advance --rollout 1`. Confirm `status` reports the same promotion ID, stage 2, 100%, and `COMPLETE`. Run advance twice concurrently once in this disposable test; the result must remain stage 2 rather than creating another generation or regressing.
+- [ ] `OTA-22` Publish a fresh 50% generation. Run `bunx absolute mobile update pause`, confirm a newly eligible installation receives the fallback, then run `resume` and confirm selection resumes. Run `cancel`, confirm fallback selection, and confirm a later `resume` is rejected. Repeat with `automatic: true`; after the second qualifying healthy report, confirm the trusted server advances without application code. Return only sanitized status output—never the health capability or stored event bodies.
 
 For every row record: pass/fail, device model, iOS version, app build/version,
 embedded runtime fingerprint, previous and selected `amu_…` IDs, classification,
