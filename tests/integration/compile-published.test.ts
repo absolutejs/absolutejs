@@ -539,8 +539,10 @@ describe('published beta compile acceptance', () => {
 					timeoutMs: 120_000
 				}
 			);
+			const compilePort = await getAvailablePort();
 			await runProcess(['bun', 'run', 'compile'], {
 				cwd: appRoot,
+				env: { PORT: String(compilePort) },
 				timeoutMs: 180_000
 			});
 

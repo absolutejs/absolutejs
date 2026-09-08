@@ -200,6 +200,11 @@ const removeRelease = async (releaseId: string) => {
 	}).catch(() => undefined);
 };
 
+const filesystemBytes = async (data: string | Blob) =>
+	typeof data === 'string'
+		? base64Bytes(data)
+		: new Uint8Array(await data.arrayBuffer());
+
 const createStore = (): AbsoluteMobileUpdateStore => {
 	let staging: AbsoluteMobileUpdateManifest | undefined;
 
@@ -267,6 +272,18 @@ const createStore = (): AbsoluteMobileUpdateStore => {
 				readyRelease: manifest.releaseId
 			});
 			staging = undefined;
+		},
+		readReusable: async (file) => {
+			const state = await readState();
+			if (!state.activeRelease) return null;
+			const result = await Filesystem.readFile({
+				directory: Directory.Library,
+				path: `${releasePath(state.activeRelease)}/${file.path}`
+			}).catch(() => null);
+
+			return result
+				? filesystemBytes(result.data).catch(() => null)
+				: null;
 		},
 		write: async (file: AbsoluteMobileUpdateFile, contents: Uint8Array) => {
 			if (
@@ -404,8 +421,14 @@ export const installAbsoluteMobileShellUpdates = async (
 	) => {
 		if (result.kind !== 'downloaded') return;
 		emitUpdateResult({
+			downloadedBytes: result.transfer.downloadedBytes,
+			downloadedFiles: result.transfer.downloadedFiles,
 			kind: 'downloaded',
-			releaseId: result.manifest.releaseId
+			releaseId: result.manifest.releaseId,
+			reusedBytes: result.transfer.reusedBytes,
+			reusedFiles: result.transfer.reusedFiles,
+			totalBytes: result.transfer.totalBytes,
+			totalFiles: result.transfer.totalFiles
 		});
 		await client.activate(result.manifest.releaseId);
 	};

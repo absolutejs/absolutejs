@@ -61,6 +61,16 @@ describe('mobile update client', () => {
 
 		const result = await client.download();
 		expect(result.kind).toBe('downloaded');
+		expect(result).toMatchObject({
+			transfer: {
+				downloadedBytes: 7,
+				downloadedFiles: 1,
+				reusedBytes: 0,
+				reusedFiles: 0,
+				totalBytes: 7,
+				totalFiles: 1
+			}
+		});
 		expect(calls).toEqual([
 			'https://updates.example.com/releases/current/update.json',
 			`begin:${manifest.releaseId}`,
@@ -68,6 +78,97 @@ describe('mobile update client', () => {
 			'write:index.html:7',
 			`commit:${manifest.releaseId}`
 		]);
+	});
+
+	test('reuses only locally cached files that match the signed target digest', async () => {
+		const calls: string[] = [];
+		const client = createAbsoluteMobileUpdateClient({
+			config: {
+				appId: manifest.appId,
+				channel: manifest.channel,
+				currentReleaseId: 'previous',
+				installationId: '11111111-1111-4111-8111-111111111111',
+				manifestUrl: 'https://updates.example.com/update.json',
+				runtimeFingerprint: manifest.runtimeFingerprint
+			},
+			fetch: (async (input: RequestInfo | URL) => {
+				calls.push(String(input));
+
+				return Response.json(manifest);
+			}) as typeof fetch,
+			store: {
+				abort: async () => {},
+				activate: async () => {},
+				begin: async () => {},
+				commit: async () => {},
+				readReusable: async () => bytes,
+				write: async ({ path }, value) =>
+					void calls.push(`write:${path}:${value.byteLength}`)
+			},
+			verifier: {
+				digest: async () => 'a'.repeat(64),
+				verify: async () => true
+			}
+		});
+
+		expect(await client.download()).toMatchObject({
+			kind: 'downloaded',
+			transfer: {
+				downloadedBytes: 0,
+				downloadedFiles: 0,
+				reusedBytes: 7,
+				reusedFiles: 1
+			}
+		});
+		expect(calls).toEqual([
+			'https://updates.example.com/update.json',
+			'write:index.html:7'
+		]);
+	});
+
+	test('downloads a signed file when the local reuse candidate is corrupt', async () => {
+		const calls: string[] = [];
+		const client = createAbsoluteMobileUpdateClient({
+			config: {
+				appId: manifest.appId,
+				channel: manifest.channel,
+				currentReleaseId: 'previous',
+				installationId: '11111111-1111-4111-8111-111111111111',
+				manifestUrl: 'https://updates.example.com/update.json',
+				runtimeFingerprint: manifest.runtimeFingerprint
+			},
+			fetch: (async (input: RequestInfo | URL) => {
+				const url = String(input);
+				calls.push(url);
+
+				return url.endsWith('update.json')
+					? Response.json(manifest)
+					: new Response(bytes);
+			}) as typeof fetch,
+			store: {
+				abort: async () => {},
+				activate: async () => {},
+				begin: async () => {},
+				commit: async () => {},
+				readReusable: async () => new TextEncoder().encode('corrupt'),
+				write: async () => {}
+			},
+			verifier: {
+				digest: async (contents) =>
+					new TextDecoder().decode(contents) === 'updated'
+						? 'a'.repeat(64)
+						: 'd'.repeat(64),
+				verify: async () => true
+			}
+		});
+
+		expect(await client.download()).toMatchObject({
+			kind: 'downloaded',
+			transfer: { downloadedFiles: 1, reusedFiles: 0 }
+		});
+		expect(calls).toContain(
+			`https://updates.example.com/${manifest.releaseId}/files/index.html`
+		);
 	});
 
 	test('fails closed and aborts staging on incompatible or corrupt updates', async () => {

@@ -191,6 +191,10 @@ durableTest(
 					writeFile(
 						join(bundleDirectory, 'app.js'),
 						`globalThis.release = ${JSON.stringify(label)};`
+					),
+					writeFile(
+						join(bundleDirectory, 'shared.css'),
+						'body { color: rebeccapurple; }'
 					)
 				]);
 
@@ -327,10 +331,15 @@ durableTest(
 						{ production: true }
 					);
 
-				await firstModule.registry.publishUpdate({
-					manifest: first.manifest,
-					releaseDirectory: first.outputDirectory,
-					rollout: 1
+				const firstPublication =
+					await firstModule.registry.publishUpdate({
+						manifest: first.manifest,
+						releaseDirectory: first.outputDirectory,
+						rollout: 1
+					});
+				expect(firstPublication).toMatchObject({
+					reusedFiles: 0,
+					storedFiles: 3
 				});
 				const crossInstanceFile =
 					await secondModule.registry.readUpdateFile({
@@ -384,7 +393,8 @@ durableTest(
 				expect((await mobileClient.download()).kind).toBe('downloaded');
 				expect(downloadedFiles.sort()).toEqual([
 					'app.js',
-					'index.html'
+					'index.html',
+					'shared.css'
 				]);
 
 				await command(['docker', 'restart', container]);
@@ -438,11 +448,74 @@ durableTest(
 					first.manifest.releaseId
 				);
 
-				await secondModule.registry.publishUpdate({
-					manifest: second.manifest,
-					releaseDirectory: second.outputDirectory,
-					rollout: 0.25
+				const secondPublication =
+					await secondModule.registry.publishUpdate({
+						manifest: second.manifest,
+						releaseDirectory: second.outputDirectory,
+						rollout: 0.25
+					});
+				expect(secondPublication).toMatchObject({
+					reusedFiles: 1,
+					storedFiles: 2
 				});
+				await secondModule.registry.promoteUpdate({
+					appId: second.manifest.appId,
+					channel: second.manifest.channel,
+					releaseId: second.manifest.releaseId,
+					rollout: 1
+				});
+				const differentialWrites: string[] = [];
+				const differentialClient = createAbsoluteMobileUpdateClient({
+					config: {
+						appId: second.manifest.appId,
+						channel: second.manifest.channel,
+						currentReleaseId: first.manifest.releaseId,
+						installationId: '11111111-1111-4111-8111-111111111111',
+						manifestUrl:
+							'https://api.example.com/__absolute/mobile/updates/production/update.json',
+						runtimeFingerprint: second.manifest.runtimeFingerprint
+					},
+					fetch: ((input: RequestInfo | URL, init?: RequestInit) =>
+						secondServer.handle(
+							new Request(input, init)
+						)) as typeof fetch,
+					store: {
+						abort: async () => {},
+						activate: async () => {},
+						begin: async () => {},
+						commit: async () => {},
+						readReusable: async ({ path }) => {
+							const source = Bun.file(
+								join(first.outputDirectory, 'files', path)
+							);
+
+							return (await source.exists())
+								? new Uint8Array(await source.arrayBuffer())
+								: null;
+						},
+						write: async ({ path }) =>
+							void differentialWrites.push(path)
+					},
+					verifier: {
+						digest: async (bytes) =>
+							createHash('sha256').update(bytes).digest('hex'),
+						verify: async () => true
+					}
+				});
+				const differential = await differentialClient.download();
+				expect(differential).toMatchObject({
+					kind: 'downloaded',
+					transfer: {
+						downloadedFiles: 2,
+						reusedFiles: 1,
+						totalFiles: 3
+					}
+				});
+				expect(differentialWrites.sort()).toEqual([
+					'app.js',
+					'index.html',
+					'shared.css'
+				]);
 				const mutations = await Promise.allSettled([
 					firstModule.registry.promoteUpdate({
 						appId: first.manifest.appId,
@@ -605,6 +678,7 @@ durableTest(
 						retainRecent: 0
 					});
 				expect(storage.releaseCount).toBe(3);
+				expect(storage.contentBlobCount).toBe(8);
 				expect(storage.untrackedBytes).toBeGreaterThan(0);
 				expect(
 					storage.releases.find(
@@ -651,6 +725,12 @@ durableTest(
 					retainRecent: 0
 				});
 				expect(swept.swept).toEqual([second.manifest.releaseId]);
+				expect(swept.sweptContentBlobs).toHaveLength(2);
+				expect(swept.sweptContentBlobs).not.toContain(
+					second.manifest.files.find(
+						(file) => file.path === 'shared.css'
+					)?.sha256
+				);
 				expect(swept.reclaimedBytes).toBeGreaterThan(0);
 				expect(
 					await secondModule.registry.readUpdateFile({

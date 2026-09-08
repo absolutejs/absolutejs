@@ -20,6 +20,8 @@ export type AbsoluteMobileUpdateStore = {
 	activate(releaseId: string): Promise<void>;
 	begin(manifest: AbsoluteMobileUpdateManifest): Promise<void>;
 	commit(manifest: AbsoluteMobileUpdateManifest): Promise<void>;
+	/** Return a locally cached candidate for this exact path, when available. */
+	readReusable?(file: AbsoluteMobileUpdateFile): Promise<Uint8Array | null>;
 	write(file: AbsoluteMobileUpdateFile, contents: Uint8Array): Promise<void>;
 };
 
@@ -37,9 +39,22 @@ export type AbsoluteMobileUpdateClientOptions = {
 
 export type AbsoluteMobileUpdateCheckResult =
 	| { kind: 'current' }
-	| { kind: 'downloaded'; manifest: AbsoluteMobileUpdateManifest }
+	| {
+			kind: 'downloaded';
+			manifest: AbsoluteMobileUpdateManifest;
+			transfer: AbsoluteMobileUpdateTransfer;
+	  }
 	| { kind: 'quarantined'; releaseId: string }
 	| { kind: 'update-available'; manifest: AbsoluteMobileUpdateManifest };
+
+export type AbsoluteMobileUpdateTransfer = {
+	downloadedBytes: number;
+	downloadedFiles: number;
+	reusedBytes: number;
+	reusedFiles: number;
+	totalBytes: number;
+	totalFiles: number;
+};
 
 const exactManifestUrl = (value: string) => {
 	const url = new URL(value);
@@ -154,15 +169,39 @@ export const createAbsoluteMobileUpdateClient = (
 	type DownloadFiles = (
 		manifest: AbsoluteMobileUpdateManifest,
 		index?: number,
-		received?: number
-	) => Promise<number>;
+		transfer?: AbsoluteMobileUpdateTransfer
+	) => Promise<AbsoluteMobileUpdateTransfer>;
 	const downloadFiles: DownloadFiles = async (
 		manifest,
 		index = 0,
-		received = 0
+		transfer = {
+			downloadedBytes: 0,
+			downloadedFiles: 0,
+			reusedBytes: 0,
+			reusedFiles: 0,
+			totalBytes: manifest.files.reduce(
+				(total, file) => total + file.bytes,
+				0
+			),
+			totalFiles: manifest.files.length
+		}
 	) => {
 		const file = manifest.files[index];
-		if (!file) return received;
+		if (!file) return transfer;
+		const reusable = await options.store.readReusable?.(file);
+		if (
+			reusable &&
+			reusable.byteLength === file.bytes &&
+			(await options.verifier.digest(reusable)) === file.sha256
+		) {
+			await options.store.write(file, reusable);
+
+			return downloadFiles(manifest, index + 1, {
+				...transfer,
+				reusedBytes: transfer.reusedBytes + reusable.byteLength,
+				reusedFiles: transfer.reusedFiles + 1
+			});
+		}
 		const asset = await request(
 			fileUrl(manifestUrl, manifest.releaseId, file.path),
 			{
@@ -177,10 +216,10 @@ export const createAbsoluteMobileUpdateClient = (
 				`Mobile update asset ${file.path} failed with HTTP ${asset.status}.`
 			);
 		const contents = await readBounded(asset, file.bytes);
-		const total = received + contents.byteLength;
+		const downloadedBytes = transfer.downloadedBytes + contents.byteLength;
 		if (
 			contents.byteLength !== file.bytes ||
-			total > ABSOLUTE_MOBILE_UPDATE_MAX_TOTAL_BYTES
+			downloadedBytes > ABSOLUTE_MOBILE_UPDATE_MAX_TOTAL_BYTES
 		)
 			throw new TypeError(
 				`Mobile update asset ${file.path} has an invalid size.`
@@ -191,7 +230,11 @@ export const createAbsoluteMobileUpdateClient = (
 			);
 		await options.store.write(file, contents);
 
-		return downloadFiles(manifest, index + 1, total);
+		return downloadFiles(manifest, index + 1, {
+			...transfer,
+			downloadedBytes,
+			downloadedFiles: transfer.downloadedFiles + 1
+		});
 	};
 
 	const check = async (
@@ -228,15 +271,16 @@ export const createAbsoluteMobileUpdateClient = (
 		if (!download) return { kind: 'update-available', manifest };
 
 		await options.store.begin(manifest);
+		let transfer: AbsoluteMobileUpdateTransfer;
 		try {
-			await downloadFiles(manifest);
+			transfer = await downloadFiles(manifest);
 			await options.store.commit(manifest);
 		} catch (error) {
 			await options.store.abort(manifest.releaseId);
 			throw error;
 		}
 
-		return { kind: 'downloaded', manifest };
+		return { kind: 'downloaded', manifest, transfer };
 	};
 
 	return {

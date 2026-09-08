@@ -3698,3 +3698,21 @@ coupling clients to a cloud provider. The full contract and commands are in
 `MOBILE_UPDATES.md`. Expo now adapts its platform Metro exports and Updates v1
 protocol to the same control-plane invariants and its own native runtime/version
 mechanism.
+
+Differential OTA delivery is now implemented without adding application code or
+uploading a device file inventory. The signed target manifest is the comparison
+plan: Capacitor re-hashes same-path files from the confirmed active release,
+copies matching bytes into the new atomic staging tree, and downloads only
+changed files. Download events expose aggregate downloaded/reused file and byte
+counts for native telemetry while retaining the existing redaction boundary.
+Corrupt or unreadable local candidates are ordinary cache misses.
+
+`@absolutejs/deploy` 0.25.8 stores new update files once per app and SHA-256
+digest, transparently serves old release URLs from those blobs, and continues to
+read pre-0.25.8 release-scoped objects. Publication and storage commands report
+new versus reused content. Retention accounts for shared blobs separately and
+deletes one only after no remaining signed manifest references it. Custom
+schedulers must serialize publication and collection for a given app. Real
+MinIO conformance covers deduplication, differential client transfer,
+multi-instance serving, restart durability, Capacitor and Expo delivery,
+rollback, and reference-safe collection.

@@ -1375,6 +1375,15 @@ const publishMobileUpdate = async (args: string[]) => {
 	console.log(
 		`${result.reused ? 'Reused' : 'Published'} mobile update ${result.releaseId} to ${result.channel} at ${Math.round(result.rollout * 100)}%.`
 	);
+	if (
+		result.storedBytes !== undefined &&
+		result.reusedBytes !== undefined &&
+		result.storedFiles !== undefined &&
+		result.reusedFiles !== undefined
+	)
+		console.log(
+			`Stored ${formatBytes(result.storedBytes)} in ${result.storedFiles} new content blobs; reused ${formatBytes(result.reusedBytes)} across ${result.reusedFiles} files.`
+		);
 
 	return result;
 };
@@ -1465,6 +1474,15 @@ const printMobileUpdateStorage = (
 	console.log(
 		`${report.appId}: ${report.releaseCount} releases use ${formatBytes(report.releaseBytes)}; ${formatBytes(report.reclaimableBytes)} is eligible across ${report.totalObjectCount} stored objects.`
 	);
+	if (
+		typeof report.contentBlobCount === 'number' &&
+		typeof report.contentBlobBytes === 'number' &&
+		typeof report.reclaimableContentBytes === 'number' &&
+		report.contentBlobCount > 0
+	)
+		console.log(
+			`  Shared content: ${report.contentBlobCount} blobs use ${formatBytes(report.contentBlobBytes)}; ${formatBytes(report.reclaimableContentBytes)} becomes reclaimable with the eligible releases.`
+		);
 	for (const release of report.releases) {
 		let state = 'eligible';
 		if (release.protectedBy.length > 0)

@@ -239,6 +239,22 @@ bunx absolute mobile update promote \
   --release amu_RELEASE --rollout 1
 ```
 
+Publication stores files by their signed SHA-256 digest. If a later release uses
+the same JavaScript, CSS, image, or other asset bytes, the registry references
+the existing immutable content blob instead of uploading and storing another
+copy. Existing release-scoped asset URLs remain valid, including for older app
+clients and releases written before content-addressed storage was introduced.
+
+Capacitor clients compare the signed target digest with the corresponding file
+in the active, already-verified release. Matching files are copied into the new
+staging transaction locally and only changed files cross the network. No file
+inventory, page data, auth state, or Sync data is sent to the update server. The
+`absolute:mobile-update` downloaded event reports `downloadedBytes`,
+`downloadedFiles`, `reusedBytes`, `reusedFiles`, `totalBytes`, and `totalFiles`.
+The staged release is still digest-checked file by file and activated atomically.
+Expo retains its native update/cache protocol while sharing the registry's
+content-addressed backing storage.
+
 Roll back to a previously published update, or omit `--release` to return every
 device to its embedded store build:
 
@@ -258,8 +274,8 @@ bunx absolute mobile update storage
 bunx absolute mobile update storage --json
 ```
 
-The report separates complete signed releases from channel documents,
-collection markers, incomplete uploads, and unrecognized objects. It reports
+The report separates signed release manifests, shared content blobs, channel
+documents, collection markers, incomplete uploads, and unrecognized objects. It reports
 the stored and reclaimable byte counts and explains why each release is
 retained. By default, the five newest releases per channel and every release
 younger than 30 days are kept. Active releases and channel fallbacks are always
@@ -288,13 +304,15 @@ a marked release until it is restored. Immediately before sweeping, AbsoluteJS
 reloads every channel and rechecks active, fallback, age, and recent-release
 protection. Release files are removed first and the immutable manifest last;
 the collection marker remains if any deletion fails, making the next run
-retryable. Incomplete or unrecognized objects are accounted for but never
-deleted automatically.
+retryable. A content blob is swept only after no remaining release manifest
+references its digest. Incomplete or unrecognized objects are accounted for but
+never deleted automatically.
 
 `--apply` is the only flag that mutates storage. `--json` makes either command
 suitable for scheduled jobs, budgets, and deployment-platform dashboards.
-Serialize lifecycle jobs for the same application so two operators cannot apply
-conflicting retention policies at the same time.
+Serialize publication and lifecycle jobs for the same application. The default
+CLI workflow does this naturally; a custom deployment scheduler must not run
+publish and garbage collection concurrently for one app.
 
 ## Deployment registry
 

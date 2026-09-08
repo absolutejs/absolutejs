@@ -12,8 +12,12 @@ import { readAbsoluteMobileUpdate } from './updateSigning';
 export type AbsoluteMobileUpdatePublication = {
 	appId: string;
 	channel: string;
+	storedBytes?: number;
+	storedFiles?: number;
 	releaseId: string;
 	reused: boolean;
+	reusedBytes?: number;
+	reusedFiles?: number;
 	rollout: number;
 	stage: 'published';
 };
@@ -74,6 +78,10 @@ const lifecycleMethod = <Name extends 'inspectUpdateStorage' | 'pruneUpdates'>(
 	return method;
 };
 
+const validOptionalCounters = (values: readonly (number | undefined)[]) =>
+	values.every((value) => value === undefined) ||
+	values.every((value) => Number.isSafeInteger(value) && (value ?? -1) >= 0);
+
 const validateStorageIdentity = (
 	result: MobileUpdateStorageReport,
 	appId: string
@@ -90,7 +98,12 @@ const validateStorageIdentity = (
 			result.totalBytes,
 			result.totalObjectCount,
 			result.untrackedBytes
-		].every((value) => Number.isSafeInteger(value) && value >= 0)
+		].every((value) => Number.isSafeInteger(value) && value >= 0) ||
+		!validOptionalCounters([
+			result.contentBlobBytes,
+			result.contentBlobCount,
+			result.reclaimableContentBytes
+		])
 	)
 		throw new TypeError(
 			'Mobile update registry returned an invalid storage report.'
@@ -154,6 +167,8 @@ export const pruneAbsoluteMobileUpdates = async (options: {
 		!Array.isArray(result.marked) ||
 		!Array.isArray(result.restored) ||
 		!Array.isArray(result.swept) ||
+		(result.sweptContentBlobs !== undefined &&
+			!Array.isArray(result.sweptContentBlobs)) ||
 		typeof result.dryRun !== 'boolean' ||
 		!Number.isSafeInteger(result.reclaimedBytes) ||
 		result.reclaimedBytes < 0
@@ -266,7 +281,13 @@ export const publishAbsoluteMobileUpdate = async (options: {
 		result.releaseId !== manifest.releaseId ||
 		result.rollout !== options.rollout ||
 		result.stage !== 'published' ||
-		typeof result.reused !== 'boolean'
+		typeof result.reused !== 'boolean' ||
+		!validOptionalCounters([
+			result.storedBytes,
+			result.storedFiles,
+			result.reusedBytes,
+			result.reusedFiles
+		])
 	)
 		throw new TypeError(
 			'Mobile update registry returned a different publication identity.'

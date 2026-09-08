@@ -128,7 +128,10 @@ describe('mobile update publisher boundary', () => {
 		const baseReport: MobileUpdateStorageReport = {
 			appId: 'com.example.absolute',
 			channelCount: 1,
+			contentBlobBytes: 7,
+			contentBlobCount: 1,
 			reclaimableBytes: 10,
+			reclaimableContentBytes: 0,
 			releaseBytes: 20,
 			releaseCount: 2,
 			releases: [],
@@ -147,7 +150,8 @@ describe('mobile update publisher boundary', () => {
 				marked: [],
 				reclaimedBytes: 0,
 				restored: [],
-				swept: []
+				swept: [],
+				sweptContentBlobs: []
 			}),
 			publishUpdate: async () => {
 				throw new Error('unused');

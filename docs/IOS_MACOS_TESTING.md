@@ -2729,6 +2729,7 @@ versus expected behavior. Do not report exact coordinates.
 | OTA-12 |  | request fields / credential exclusion: |  |
 | OTA-13 |  | automatic watchdog rollback / duration / quarantine: |  |
 | OTA-14 |  | interrupted-boot recovery before Capacitor load: |  |
+| OTA-15 |  | differential transfer bytes/files: |  |
 | EXPO-OTA-01 |  | generated locations / overwrite / mode: |  |
 | EXPO-OTA-02 |  | generated certificate metadata: |  |
 | EXPO-OTA-03 |  | doctor pass / tamper rejection: |  |
@@ -2871,8 +2872,9 @@ Complete this checklist and include the IDs verbatim in the report:
 - [ ] `OTA-10` Run `bunx absolute mobile update rollback`, reinstall/reopen as directed, and confirm the embedded store bundle N is the final recovery image.
 - [ ] `OTA-11` On a migrated/restored test device or by removing the confirmed snapshot only in a disposable test install, verify the generated iOS startup guard clears the dangling path and opens embedded N instead of a blank WebView.
 - [ ] `OTA-12` Confirm update requests send only app ID, channel, current release, anonymous installation UUID, and runtime fingerprint. They must not send cookies, bearer/refresh tokens, Sync data, page props, or a user identifier.
-- [ ] `OTA-13` After `OTA-08`, confirm the `absolute:mobile-update` detail contains only `kind: 'rolled-back'`, reason `boot-timeout`, the failed `amu_…` identity, and a numeric duration. Reopen while the same failed release remains published and confirm it is reported as quarantined without downloading its files or attempting activation again.
+- [ ] `OTA-13` After `OTA-08`, confirm the rollback `absolute:mobile-update` detail contains only `kind: 'rolled-back'`, reason `boot-timeout`, the failed `amu_…` identity, and a numeric duration. Reopen while the same failed release remains published and confirm it is reported as quarantined without downloading its files or attempting activation again.
 - [ ] `OTA-14` Start another disposable failing update and fully terminate the app after activation begins but before first render. Reopen it and confirm the prior healthy release appears directly, the recovery reason is `boot-interrupted`, and the failed release remains quarantined.
+- [ ] `OTA-15` From the application repository root, publish and activate one healthy update, then change only one small page asset and publish the next update. Capture the downloaded `absolute:mobile-update` event and confirm `downloadedFiles` is smaller than `totalFiles`, `reusedFiles` is greater than zero, and `downloadedBytes + reusedBytes` equals `totalBytes`. Run `bunx absolute mobile update storage` and include its `Shared content` line in the report.
 
 For every row record: pass/fail, device model, iOS version, app build/version,
 embedded runtime fingerprint, previous and selected `amu_…` IDs, classification,
