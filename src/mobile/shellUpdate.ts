@@ -8,6 +8,7 @@ import {
 } from './updateClient';
 import {
 	absoluteMobileUpdateSigningPayload,
+	parseAbsoluteMobileUpdateManifest,
 	unsignedAbsoluteMobileUpdate,
 	type AbsoluteMobileUpdateFile,
 	type AbsoluteMobileUpdateManifest
@@ -15,10 +16,12 @@ import {
 import type { AbsoluteMobileClientManifest } from './transport';
 
 const STATE_KEY = 'absolute.mobile.update.state.v1';
+const STAGING_KEY = 'absolute.mobile.update.staging.v1';
 const INSTALLATION_KEY = 'absolute.mobile.update.installation.v1';
 const RESULT_KEY = Symbol.for('absolutejs.mobile.update.result');
 const RESULTS_KEY = Symbol.for('absolutejs.mobile.update.results');
 const ROOT = 'NoCloud/ionic_built_snapshots';
+const STAGING_ROOT = 'NoCloud/absolute_update_staging';
 
 type UpdateState = {
 	activeRelease?: string;
@@ -146,6 +149,26 @@ const readState = async () => {
 const writeState = (state: UpdateState) =>
 	Preferences.set({ key: STATE_KEY, value: JSON.stringify(state) });
 
+const clearStagingRoot = () =>
+	Filesystem.rmdir({
+		directory: Directory.Library,
+		path: STAGING_ROOT,
+		recursive: true
+	}).catch(() => undefined);
+
+const readStaging = async () => {
+	const { value } = await Preferences.get({ key: STAGING_KEY });
+	if (!value) return undefined;
+	try {
+		return parseAbsoluteMobileUpdateManifest(JSON.parse(value));
+	} catch {
+		await Preferences.remove({ key: STAGING_KEY });
+		await clearStagingRoot();
+
+		return undefined;
+	}
+};
+
 const installationId = async () => {
 	const existing = await Preferences.get({ key: INSTALLATION_KEY });
 	if (existing.value && /^[a-f0-9-]{36}$/u.test(existing.value))
@@ -182,6 +205,9 @@ const currentServerBasePath = () =>
 
 const releasePath = (releaseId: string) => `${ROOT}/${releaseId}`;
 
+const partialPath = (releaseId: string, file: AbsoluteMobileUpdateFile) =>
+	`${STAGING_ROOT}/${releaseId}/${file.path}.part`;
+
 const releaseNativePath = async (releaseId: string) => {
 	const { uri } = await Filesystem.getUri({
 		directory: Directory.Library,
@@ -200,6 +226,14 @@ const removeRelease = async (releaseId: string) => {
 	}).catch(() => undefined);
 };
 
+const removeStaging = async (releaseId: string) => {
+	await Filesystem.rmdir({
+		directory: Directory.Library,
+		path: `${STAGING_ROOT}/${releaseId}`,
+		recursive: true
+	}).catch(() => undefined);
+};
+
 const filesystemBytes = async (data: string | Blob) =>
 	typeof data === 'string'
 		? base64Bytes(data)
@@ -212,6 +246,10 @@ const createStore = (): AbsoluteMobileUpdateStore => {
 		abort: async (releaseId) => {
 			staging = undefined;
 			await removeRelease(releaseId);
+			await removeStaging(releaseId);
+			const persisted = await readStaging();
+			if (persisted?.releaseId === releaseId)
+				await Preferences.remove({ key: STAGING_KEY });
 			const state = await readState();
 			if (
 				state.readyRelease === releaseId ||
@@ -251,12 +289,62 @@ const createStore = (): AbsoluteMobileUpdateStore => {
 				throw error;
 			}
 		},
+		appendPartial: async (file, contents, offset) => {
+			if (
+				!staging ||
+				!staging.files.some((candidate) => candidate.path === file.path)
+			)
+				throw new TypeError(
+					'Mobile update partial write is outside its staging transaction.'
+				);
+			const path = partialPath(staging.releaseId, file);
+			if (offset === 0) {
+				await Filesystem.writeFile({
+					data: bytesBase64(contents),
+					directory: Directory.Library,
+					path,
+					recursive: true
+				});
+
+				return;
+			}
+			const stat = await Filesystem.stat({
+				directory: Directory.Library,
+				path
+			});
+			if (stat.size !== offset)
+				throw new TypeError(
+					'Mobile update partial checkpoint changed unexpectedly.'
+				);
+			await Filesystem.appendFile({
+				data: bytesBase64(contents),
+				directory: Directory.Library,
+				path
+			});
+		},
 		begin: async (manifest) => {
-			await removeRelease(manifest.releaseId);
+			const persisted = await readStaging();
+			const resume =
+				persisted?.releaseId === manifest.releaseId &&
+				persisted.signature.keyId === manifest.signature.keyId &&
+				persisted.signature.value === manifest.signature.value;
+			if (persisted && !resume)
+				await Promise.all([
+					removeRelease(persisted.releaseId),
+					removeStaging(persisted.releaseId)
+				]);
+			if (!resume) {
+				await removeRelease(manifest.releaseId);
+				await removeStaging(manifest.releaseId);
+			}
 			await Filesystem.mkdir({
 				directory: Directory.Library,
 				path: releasePath(manifest.releaseId),
 				recursive: true
+			});
+			await Preferences.set({
+				key: STAGING_KEY,
+				value: JSON.stringify(manifest)
 			});
 			staging = manifest;
 		},
@@ -271,7 +359,20 @@ const createStore = (): AbsoluteMobileUpdateStore => {
 				quarantinedReleases: state.quarantinedReleases,
 				readyRelease: manifest.releaseId
 			});
+			await removeStaging(manifest.releaseId);
+			await Preferences.remove({ key: STAGING_KEY });
 			staging = undefined;
+		},
+		readPartial: async (file) => {
+			if (!staging) return null;
+			const result = await Filesystem.readFile({
+				directory: Directory.Library,
+				path: partialPath(staging.releaseId, file)
+			}).catch(() => null);
+
+			return result
+				? filesystemBytes(result.data).catch(() => null)
+				: null;
 		},
 		readReusable: async (file) => {
 			const state = await readState();
@@ -284,6 +385,20 @@ const createStore = (): AbsoluteMobileUpdateStore => {
 			return result
 				? filesystemBytes(result.data).catch(() => null)
 				: null;
+		},
+		readStaged: async (file) => {
+			if (!staging) return null;
+			const result = await Filesystem.readFile({
+				directory: Directory.Library,
+				path: `${releasePath(staging.releaseId)}/${file.path}`
+			}).catch(() => null);
+
+			return result
+				? filesystemBytes(result.data).catch(() => null)
+				: null;
+		},
+		suspend: async (releaseId) => {
+			if (staging?.releaseId === releaseId) staging = undefined;
 		},
 		write: async (file: AbsoluteMobileUpdateFile, contents: Uint8Array) => {
 			if (
@@ -414,19 +529,26 @@ export const installAbsoluteMobileShellUpdates = async (
 			runtimeFingerprint: manifest.nativeRuntime
 		},
 		store,
-		verifier: createVerifier(manifest.updates.publicKeys)
+		verifier: createVerifier(manifest.updates.publicKeys),
+		onProgress: (progress) => emitUpdateResult(progress)
 	});
 	const activateDownloaded = async (
 		result: Awaited<ReturnType<typeof client.download>>
 	) => {
 		if (result.kind !== 'downloaded') return;
 		emitUpdateResult({
+			avoidedBytes: result.transfer.avoidedBytes,
+			completedFiles: result.transfer.completedFiles,
 			downloadedBytes: result.transfer.downloadedBytes,
 			downloadedFiles: result.transfer.downloadedFiles,
+			durationMs: Math.round(result.transfer.durationMs),
 			kind: 'downloaded',
 			releaseId: result.manifest.releaseId,
+			resumedBytes: result.transfer.resumedBytes,
+			resumedFiles: result.transfer.resumedFiles,
 			reusedBytes: result.transfer.reusedBytes,
 			reusedFiles: result.transfer.reusedFiles,
+			throughputBytesPerSecond: result.transfer.throughputBytesPerSecond,
 			totalBytes: result.transfer.totalBytes,
 			totalFiles: result.transfer.totalFiles
 		});

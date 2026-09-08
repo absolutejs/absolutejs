@@ -426,6 +426,33 @@ durableTest(
 				expect((await afterRestart.json()).releaseId).toBe(
 					first.manifest.releaseId
 				);
+				const appFile = first.manifest.files.find(
+					({ path }) => path === 'app.js'
+				);
+				if (!appFile) throw new Error('Signed app.js is missing');
+				const appBytes = new Uint8Array(
+					await Bun.file(
+						join(first.outputDirectory, 'files', 'app.js')
+					).arrayBuffer()
+				);
+				const durableRange = await restartedServer.handle(
+					new Request(
+						`https://api.example.com/__absolute/mobile/updates/production/${first.manifest.releaseId}/files/app.js`,
+						{
+							headers: {
+								'if-range': `"${appFile.sha256}"`,
+								range: 'bytes=3-'
+							}
+						}
+					)
+				);
+				expect(durableRange.status).toBe(206);
+				expect(durableRange.headers.get('content-range')).toBe(
+					`bytes 3-${appBytes.byteLength - 1}/${appBytes.byteLength}`
+				);
+				expect(
+					new Uint8Array(await durableRange.arrayBuffer())
+				).toEqual(appBytes.slice(3));
 
 				const partialReleaseId = `amu_${'f'.repeat(64)}`;
 				const appHash = createHash('sha256')

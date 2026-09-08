@@ -1,8 +1,8 @@
 # AbsoluteJS iOS and TestFlight macOS test runbook
 
 This runbook validates the iOS release path shipped in
-`@absolutejs/absolute@0.20.0-beta.83` and
-`@absolutejs/deploy@0.25.7`. It covers a signed local IPA, an internal
+`@absolutejs/absolute@0.20.0-beta.85` and
+`@absolutejs/deploy@0.25.9`. It covers a signed local IPA, an internal
 TestFlight upload, retry behavior, and installation on an iPhone or iPad.
 
 Use a staging App Store Connect application if possible. Uploading a build
@@ -327,7 +327,8 @@ actual result, sanitized logs, and artifact or screenshot path in section 13.
 - [ ] `REMOTE-01` Complete remote-Mac acceptance, or mark it `SKIPPED`.
 - [ ] `BUILD-01` Pass release doctor and produce a signed IPA.
 - [ ] `SHIP-01` Upload, process, assign, and install the TestFlight build.
-- [ ] `UPDATE-01` Prove retry reuse and a subsequent web-only update.
+- [ ] `UPDATE-01` Prove retry reuse, interrupted-transfer resume, and a subsequent
+  web-only update.
 - [ ] `REPORT-01` Fill every report row in section 13 with `PASS`, `FAIL`, or
   `SKIPPED`; attach sanitized evidence for every failure.
 
@@ -359,12 +360,12 @@ still requires the developer team setup described below.
 From the root of the AbsoluteJS application:
 
 ```sh
-bun add @absolutejs/absolute@0.20.0-beta.83 \
+bun add @absolutejs/absolute@0.20.0-beta.85 \
   @absolutejs/auth@0.76.3 \
   @absolutejs/dispatch@0.9.0 \
   @absolutejs/sync@2.31.0 \
   @absolutejs/sync-capacitor@0.9.2 \
-  @absolutejs/deploy@0.25.7 \
+  @absolutejs/deploy@0.25.9 \
   @absolutejs/blob@0.5.2 \
   @capacitor/core@8.5.0 \
   @capacitor/app@8.1.1 \
@@ -2505,7 +2506,7 @@ source change and build a new content-addressed release instead.
 - Mac architecture:
 - Xcode version:
 - Bun version:
-- AbsoluteJS version: 0.20.0-beta.80
+- AbsoluteJS version: 0.20.0-beta.85
 - Auth version: 0.76.3
 - Dispatch version: 0.9.0
 - Sync version: 2.31.0
@@ -2520,7 +2521,7 @@ source change and build a new content-addressed release instead.
 - File Viewer version: 2.0.2
 - Filesystem version: 8.1.3
 - Geolocation version: 8.2.2
-- Deploy version: 0.25.5
+- Deploy version: 0.25.9
 - App bundle ID (non-secret):
 - Marketing version:
 - Allocated build number:
@@ -2730,6 +2731,8 @@ versus expected behavior. Do not report exact coordinates.
 | OTA-13 |  | automatic watchdog rollback / duration / quarantine: |  |
 | OTA-14 |  | interrupted-boot recovery before Capacitor load: |  |
 | OTA-15 |  | differential transfer bytes/files: |  |
+| OTA-16 |  | interrupted bytes / resumed bytes / range status: |  |
+| OTA-17 |  | progress monotonic / final totals / sensitive exclusion: |  |
 | EXPO-OTA-01 |  | generated locations / overwrite / mode: |  |
 | EXPO-OTA-02 |  | generated certificate metadata: |  |
 | EXPO-OTA-03 |  | doctor pass / tamper rejection: |  |
@@ -2875,6 +2878,8 @@ Complete this checklist and include the IDs verbatim in the report:
 - [ ] `OTA-13` After `OTA-08`, confirm the rollback `absolute:mobile-update` detail contains only `kind: 'rolled-back'`, reason `boot-timeout`, the failed `amu_…` identity, and a numeric duration. Reopen while the same failed release remains published and confirm it is reported as quarantined without downloading its files or attempting activation again.
 - [ ] `OTA-14` Start another disposable failing update and fully terminate the app after activation begins but before first render. Reopen it and confirm the prior healthy release appears directly, the recovery reason is `boot-interrupted`, and the failed release remains quarantined.
 - [ ] `OTA-15` From the application repository root, publish and activate one healthy update, then change only one small page asset and publish the next update. Capture the downloaded `absolute:mobile-update` event and confirm `downloadedFiles` is smaller than `totalFiles`, `reusedFiles` is greater than zero, and `downloadedBytes + reusedBytes` equals `totalBytes`. Run `bunx absolute mobile update storage` and include its `Shared content` line in the report.
+- [ ] `OTA-16` Publish a healthy update containing one asset large enough to observe in the network inspector. Start the download, disable the Mac/device network after some bytes arrive, and fully terminate the app. Restore the network and reopen it. Confirm the asset request returns `206`, its `Range` begins above zero, the final event has `resumedBytes` greater than zero, and the update activates with the expected signed content. If the interruption occurred before any response bytes were checkpointed, repeat once and record both attempts.
+- [ ] `OTA-17` During `OTA-16`, capture only the sanitized `absolute:mobile-update` event details. Confirm `download-progress` values never decrease; the final `completedFiles` equals `totalFiles`; `avoidedBytes` equals `resumedBytes + reusedBytes`; `durationMs` and `throughputBytesPerSecond` are finite non-negative numbers; and no URL, filesystem path, manifest, key, Auth/Sync value, cookie, token, or page data appears.
 
 For every row record: pass/fail, device model, iOS version, app build/version,
 embedded runtime fingerprint, previous and selected `amu_…` IDs, classification,

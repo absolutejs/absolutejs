@@ -249,11 +249,24 @@ Capacitor clients compare the signed target digest with the corresponding file
 in the active, already-verified release. Matching files are copied into the new
 staging transaction locally and only changed files cross the network. No file
 inventory, page data, auth state, or Sync data is sent to the update server. The
-`absolute:mobile-update` downloaded event reports `downloadedBytes`,
-`downloadedFiles`, `reusedBytes`, `reusedFiles`, `totalBytes`, and `totalFiles`.
+Capacitor store also checkpoints response chunks in app-private persistent
+storage. A process exit, lost connection, or failed request therefore resumes
+with a conditional HTTP byte-range request instead of restarting completed files
+or a partially transferred file. The server must return an exact `206
+Content-Range`; a full `200` safely restarts that file, and any mismatched range
+fails closed. Completed and partial staging bytes remain untrusted until their
+signed size and SHA-256 digest pass.
+
+Downloads use at most three concurrent asset requests by default, reduce that to
+two on a reported 3G connection, and serialize on 2G or data-saver connections.
+The `absolute:mobile-update` stream emits `download-progress` events and a final
+`downloaded` event with `downloadedBytes`, `downloadedFiles`, `resumedBytes`,
+`resumedFiles`, `reusedBytes`, `reusedFiles`, `avoidedBytes`, `completedFiles`,
+`totalBytes`, `totalFiles`, `durationMs`, and `throughputBytesPerSecond`. These
+aggregates contain no URL, local path, manifest, Auth/Sync value, or page data.
 The staged release is still digest-checked file by file and activated atomically.
 Expo retains its native update/cache protocol while sharing the registry's
-content-addressed backing storage.
+content-addressed and byte-range-capable backing storage.
 
 Roll back to a previously published update, or omit `--release` to return every
 device to its embedded store build:
@@ -485,8 +498,9 @@ a boolean result. A passing artifact is written to
 
 ## Current limitations
 
-- Delta transfer is not implemented. Immutable files are fetched independently,
-  which already avoids an archive/unzip dependency and permits CDN caching.
+- Binary patch generation is not implemented. Content-addressed file reuse and
+  resumable byte ranges avoid unchanged and previously transferred bytes without
+  adding an archive/unzip or patch-application trust boundary.
 - EAS-hosted publishing is not yet an AbsoluteJS registry provider. The current
   Expo path is the provider-neutral self-hosted `@absolutejs/deploy` registry.
 
@@ -503,6 +517,7 @@ Run it from the AbsoluteJS repository root on a machine with Docker. It creates
 an ephemeral bucket and proves generated-registry health verification,
 independent server instances, persistence across a MinIO restart, incomplete
 publication isolation, concurrent channel-state safety, previous-release and
-embedded rollback, Capacitor digest/signature verification, Expo RSA response
-signing, health-probe cleanup, and failure for invalid credentials or a missing
-bucket. It removes the container and temporary project afterward.
+embedded rollback, HTTP byte ranges and interruption resume, Capacitor
+digest/signature verification, Expo RSA response signing, health-probe cleanup,
+and failure for invalid credentials or a missing bucket. It removes the container
+and temporary project afterward.

@@ -1442,15 +1442,12 @@ const compileUnlocked = async (
 		recursive: true
 	});
 
-	// Pick a guaranteed-free port for the pre-render server. A positive explicit
-	// COMPILE_PORT/PORT still wins; COMPILE_PORT=0 explicitly requests an
-	// OS-assigned port even when an ambient PORT exists. This avoids the old
-	// DEFAULT_PORT+1 guess, which collides on CI runners and can't be cleared there
-	// when the lsof-based killStaleProcesses no-ops without lsof.
-	const configuredPrerenderPort =
-		env.COMPILE_PORT === undefined
-			? Number(env.PORT)
-			: Number(env.COMPILE_PORT);
+	// Pick a guaranteed-free port for the private pre-render server. PORT belongs
+	// to the eventual application runtime and is commonly loaded from `.env`; it
+	// must not turn that temporary compiler detail into a fixed-port collision.
+	// COMPILE_PORT remains the deliberate diagnostic override, while zero/unset
+	// asks the OS for an available port.
+	const configuredPrerenderPort = Number(env.COMPILE_PORT);
 	const prerenderPort =
 		configuredPrerenderPort > 0
 			? configuredPrerenderPort

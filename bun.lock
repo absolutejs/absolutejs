@@ -7,7 +7,7 @@
       "dependencies": {
         "@absolutejs/auth": ">=0.75.0 <0.77.0",
         "@absolutejs/beacon": ">=0.7.0-beta.4 <0.8.0",
-        "@absolutejs/deploy": "0.25.8",
+        "@absolutejs/deploy": "0.25.9",
         "@absolutejs/devices": "0.7.0",
         "@absolutejs/devices-capacitor": "0.8.0",
         "@absolutejs/devices-expo": "0.0.2",
@@ -301,7 +301,7 @@
 
     "@absolutejs/blob": ["@absolutejs/blob@0.5.2", "", { "dependencies": { "@absolutejs/manifest": "^0.7.2", "@sinclair/typebox": "^0.34.0" }, "peerDependencies": { "@aws-sdk/client-s3": "^3.1087.0", "@aws-sdk/lib-storage": "^3.1087.0", "@aws-sdk/s3-request-presigner": "^3.1087.0", "uploadthing": "^7.7.4" }, "optionalPeers": ["@aws-sdk/client-s3", "@aws-sdk/lib-storage", "@aws-sdk/s3-request-presigner", "uploadthing"] }, "sha512-3g6aR8B2G5lRdP6kRcih7FGRk0aII+FXq+VvM/+aFV3rfmDHGkyBHJg1ggawjAoMhjuhPCEmc8RLKaQC0CTkSQ=="],
 
-    "@absolutejs/deploy": ["@absolutejs/deploy@0.25.8", "", { "dependencies": { "google-auth-library": "10.9.0" } }, "sha512-P+SjfXWrJtJgreniCJRHynvg6u3VZ1RQnMFZokqcEGqJw17fhbJEcA811AJUTrhflaV5nLy7TgK3Jed2IZIOmw=="],
+    "@absolutejs/deploy": ["@absolutejs/deploy@0.25.9", "", { "dependencies": { "google-auth-library": "10.9.0" } }, "sha512-whjTHXWFIUJ2bpMd5OJdxPXC37LdrL2Ih9n9HvTWfVss5XaXJnzbh9zjPNqyY1o7dJdKeJCqLP9CR16EeEfq3g=="],
 
     "@absolutejs/devices": ["@absolutejs/devices@0.7.0", "", {}, "sha512-yRMk/Fvyiv/n7btoDmS2YNos3uZ4URxpV6zsJ71bZaFVCR/rqwma1rhonluj15yBMWUhhwWF3jb2avfEZynzWw=="],
 
