@@ -174,6 +174,11 @@ durableTest(
 				'mobile-missing-bucket.update.ts'
 			])
 				await writeAbsoluteMobileUpdateRegistry({
+					health: {
+						failureRate: 0.2,
+						minimumReports: 20,
+						secretEnv: 'ABSOLUTE_MOBILE_UPDATE_HEALTH_SECRET'
+					},
 					modulePath,
 					projectRoot,
 					publicKeys: { main: encodedPublicKey },
@@ -291,6 +296,8 @@ durableTest(
 			);
 			const environment: Record<string, string> = {
 				ABSOLUTE_EXPO_UPDATE_PRIVATE_KEY: expoPrivateKey,
+				ABSOLUTE_MOBILE_UPDATE_HEALTH_SECRET:
+					'durable-health-secret-with-at-least-thirty-two-characters',
 				ABSOLUTE_MOBILE_UPDATE_S3_BUCKET: bucket,
 				ABSOLUTE_MOBILE_UPDATE_S3_ENDPOINT: endpoint,
 				ABSOLUTE_MOBILE_UPDATE_S3_FORCE_PATH_STYLE: '1',
@@ -390,7 +397,18 @@ durableTest(
 						}
 					}
 				});
-				expect((await mobileClient.download()).kind).toBe('downloaded');
+				const durableDownload = await mobileClient.download();
+				expect(durableDownload.kind).toBe('downloaded');
+				if (
+					durableDownload.kind !== 'downloaded' ||
+					!durableDownload.healthToken
+				)
+					throw new Error('Durable health capability is missing');
+				await mobileClient.report({
+					healthToken: durableDownload.healthToken,
+					kind: 'activated',
+					releaseId: durableDownload.manifest.releaseId
+				});
 				expect(downloadedFiles.sort()).toEqual([
 					'app.js',
 					'index.html',
@@ -405,6 +423,17 @@ durableTest(
 						projectRoot,
 						{ production: true }
 					);
+				const restartedModule =
+					await loadAbsoluteMobileUpdateServerModule(
+						projectRoot,
+						'mobile-restarted.update.ts'
+					);
+				await expect(
+					restartedModule.registry.inspectUpdateHealth?.({
+						appId: first.manifest.appId,
+						channel: first.manifest.channel
+					})
+				).resolves.toMatchObject({ activated: 1, paused: false });
 				const afterRestart = await restartedServer.handle(
 					new Request(
 						'https://api.example.com/__absolute/mobile/updates/production/update.json',

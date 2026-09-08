@@ -135,6 +135,21 @@ const verifyDurableModule = async (
 	}
 };
 
+const verifyHealthModule = (
+	config: NormalizedAbsoluteMobileConfig,
+	module: AbsoluteMobileUpdateServerModule
+) => {
+	if (!config.updateServer?.health) return;
+	if (
+		typeof module.registry.inspectUpdateHealth !== 'function' ||
+		typeof module.registry.issueUpdateHealthToken !== 'function' ||
+		typeof module.registry.recordUpdateHealth !== 'function'
+	)
+		throw new TypeError(
+			'Mobile update fleet health is enabled but the registry is not provisioned for it. Run `absolute mobile update provision --force`.'
+		);
+};
+
 const expoSigningOptions = (config: NormalizedAbsoluteMobileConfig) => {
 	if (!config.updates?.expoCodeSigning) return undefined;
 	const entries = Object.entries(
@@ -186,7 +201,10 @@ export const createAbsoluteMobileUpdateServerPlugin = async (
 		projectRoot,
 		server.registryModule
 	);
-	if (options.production) await verifyDurableModule(module);
+	if (options.production) {
+		await verifyDurableModule(module);
+		verifyHealthModule(config, module);
+	}
 	const manifest = new URL(updates.manifestUrl);
 	if (!manifest.pathname.endsWith('/update.json'))
 		throw new TypeError(
@@ -222,6 +240,7 @@ export const inspectAbsoluteMobileUpdateServer = async (
 		config.updateServer?.registryModule
 	);
 	await verifyDurableModule(module);
+	verifyHealthModule(config, module);
 	if (config.engine === 'expo') expoSigningOptions(config);
 
 	return module.metadata;
@@ -230,7 +249,7 @@ export const inspectAbsoluteMobileUpdateServer = async (
 const publicKeysSource = (publicKeys: Readonly<Record<string, string>>) =>
 	JSON.stringify(publicKeys, null, '\t');
 
-export const renderAbsoluteMobileUpdateRegistry = (options: {
+const renderAbsoluteMobileUpdateRegistryBase = (options: {
 	publicKeys: Readonly<Record<string, string>>;
 	storage: 'local' | 's3';
 }) => {
@@ -241,8 +260,36 @@ export const renderAbsoluteMobileUpdateRegistry = (options: {
 	return `import { randomUUID } from 'node:crypto';\nimport { DeleteObjectCommand, GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';\nimport { awsS3BlobStore } from '@absolutejs/blob/aws-s3';\nimport { createMobileUpdateRegistry } from '@absolutejs/deploy/mobile-update';\n\n${metadata}\n\nconst required = (name: string) => {\n\tconst value = process.env[name];\n\tif (!value) throw new Error(\`Missing \${name}\`);\n\treturn value;\n};\n\nconst bucket = required('ABSOLUTE_MOBILE_UPDATE_S3_BUCKET');\nconst client = new S3Client({\n\tregion: process.env.ABSOLUTE_MOBILE_UPDATE_S3_REGION ?? 'auto',\n\tforcePathStyle: process.env.ABSOLUTE_MOBILE_UPDATE_S3_FORCE_PATH_STYLE === '1',\n\t...(process.env.ABSOLUTE_MOBILE_UPDATE_S3_ENDPOINT\n\t\t? { endpoint: process.env.ABSOLUTE_MOBILE_UPDATE_S3_ENDPOINT }\n\t\t: {})\n});\nconst store = awsS3BlobStore({ bucket, client });\n\nexport const verifyAbsoluteMobileUpdateServer = async () => {\n\tconst key = \`absolutejs/mobile-updates/_health/\${randomUUID()}\`;\n\tconst expected = randomUUID();\n\tlet stored = false;\n\ttry {\n\t\tawait client.send(new PutObjectCommand({ Bucket: bucket, Key: key, Body: expected }));\n\t\tstored = true;\n\t\tconst response = await client.send(new GetObjectCommand({ Bucket: bucket, Key: key }));\n\t\tif ((await response.Body?.transformToString()) !== expected)\n\t\t\tthrow new Error('Durability probe read did not match its write.');\n\t} finally {\n\t\tif (stored) await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));\n\t}\n};\n\nexport default createMobileUpdateRegistry({\n\tpublicKeys: ${publicKeysSource(options.publicKeys)},\n\tstore\n});\n`;
 };
 
+export const renderAbsoluteMobileUpdateRegistry = (options: {
+	health?: {
+		failureRate: number;
+		minimumReports: number;
+		secretEnv: string;
+	};
+	publicKeys: Readonly<Record<string, string>>;
+	storage: 'local' | 's3';
+}) => {
+	const source = renderAbsoluteMobileUpdateRegistryBase(options);
+	if (!options.health) return source;
+	const secret =
+		options.storage === 'local'
+			? `process.env.${options.health.secretEnv} ?? 'absolutejs-local-health-secret-not-for-production'`
+			: `required('${options.health.secretEnv}')`;
+	const health = `\thealth: {\n\t\tautoPause: { failureRate: ${options.health.failureRate}, minimumReports: ${options.health.minimumReports} },\n\t\tsecret: ${secret}\n\t},\n`;
+
+	return source.replace(
+		'export default createMobileUpdateRegistry({\n',
+		`export default createMobileUpdateRegistry({\n${health}`
+	);
+};
+
 export const writeAbsoluteMobileUpdateRegistry = async (options: {
 	force?: boolean;
+	health?: {
+		failureRate: number;
+		minimumReports: number;
+		secretEnv: string;
+	};
 	modulePath?: string;
 	projectRoot: string;
 	publicKeys: Readonly<Record<string, string>>;
@@ -266,6 +313,7 @@ export const writeAbsoluteMobileUpdateRegistry = async (options: {
 	await Bun.write(
 		path,
 		renderAbsoluteMobileUpdateRegistry({
+			...(options.health ? { health: options.health } : {}),
 			publicKeys: options.publicKeys,
 			storage: options.storage
 		})

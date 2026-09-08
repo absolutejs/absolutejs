@@ -522,12 +522,49 @@ export default function AbsoluteLayout() {
 }
 `;
 
-const updatesRuntimeSource = () =>
+const updatesRuntimeSource = (config: NormalizedAbsoluteMobileConfig) =>
 	`${EXPO_GENERATED_HEADER}import { randomUUID } from 'expo-crypto';
 import * as SecureStore from 'expo-secure-store';
 import * as Updates from 'expo-updates';
 
 const INSTALLATION_KEY = 'absolutejs.mobile.update.installation.v1';
+const PENDING_HEALTH_KEY = 'absolutejs.mobile.update.pending-health.v1';
+const APP_ID = ${JSON.stringify(config.appId)};
+const CHANNEL = ${JSON.stringify(config.updates?.channel)};
+const MANIFEST_URL = ${JSON.stringify(config.updates?.manifestUrl)};
+
+const updateIdentity = (value: unknown) => {
+	if (!value || typeof value !== 'object') return undefined;
+	const extra = Reflect.get(value, 'extra');
+	if (!extra || typeof extra !== 'object') return undefined;
+	const absolute = Reflect.get(extra, 'absolutejs');
+	if (!absolute || typeof absolute !== 'object') return undefined;
+	const healthToken = Reflect.get(absolute, 'healthToken');
+	const releaseId = Reflect.get(absolute, 'releaseId');
+	return typeof healthToken === 'string' && typeof releaseId === 'string'
+		? { healthToken, releaseId }
+		: undefined;
+};
+
+const report = async (installationId: string, evidence: { healthToken: string; kind: string; releaseId: string }) => {
+	const endpoint = new URL('./health', MANIFEST_URL);
+	await fetch(endpoint.href, {
+		body: JSON.stringify({ kind: evidence.kind, releaseId: evidence.releaseId }),
+		cache: 'no-store',
+		credentials: 'omit',
+		headers: {
+			'content-type': 'application/json',
+			'x-absolute-mobile-app': APP_ID,
+			'x-absolute-mobile-channel': CHANNEL,
+			'x-absolute-mobile-health-token': evidence.healthToken,
+			'x-absolute-mobile-installation': installationId,
+			'x-absolute-mobile-release': updateIdentity(Updates.manifest)?.releaseId ?? 'embedded',
+			'x-absolute-mobile-runtime': Updates.runtimeVersion ?? ''
+		},
+		method: 'POST',
+		redirect: 'error'
+	});
+};
 
 let startPromise: Promise<void> | undefined;
 export const startAbsoluteExpoUpdates = () => {
@@ -539,9 +576,34 @@ export const startAbsoluteExpoUpdates = () => {
 			await SecureStore.setItemAsync(INSTALLATION_KEY, installationId);
 		}
 		await Updates.setExtraParamAsync('absolute-installation', installationId);
+		const pendingSource = await SecureStore.getItemAsync(PENDING_HEALTH_KEY);
+		if (pendingSource) {
+			try {
+				const pending = JSON.parse(pendingSource);
+				const active = updateIdentity(Updates.manifest);
+				if (typeof pending?.healthToken === 'string' && typeof pending?.releaseId === 'string')
+					await report(installationId, {
+						healthToken: pending.healthToken,
+						kind: active?.releaseId === pending.releaseId ? 'activated' : 'rolled-back',
+						releaseId: pending.releaseId
+					});
+			} catch {}
+			await SecureStore.deleteItemAsync(PENDING_HEALTH_KEY);
+		}
 		const result = await Updates.checkForUpdateAsync();
 		if (result.isAvailable || result.isRollBackToEmbedded) {
-			await Updates.fetchUpdateAsync();
+			const available = updateIdentity(Reflect.get(result, 'manifest'));
+			try {
+				const fetched = await Updates.fetchUpdateAsync();
+				const identity = updateIdentity(Reflect.get(fetched, 'manifest')) ?? available;
+				if (identity) {
+					await SecureStore.setItemAsync(PENDING_HEALTH_KEY, JSON.stringify(identity));
+					await report(installationId, { ...identity, kind: 'downloaded' });
+				}
+			} catch (error) {
+				if (available) await report(installationId, { ...available, kind: 'download-failed' }).catch(() => undefined);
+				throw error;
+			}
 			if (result.isRollBackToEmbedded) {
 				await Updates.reloadAsync();
 			}
@@ -1638,7 +1700,7 @@ export const writeAbsoluteExpoProject = async (
 	if (config.updates) {
 		files.set(
 			join(project, 'src', 'generated', 'AbsoluteUpdates.ts'),
-			updatesRuntimeSource()
+			updatesRuntimeSource(config)
 		);
 	}
 	const expoCodeSigning = config.updates?.expoCodeSigning;

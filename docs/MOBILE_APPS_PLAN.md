@@ -3707,7 +3707,7 @@ changed files. Download events expose aggregate downloaded/reused file and byte
 counts for native telemetry while retaining the existing redaction boundary.
 Corrupt or unreadable local candidates are ordinary cache misses.
 
-`@absolutejs/deploy` 0.25.8 stores new update files once per app and SHA-256
+`@absolutejs/deploy` 0.25.11 stores new update files once per app and SHA-256
 digest, transparently serves old release URLs from those blobs, and continues to
 read pre-0.25.8 release-scoped objects. Publication and storage commands report
 new versus reused content. Retention accounts for shared blobs separately and
@@ -3716,3 +3716,16 @@ schedulers must serialize publication and collection for a given app. Real
 MinIO conformance covers deduplication, differential client transfer,
 multi-instance serving, restart durability, Capacitor and Expo delivery,
 rollback, and reference-safe collection.
+
+Fleet-health protection is now implemented in the generated Capacitor and Expo
+shells and the trusted update registry. Promotion-scoped HMAC capabilities bind
+bounded outcomes to an anonymous installation, release, channel, and runtime;
+storage retains only an HMAC pseudonym. The registry aggregates adoption,
+transfer, rollback, and quarantine evidence and automatically places an immutable
+pause marker on the exact failing promotion generation after the configured
+minimum sample and failure rate. Resolution then serves the prior healthy release;
+an explicit re-promotion creates a clean generation. `absolute mobile update
+status` exposes the same provider-neutral report. Download/network failures do
+not pause releases, receipt failures never block app recovery, and production
+ingress rate limiting remains required because anonymous identities are not
+hardware attestation.

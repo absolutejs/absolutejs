@@ -630,6 +630,9 @@ describe('experimental Expo project', () => {
 		expect(updateRuntime).toContain('absolute-installation');
 		expect(updateRuntime).toContain('SecureStore.setItemAsync');
 		expect(updateRuntime).toContain('Updates.fetchUpdateAsync');
+		expect(updateRuntime).toContain('PENDING_HEALTH_KEY');
+		expect(updateRuntime).toContain("? 'activated' : 'rolled-back'");
+		expect(updateRuntime).toContain('x-absolute-mobile-health-token');
 		expect(updateRuntime).toContain('result.isRollBackToEmbedded');
 		expect(updateRuntime).toContain('Updates.reloadAsync');
 	});

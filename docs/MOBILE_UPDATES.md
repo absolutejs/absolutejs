@@ -106,7 +106,13 @@ export default {
         // Both are optional. The registry defaults to mobile.update.ts and
         // AbsoluteJS mounts it automatically on productionOrigin.
         registry: 'mobile.update.ts',
-        expoPrivateKeyEnv: 'ABSOLUTE_EXPO_UPDATE_PRIVATE_KEY'
+        expoPrivateKeyEnv: 'ABSOLUTE_EXPO_UPDATE_PRIVATE_KEY',
+        // Optional overrides; fleet health and auto-pause default on.
+        health: {
+          failureRate: 0.2,
+          minimumReports: 20,
+          secretEnv: 'ABSOLUTE_MOBILE_UPDATE_HEALTH_SECRET'
+        }
       }
     }
   }
@@ -129,10 +135,15 @@ bunx absolute mobile update provision --storage s3 --force --yes
 The first command generates `mobile.update.ts` with explicitly marked local
 storage. AbsoluteJS serves it during development, but `mobile doctor release`
 and the production runtime reject it. The durable form reads
+`ABSOLUTE_MOBILE_UPDATE_HEALTH_SECRET`,
 `ABSOLUTE_MOBILE_UPDATE_S3_BUCKET`, standard AWS credentials, and optional
 `ABSOLUTE_MOBILE_UPDATE_S3_ENDPOINT` / `ABSOLUTE_MOBILE_UPDATE_S3_REGION` only
 inside the trusted server. The generated file contains public verification keys
 but no private key or storage credential.
+Generate the health secret with at least 32 unpredictable characters and keep it
+only on the trusted server. Local provisioning uses an explicitly non-production
+fallback unless that environment variable is set. Set `server.health: false` to
+disable health receipts and auto-pause together.
 Set `ABSOLUTE_MOBILE_UPDATE_S3_FORCE_PATH_STYLE=1` only for providers such as a
 local MinIO deployment that require path-style bucket URLs.
 
@@ -267,6 +278,39 @@ aggregates contain no URL, local path, manifest, Auth/Sync value, or page data.
 The staged release is still digest-checked file by file and activated atomically.
 Expo retains its native update/cache protocol while sharing the registry's
 content-addressed and byte-range-capable backing storage.
+
+## Fleet health and automatic rollout protection
+
+AbsoluteJS reports bounded `downloaded`, `download-failed`, `activated`,
+`rolled-back`, and `quarantined` outcomes without application code. Capacitor
+persists the reporting capability through activation and native watchdog
+recovery; Expo keeps the pending identity in SecureStore and reconciles it on
+the next launch. Reporting is best effort and never delays activation, rollback,
+or foreground startup.
+
+The manifest response issues an HMAC capability scoped to the exact application,
+channel, anonymous installation UUID, runtime, release, and promotion generation.
+The server rejects modified, cross-installation, stale-generation, and
+cross-runtime reports. It stores only an HMAC pseudonym of the installation ID,
+the bounded outcome, server timestamp, optional watchdog reason, and aggregate
+transfer counters. It discards additional request fields and never accepts Auth,
+Sync, page, route, cookie, bearer-token, filesystem-path, or device-profile data.
+
+Inspect the active promotion from the application root:
+
+```bash
+bunx absolute mobile update status
+bunx absolute mobile update status --json
+```
+
+The default guard waits for 20 distinct terminal installations and pauses the
+exact promotion generation at a 20% rollback/quarantine rate. Ordinary network
+download failures are visible but never pause a rollout. A pause makes new
+resolution fall back to the prior release without rewriting the channel pointer;
+re-promoting intentionally creates a fresh generation. Configure the sample and
+rate under `mobile.updates.server.health`. Receipt capabilities prevent tampering
+and replay inflation, but an anonymous installation is not hardware attestation;
+production ingress must still enforce ordinary request/body rate limits.
 
 Roll back to a previously published update, or omit `--release` to return every
 device to its embedded store build:
@@ -450,6 +494,8 @@ recovery update.
 - The `absolute:mobile-update` DOM event reports sanitized `boot-timeout` or
   `boot-interrupted` recovery reason, release identity, and duration. It never
   includes URLs, keys, paths, page data, Auth state, or downloaded bytes.
+- Health-report failures never affect update integrity, startup, activation, or
+  rollback. A fleet pause applies only to the failing promotion generation.
 
 ## Native conformance
 
@@ -515,9 +561,10 @@ bun run test:mobile:update:durable
 
 Run it from the AbsoluteJS repository root on a machine with Docker. It creates
 an ephemeral bucket and proves generated-registry health verification,
-independent server instances, persistence across a MinIO restart, incomplete
+independent server instances, health evidence across a MinIO restart, incomplete
 publication isolation, concurrent channel-state safety, previous-release and
 embedded rollback, HTTP byte ranges and interruption resume, Capacitor
-digest/signature verification, Expo RSA response signing, health-probe cleanup,
+digest/signature verification, Expo RSA response signing, promotion-scoped
+receipt authentication, health-probe cleanup,
 and failure for invalid credentials or a missing bucket. It removes the container
 and temporary project afterward.

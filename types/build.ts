@@ -151,6 +151,17 @@ type MobileSharedConfig = {
 		server?: {
 			/** Mount the update endpoint in the AbsoluteJS runtime. Defaults to true. */
 			autoMount?: boolean;
+			/** Anonymous fleet-health receipts and automatic rollout protection. Enabled by default. */
+			health?:
+				| false
+				| {
+						/** Failure fraction that pauses a promotion. Defaults to 0.2. */
+						failureRate?: number;
+						/** Terminal activation/rollback sample required before pausing. Defaults to 20. */
+						minimumReports?: number;
+						/** Trusted-server secret environment variable. */
+						secretEnv?: string;
+				  };
 			/** Project-relative registry module. Defaults to `mobile.update.ts`. */
 			registry?: string;
 			/** Environment variable containing the Expo RSA private key PEM. */

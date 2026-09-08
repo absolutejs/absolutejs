@@ -524,4 +524,120 @@ describe('mobile update client', () => {
 		});
 		expect(maximum).toBe(2);
 	});
+
+	test('carries the server capability into sanitized health reports', async () => {
+		const reports: { body: unknown; headers: Headers; url: string }[] = [];
+		const client = createAbsoluteMobileUpdateClient({
+			config: {
+				appId: manifest.appId,
+				channel: manifest.channel,
+				currentReleaseId: 'embedded',
+				installationId: '11111111-1111-4111-8111-111111111111',
+				manifestUrl: 'https://updates.example.com/update.json',
+				runtimeFingerprint: manifest.runtimeFingerprint
+			},
+			fetch: (async (input: RequestInfo | URL, init?: RequestInit) => {
+				const url = String(input);
+				if (url.endsWith('/health')) {
+					reports.push({
+						body: JSON.parse(String(init?.body)),
+						headers: new Headers(init?.headers),
+						url
+					});
+
+					return Response.json({ paused: false }, { status: 202 });
+				}
+				if (url.endsWith('update.json'))
+					return Response.json(manifest, {
+						headers: {
+							'x-absolute-mobile-health-token':
+								'signed-capability'
+						}
+					});
+
+				return new Response(bytes);
+			}) as typeof fetch,
+			store: {
+				abort: async () => {},
+				activate: async () => {},
+				begin: async () => {},
+				commit: async () => {},
+				write: async () => {}
+			},
+			verifier: {
+				digest: async () => 'a'.repeat(64),
+				verify: async () => true
+			}
+		});
+		const result = await client.download();
+		expect(result).toMatchObject({
+			healthToken: 'signed-capability',
+			kind: 'downloaded'
+		});
+		if (result.kind !== 'downloaded' || !result.healthToken)
+			throw new Error('Health capability is missing');
+		await client.report({
+			healthToken: result.healthToken,
+			kind: 'downloaded',
+			releaseId: result.manifest.releaseId,
+			transfer: result.transfer
+		});
+		expect(reports).toHaveLength(1);
+		expect(reports[0]?.url).toBe('https://updates.example.com/health');
+		expect(reports[0]?.headers.get('x-absolute-mobile-health-token')).toBe(
+			'signed-capability'
+		);
+		expect(reports[0]?.body).toMatchObject({
+			kind: 'downloaded',
+			releaseId: manifest.releaseId,
+			transfer: { downloadedBytes: 7 }
+		});
+	});
+
+	test('reports transfer failure without replacing the update error', async () => {
+		const reported: unknown[] = [];
+		const client = createAbsoluteMobileUpdateClient({
+			config: {
+				appId: manifest.appId,
+				channel: manifest.channel,
+				currentReleaseId: 'embedded',
+				installationId: '11111111-1111-4111-8111-111111111111',
+				manifestUrl: 'https://updates.example.com/update.json',
+				runtimeFingerprint: manifest.runtimeFingerprint
+			},
+			fetch: (async (input: RequestInfo | URL, init?: RequestInit) => {
+				const url = String(input);
+				if (url.endsWith('/health')) {
+					reported.push(JSON.parse(String(init?.body)));
+
+					return new Response(null, { status: 202 });
+				}
+				if (url.endsWith('update.json'))
+					return Response.json(manifest, {
+						headers: {
+							'x-absolute-mobile-health-token':
+								'signed-capability'
+						}
+					});
+
+				return new Response(null, { status: 503 });
+			}) as typeof fetch,
+			store: {
+				abort: async () => {},
+				activate: async () => {},
+				begin: async () => {},
+				commit: async () => {},
+				write: async () => {}
+			},
+			verifier: {
+				digest: async () => 'a'.repeat(64),
+				verify: async () => true
+			}
+		});
+
+		await expect(client.download()).rejects.toThrow('HTTP 503');
+		expect(reported).toEqual([
+			{ kind: 'download-failed', releaseId: manifest.releaseId }
+		]);
+	});
 });

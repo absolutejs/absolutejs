@@ -55,12 +55,40 @@ export type AbsoluteMobileUpdateClientOptions = {
 export type AbsoluteMobileUpdateCheckResult =
 	| { kind: 'current' }
 	| {
+			healthToken?: string;
 			kind: 'downloaded';
 			manifest: AbsoluteMobileUpdateManifest;
 			transfer: AbsoluteMobileUpdateTransfer;
 	  }
-	| { kind: 'quarantined'; releaseId: string }
-	| { kind: 'update-available'; manifest: AbsoluteMobileUpdateManifest };
+	| { healthToken?: string; kind: 'quarantined'; releaseId: string }
+	| {
+			healthToken?: string;
+			kind: 'update-available';
+			manifest: AbsoluteMobileUpdateManifest;
+	  };
+
+export type AbsoluteMobileUpdateHealthKind =
+	| 'activated'
+	| 'downloaded'
+	| 'download-failed'
+	| 'quarantined'
+	| 'rolled-back';
+
+export type AbsoluteMobileUpdateHealthEvidence = {
+	healthToken: string;
+	kind: AbsoluteMobileUpdateHealthKind;
+	reason?: 'boot-interrupted' | 'boot-timeout';
+	releaseId: string;
+	transfer?: Pick<
+		AbsoluteMobileUpdateTransfer,
+		| 'avoidedBytes'
+		| 'downloadedBytes'
+		| 'durationMs'
+		| 'resumedBytes'
+		| 'reusedBytes'
+		| 'throughputBytesPerSecond'
+	>;
+};
 
 export type AbsoluteMobileUpdateTransfer = {
 	avoidedBytes: number;
@@ -172,6 +200,38 @@ const requestHeaders = (config: AbsoluteMobileUpdateClientConfig) => ({
 	'x-absolute-mobile-release': config.currentReleaseId,
 	'x-absolute-mobile-runtime': config.runtimeFingerprint
 });
+
+const healthUrl = (manifestUrl: URL) => new URL('./health', manifestUrl);
+
+export const reportAbsoluteMobileUpdateHealth = async (
+	config: AbsoluteMobileUpdateClientConfig,
+	input: AbsoluteMobileUpdateHealthEvidence,
+	request: typeof globalThis.fetch = globalThis.fetch
+) => {
+	const manifestUrl = exactManifestUrl(config.manifestUrl);
+	const headers = new Headers(requestHeaders(config));
+	headers.set('content-type', 'application/json');
+	headers.set('x-absolute-mobile-health-token', input.healthToken);
+	const response = await request(healthUrl(manifestUrl), {
+		body: JSON.stringify({
+			kind: input.kind,
+			...(input.reason ? { reason: input.reason } : {}),
+			releaseId: input.releaseId,
+			...(input.transfer ? { transfer: input.transfer } : {})
+		}),
+		cache: 'no-store',
+		credentials: 'omit',
+		headers,
+		keepalive: true,
+		method: 'POST',
+		redirect: 'error',
+		signal: AbortSignal.timeout(15_000)
+	});
+	if (response.status !== 202)
+		throw new TypeError(
+			`Mobile update health report failed with HTTP ${response.status}.`
+		);
+};
 
 const requireCompatible = (
 	manifest: AbsoluteMobileUpdateManifest,
@@ -462,14 +522,26 @@ export const createAbsoluteMobileUpdateClient = (
 			throw new TypeError('Mobile update manifest is not valid JSON.');
 		}
 		const manifest = parseAbsoluteMobileUpdateManifest(manifestValue);
+		const healthToken = response.headers.get(
+			'x-absolute-mobile-health-token'
+		);
 		requireCompatible(manifest, options.config);
 		if (!(await options.verifier.verify(manifest)))
 			throw new TypeError('Mobile update signature verification failed.');
 		if (manifest.releaseId === options.config.currentReleaseId)
 			return { kind: 'current' };
 		if (options.config.blockedReleaseIds?.includes(manifest.releaseId))
-			return { kind: 'quarantined', releaseId: manifest.releaseId };
-		if (!download) return { kind: 'update-available', manifest };
+			return {
+				...(healthToken ? { healthToken } : {}),
+				kind: 'quarantined',
+				releaseId: manifest.releaseId
+			};
+		if (!download)
+			return {
+				...(healthToken ? { healthToken } : {}),
+				kind: 'update-available',
+				manifest
+			};
 
 		await options.store.begin(manifest);
 		let transfer: AbsoluteMobileUpdateTransfer;
@@ -480,15 +552,33 @@ export const createAbsoluteMobileUpdateClient = (
 			if (options.store.suspend)
 				await options.store.suspend(manifest.releaseId);
 			else await options.store.abort(manifest.releaseId);
+			if (healthToken)
+				void reportAbsoluteMobileUpdateHealth(
+					options.config,
+					{
+						healthToken,
+						kind: 'download-failed',
+						releaseId: manifest.releaseId
+					},
+					request
+				).catch(() => undefined);
+
 			throw error;
 		}
 
-		return { kind: 'downloaded', manifest, transfer };
+		return {
+			...(healthToken ? { healthToken } : {}),
+			kind: 'downloaded',
+			manifest,
+			transfer
+		};
 	};
 
 	return {
 		check,
 		activate: (releaseId: string) => options.store.activate(releaseId),
-		download: () => check(true)
+		download: () => check(true),
+		report: (input: AbsoluteMobileUpdateHealthEvidence) =>
+			reportAbsoluteMobileUpdateHealth(options.config, input, request)
 	};
 };

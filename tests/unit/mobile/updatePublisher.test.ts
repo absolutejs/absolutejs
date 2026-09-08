@@ -3,9 +3,13 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, test } from 'bun:test';
-import type { MobileUpdateStorageReport } from '@absolutejs/deploy/mobile-update';
+import type {
+	MobileUpdateHealthReport,
+	MobileUpdateStorageReport
+} from '@absolutejs/deploy/mobile-update';
 import { buildAbsoluteMobileUpdate } from '../../../src/mobile/updateSigning';
 import {
+	inspectAbsoluteMobileUpdateHealth,
 	inspectAbsoluteMobileUpdateStorage,
 	promoteAbsoluteMobileUpdate,
 	pruneAbsoluteMobileUpdates,
@@ -173,6 +177,53 @@ describe('mobile update publisher boundary', () => {
 				publisher
 			})
 		).resolves.toMatchObject({ dryRun: true, reclaimedBytes: 0 });
+	});
+
+	test('validates fleet health identity and bounded counters', async () => {
+		const report: MobileUpdateHealthReport = {
+			activated: 9,
+			appId: 'com.example.absolute',
+			channel: 'production',
+			downloaded: 10,
+			downloadFailed: 1,
+			failureRate: 0.1,
+			failures: 1,
+			paused: false,
+			promotionId: 'a'.repeat(64),
+			quarantined: 0,
+			releaseId: `amu_${'b'.repeat(64)}`,
+			reportedInstallations: 10,
+			rolledBack: 1,
+			rollout: 0.25,
+			terminalReports: 10,
+			transfer: {
+				avoidedBytes: 20,
+				downloadedBytes: 30,
+				durationMs: 40,
+				resumedBytes: 5,
+				reusedBytes: 15,
+				throughputBytesPerSecond: 50
+			}
+		};
+		const publisher = {
+			inspectUpdateHealth: async () => report,
+			promoteUpdate: async () => {
+				throw new Error('unused');
+			},
+			publishUpdate: async () => {
+				throw new Error('unused');
+			},
+			rollbackUpdate: async () => {
+				throw new Error('unused');
+			}
+		} satisfies AbsoluteMobileUpdatePublisher;
+		await expect(
+			inspectAbsoluteMobileUpdateHealth({
+				appId: report.appId,
+				channel: report.channel,
+				publisher
+			})
+		).resolves.toEqual(report);
 	});
 
 	test('explains how to upgrade a registry without lifecycle methods', async () => {

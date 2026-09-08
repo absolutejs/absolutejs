@@ -6,6 +6,7 @@ import { afterAll, describe, expect, test } from 'bun:test';
 import { normalizeAbsoluteMobileConfig } from '../../src/mobile/config';
 import { createAbsoluteMobileUpdateClient } from '../../src/mobile/updateClient';
 import {
+	inspectAbsoluteMobileUpdateHealth,
 	promoteAbsoluteMobileUpdate,
 	publishAbsoluteMobileUpdate,
 	rollbackAbsoluteMobileUpdate
@@ -51,6 +52,11 @@ describe('fresh application mobile update lifecycle', () => {
 			.export({ format: 'der', type: 'spki' })
 			.toString('base64');
 		await writeAbsoluteMobileUpdateRegistry({
+			health: {
+				failureRate: 0.2,
+				minimumReports: 20,
+				secretEnv: 'ABSOLUTE_MOBILE_UPDATE_HEALTH_SECRET'
+			},
 			projectRoot,
 			publicKeys: { main: encodedPublicKey },
 			storage: 'local'
@@ -134,6 +140,31 @@ describe('fresh application mobile update lifecycle', () => {
 		});
 		const downloaded = await client.download();
 		expect(downloaded.kind).toBe('downloaded');
+		if (downloaded.kind !== 'downloaded' || !downloaded.healthToken)
+			throw new Error('Expected update health capability.');
+		await client.report({
+			healthToken: downloaded.healthToken,
+			kind: 'downloaded',
+			releaseId: downloaded.manifest.releaseId,
+			transfer: downloaded.transfer
+		});
+		await client.report({
+			healthToken: downloaded.healthToken,
+			kind: 'activated',
+			releaseId: downloaded.manifest.releaseId
+		});
+		await expect(
+			inspectAbsoluteMobileUpdateHealth({
+				appId: release.manifest.appId,
+				channel: release.manifest.channel,
+				publisher: registry
+			})
+		).resolves.toMatchObject({
+			activated: 1,
+			downloaded: 1,
+			failures: 0,
+			paused: false
+		});
 		await client.activate(release.manifest.releaseId);
 		expect(events).toContain(`commit:${release.manifest.releaseId}`);
 		expect(events).toContain(`activate:${release.manifest.releaseId}`);

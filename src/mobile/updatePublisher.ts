@@ -2,6 +2,7 @@ import { access } from 'node:fs/promises';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type {
+	MobileUpdateHealthReport,
 	MobileUpdatePruneOptions,
 	MobileUpdatePruneResult,
 	MobileUpdateRetentionOptions,
@@ -38,6 +39,11 @@ export type AbsoluteMobileUpdateRollback = {
 };
 
 export type AbsoluteMobileUpdatePublisher = {
+	inspectUpdateHealth?: (options: {
+		appId: string;
+		channel: string;
+		releaseId?: string;
+	}) => Promise<MobileUpdateHealthReport | null>;
 	inspectUpdateStorage?: (
 		options: MobileUpdateRetentionOptions
 	) => Promise<MobileUpdateStorageReport>;
@@ -65,7 +71,9 @@ export type AbsoluteMobileUpdatePublisher = {
 	}): Promise<AbsoluteMobileUpdateRollback>;
 };
 
-const lifecycleMethod = <Name extends 'inspectUpdateStorage' | 'pruneUpdates'>(
+const lifecycleMethod = <
+	Name extends 'inspectUpdateHealth' | 'inspectUpdateStorage' | 'pruneUpdates'
+>(
 	publisher: AbsoluteMobileUpdatePublisher,
 	name: Name
 ) => {
@@ -76,6 +84,61 @@ const lifecycleMethod = <Name extends 'inspectUpdateStorage' | 'pruneUpdates'>(
 		);
 
 	return method;
+};
+
+export const inspectAbsoluteMobileUpdateHealth = async (options: {
+	appId: string;
+	channel: string;
+	publisher: AbsoluteMobileUpdatePublisher;
+	releaseId?: string;
+}) => {
+	const report = await lifecycleMethod(
+		options.publisher,
+		'inspectUpdateHealth'
+	)({
+		appId: options.appId,
+		channel: options.channel,
+		...(options.releaseId ? { releaseId: options.releaseId } : {})
+	});
+	if (report === null) return null;
+	if (
+		!object(report) ||
+		report.appId !== options.appId ||
+		report.channel !== options.channel ||
+		(options.releaseId !== undefined &&
+			report.releaseId !== options.releaseId) ||
+		typeof report.paused !== 'boolean' ||
+		![
+			report.activated,
+			report.downloaded,
+			report.downloadFailed,
+			report.failures,
+			report.quarantined,
+			report.reportedInstallations,
+			report.rolledBack,
+			report.terminalReports
+		].every((value) => Number.isSafeInteger(value) && value >= 0) ||
+		!Number.isFinite(report.failureRate) ||
+		report.failureRate < 0 ||
+		report.failureRate > 1 ||
+		!Number.isFinite(report.rollout) ||
+		report.rollout < 0 ||
+		report.rollout > 1 ||
+		!object(report.transfer) ||
+		![
+			report.transfer.avoidedBytes,
+			report.transfer.downloadedBytes,
+			report.transfer.durationMs,
+			report.transfer.resumedBytes,
+			report.transfer.reusedBytes,
+			report.transfer.throughputBytesPerSecond
+		].every((value) => Number.isFinite(value) && value >= 0)
+	)
+		throw new TypeError(
+			'Mobile update registry returned an invalid health report.'
+		);
+
+	return report;
 };
 
 const validOptionalCounters = (values: readonly (number | undefined)[]) =>

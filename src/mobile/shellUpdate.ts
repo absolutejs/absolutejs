@@ -3,6 +3,9 @@ import { Preferences } from '@capacitor/preferences';
 import { registerPlugin } from '@capacitor/core';
 import {
 	createAbsoluteMobileUpdateClient,
+	reportAbsoluteMobileUpdateHealth,
+	type AbsoluteMobileUpdateClientConfig,
+	type AbsoluteMobileUpdateHealthEvidence,
 	type AbsoluteMobileUpdateStore,
 	type AbsoluteMobileUpdateVerifier
 } from './updateClient';
@@ -24,11 +27,14 @@ const ROOT = 'NoCloud/ionic_built_snapshots';
 const STAGING_ROOT = 'NoCloud/absolute_update_staging';
 
 type UpdateState = {
+	activeHealthToken?: string;
 	activeRelease?: string;
+	pendingHealthToken?: string;
 	pendingRelease?: string;
 	pendingStartedAt?: number;
 	previousPath?: string;
 	quarantinedReleases?: string[];
+	readyHealthToken?: string;
 	readyRelease?: string;
 	recovery?: {
 		durationMs: number;
@@ -123,11 +129,17 @@ const readState = async () => {
 			};
 
 		return {
+			...(text('activeHealthToken')
+				? { activeHealthToken: text('activeHealthToken') }
+				: {}),
 			...(text('activeRelease')
 				? { activeRelease: text('activeRelease') }
 				: {}),
 			...(text('pendingRelease')
 				? { pendingRelease: text('pendingRelease') }
+				: {}),
+			...(text('pendingHealthToken')
+				? { pendingHealthToken: text('pendingHealthToken') }
 				: {}),
 			...(number('pendingStartedAt') === undefined
 				? {}
@@ -138,6 +150,9 @@ const readState = async () => {
 			...(quarantinedReleases.length > 0 ? { quarantinedReleases } : {}),
 			...(text('readyRelease')
 				? { readyRelease: text('readyRelease') }
+				: {}),
+			...(text('readyHealthToken')
+				? { readyHealthToken: text('readyHealthToken') }
 				: {}),
 			...(validRecovery ? { recovery: validRecovery } : {})
 		};
@@ -256,6 +271,7 @@ const createStore = (): AbsoluteMobileUpdateStore => {
 				state.pendingRelease === releaseId
 			)
 				await writeState({
+					activeHealthToken: state.activeHealthToken,
 					activeRelease: state.activeRelease,
 					quarantinedReleases: state.quarantinedReleases,
 					recovery: state.recovery
@@ -270,7 +286,9 @@ const createStore = (): AbsoluteMobileUpdateStore => {
 			const path = await releaseNativePath(releaseId);
 			const previousPath = await currentServerBasePath();
 			await writeState({
+				activeHealthToken: state.activeHealthToken,
 				activeRelease: state.activeRelease,
+				pendingHealthToken: state.readyHealthToken,
 				pendingRelease: releaseId,
 				pendingStartedAt: Date.now(),
 				previousPath,
@@ -283,6 +301,7 @@ const createStore = (): AbsoluteMobileUpdateStore => {
 				await watchdog.confirm({ releaseId }).catch(() => undefined);
 				await removeRelease(releaseId);
 				await writeState({
+					activeHealthToken: state.activeHealthToken,
 					activeRelease: state.activeRelease,
 					quarantinedReleases: state.quarantinedReleases
 				});
@@ -355,6 +374,7 @@ const createStore = (): AbsoluteMobileUpdateStore => {
 				);
 			const state = await readState();
 			await writeState({
+				activeHealthToken: state.activeHealthToken,
 				activeRelease: state.activeRelease,
 				quarantinedReleases: state.quarantinedReleases,
 				readyRelease: manifest.releaseId
@@ -472,33 +492,68 @@ const removePriorRelease = async (prior?: string, active?: string) => {
 	if (prior && prior !== active) await removeRelease(prior);
 };
 
+type UpdateHealthReporter = (
+	evidence: AbsoluteMobileUpdateHealthEvidence
+) => Promise<void>;
+
 const reconcilePendingRelease = async (
 	store: AbsoluteMobileUpdateStore,
-	state: UpdateState
+	state: UpdateState,
+	report: UpdateHealthReporter
 ) => {
 	if (!state.pendingRelease) return state;
 	const pendingPath = await releaseNativePath(state.pendingRelease);
 	const currentPath = await currentServerBasePath();
 	if (currentPath !== pendingPath) {
 		const failed = state.pendingRelease;
+		if (state.pendingHealthToken)
+			void report({
+				healthToken: state.pendingHealthToken,
+				kind: 'rolled-back',
+				releaseId: failed
+			});
 		await store.abort(failed);
 		emitUpdateResult({ kind: 'rolled-back', releaseId: failed });
 
 		return readState();
 	}
 	webView().persistServerBasePath();
-	const next: UpdateState = { activeRelease: state.pendingRelease };
+	const next: UpdateState = {
+		activeHealthToken: state.pendingHealthToken,
+		activeRelease: state.pendingRelease
+	};
 	await writeState(next);
 	await watchdog.confirm({ releaseId: state.pendingRelease });
+	if (state.pendingHealthToken)
+		void report({
+			healthToken: state.pendingHealthToken,
+			kind: 'activated',
+			releaseId: state.pendingRelease
+		});
 	await removePriorRelease(state.activeRelease, next.activeRelease);
 	emitUpdateResult({ kind: 'activated', releaseId: next.activeRelease });
 
 	return next;
 };
 
-const consumeNativeRecovery = async (state: UpdateState) => {
+const consumeNativeRecovery = async (
+	state: UpdateState,
+	report: UpdateHealthReporter
+) => {
 	if (!state.recovery) return state;
-	const { recovery, ...next } = state;
+	const {
+		pendingHealthToken,
+		readyHealthToken: _readyHealthToken,
+		recovery,
+		...next
+	} = state;
+	if (pendingHealthToken)
+		void report({
+			healthToken: pendingHealthToken,
+			kind: 'rolled-back',
+			reason: recovery.reason,
+			releaseId: recovery.releaseId
+		});
 	emitUpdateResult({
 		durationMs: Math.round(recovery.durationMs),
 		kind: 'rolled-back',
@@ -513,29 +568,62 @@ const consumeNativeRecovery = async (state: UpdateState) => {
 export const installAbsoluteMobileShellUpdates = async (
 	manifest: AbsoluteMobileClientManifest
 ) => {
-	if (!manifest.updates) return;
+	const { updates } = manifest;
+	if (!updates) return;
 	const store = createStore();
-	const recovered = await consumeNativeRecovery(await readState());
-	const state = await reconcilePendingRelease(store, recovered);
-	const client = createAbsoluteMobileUpdateClient({
-		config: {
+	const identity = await installationId();
+	const clientConfig = (state: UpdateState) =>
+		({
 			appId: manifest.appId,
 			blockedReleaseIds: state.quarantinedReleases ?? [],
-			channel: manifest.updates.channel,
+			channel: updates.channel,
 			currentReleaseId:
 				state.activeRelease ?? `embedded:${manifest.appBuild}`,
-			installationId: await installationId(),
-			manifestUrl: manifest.updates.manifestUrl,
+			installationId: identity,
+			manifestUrl: updates.manifestUrl,
 			runtimeFingerprint: manifest.nativeRuntime
-		},
+		}) satisfies AbsoluteMobileUpdateClientConfig;
+	const reportFor =
+		(state: UpdateState) =>
+		async (evidence: AbsoluteMobileUpdateHealthEvidence) => {
+			await reportAbsoluteMobileUpdateHealth(
+				clientConfig(state),
+				evidence
+			).catch(() => undefined);
+		};
+	const initial = await readState();
+	const recovered = await consumeNativeRecovery(initial, reportFor(initial));
+	const state = await reconcilePendingRelease(
 		store,
-		verifier: createVerifier(manifest.updates.publicKeys),
+		recovered,
+		reportFor(recovered)
+	);
+	const client = createAbsoluteMobileUpdateClient({
+		config: clientConfig(state),
+		store,
+		verifier: createVerifier(updates.publicKeys),
 		onProgress: (progress) => emitUpdateResult(progress)
 	});
 	const activateDownloaded = async (
 		result: Awaited<ReturnType<typeof client.download>>
 	) => {
 		if (result.kind !== 'downloaded') return;
+		if (result.healthToken) {
+			const ready = await readState();
+			if (ready.readyRelease === result.manifest.releaseId)
+				await writeState({
+					...ready,
+					readyHealthToken: result.healthToken
+				});
+			void client
+				.report({
+					healthToken: result.healthToken,
+					kind: 'downloaded',
+					releaseId: result.manifest.releaseId,
+					transfer: result.transfer
+				})
+				.catch(() => undefined);
+		}
 		emitUpdateResult({
 			avoidedBytes: result.transfer.avoidedBytes,
 			completedFiles: result.transfer.completedFiles,
@@ -558,6 +646,14 @@ export const installAbsoluteMobileShellUpdates = async (
 		.download()
 		.then((result) => {
 			if (result.kind === 'quarantined') {
+				if (result.healthToken)
+					void client
+						.report({
+							healthToken: result.healthToken,
+							kind: 'quarantined',
+							releaseId: result.releaseId
+						})
+						.catch(() => undefined);
 				emitUpdateResult({
 					kind: 'quarantined',
 					releaseId: result.releaseId

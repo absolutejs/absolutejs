@@ -58,6 +58,11 @@ describe('trusted mobile update server', () => {
 			storage: 'local'
 		});
 		const durable = renderAbsoluteMobileUpdateRegistry({
+			health: {
+				failureRate: 0.1,
+				minimumReports: 50,
+				secretEnv: 'UPDATE_HEALTH_SECRET'
+			},
 			publicKeys: { main: 'public-only' },
 			storage: 's3'
 		});
@@ -66,6 +71,9 @@ describe('trusted mobile update server', () => {
 		expect(local).toContain('@absolutejs/blob/local');
 		expect(durable).toContain("storage: 'durable'");
 		expect(durable).toContain('ABSOLUTE_MOBILE_UPDATE_S3_BUCKET');
+		expect(durable).toContain("required('UPDATE_HEALTH_SECRET')");
+		expect(durable).toContain('failureRate: 0.1');
+		expect(durable).toContain('minimumReports: 50');
 		expect(durable).toContain('verifyAbsoluteMobileUpdateServer');
 		expect(durable).toContain('PutObjectCommand');
 		expect(durable).toContain('GetObjectCommand');
@@ -114,12 +122,20 @@ describe('trusted mobile update server', () => {
 	test('writes safely and refuses accidental replacement', async () => {
 		const projectRoot = await temporaryRoot();
 		const path = await writeAbsoluteMobileUpdateRegistry({
+			health: {
+				failureRate: 0.2,
+				minimumReports: 20,
+				secretEnv: 'ABSOLUTE_MOBILE_UPDATE_HEALTH_SECRET'
+			},
 			projectRoot,
 			publicKeys: { main: 'public-only' },
 			storage: 'local'
 		});
 		expect(await readFile(path, 'utf8')).toContain(
 			'.absolutejs/mobile/update-registry'
+		);
+		expect(await readFile(path, 'utf8')).toContain(
+			'absolutejs-local-health-secret-not-for-production'
 		);
 		await expect(
 			writeAbsoluteMobileUpdateRegistry({

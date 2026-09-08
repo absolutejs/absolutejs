@@ -161,7 +161,36 @@ describe('mobile config normalization', () => {
 		expect(config.updateServer).toEqual({
 			autoMount: true,
 			expoCodeSigningKeys: {},
+			health: {
+				failureRate: 0.2,
+				minimumReports: 20,
+				secretEnv: 'ABSOLUTE_MOBILE_UPDATE_HEALTH_SECRET'
+			},
 			registryModule: 'mobile.update.ts'
+		});
+		expect(
+			normalizeAbsoluteMobileConfig(
+				{
+					appId: 'com.example.product',
+					appName: 'Product',
+					server: { productionOrigin: 'https://api.example.com' },
+					updates: {
+						publicKeys: { 'production-2026': encoded },
+						server: {
+							health: {
+								failureRate: 0.1,
+								minimumReports: 50,
+								secretEnv: 'UPDATE_HEALTH_SECRET'
+							}
+						}
+					}
+				},
+				'/workspace'
+			).updateServer?.health
+		).toEqual({
+			failureRate: 0.1,
+			minimumReports: 50,
+			secretEnv: 'UPDATE_HEALTH_SECRET'
 		});
 		expect(() =>
 			normalizeAbsoluteMobileConfig(

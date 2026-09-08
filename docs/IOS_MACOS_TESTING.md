@@ -1,8 +1,8 @@
 # AbsoluteJS iOS and TestFlight macOS test runbook
 
 This runbook validates the iOS release path shipped in
-`@absolutejs/absolute@0.20.0-beta.85` and
-`@absolutejs/deploy@0.25.9`. It covers a signed local IPA, an internal
+`@absolutejs/absolute@0.20.0-beta.86` and
+`@absolutejs/deploy@0.25.11`. It covers a signed local IPA, an internal
 TestFlight upload, retry behavior, and installation on an iPhone or iPad.
 
 Use a staging App Store Connect application if possible. Uploading a build
@@ -360,12 +360,12 @@ still requires the developer team setup described below.
 From the root of the AbsoluteJS application:
 
 ```sh
-bun add @absolutejs/absolute@0.20.0-beta.85 \
+bun add @absolutejs/absolute@0.20.0-beta.86 \
   @absolutejs/auth@0.76.3 \
   @absolutejs/dispatch@0.9.0 \
   @absolutejs/sync@2.31.0 \
   @absolutejs/sync-capacitor@0.9.2 \
-  @absolutejs/deploy@0.25.9 \
+  @absolutejs/deploy@0.25.11 \
   @absolutejs/blob@0.5.2 \
   @capacitor/core@8.5.0 \
   @capacitor/app@8.1.1 \
@@ -2506,7 +2506,7 @@ source change and build a new content-addressed release instead.
 - Mac architecture:
 - Xcode version:
 - Bun version:
-- AbsoluteJS version: 0.20.0-beta.85
+- AbsoluteJS version: 0.20.0-beta.86
 - Auth version: 0.76.3
 - Dispatch version: 0.9.0
 - Sync version: 2.31.0
@@ -2521,7 +2521,7 @@ source change and build a new content-addressed release instead.
 - File Viewer version: 2.0.2
 - Filesystem version: 8.1.3
 - Geolocation version: 8.2.2
-- Deploy version: 0.25.9
+- Deploy version: 0.25.11
 - App bundle ID (non-secret):
 - Marketing version:
 - Allocated build number:
@@ -2733,6 +2733,9 @@ versus expected behavior. Do not report exact coordinates.
 | OTA-15 |  | differential transfer bytes/files: |  |
 | OTA-16 |  | interrupted bytes / resumed bytes / range status: |  |
 | OTA-17 |  | progress monotonic / final totals / sensitive exclusion: |  |
+| OTA-18 |  | status activation/download counts / pseudonymized storage: |  |
+| OTA-19 |  | automatic pause threshold / prior-release fallback: |  |
+| OTA-20 |  | fresh promotion generation / stale receipt rejection: |  |
 | EXPO-OTA-01 |  | generated locations / overwrite / mode: |  |
 | EXPO-OTA-02 |  | generated certificate metadata: |  |
 | EXPO-OTA-03 |  | doctor pass / tamper rejection: |  |
@@ -2880,6 +2883,9 @@ Complete this checklist and include the IDs verbatim in the report:
 - [ ] `OTA-15` From the application repository root, publish and activate one healthy update, then change only one small page asset and publish the next update. Capture the downloaded `absolute:mobile-update` event and confirm `downloadedFiles` is smaller than `totalFiles`, `reusedFiles` is greater than zero, and `downloadedBytes + reusedBytes` equals `totalBytes`. Run `bunx absolute mobile update storage` and include its `Shared content` line in the report.
 - [ ] `OTA-16` Publish a healthy update containing one asset large enough to observe in the network inspector. Start the download, disable the Mac/device network after some bytes arrive, and fully terminate the app. Restore the network and reopen it. Confirm the asset request returns `206`, its `Range` begins above zero, the final event has `resumedBytes` greater than zero, and the update activates with the expected signed content. If the interruption occurred before any response bytes were checkpointed, repeat once and record both attempts.
 - [ ] `OTA-17` During `OTA-16`, capture only the sanitized `absolute:mobile-update` event details. Confirm `download-progress` values never decrease; the final `completedFiles` equals `totalFiles`; `avoidedBytes` equals `resumedBytes + reusedBytes`; `durationMs` and `throughputBytesPerSecond` are finite non-negative numbers; and no URL, filesystem path, manifest, key, Auth/Sync value, cookie, token, or page data appears.
+- [ ] `OTA-18` Re-provision the disposable registry with `absolute mobile update provision --storage local --force --yes`, activate one healthy release, and run `bunx absolute mobile update status`. Confirm one activation/download is counted, the app UI/event stream never exposes the health capability, and the registry contains no raw installation UUID, Auth/Sync value, route, page data, cookie, or bearer token.
+- [ ] `OTA-19` In this disposable local registry only, set `mobile.updates.server.health` to `{ minimumReports: 2, failureRate: 0.5 }`, re-provision, then produce one healthy activation and one watchdog rollback on separate clean Simulator installations. Run `bunx absolute mobile update status`; confirm it reports `PAUSED`, two terminal reports, one failure, and 50.0%, then launch a third clean installation and confirm it receives the prior healthy release rather than the paused release.
+- [ ] `OTA-20` Promote the corrected release again and confirm `mobile update status` shows a fresh unpaused promotion generation. Replay the prior generation's captured health request only in this disposable test and confirm HTTP 403; the new generation's counts and pause state must not change. Do not include the capability value in the returned report.
 
 For every row record: pass/fail, device model, iOS version, app build/version,
 embedded runtime fingerprint, previous and selected `amu_…` IDs, classification,

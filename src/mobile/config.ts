@@ -40,6 +40,11 @@ export type NormalizedAbsoluteMobileConfig = {
 	};
 	updateServer?: {
 		autoMount: boolean;
+		health?: {
+			failureRate: number;
+			minimumReports: number;
+			secretEnv: string;
+		};
 		expoCodeSigningKeys: Record<
 			string,
 			{
@@ -59,6 +64,8 @@ const UPDATE_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/u;
 const UPDATE_PUBLIC_KEY_PATTERN = /^[A-Za-z0-9+/]+={0,2}$/u;
 const ENVIRONMENT_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/u;
 const DEFAULT_UPDATE_BOOT_TIMEOUT_MS = 20_000;
+const DEFAULT_UPDATE_HEALTH_FAILURE_RATE = 0.2;
+const DEFAULT_UPDATE_HEALTH_MINIMUM_REPORTS = 20;
 const MINIMUM_UPDATE_BOOT_TIMEOUT_MS = 5_000;
 const MAXIMUM_UPDATE_BOOT_TIMEOUT_MS = 120_000;
 const HOSTNAME_PATTERN =
@@ -483,6 +490,39 @@ const normalizeUpdateServer = (
 			'mobile.updates.server.expoPrivateKeyEnv must be a valid environment variable name.'
 		);
 	const autoMount = config.updates.server?.autoMount ?? true;
+	const configuredHealth = config.updates.server?.health;
+	let health: NonNullable<
+		NormalizedAbsoluteMobileConfig['updateServer']
+	>['health'];
+	if (configuredHealth !== false) {
+		const failureRate =
+			configuredHealth?.failureRate ?? DEFAULT_UPDATE_HEALTH_FAILURE_RATE;
+		const minimumReports =
+			configuredHealth?.minimumReports ??
+			DEFAULT_UPDATE_HEALTH_MINIMUM_REPORTS;
+		const secretEnv = requireText(
+			configuredHealth?.secretEnv ??
+				'ABSOLUTE_MOBILE_UPDATE_HEALTH_SECRET',
+			'mobile.updates.server.health.secretEnv'
+		);
+		if (
+			!Number.isFinite(failureRate) ||
+			failureRate <= 0 ||
+			failureRate > 1
+		)
+			throw new TypeError(
+				'mobile.updates.server.health.failureRate must be greater than 0 and at most 1.'
+			);
+		if (!Number.isSafeInteger(minimumReports) || minimumReports < 1)
+			throw new TypeError(
+				'mobile.updates.server.health.minimumReports must be a positive integer.'
+			);
+		if (!ENVIRONMENT_NAME_PATTERN.test(secretEnv))
+			throw new TypeError(
+				'mobile.updates.server.health.secretEnv must be a valid environment variable name.'
+			);
+		health = { failureRate, minimumReports, secretEnv };
+	}
 	if (autoMount) {
 		const manifest = new URL(updates.manifestUrl);
 		if (manifest.origin !== productionOrigin)
@@ -555,7 +595,12 @@ const normalizeUpdateServer = (
 		expoCodeSigningKeys[keyId] = { certificatePem, privateKeyEnv };
 	}
 
-	return { autoMount, expoCodeSigningKeys, registryModule };
+	return {
+		autoMount,
+		expoCodeSigningKeys,
+		...(health ? { health } : {}),
+		registryModule
+	};
 };
 
 const validateExpoNativeRouteSegment = (
