@@ -93,6 +93,7 @@ import {
 import { start } from './start';
 import { DEFAULT_SERVER_ENTRY } from '../utils';
 import { getDurationString } from '../../utils/getDurationString';
+import { formatBytes } from '../../utils/formatBytes';
 import {
 	listAbsoluteRemoteMacProfiles,
 	buildAbsoluteRemoteIosRelease,
@@ -122,8 +123,10 @@ import { finalizeAbsoluteExpoUpdateExport } from '../../mobile/expoUpdate';
 import { generateAbsoluteExpoCodeSigning } from '../../mobile/expoCodeSigning';
 import { resolveAbsoluteMobileUpdateRuntime } from '../../mobile/updateRuntime';
 import {
+	inspectAbsoluteMobileUpdateStorage,
 	loadAbsoluteMobileUpdatePublisher,
 	promoteAbsoluteMobileUpdate,
+	pruneAbsoluteMobileUpdates,
 	publishAbsoluteMobileUpdate,
 	rollbackAbsoluteMobileUpdate
 } from '../../mobile/updatePublisher';
@@ -1295,7 +1298,7 @@ const provisionMobileUpdate = async (args: string[]) => {
 	const modulePath =
 		valueAfter(args, '--registry') ?? mobile.updateServer.registryModule;
 	const packages = [
-		'@absolutejs/deploy@0.25.6',
+		'@absolutejs/deploy@0.25.7',
 		'@absolutejs/blob@0.5.2',
 		...(requestedStorage === 's3'
 			? [
@@ -1421,6 +1424,129 @@ const rollbackMobileUpdate = async (args: string[]) => {
 			? `Rolled ${result.channel} back to ${result.releaseId}.`
 			: `Rolled ${result.channel} back to the embedded store build.`
 	);
+
+	return result;
+};
+
+const mobileUpdateDays = (args: string[], flag: string) => {
+	const value = valueAfter(args, flag);
+	if (value === undefined) return undefined;
+	const parsed = Number(value);
+	const milliseconds = parsed * 24 * 60 * 60 * 1000;
+	if (
+		!Number.isFinite(parsed) ||
+		parsed < 0 ||
+		!Number.isSafeInteger(milliseconds)
+	)
+		throw new TypeError(`${flag} must be a non-negative number of days.`);
+
+	return milliseconds;
+};
+
+const mobileUpdateRetention = (args: string[]) => {
+	const retainedValue = valueAfter(args, '--retain');
+	const retainRecent =
+		retainedValue === undefined ? undefined : Number(retainedValue);
+	if (
+		retainRecent !== undefined &&
+		(!Number.isSafeInteger(retainRecent) || retainRecent < 0)
+	)
+		throw new TypeError('--retain must be a non-negative integer.');
+
+	return {
+		minAgeMs: mobileUpdateDays(args, '--min-age-days'),
+		retainRecent
+	};
+};
+
+const printMobileUpdateStorage = (
+	report: Awaited<ReturnType<typeof inspectAbsoluteMobileUpdateStorage>>
+) => {
+	console.log(
+		`${report.appId}: ${report.releaseCount} releases use ${formatBytes(report.releaseBytes)}; ${formatBytes(report.reclaimableBytes)} is eligible across ${report.totalObjectCount} stored objects.`
+	);
+	for (const release of report.releases) {
+		let state = 'eligible';
+		if (release.protectedBy.length > 0)
+			state = `kept: ${release.protectedBy.join(', ')}`;
+		else if (release.markedAt) state = `marked ${release.markedAt}`;
+		console.log(
+			`  ${release.releaseId} ${release.channel} ${formatBytes(release.bytes)} (${state})`
+		);
+	}
+	if (report.untrackedBytes > 0)
+		console.log(
+			`${formatBytes(report.untrackedBytes)} is used by channels, collection markers, or incomplete/unrecognized objects and will not be swept as a release.`
+		);
+};
+
+const inspectMobileUpdateStorage = async (args: string[]) => {
+	const startedAt = performance.now();
+	const { mobile } = await loadMobile(valueAfter(args, '--config'));
+	if (!mobile.updates)
+		throw new TypeError(
+			'mobile update storage requires mobile.updates config.'
+		);
+	const policy = mobileUpdateRetention(args);
+	const { publisher } = await mobileUpdatePublisher(args);
+	const report = await inspectAbsoluteMobileUpdateStorage({
+		appId: mobile.appId,
+		publisher,
+		...(policy.minAgeMs === undefined ? {} : { minAgeMs: policy.minAgeMs }),
+		...(policy.retainRecent === undefined
+			? {}
+			: { retainRecent: policy.retainRecent })
+	});
+	if (args.includes('--json')) console.log(JSON.stringify(report, null, 2));
+	else printMobileUpdateStorage(report);
+	sendTelemetryEvent('mobile:update-storage', {
+		durationMs: Math.round(performance.now() - startedAt),
+		reclaimableReleaseCount: report.releases.filter(
+			(release) => release.protectedBy.length === 0
+		).length,
+		releaseCount: report.releaseCount
+	});
+
+	return report;
+};
+
+const collectMobileUpdates = async (args: string[]) => {
+	const startedAt = performance.now();
+	const { mobile } = await loadMobile(valueAfter(args, '--config'));
+	if (!mobile.updates)
+		throw new TypeError('mobile update gc requires mobile.updates config.');
+	const policy = mobileUpdateRetention(args);
+	const gracePeriodMs = mobileUpdateDays(args, '--grace-days');
+	const { publisher } = await mobileUpdatePublisher(args);
+	const result = await pruneAbsoluteMobileUpdates({
+		appId: mobile.appId,
+		apply: args.includes('--apply'),
+		publisher,
+		...(gracePeriodMs === undefined ? {} : { gracePeriodMs }),
+		...(policy.minAgeMs === undefined ? {} : { minAgeMs: policy.minAgeMs }),
+		...(policy.retainRecent === undefined
+			? {}
+			: { retainRecent: policy.retainRecent })
+	});
+	if (args.includes('--json')) console.log(JSON.stringify(result, null, 2));
+	else {
+		printMobileUpdateStorage(result);
+		if (result.dryRun)
+			console.log(
+				'No storage was changed. Re-run with --apply to mark eligible releases and sweep releases whose grace period has elapsed.'
+			);
+		else
+			console.log(
+				`Collection applied: ${result.marked.length} marked, ${result.restored.length} restored, ${result.swept.length} swept, ${formatBytes(result.reclaimedBytes)} reclaimed.`
+			);
+	}
+	sendTelemetryEvent('mobile:update-gc', {
+		applied: !result.dryRun,
+		durationMs: Math.round(performance.now() - startedAt),
+		markedCount: result.marked.length,
+		restoredCount: result.restored.length,
+		sweptCount: result.swept.length
+	});
 
 	return result;
 };
@@ -3445,6 +3571,16 @@ export const runMobile = async (args: string[]) => {
 
 		return;
 	}
+	if (command === 'update' && args[1] === 'storage') {
+		await inspectMobileUpdateStorage(args.slice(2));
+
+		return;
+	}
+	if (command === 'update' && args[1] === 'gc') {
+		await collectMobileUpdates(args.slice(2));
+
+		return;
+	}
 	if (command === 'publish' && args[1] === 'android') {
 		await publishAndroid(args.slice(2));
 
@@ -3457,6 +3593,6 @@ export const runMobile = async (args: string[]) => {
 	}
 
 	throw new TypeError(
-		'Usage: absolute mobile <pair mac <name> <user@host> [--port n] [--workspace path] | remotes [inspect [name] [--json] | clean [name] --yes | --json] | unpair mac <name> | init [--no-native] [--force] | sync [ios|android] | inspect [--json] [--require-bundle] | associations [--outdir dir] [--verify] | ci github [server-entry] [--publish] [--registry module] [--secret-env NAME] [--output path] [--force] [--json] | doctor [ios|android|release [ios|android]] [--remote name] [--json|--fix [--yes]] | build <android|ios> [server-entry] [--remote name] [--outdir dir] [--web-outdir dir] [--unsigned] | update provision [--storage local|s3] [--registry module] [--force] [--yes] | update signing generate --private-key path [--certificate path] [--public-key path] [--key-id id] [--common-name name] [--validity-years n] | update build [server-entry] --classification bug-fix|content|security --key-id id --signing-key path --within-submitted-purpose [--outdir dir] [--web-outdir dir] | update publish <release-directory> [--rollout fraction] [--registry module] | update promote --release id --rollout fraction [--registry module] | update rollback [--release id] [--registry module] | publish android [server-entry] [--registry module] [--channel name] [--play-track track] [--play-status completed|draft|halted|in-progress] [--play-rollout fraction] [--play-name name] [--play-notes language=text] [--play-update-priority 0..5] [--play-hold-review] [--play-cancel-existing-review] [--outdir dir] [--web-outdir dir] [--unsigned] | publish ios [server-entry] [--remote name] [--registry module] [--channel name] [--testflight-group name-or-id] [--testflight-notes locale=text] [--testflight-submit-review] [--outdir dir] [--web-outdir dir] [--unsigned] | test android [--route path] [--wait-for-hmr] [--report [dir]] [--timeout ms] [--port n] [--serial id] [--artifacts dir] [--json] | test ios [--device identifier [--remote name] | --udid id] [--wait-for-hmr] [--report [dir]] [--timeout ms] [--port n] [--artifacts dir] [--json]> [--config path]'
+		'Usage: absolute mobile <pair mac <name> <user@host> [--port n] [--workspace path] | remotes [inspect [name] [--json] | clean [name] --yes | --json] | unpair mac <name> | init [--no-native] [--force] | sync [ios|android] | inspect [--json] [--require-bundle] | associations [--outdir dir] [--verify] | ci github [server-entry] [--publish] [--registry module] [--secret-env NAME] [--output path] [--force] [--json] | doctor [ios|android|release [ios|android]] [--remote name] [--json|--fix [--yes]] | build <android|ios> [server-entry] [--remote name] [--outdir dir] [--web-outdir dir] [--unsigned] | update provision [--storage local|s3] [--registry module] [--force] [--yes] | update signing generate --private-key path [--certificate path] [--public-key path] [--key-id id] [--common-name name] [--validity-years n] | update build [server-entry] --classification bug-fix|content|security --key-id id --signing-key path --within-submitted-purpose [--outdir dir] [--web-outdir dir] | update publish <release-directory> [--rollout fraction] [--registry module] | update promote --release id --rollout fraction [--registry module] | update rollback [--release id] [--registry module] | update storage [--retain count] [--min-age-days days] [--registry module] [--json] | update gc [--retain count] [--min-age-days days] [--grace-days days] [--apply] [--registry module] [--json] | publish android [server-entry] [--registry module] [--channel name] [--play-track track] [--play-status completed|draft|halted|in-progress] [--play-rollout fraction] [--play-name name] [--play-notes language=text] [--play-update-priority 0..5] [--play-hold-review] [--play-cancel-existing-review] [--outdir dir] [--web-outdir dir] [--unsigned] | publish ios [server-entry] [--remote name] [--registry module] [--channel name] [--testflight-group name-or-id] [--testflight-notes locale=text] [--testflight-submit-review] [--outdir dir] [--web-outdir dir] [--unsigned] | test android [--route path] [--wait-for-hmr] [--report [dir]] [--timeout ms] [--port n] [--serial id] [--artifacts dir] [--json] | test ios [--device identifier [--remote name] | --udid id] [--wait-for-hmr] [--report [dir]] [--timeout ms] [--port n] [--artifacts dir] [--json]> [--config path]'
 	);
 };

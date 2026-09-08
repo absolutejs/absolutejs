@@ -3,9 +3,12 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, test } from 'bun:test';
+import type { MobileUpdateStorageReport } from '@absolutejs/deploy/mobile-update';
 import { buildAbsoluteMobileUpdate } from '../../../src/mobile/updateSigning';
 import {
+	inspectAbsoluteMobileUpdateStorage,
 	promoteAbsoluteMobileUpdate,
+	pruneAbsoluteMobileUpdates,
 	publishAbsoluteMobileUpdate,
 	rollbackAbsoluteMobileUpdate,
 	type AbsoluteMobileUpdatePublisher
@@ -119,5 +122,73 @@ describe('mobile update publisher boundary', () => {
 				rollout: 0.5
 			})
 		).rejects.toThrow('different promotion identity');
+	});
+
+	test('validates storage accounting and collection reports', async () => {
+		const baseReport: MobileUpdateStorageReport = {
+			appId: 'com.example.absolute',
+			channelCount: 1,
+			reclaimableBytes: 10,
+			releaseBytes: 20,
+			releaseCount: 2,
+			releases: [],
+			totalBytes: 30,
+			totalObjectCount: 5,
+			untrackedBytes: 10
+		};
+		const publisher = {
+			inspectUpdateStorage: async () => baseReport,
+			promoteUpdate: async () => {
+				throw new Error('unused');
+			},
+			pruneUpdates: async () => ({
+				...baseReport,
+				dryRun: true,
+				marked: [],
+				reclaimedBytes: 0,
+				restored: [],
+				swept: []
+			}),
+			publishUpdate: async () => {
+				throw new Error('unused');
+			},
+			rollbackUpdate: async () => {
+				throw new Error('unused');
+			}
+		} satisfies AbsoluteMobileUpdatePublisher;
+
+		await expect(
+			inspectAbsoluteMobileUpdateStorage({
+				appId: baseReport.appId,
+				publisher
+			})
+		).resolves.toEqual(baseReport);
+		await expect(
+			pruneAbsoluteMobileUpdates({
+				appId: baseReport.appId,
+				publisher
+			})
+		).resolves.toMatchObject({ dryRun: true, reclaimedBytes: 0 });
+	});
+
+	test('explains how to upgrade a registry without lifecycle methods', async () => {
+		const publisher: AbsoluteMobileUpdatePublisher = {
+			promoteUpdate: async () => {
+				throw new Error('unused');
+			},
+			publishUpdate: async () => {
+				throw new Error('unused');
+			},
+			rollbackUpdate: async () => {
+				throw new Error('unused');
+			}
+		};
+
+		await expect(
+			inspectAbsoluteMobileUpdateStorage({
+				appId: 'com.example.absolute',
+				publisher
+			})
+		).rejects.toThrow('provision --force');
 	});
 });

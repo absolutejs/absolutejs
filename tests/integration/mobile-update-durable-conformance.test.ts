@@ -201,8 +201,8 @@ durableTest(
 					classification: 'bug-fix',
 					createdAt: new Date(
 						label === 'one'
-							? '2026-09-07T12:00:00.000Z'
-							: '2026-09-07T13:00:00.000Z'
+							? '2026-01-07T12:00:00.000Z'
+							: '2026-01-07T13:00:00.000Z'
 					),
 					keyId: 'main',
 					outputDirectory: join(projectRoot, `update-${label}`),
@@ -260,7 +260,7 @@ durableTest(
 				bundleDirectory: expoBundle,
 				channel: 'expo',
 				classification: 'bug-fix',
-				createdAt: new Date('2026-09-07T14:00:00.000Z'),
+				createdAt: new Date('2026-01-07T14:00:00.000Z'),
 				keyId: 'main',
 				outputDirectory: join(projectRoot, 'update-expo'),
 				privateKey: privateKey.export({
@@ -597,6 +597,82 @@ durableTest(
 				expect(
 					JSON.parse(expoResponseBody).extra.absolutejs.releaseId
 				).toBe(expoRelease.manifest.releaseId);
+
+				const storage =
+					await secondModule.registry.inspectUpdateStorage({
+						appId: first.manifest.appId,
+						minAgeMs: 0,
+						retainRecent: 0
+					});
+				expect(storage.releaseCount).toBe(3);
+				expect(storage.untrackedBytes).toBeGreaterThan(0);
+				expect(
+					storage.releases.find(
+						(release) =>
+							release.releaseId === first.manifest.releaseId
+					)?.protectedBy
+				).toContain('fallback');
+				expect(
+					storage.releases.find(
+						(release) =>
+							release.releaseId === expoRelease.manifest.releaseId
+					)?.protectedBy
+				).toContain('active');
+				const preview = await secondModule.registry.pruneUpdates({
+					appId: first.manifest.appId,
+					gracePeriodMs: 0,
+					minAgeMs: 0,
+					retainRecent: 0
+				});
+				expect(preview.dryRun).toBe(true);
+				expect(preview.marked).toEqual([]);
+				const marked = await secondModule.registry.pruneUpdates({
+					appId: first.manifest.appId,
+					apply: true,
+					gracePeriodMs: 0,
+					minAgeMs: 0,
+					retainRecent: 0
+				});
+				expect(marked.marked).toEqual([second.manifest.releaseId]);
+				expect(marked.swept).toEqual([]);
+				await expect(
+					secondModule.registry.promoteUpdate({
+						appId: second.manifest.appId,
+						channel: second.manifest.channel,
+						releaseId: second.manifest.releaseId,
+						rollout: 1
+					})
+				).rejects.toThrow('marked for collection');
+				const swept = await firstModule.registry.pruneUpdates({
+					appId: first.manifest.appId,
+					apply: true,
+					gracePeriodMs: 0,
+					minAgeMs: 0,
+					retainRecent: 0
+				});
+				expect(swept.swept).toEqual([second.manifest.releaseId]);
+				expect(swept.reclaimedBytes).toBeGreaterThan(0);
+				expect(
+					await secondModule.registry.readUpdateFile({
+						appId: second.manifest.appId,
+						path: 'app.js',
+						releaseId: second.manifest.releaseId
+					})
+				).toBeNull();
+				expect(
+					await secondModule.registry.readUpdateFile({
+						appId: first.manifest.appId,
+						path: 'app.js',
+						releaseId: first.manifest.releaseId
+					})
+				).not.toBeNull();
+				const partialObjects = await s3Client.send(
+					new ListObjectsV2Command({
+						Bucket: bucket,
+						Prefix: `absolutejs/mobile-updates/${appHash}/releases/${partialReleaseId}/`
+					})
+				);
+				expect(partialObjects.KeyCount).toBe(1);
 
 				const healthObjects = await s3Client.send(
 					new ListObjectsV2Command({

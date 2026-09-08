@@ -1,6 +1,12 @@
 import { access } from 'node:fs/promises';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import type {
+	MobileUpdatePruneOptions,
+	MobileUpdatePruneResult,
+	MobileUpdateRetentionOptions,
+	MobileUpdateStorageReport
+} from '@absolutejs/deploy/mobile-update';
 import { readAbsoluteMobileUpdate } from './updateSigning';
 
 export type AbsoluteMobileUpdatePublication = {
@@ -28,6 +34,12 @@ export type AbsoluteMobileUpdateRollback = {
 };
 
 export type AbsoluteMobileUpdatePublisher = {
+	inspectUpdateStorage?: (
+		options: MobileUpdateRetentionOptions
+	) => Promise<MobileUpdateStorageReport>;
+	pruneUpdates?: (
+		options: MobileUpdatePruneOptions
+	) => Promise<MobileUpdatePruneResult>;
 	publishUpdate(options: {
 		manifest: Awaited<ReturnType<typeof readAbsoluteMobileUpdate>>;
 		releaseDirectory: string;
@@ -47,6 +59,110 @@ export type AbsoluteMobileUpdatePublisher = {
 		releaseId?: string;
 		signal?: AbortSignal;
 	}): Promise<AbsoluteMobileUpdateRollback>;
+};
+
+const lifecycleMethod = <Name extends 'inspectUpdateStorage' | 'pruneUpdates'>(
+	publisher: AbsoluteMobileUpdatePublisher,
+	name: Name
+) => {
+	const method = publisher[name];
+	if (typeof method !== 'function')
+		throw new TypeError(
+			`Mobile update registry does not support ${name}. Re-run \`absolute mobile update provision --force\` after upgrading @absolutejs/deploy.`
+		);
+
+	return method;
+};
+
+const validateStorageIdentity = (
+	result: MobileUpdateStorageReport,
+	appId: string
+) => {
+	if (
+		!object(result) ||
+		result.appId !== appId ||
+		!Array.isArray(result.releases) ||
+		![
+			result.channelCount,
+			result.reclaimableBytes,
+			result.releaseBytes,
+			result.releaseCount,
+			result.totalBytes,
+			result.totalObjectCount,
+			result.untrackedBytes
+		].every((value) => Number.isSafeInteger(value) && value >= 0)
+	)
+		throw new TypeError(
+			'Mobile update registry returned an invalid storage report.'
+		);
+
+	return result;
+};
+
+export const inspectAbsoluteMobileUpdateStorage = async (options: {
+	appId: string;
+	minAgeMs?: number;
+	publisher: AbsoluteMobileUpdatePublisher;
+	retainRecent?: number;
+	signal?: AbortSignal;
+}) =>
+	validateStorageIdentity(
+		await lifecycleMethod(
+			options.publisher,
+			'inspectUpdateStorage'
+		)({
+			appId: options.appId,
+			...(options.minAgeMs === undefined
+				? {}
+				: { minAgeMs: options.minAgeMs }),
+			...(options.retainRecent === undefined
+				? {}
+				: { retainRecent: options.retainRecent }),
+			...(options.signal ? { signal: options.signal } : {})
+		}),
+		options.appId
+	);
+
+export const pruneAbsoluteMobileUpdates = async (options: {
+	appId: string;
+	apply?: boolean;
+	gracePeriodMs?: number;
+	minAgeMs?: number;
+	publisher: AbsoluteMobileUpdatePublisher;
+	retainRecent?: number;
+	signal?: AbortSignal;
+}) => {
+	const result = await lifecycleMethod(
+		options.publisher,
+		'pruneUpdates'
+	)({
+		appId: options.appId,
+		...(options.apply === undefined ? {} : { apply: options.apply }),
+		...(options.gracePeriodMs === undefined
+			? {}
+			: { gracePeriodMs: options.gracePeriodMs }),
+		...(options.minAgeMs === undefined
+			? {}
+			: { minAgeMs: options.minAgeMs }),
+		...(options.retainRecent === undefined
+			? {}
+			: { retainRecent: options.retainRecent }),
+		...(options.signal ? { signal: options.signal } : {})
+	});
+	validateStorageIdentity(result, options.appId);
+	if (
+		!Array.isArray(result.marked) ||
+		!Array.isArray(result.restored) ||
+		!Array.isArray(result.swept) ||
+		typeof result.dryRun !== 'boolean' ||
+		!Number.isSafeInteger(result.reclaimedBytes) ||
+		result.reclaimedBytes < 0
+	)
+		throw new TypeError(
+			'Mobile update registry returned an invalid collection report.'
+		);
+
+	return result;
 };
 
 const object = (value: unknown): value is Record<string, unknown> =>

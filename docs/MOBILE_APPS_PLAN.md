@@ -2,6 +2,17 @@
 
 Status: Capacitor Android development/release, all-framework embedded bundles, universal native Auth/Sync, Expo hybrid native Auth/Sync, background Sync, automatic device provisioning, provider-neutral native push registration, signed staged Capacitor updates, end-to-end RSA-signed self-hosted Expo production updates, and Android conformance are operational; iOS development/release automation is shipped and awaiting real macOS/physical-device acceptance
 
+Implementation checkpoint (September 7, 2026, update lifecycle management):
+`@absolutejs/deploy@0.25.7` and the AbsoluteJS CLI now expose provider-neutral
+storage accounting and two-phase garbage collection. The default policy keeps
+five recent releases per channel, requires a 30-day minimum age, preserves every
+active and fallback reference, and marks candidates for seven days before a
+later sweep. Dry-run is the CLI default, policy changes restore newly protected
+marks, promotion rejects marked releases, and every sweep reloads channel state
+before deleting files followed by the immutable manifest. Incomplete and
+unrecognized objects remain visible in accounting but are never deleted
+automatically.
+
 Implementation checkpoint (September 7, 2026, durable update-serving
 conformance): production update registries now require an active durability
 verifier instead of trusting declarative metadata. The generated S3-compatible

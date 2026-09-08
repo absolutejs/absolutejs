@@ -249,6 +249,53 @@ bunx absolute mobile update rollback \
 bunx absolute mobile update rollback
 ```
 
+## Storage accounting and retention
+
+Inspect one application's update storage without changing it:
+
+```bash
+bunx absolute mobile update storage
+bunx absolute mobile update storage --json
+```
+
+The report separates complete signed releases from channel documents,
+collection markers, incomplete uploads, and unrecognized objects. It reports
+the stored and reclaimable byte counts and explains why each release is
+retained. By default, the five newest releases per channel and every release
+younger than 30 days are kept. Active releases and channel fallbacks are always
+protected regardless of those settings.
+
+Preview garbage collection with the same read-only defaults:
+
+```bash
+bunx absolute mobile update gc
+bunx absolute mobile update gc --retain 10 --min-age-days 60
+```
+
+Applying the plan is deliberately two-phase:
+
+```bash
+# First application marks eligible releases. It deletes no release bytes.
+bunx absolute mobile update gc --apply
+
+# A later application sweeps marks older than the default seven-day grace period.
+bunx absolute mobile update gc --apply
+```
+
+Use `--grace-days` to change the recovery window. A later policy that protects a
+marked release automatically removes its marker. Promotion and rollback reject
+a marked release until it is restored. Immediately before sweeping, AbsoluteJS
+reloads every channel and rechecks active, fallback, age, and recent-release
+protection. Release files are removed first and the immutable manifest last;
+the collection marker remains if any deletion fails, making the next run
+retryable. Incomplete or unrecognized objects are accounted for but never
+deleted automatically.
+
+`--apply` is the only flag that mutates storage. `--json` makes either command
+suitable for scheduled jobs, budgets, and deployment-platform dashboards.
+Serialize lifecycle jobs for the same application so two operators cannot apply
+conflicting retention policies at the same time.
+
 ## Deployment registry
 
 `mobile.update.ts` is intentionally separate from `mobile.release.ts`: the first
