@@ -2,6 +2,29 @@
 
 Status: Capacitor Android development/release, all-framework embedded bundles, universal native Auth/Sync, Expo hybrid native Auth/Sync, background Sync, automatic device provisioning, provider-neutral native push registration, signed staged Capacitor updates, end-to-end RSA-signed self-hosted Expo production updates, and Android conformance are operational; iOS development/release automation is shipped and awaiting real macOS/physical-device acceptance
 
+Implementation checkpoint (September 8, 2026, installed Android staged-update
+conformance): a real Capacitor app now exercises the production
+`@absolutejs/deploy` registry through two independently timed phases. The first
+proves complete signed-bundle activation, boot-timeout rollback,
+quarantine/no-redownload, correction, process-death recovery, local-storage
+continuity, native Auth, and Sync's durable outbox. The second proves stable
+50% inclusion/exclusion, manual and automatic 50% -> 100% advancement,
+concurrent advancement idempotency, pause/resume/cancel fallback, fleet-health
+auto-pause, and terminal-report deduplication after restart. The sanitized proof
+is `.absolutejs/mobile-native-conformance/embedded-artifacts/android-update-conformance.json`;
+run both phases with `bun run test:native:android:updates`.
+
+That real gate found and fixed four production boundaries: fresh/resumed
+Capacitor filesystem transactions now create their directory trees safely;
+native watchdog recovery derives the prior active path from durable release
+state after process death; OAuth callback identities are hashed and committed
+to native secure storage only after Auth establishes a principal, preventing a
+stale Android launch URL from redeeming a one-use code again; and native OTA
+downloads cache the reusable release identity, skip impossible fresh partial
+probes, and use six workers on normal Wi-Fi/4G while retaining data-saver and
+slow-network limits. Application routes and native project code remain
+unchanged.
+
 Implementation checkpoint (September 8, 2026, health-gated rollout
 orchestration): `@absolutejs/deploy@0.25.13` freezes an ordered rollout plan into
 each promotion generation and advances through immutable stage markers, keeping

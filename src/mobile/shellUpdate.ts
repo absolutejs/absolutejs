@@ -249,17 +249,72 @@ const removeStaging = async (releaseId: string) => {
 	}).catch(() => undefined);
 };
 
+const isExistingDirectoryError = (error: unknown) =>
+	typeof error === 'object' &&
+	error !== null &&
+	Reflect.get(error, 'code') === 'OS-PLUG-FILE-0010';
+
+const ensureDirectory = async (path: string) => {
+	try {
+		await Filesystem.mkdir({
+			directory: Directory.Library,
+			path,
+			recursive: true
+		});
+	} catch (error) {
+		if (!isExistingDirectoryError(error)) throw error;
+	}
+};
+
+const parentDirectories = (manifest: AbsoluteMobileUpdateManifest) => {
+	const directories = manifest.files.flatMap((file) => {
+		const segments = file.path.split('/').slice(0, -1);
+
+		return segments.map((_, index) =>
+			segments.slice(0, index + 1).join('/')
+		);
+	});
+
+	return [...new Set(directories)];
+};
+
+const ensureDirectoryPairs = async (
+	directories: string[],
+	release: string,
+	partial: string,
+	index = 0
+): Promise<void> => {
+	const directory = directories[index];
+	if (!directory) return;
+	await ensureDirectory(`${release}/${directory}`);
+	await ensureDirectory(`${partial}/${directory}`);
+	await ensureDirectoryPairs(directories, release, partial, index + 1);
+};
+
+const ensureTransactionDirectories = async (
+	manifest: AbsoluteMobileUpdateManifest
+) => {
+	const release = releasePath(manifest.releaseId);
+	const partial = `${STAGING_ROOT}/${manifest.releaseId}`;
+	await ensureDirectory(release);
+	await ensureDirectory(partial);
+	await ensureDirectoryPairs(parentDirectories(manifest), release, partial);
+};
+
 const filesystemBytes = async (data: string | Blob) =>
 	typeof data === 'string'
 		? base64Bytes(data)
 		: new Uint8Array(await data.arrayBuffer());
 
 const createStore = (): AbsoluteMobileUpdateStore => {
+	let reusableRelease: string | undefined;
 	let staging: AbsoluteMobileUpdateManifest | undefined;
+	let resuming = false;
 
 	return {
 		abort: async (releaseId) => {
 			staging = undefined;
+			resuming = false;
 			await removeRelease(releaseId);
 			await removeStaging(releaseId);
 			const persisted = await readStaging();
@@ -342,6 +397,7 @@ const createStore = (): AbsoluteMobileUpdateStore => {
 			});
 		},
 		begin: async (manifest) => {
+			reusableRelease = (await readState()).activeRelease;
 			const persisted = await readStaging();
 			const resume =
 				persisted?.releaseId === manifest.releaseId &&
@@ -356,16 +412,13 @@ const createStore = (): AbsoluteMobileUpdateStore => {
 				await removeRelease(manifest.releaseId);
 				await removeStaging(manifest.releaseId);
 			}
-			await Filesystem.mkdir({
-				directory: Directory.Library,
-				path: releasePath(manifest.releaseId),
-				recursive: true
-			});
+			await ensureTransactionDirectories(manifest);
 			await Preferences.set({
 				key: STAGING_KEY,
 				value: JSON.stringify(manifest)
 			});
 			staging = manifest;
+			resuming = resume;
 		},
 		commit: async (manifest) => {
 			if (staging?.releaseId !== manifest.releaseId)
@@ -382,9 +435,10 @@ const createStore = (): AbsoluteMobileUpdateStore => {
 			await removeStaging(manifest.releaseId);
 			await Preferences.remove({ key: STAGING_KEY });
 			staging = undefined;
+			resuming = false;
 		},
 		readPartial: async (file) => {
-			if (!staging) return null;
+			if (!staging || !resuming) return null;
 			const result = await Filesystem.readFile({
 				directory: Directory.Library,
 				path: partialPath(staging.releaseId, file)
@@ -395,11 +449,10 @@ const createStore = (): AbsoluteMobileUpdateStore => {
 				: null;
 		},
 		readReusable: async (file) => {
-			const state = await readState();
-			if (!state.activeRelease) return null;
+			if (!reusableRelease) return null;
 			const result = await Filesystem.readFile({
 				directory: Directory.Library,
-				path: `${releasePath(state.activeRelease)}/${file.path}`
+				path: `${releasePath(reusableRelease)}/${file.path}`
 			}).catch(() => null);
 
 			return result
@@ -407,7 +460,7 @@ const createStore = (): AbsoluteMobileUpdateStore => {
 				: null;
 		},
 		readStaged: async (file) => {
-			if (!staging) return null;
+			if (!staging || !resuming) return null;
 			const result = await Filesystem.readFile({
 				directory: Directory.Library,
 				path: `${releasePath(staging.releaseId)}/${file.path}`
@@ -418,7 +471,10 @@ const createStore = (): AbsoluteMobileUpdateStore => {
 				: null;
 		},
 		suspend: async (releaseId) => {
-			if (staging?.releaseId === releaseId) staging = undefined;
+			if (staging?.releaseId === releaseId) {
+				staging = undefined;
+				resuming = false;
+			}
 		},
 		write: async (file: AbsoluteMobileUpdateFile, contents: Uint8Array) => {
 			if (
@@ -599,6 +655,7 @@ export const installAbsoluteMobileShellUpdates = async (
 		reportFor(recovered)
 	);
 	const client = createAbsoluteMobileUpdateClient({
+		concurrency: 6,
 		config: clientConfig(state),
 		store,
 		verifier: createVerifier(updates.publicKeys),

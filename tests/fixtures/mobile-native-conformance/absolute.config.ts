@@ -48,7 +48,7 @@ export default defineConfig({
 		...(updatePublicKey
 			? {
 					updates: {
-						bootTimeoutMs: 5_000,
+						bootTimeoutMs: 15_000,
 						channel: 'production',
 						manifestUrl:
 							process.env

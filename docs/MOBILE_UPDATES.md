@@ -550,12 +550,17 @@ bun run test:native:android:updates
 bun run test:native:ios:updates
 ```
 
-The test builds and signs its own isolated releases with an ephemeral key, serves
-them from the local trusted test backend, and drives a real Capacitor WebView. It
-checks valid activation, automatic timeout rollback, quarantine/no-redownload,
-replacement by a corrected release, and recovery from an ADB-forced process death.
-It also verifies that native Auth, Sync's durable outbox, and local storage remain
-intact. The test leaves a JSON result at
+The tests build and sign their own isolated releases, serve them from the local
+trusted test backend, and drive a real Capacitor WebView. Android uses a stable
+ignored test key so an unchanged native shell can reuse its installed APK. Its
+first independently timed phase checks valid activation, automatic timeout
+rollback, quarantine/no-redownload, replacement by a corrected release, recovery
+from a verified ADB-forced process death, native Auth, Sync's durable outbox, and
+local storage. Its second phase mounts the real `@absolutejs/deploy` registry and
+checks 50% included/excluded cohorts, manual and automatic advancement to 100%,
+concurrent advancement, pause/resume/cancel fallback, fleet-health auto-pause,
+and terminal-report deduplication after restart. The Android command ends with
+two passing tests. It leaves a JSON result at
 `.absolutejs/mobile-native-conformance/embedded-artifacts/android-update-conformance.json`;
 on failure the same directory receives sanitized diagnostics and a screenshot.
 

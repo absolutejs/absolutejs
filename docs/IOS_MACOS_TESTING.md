@@ -1,7 +1,7 @@
 # AbsoluteJS iOS and TestFlight macOS test runbook
 
 This runbook validates the iOS release path shipped in
-`@absolutejs/absolute@0.20.0-beta.87` and
+`@absolutejs/absolute@0.20.0-beta.88` and
 `@absolutejs/deploy@0.25.13`. It covers a signed local IPA, an internal
 TestFlight upload, retry behavior, and installation on an iPhone or iPad.
 
@@ -150,6 +150,45 @@ Return these Track A2 results:
 If the Mac cannot run an Android emulator, record
 `SKIPPED — Android virtualization unavailable` for Track A2. This does not block
 the iOS Track A result.
+
+### Track A3 — Capacitor Android staged-update gate from the same repository
+
+Run this track when the Mac has Android virtualization available. Stay in the
+AbsoluteJS framework repository root used by Track A—the directory containing
+this repository's `package.json`, `src`, and `tests`. Do not run it from a
+staging application or a generated `.absolutejs` directory:
+
+```sh
+cd /absolute/path/to/the/absolutejs-clone
+pwd
+test -f tests/native/android-embedded-bundle-conformance.test.ts && echo "AbsoluteJS root: OK"
+bun run src/cli/index.ts mobile doctor android
+bun run test:native:android:updates
+```
+
+If doctor reports a missing managed tool, run `bun run src/cli/index.ts mobile
+doctor android --fix`, rerun doctor, and then rerun the gate. The first native
+run may build and install the APK; unchanged later runs should report a native
+cache hit. The command runs two sequential tests against the same installed app:
+the complete signed-update lifecycle first, then staged cohorts and fleet
+controls. A successful result ends with `2 pass`, `0 fail`, and 28 assertions.
+
+Return this checklist verbatim:
+
+- [ ] `CAP-ANDROID-OTA-01` `AbsoluteJS root: OK` was printed.
+- [ ] `CAP-ANDROID-OTA-02` Every `mobile doctor android` check passed.
+- [ ] `CAP-ANDROID-OTA-03` The complete terminal output from `bun run test:native:android:updates` is attached.
+- [ ] `CAP-ANDROID-OTA-04` Phase 1 passed: activation, boot-timeout rollback, quarantine/no-redownload, correction, process-death recovery, Auth, Sync outbox, and local storage.
+- [ ] `CAP-ANDROID-OTA-05` Phase 2 passed: 50% included/excluded cohorts, manual/concurrent advancement, pause/resume/cancel fallback, fleet auto-pause, automatic advancement, and restart report dedupe.
+- [ ] `CAP-ANDROID-OTA-06` The command ended with `2 pass`, `0 fail`, and 28 assertions.
+- [ ] `CAP-ANDROID-OTA-07` `.absolutejs/mobile-native-conformance/embedded-artifacts/android-update-conformance.json` exists.
+- [ ] `CAP-ANDROID-OTA-08` Every value under `rollout` is `true`; under `state`, every value except `brokenReleaseRedownloaded` is `true`, and `brokenReleaseRedownloaded` is `false`.
+- [ ] `CAP-ANDROID-OTA-09` Return `git rev-parse HEAD`, `bun --version`, and `xcodebuild -version` with the report.
+
+If the Mac cannot run an Android emulator, record
+`SKIPPED — Android virtualization unavailable` for Track A3. The iOS Track A
+result remains required. The matching iOS staged-rollout operator checks are
+`OTA-21` and `OTA-22` in the Signed mobile-update acceptance section below.
 
 ### Track B — run from the staging application root
 

@@ -430,7 +430,7 @@ const connectTarget = async (target: CdpTarget) => {
 const isTransientEvaluationError = (error: unknown) => {
 	const message = error instanceof Error ? error.message : String(error);
 
-	return /execution context|cannot find context|inspected target navigated|context.*destroyed/iu.test(
+	return /execution context|cannot find context|inspected target navigated|context.*destroyed|CDP Runtime\.evaluate timed out/iu.test(
 		message
 	);
 };

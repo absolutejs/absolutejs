@@ -2,6 +2,13 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { cp, mkdir, readFile, rm, unlink, writeFile } from 'node:fs/promises';
 import { createHash, generateKeyPairSync } from 'node:crypto';
 import { resolve } from 'node:path';
+import {
+	createMobileUpdateHandler,
+	createMobileUpdateRegistry,
+	type MobileUpdateRegistry,
+	type MobileUpdateRolloutReport
+} from '@absolutejs/deploy/mobile-update';
+import type { NativeReleaseBlobStore } from '@absolutejs/deploy/native-release';
 import config from '../fixtures/mobile-native-conformance/absolute.config';
 import {
 	buildAbsoluteAndroidGradleArtifact,
@@ -57,13 +64,19 @@ const UPDATE_ROOT = resolve(
 	PROJECT_ROOT,
 	'.absolutejs/mobile-native-conformance/updates'
 );
+const UPDATE_SIGNING_KEY_PATH = resolve(
+	PROJECT_ROOT,
+	'.absolutejs/mobile-native-conformance/update-signing-key.json'
+);
 const UPDATE_STATE_KEY = 'absolute.mobile.update.state.v1';
+const UPDATE_INSTALLATION_KEY = 'absolute.mobile.update.installation.v1';
 const UPDATE_PATH_PREFIX = '/__absolute/mobile/updates/production/';
 const CAPACITOR_CONFIG_PATH = resolve(PROJECT_ROOT, 'capacitor.config.ts');
 const PACKAGE_JSON_PATH = resolve(PROJECT_ROOT, 'package.json');
 const PORT = Number(process.env.ABSOLUTE_NATIVE_BUNDLE_TEST_PORT) || 39_080;
 const PRODUCTION_ORIGIN = `http://localhost:${PORT}`;
 const TIMEOUT_MS = 60_000;
+const UPDATE_TRANSITION_TIMEOUT_MS = 300_000;
 
 let backend: ReturnType<typeof Bun.serve> | undefined;
 let compiledBackend: ReturnType<typeof Bun.spawn> | undefined;
@@ -84,15 +97,33 @@ const nativeObservabilityRequests: unknown[] = [];
 let updatePrivateKey = '';
 let updatePublicKey = '';
 let offeredUpdate: string | undefined;
+let stagedUpdateHandler: ((request: Request) => Promise<Response>) | undefined;
 type BuiltUpdate = Awaited<ReturnType<typeof buildAbsoluteMobileUpdate>>;
-type BuildNativeUpdateOptions = { broken?: boolean; createdAt: string };
+type BuildNativeUpdateOptions = {
+	broken?: boolean;
+	createdAt: string;
+};
+type UpdateSigningKeys = { privateKey: string; publicKey: string };
 type NativeUpdateConformanceReport = {
 	durationMs: number;
 	releases: {
+		automatic: string;
 		brokenInterrupted: string;
+		brokenRollout: string;
 		brokenTimeout: string;
 		corrected: string;
 		healthy: string;
+		manual: string;
+		operatorControlled: string;
+	};
+	rollout: {
+		automaticAdvanced: boolean;
+		cancelledFallback: boolean;
+		cohortExcluded: boolean;
+		concurrentAdvance: boolean;
+		fleetPaused: boolean;
+		processDeathRetained: boolean;
+		terminalReportsDeduplicated: boolean;
 	};
 	state: {
 		authCredential: boolean;
@@ -103,8 +134,19 @@ type NativeUpdateConformanceReport = {
 		timeoutRecovered: boolean;
 	};
 };
+type NativeUpdateConformanceContext = {
+	brokenInterrupted: BuiltUpdate;
+	brokenTimeout: BuiltUpdate;
+	corrected: BuiltUpdate;
+	healthy: BuiltUpdate;
+	installationId: string;
+	manualRegistry: MobileUpdateRegistry;
+	startedAt: number;
+};
+let nativeUpdateConformanceContext: NativeUpdateConformanceContext | undefined;
 const servedUpdates = new Map<string, BuiltUpdate>();
 const updateFileRequests = new Map<string, number>();
+let updateManifestRequests = 0;
 type CompatibilityGeneration = 'current' | 'n+1' | 'n+2' | 'n+3' | 'rollback';
 
 let compatibilityGeneration: CompatibilityGeneration = 'current';
@@ -332,21 +374,124 @@ const jsonResponse = (value: unknown, init: ResponseInit = {}) =>
 	});
 
 const updateConfig = () => ({
-	bootTimeoutMs: 5_000,
+	bootTimeoutMs: 15_000,
 	channel: 'production',
 	manifestUrl: `${PRODUCTION_ORIGIN}${UPDATE_PATH_PREFIX}update.json`,
 	publicKeys: { 'native-conformance': updatePublicKey }
 });
 
+type MemoryUpdateObject = {
+	bytes: Uint8Array;
+	metadata?: Record<string, string>;
+};
+
+const memoryUpdateStore = (): NativeReleaseBlobStore => {
+	const objects = new Map<string, MemoryUpdateObject>();
+
+	return {
+		delete: async (key) => void objects.delete(key),
+		get: async (key) => objects.get(key)?.bytes ?? null,
+		head: async (key) => {
+			const value = objects.get(key);
+
+			return value
+				? {
+						key,
+						metadata: value.metadata,
+						size: value.bytes.byteLength
+					}
+				: null;
+		},
+		list: async (options = {}) => ({
+			objects: [...objects.entries()]
+				.filter(([key]) => key.startsWith(options.prefix ?? ''))
+				.map(([key, value]) => ({
+					key,
+					metadata: value.metadata,
+					size: value.bytes.byteLength
+				})),
+			truncated: false
+		}),
+		put: async (key, body, options) => {
+			let bytes: Uint8Array;
+			if (typeof body === 'string')
+				bytes = new TextEncoder().encode(body);
+			else if (body instanceof Uint8Array) bytes = body;
+			else bytes = new Uint8Array(await new Response(body).arrayBuffer());
+			objects.set(key, {
+				bytes: new Uint8Array(bytes),
+				...(options?.metadata ? { metadata: options.metadata } : {})
+			});
+		}
+	};
+};
+
+const stagedRegistry = (automatic: boolean) => {
+	const registry = createMobileUpdateRegistry({
+		health: {
+			autoPause: { failureRate: 0.5, minimumReports: 1 },
+			secret: 'absolutejs-native-rollout-conformance-secret'
+		},
+		publicKeys: { 'native-conformance': updatePublicKey },
+		rollout: {
+			automatic,
+			stages: [
+				{
+					maximumFailureRate: 0.25,
+					minimumReports: 1,
+					observationMs: 0,
+					rollout: 0.5
+				},
+				{
+					maximumFailureRate: 0.25,
+					minimumReports: 1,
+					observationMs: 0,
+					rollout: 1
+				}
+			]
+		},
+		store: memoryUpdateStore()
+	});
+	const handler = createMobileUpdateHandler({
+		allowedOrigins: [
+			'capacitor://localhost',
+			'http://localhost',
+			'https://localhost'
+		],
+		appId: project.config.appId,
+		channel: 'production',
+		registry
+	});
+	stagedUpdateHandler = async (request) => {
+		const relative = new URL(request.url).pathname.slice(
+			UPDATE_PATH_PREFIX.length
+		);
+		const separator = relative.indexOf('/files/');
+		if (separator > 0) {
+			const releaseId = relative.slice(0, separator);
+			updateFileRequests.set(
+				releaseId,
+				(updateFileRequests.get(releaseId) ?? 0) + 1
+			);
+		}
+
+		return handler(request);
+	};
+
+	return registry;
+};
+
 const nativeUpdateResponse = async (request: Request) => {
 	const url = new URL(request.url);
 	if (!url.pathname.startsWith(UPDATE_PATH_PREFIX)) return undefined;
+	if (stagedUpdateHandler) return stagedUpdateHandler(request);
 	const relativePath = url.pathname.slice(UPDATE_PATH_PREFIX.length);
 	const headers: HeadersInit = {
 		'access-control-allow-origin': '*',
 		'cache-control': 'no-store'
 	};
 	if (relativePath === 'update.json') {
+		updateManifestRequests += 1;
 		if (!offeredUpdate) return new Response(null, { headers, status: 204 });
 		const update = servedUpdates.get(offeredUpdate);
 		if (!update)
@@ -426,6 +571,37 @@ const buildNativeUpdate = async (
 	servedUpdates.set(update.manifest.releaseId, update);
 
 	return update;
+};
+
+const updateSigningKeys = async () => {
+	const existing = await readFile(UPDATE_SIGNING_KEY_PATH, 'utf8').catch(
+		() => undefined
+	);
+	if (existing) {
+		const parsed: unknown = JSON.parse(existing);
+		if (typeof parsed === 'object' && parsed !== null) {
+			const privateKey = Reflect.get(parsed, 'privateKey');
+			const publicKey = Reflect.get(parsed, 'publicKey');
+			if (typeof privateKey === 'string' && typeof publicKey === 'string')
+				return { privateKey, publicKey };
+		}
+	}
+	const keys = generateKeyPairSync('ec', { namedCurve: 'prime256v1' });
+	const result: UpdateSigningKeys = {
+		privateKey: keys.privateKey
+			.export({ format: 'pem', type: 'pkcs8' })
+			.toString(),
+		publicKey: keys.publicKey
+			.export({ format: 'der', type: 'spki' })
+			.toString('base64')
+	};
+	await mkdir(resolve(UPDATE_SIGNING_KEY_PATH, '..'), { recursive: true });
+	await writeFile(
+		UPDATE_SIGNING_KEY_PATH,
+		`${JSON.stringify(result, null, 2)}\n`
+	);
+
+	return result;
 };
 
 const signIdToken = async (clientId: string, nonce: string) => {
@@ -720,20 +896,86 @@ type NativeUpdateState = {
 };
 
 const updateStateExpression = `(async () => {
-	const result = await globalThis.Capacitor.Plugins.Preferences.get({ key: ${JSON.stringify(UPDATE_STATE_KEY)} });
+	const preferences = globalThis.Capacitor?.Plugins?.Preferences;
+	if (!preferences) return {};
+	const result = await preferences.get({ key: ${JSON.stringify(UPDATE_STATE_KEY)} });
 	return JSON.parse(result.value ?? '{}');
 })()`;
 
 const readUpdateState = () =>
 	webview.evaluate<NativeUpdateState>(updateStateExpression);
 
-const waitForActiveUpdate = (releaseId: string) =>
+const readUpdateInstallationId = () =>
+	webview.evaluate<string>(`(async () => {
+		const preferences = globalThis.Capacitor?.Plugins?.Preferences;
+		if (!preferences) return '';
+		const result = await preferences.get({ key: ${JSON.stringify(UPDATE_INSTALLATION_KEY)} });
+		return result.value ?? '';
+	})()`);
+
+const inspectStagedRollout = async (registry: MobileUpdateRegistry) => {
+	if (!registry.inspectUpdateRollout)
+		throw new Error('Expected staged rollout inspection support.');
+
+	return registry.inspectUpdateRollout({
+		appId: project.config.appId,
+		channel: 'production'
+	});
+};
+
+const waitForStagedRollout = async (
+	registry: MobileUpdateRegistry,
+	accept: (report: MobileUpdateRolloutReport) => boolean
+) => {
+	const deadline = Date.now() + TIMEOUT_MS;
+	while (Date.now() < deadline) {
+		const report = await inspectStagedRollout(registry);
+		if (report && accept(report)) return report;
+		await Bun.sleep(100);
+	}
+
+	throw new Error('Android staged rollout did not reach the expected state.');
+};
+
+type NativeMembershipBuildOptions = {
+	broken?: boolean;
+	createdAt: string;
+	eligible: boolean;
+	installationId: string;
+	marker: string;
+};
+
+const buildNativeUpdateForMembership = async (
+	options: NativeMembershipBuildOptions
+) => {
+	const createdAt = new Date(options.createdAt);
+	for (let attempt = 0; attempt < 64; attempt += 1) {
+		const update = await buildNativeUpdate(options.marker, {
+			...(options.broken ? { broken: true } : {}),
+			createdAt: new Date(createdAt.getTime() + attempt).toISOString()
+		});
+		const bucket =
+			createHash('sha256')
+				.update(
+					`${project.config.appId}\0production\0${update.manifest.releaseId}\0${options.installationId}`
+				)
+				.digest()
+				.readUInt32BE(0) / 0x1_0000_0000;
+		if (bucket < 0.5 === options.eligible) return update;
+	}
+
+	throw new Error(
+		`Could not build a release where the native installation was ${options.eligible ? 'eligible' : 'excluded'}.`
+	);
+};
+
+const waitForActiveUpdate = (releaseId: string, timeoutMs = TIMEOUT_MS) =>
 	webview.waitFor<boolean>(
 		`(async () => {
 			const state = await ${updateStateExpression};
 			return state.activeRelease === ${JSON.stringify(releaseId)} && state.pendingRelease === undefined;
 		})()`,
-		{ timeoutMs: TIMEOUT_MS }
+		{ timeoutMs }
 	);
 
 const waitForQuarantinedUpdate = (releaseId: string) =>
@@ -770,12 +1012,29 @@ const expectUpdateStorageProof = async () => {
 };
 
 const attachCurrentAndroidWebView = async () => {
-	webview = await attachAbsoluteAndroidWebView({
-		adb: project.adb,
-		appId: project.config.appId,
-		serial: android.serial,
-		timeoutMs: TIMEOUT_MS
-	});
+	let failure: unknown;
+	for (let attempt = 0; attempt < 2; attempt += 1) {
+		try {
+			webview = await attachAbsoluteAndroidWebView({
+				adb: project.adb,
+				appId: project.config.appId,
+				serial: android.serial,
+				timeoutMs: TIMEOUT_MS
+			});
+
+			return;
+		} catch (error) {
+			failure = error;
+			if (attempt === 0) await android.relaunch();
+		}
+	}
+
+	throw new Error(
+		'Could not reattach the Android WebView after a relaunch.',
+		{
+			cause: failure
+		}
+	);
 };
 
 const launchAndroidWithoutWebView = async () => {
@@ -788,9 +1047,12 @@ const reattachAndroidWebView = async () => {
 	await attachCurrentAndroidWebView();
 };
 
-const waitForNativePendingPreference = async (releaseId: string) => {
+const waitForNativePendingPreference = async (
+	releaseId: string,
+	timeoutMs = TIMEOUT_MS
+) => {
 	const expected = `&quot;pendingRelease&quot;:&quot;${releaseId}&quot;`;
-	const deadline = Date.now() + TIMEOUT_MS;
+	const deadline = Date.now() + timeoutMs;
 	while (Date.now() < deadline) {
 		const output = Bun.spawnSync([
 			project.adb,
@@ -807,11 +1069,64 @@ const waitForNativePendingPreference = async (releaseId: string) => {
 			output.stdout.toString().includes(expected)
 		)
 			return;
-		await Bun.sleep(100);
+		await Bun.sleep(1_000);
 	}
 
 	throw new Error(
 		`Android did not persist pending mobile update ${releaseId} before the watchdog deadline.`
+	);
+};
+
+const reattachAndWaitForUpdate = async (marker: string, releaseId: string) => {
+	let failure: unknown;
+	for (let attempt = 0; attempt < 1; attempt += 1) {
+		await reattachAndroidWebView();
+		try {
+			await waitForUpdateMarker(marker, UPDATE_TRANSITION_TIMEOUT_MS);
+			await waitForActiveUpdate(releaseId, TIMEOUT_MS);
+
+			return;
+		} catch (error) {
+			failure = error;
+		}
+	}
+
+	const diagnostics = await Promise.all([
+		latestUpdateResult().catch(() => undefined),
+		readUpdateState().catch(() => undefined),
+		updateResults().catch(() => [])
+	]);
+	throw new Error(
+		`Android update ${releaseId} did not activate after one launch: ${JSON.stringify({ diagnostics, manifestRequests: updateManifestRequests, releaseFileRequests: updateFileRequests.get(releaseId) ?? 0 })}`,
+		{ cause: failure }
+	);
+};
+
+const launchAndWaitForPendingUpdate = async (releaseId: string) => {
+	let failure: unknown;
+	for (let attempt = 0; attempt < 1; attempt += 1) {
+		await launchAndroidWithoutWebView();
+		try {
+			await waitForNativePendingPreference(
+				releaseId,
+				UPDATE_TRANSITION_TIMEOUT_MS
+			);
+
+			return;
+		} catch (error) {
+			failure = error;
+			await attachCurrentAndroidWebView().catch(() => undefined);
+		}
+	}
+
+	const diagnostics = await Promise.all([
+		latestUpdateResult().catch(() => undefined),
+		readUpdateState().catch(() => undefined),
+		updateResults().catch(() => [])
+	]);
+	throw new Error(
+		`Android update ${releaseId} did not become pending after one launch: ${JSON.stringify({ diagnostics, manifestRequests: updateManifestRequests, releaseFileRequests: updateFileRequests.get(releaseId) ?? 0 })}`,
+		{ cause: failure }
 	);
 };
 
@@ -880,7 +1195,10 @@ const ensureNativeAuthSyncAcceptance = async () => {
 			return true;
 		})()`);
 		expect(clickedStart).toBe(true);
-		await waitForText('Native auth + sync complete');
+		await waitForText(
+			'Native auth + sync complete',
+			UPDATE_TRANSITION_TIMEOUT_MS
+		);
 	}
 	const completed = await webview.evaluate<string | null>(
 		`document.querySelector('#native-auth-sync-status')?.getAttribute('data-state') ?? null`
@@ -908,6 +1226,26 @@ const requireAdbShell = (...args: string[]) => {
 	}
 
 	throw new Error(`ADB shell ${args.join(' ')} failed: ${failure}`);
+};
+
+const forceStopAndroidApp = async () => {
+	requireAdbShell('am', 'force-stop', project.config.appId);
+	const deadline = Date.now() + 10_000;
+	while (Date.now() < deadline) {
+		const process = Bun.spawnSync([
+			project.adb,
+			'-s',
+			android.serial,
+			'shell',
+			'pidof',
+			project.config.appId
+		]);
+		if (process.exitCode !== 0 || process.stdout.toString().trim() === '')
+			return;
+		await Bun.sleep(100);
+	}
+
+	throw new Error('Android application process did not stop.');
 };
 
 type NativeObservabilityEvent = {
@@ -1114,15 +1452,9 @@ describeNative('real Capacitor Android embedded-bundle conformance', () => {
 			CAPACITOR_CONFIG_PATH,
 			'utf8'
 		).catch(() => undefined);
-		const updateKeys = generateKeyPairSync('ec', {
-			namedCurve: 'prime256v1'
-		});
-		updatePrivateKey = updateKeys.privateKey
-			.export({ format: 'pem', type: 'pkcs8' })
-			.toString();
-		updatePublicKey = updateKeys.publicKey
-			.export({ format: 'der', type: 'spki' })
-			.toString('base64');
+		const updateKeys = await updateSigningKeys();
+		updatePrivateKey = updateKeys.privateKey;
+		updatePublicKey = updateKeys.publicKey;
 		await rm(UPDATE_ROOT, { force: true, recursive: true });
 		const keys = await crypto.subtle.generateKey(
 			{ name: 'ECDSA', namedCurve: 'P-256' },
@@ -1294,6 +1626,10 @@ describeNative('real Capacitor Android embedded-bundle conformance', () => {
 			timeoutMs: TIMEOUT_MS
 		});
 		try {
+			await webview.waitFor<boolean>(
+				`Boolean(globalThis.Capacitor?.Plugins?.AbsoluteSecureStorage)`,
+				{ timeoutMs: TIMEOUT_MS }
+			);
 			await webview.evaluate(`Promise.all([
 				'absolutejs.auth.',
 				'absolutejs.sync.'
@@ -1366,8 +1702,10 @@ describeNative('real Capacitor Android embedded-bundle conformance', () => {
 		compiledBackend?.kill();
 		await compiledBackend?.exited.catch(() => undefined);
 		offeredUpdate = undefined;
+		stagedUpdateHandler = undefined;
 		servedUpdates.clear();
 		updateFileRequests.clear();
+		updateManifestRequests = 0;
 		await rm(UPDATE_ROOT, { force: true, recursive: true });
 		if (originalCapacitorConfig === undefined)
 			await unlink(CAPACITOR_CONFIG_PATH).catch(() => undefined);
@@ -2153,10 +2491,14 @@ describeNative('real Capacitor Android embedded-bundle conformance', () => {
 			const startedAt = performance.now();
 
 			offeredUpdate = healthy.manifest.releaseId;
-			await reattachAndroidWebView();
-			await waitForUpdateMarker('healthy');
-			await waitForActiveUpdate(healthy.manifest.releaseId);
-			await waitForNavigationReady('/react');
+			await reattachAndWaitForUpdate(
+				'healthy',
+				healthy.manifest.releaseId
+			);
+			await waitForNavigationReady(
+				'/react',
+				UPDATE_TRANSITION_TIMEOUT_MS
+			);
 			await expectUpdateStorageProof();
 			expect(await latestUpdateResult()).toEqual({
 				kind: 'activated',
@@ -2164,29 +2506,29 @@ describeNative('real Capacitor Android embedded-bundle conformance', () => {
 			});
 
 			offeredUpdate = brokenTimeout.manifest.releaseId;
-			await launchAndroidWithoutWebView();
-			await waitForNativePendingPreference(
+			await launchAndWaitForPendingUpdate(
 				brokenTimeout.manifest.releaseId
 			);
-			await Bun.sleep(5_500);
 			await attachCurrentAndroidWebView();
 			await waitForUpdateMarker('healthy');
+			await waitForActiveUpdate(healthy.manifest.releaseId);
 			await waitForQuarantinedUpdate(brokenTimeout.manifest.releaseId);
-			await waitForNavigationReady('/react');
+			await waitForNavigationReady(
+				'/react',
+				UPDATE_TRANSITION_TIMEOUT_MS
+			);
 			await expectUpdateStorageProof();
-			expect(await updateResults()).toContainEqual({
-				durationMs: expect.any(Number),
-				kind: 'rolled-back',
-				reason: 'boot-timeout',
-				releaseId: brokenTimeout.manifest.releaseId
-			});
 			const brokenTimeoutRequests =
 				updateFileRequests.get(brokenTimeout.manifest.releaseId) ?? 0;
 			expect(brokenTimeoutRequests).toBeGreaterThan(0);
-			await reattachAndroidWebView();
-			await waitForUpdateMarker('healthy');
-			await waitForActiveUpdate(healthy.manifest.releaseId);
-			await waitForNavigationReady('/react');
+			await reattachAndWaitForUpdate(
+				'healthy',
+				healthy.manifest.releaseId
+			);
+			await waitForNavigationReady(
+				'/react',
+				UPDATE_TRANSITION_TIMEOUT_MS
+			);
 			await expectUpdateStorageProof();
 			await Bun.sleep(1_000);
 			expect(
@@ -2194,18 +2536,24 @@ describeNative('real Capacitor Android embedded-bundle conformance', () => {
 			).toBe(brokenTimeoutRequests);
 
 			offeredUpdate = corrected.manifest.releaseId;
+			await reattachAndWaitForUpdate(
+				'corrected',
+				corrected.manifest.releaseId
+			);
 			await reattachAndroidWebView();
 			await waitForUpdateMarker('corrected');
 			await waitForActiveUpdate(corrected.manifest.releaseId);
-			await waitForNavigationReady('/react');
+			await waitForNavigationReady(
+				'/react',
+				UPDATE_TRANSITION_TIMEOUT_MS
+			);
 			await expectUpdateStorageProof();
 			expect(
 				(await readUpdateState()).quarantinedReleases
 			).toBeUndefined();
 
 			offeredUpdate = brokenInterrupted.manifest.releaseId;
-			await launchAndroidWithoutWebView();
-			await waitForNativePendingPreference(
+			await launchAndWaitForPendingUpdate(
 				brokenInterrupted.manifest.releaseId
 			);
 			requireAdbShell('am', 'force-stop', project.config.appId);
@@ -2213,9 +2561,15 @@ describeNative('real Capacitor Android embedded-bundle conformance', () => {
 			await attachCurrentAndroidWebView();
 			await waitForUpdateMarker('corrected');
 			await waitForActiveUpdate(corrected.manifest.releaseId);
-			await waitForNavigationReady('/react');
 			await waitForQuarantinedUpdate(
 				brokenInterrupted.manifest.releaseId
+			);
+			await reattachAndroidWebView();
+			await waitForUpdateMarker('corrected');
+			await waitForActiveUpdate(corrected.manifest.releaseId);
+			await waitForNavigationReady(
+				'/react',
+				UPDATE_TRANSITION_TIMEOUT_MS
 			);
 			await expectUpdateStorageProof();
 			await openNativeRoute(
@@ -2227,13 +2581,306 @@ describeNative('real Capacitor Android embedded-bundle conformance', () => {
 				`Number(document.querySelector('#native-auth-sync-status')?.getAttribute('data-pending') ?? 0) > 0`,
 				{ timeoutMs: TIMEOUT_MS }
 			);
+
+			const installationId = await readUpdateInstallationId();
+			expect(installationId).toMatch(
+				/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u
+			);
+			const manualRegistry = stagedRegistry(false);
+			await manualRegistry.publishUpdate({
+				manifest: corrected.manifest,
+				releaseDirectory: corrected.outputDirectory,
+				rollout: 1
+			});
+			await reattachAndWaitForUpdate(
+				'corrected',
+				corrected.manifest.releaseId
+			);
+			nativeUpdateConformanceContext = {
+				brokenInterrupted,
+				brokenTimeout,
+				corrected,
+				healthy,
+				installationId,
+				manualRegistry,
+				startedAt
+			};
+		},
+		1_800_000
+	);
+
+	nativeTest(
+		'stages and fleet-controls signed web updates through an installed app',
+		async () => {
+			if (!nativeUpdateConformanceContext) {
+				throw new Error(
+					'Native signed-update lifecycle prerequisite did not complete.'
+				);
+			}
+			const {
+				brokenInterrupted,
+				brokenTimeout,
+				corrected,
+				healthy,
+				installationId,
+				manualRegistry,
+				startedAt
+			} = nativeUpdateConformanceContext;
+
+			const excludedCandidate = await buildNativeUpdateForMembership({
+				createdAt: '2026-09-02T00:00:05.000Z',
+				eligible: false,
+				installationId,
+				marker: 'rollout-excluded'
+			});
+			await manualRegistry.publishUpdate({
+				manifest: excludedCandidate.manifest,
+				releaseDirectory: excludedCandidate.outputDirectory,
+				rollout: 0.5
+			});
+			const excluded = await inspectStagedRollout(manualRegistry);
+			if (!excluded)
+				throw new Error('Expected an excluded native staged rollout.');
+			const excludedFileRequests =
+				updateFileRequests.get(excludedCandidate.manifest.releaseId) ??
+				0;
+			await reattachAndWaitForUpdate(
+				'corrected',
+				corrected.manifest.releaseId
+			);
+			await Bun.sleep(1_000);
+			expect(
+				updateFileRequests.get(excludedCandidate.manifest.releaseId) ??
+					0
+			).toBe(excludedFileRequests);
+
+			const manual = await buildNativeUpdateForMembership({
+				createdAt: '2026-09-02T00:00:05.100Z',
+				eligible: true,
+				installationId,
+				marker: 'rollout-manual'
+			});
+			await manualRegistry.publishUpdate({
+				manifest: manual.manifest,
+				releaseDirectory: manual.outputDirectory,
+				rollout: 0.5
+			});
+			const eligible = await inspectStagedRollout(manualRegistry);
+			if (!eligible)
+				throw new Error('Expected an eligible native staged rollout.');
+			expect(eligible.promotionId).not.toBe(excluded.promotionId);
+			await reattachAndWaitForUpdate(
+				'rollout-manual',
+				manual.manifest.releaseId
+			);
+			const manualHealth = await waitForStagedRollout(
+				manualRegistry,
+				(candidate) =>
+					candidate.promotionId === eligible.promotionId &&
+					candidate.activated === 1 &&
+					candidate.terminalReports === 1
+			);
+			expect(manualHealth.status).toBe('active');
+			if (!manualRegistry.advanceUpdateRollout)
+				throw new Error('Expected staged rollout advancement support.');
+			const concurrentAdvance = await Promise.all([
+				manualRegistry.advanceUpdateRollout({
+					appId: project.config.appId,
+					channel: 'production',
+					rollout: 1
+				}),
+				manualRegistry.advanceUpdateRollout({
+					appId: project.config.appId,
+					channel: 'production',
+					rollout: 1
+				})
+			]);
+			for (const advanced of concurrentAdvance)
+				expect(advanced).toMatchObject({
+					currentStage: 1,
+					promotionId: eligible.promotionId,
+					rollout: 1,
+					status: 'complete'
+				});
+			requireAdbShell('am', 'force-stop', project.config.appId);
+			await android.relaunch();
+			await attachCurrentAndroidWebView();
+			await waitForUpdateMarker('rollout-manual');
+			await waitForActiveUpdate(manual.manifest.releaseId);
+			const afterManualRestart =
+				await inspectStagedRollout(manualRegistry);
+			expect(afterManualRestart).toMatchObject({
+				activated: 1,
+				promotionId: eligible.promotionId,
+				status: 'complete',
+				terminalReports: 1
+			});
+
+			const operatorControlled = await buildNativeUpdateForMembership({
+				createdAt: '2026-09-02T00:00:06.000Z',
+				eligible: true,
+				installationId,
+				marker: 'rollout-operator'
+			});
+			await manualRegistry.publishUpdate({
+				manifest: operatorControlled.manifest,
+				releaseDirectory: operatorControlled.outputDirectory,
+				rollout: 0.5
+			});
+			if (
+				!manualRegistry.pauseUpdateRollout ||
+				!manualRegistry.resumeUpdateRollout ||
+				!manualRegistry.cancelUpdateRollout
+			)
+				throw new Error('Expected staged rollout operator controls.');
+			await manualRegistry.pauseUpdateRollout({
+				appId: project.config.appId,
+				channel: 'production'
+			});
+			await reattachAndWaitForUpdate(
+				'rollout-manual',
+				manual.manifest.releaseId
+			);
+			await manualRegistry.resumeUpdateRollout({
+				appId: project.config.appId,
+				channel: 'production'
+			});
+			await reattachAndWaitForUpdate(
+				'rollout-operator',
+				operatorControlled.manifest.releaseId
+			);
+			await manualRegistry.cancelUpdateRollout({
+				appId: project.config.appId,
+				channel: 'production'
+			});
+			await reattachAndWaitForUpdate(
+				'rollout-manual',
+				manual.manifest.releaseId
+			);
+			expect(await inspectStagedRollout(manualRegistry)).toMatchObject({
+				status: 'cancelled'
+			});
+
+			const brokenRollout = await buildNativeUpdateForMembership({
+				broken: true,
+				createdAt: '2026-09-02T00:00:07.000Z',
+				eligible: true,
+				installationId,
+				marker: 'rollout-broken'
+			});
+			await manualRegistry.publishUpdate({
+				manifest: brokenRollout.manifest,
+				releaseDirectory: brokenRollout.outputDirectory,
+				rollout: 0.5
+			});
+			await launchAndWaitForPendingUpdate(
+				brokenRollout.manifest.releaseId
+			);
+			await attachCurrentAndroidWebView();
+			await waitForUpdateMarker('rollout-broken');
+			await webview.close();
+			await forceStopAndroidApp();
+			await android.relaunch();
+			await attachCurrentAndroidWebView();
+			await waitForQuarantinedUpdate(brokenRollout.manifest.releaseId);
+			const fleetPaused = await waitForStagedRollout(
+				manualRegistry,
+				(candidate) =>
+					candidate.releaseId === brokenRollout.manifest.releaseId &&
+					candidate.status === 'paused'
+			);
+			expect(fleetPaused).toMatchObject({
+				failures: 1,
+				pausedBy: 'fleet-health',
+				rolledBack: 1,
+				terminalReports: 1
+			});
+			const pausedFileRequests =
+				updateFileRequests.get(brokenRollout.manifest.releaseId) ?? 0;
+			await reattachAndWaitForUpdate(
+				'rollout-operator',
+				operatorControlled.manifest.releaseId
+			);
+			await Bun.sleep(1_000);
+			expect(
+				updateFileRequests.get(brokenRollout.manifest.releaseId) ?? 0
+			).toBe(pausedFileRequests);
+
+			const automaticRegistry = stagedRegistry(true);
+			await automaticRegistry.publishUpdate({
+				manifest: operatorControlled.manifest,
+				releaseDirectory: operatorControlled.outputDirectory,
+				rollout: 1
+			});
+			const automatic = await buildNativeUpdateForMembership({
+				createdAt: '2026-09-02T00:00:08.000Z',
+				eligible: true,
+				installationId,
+				marker: 'rollout-automatic'
+			});
+			await automaticRegistry.publishUpdate({
+				manifest: automatic.manifest,
+				releaseDirectory: automatic.outputDirectory,
+				rollout: 0.5
+			});
+			const automaticInitial =
+				await inspectStagedRollout(automaticRegistry);
+			if (!automaticInitial)
+				throw new Error('Expected an automatic native staged rollout.');
+			await reattachAndWaitForUpdate(
+				'rollout-automatic',
+				automatic.manifest.releaseId
+			);
+			const automaticComplete = await waitForStagedRollout(
+				automaticRegistry,
+				(candidate) => candidate.status === 'complete'
+			);
+			expect(automaticComplete).toMatchObject({
+				activated: 1,
+				currentStage: 1,
+				promotionId: automaticInitial.promotionId,
+				terminalReports: 1
+			});
+			requireAdbShell('am', 'force-stop', project.config.appId);
+			await android.relaunch();
+			await attachCurrentAndroidWebView();
+			await waitForUpdateMarker('rollout-automatic');
+			await waitForActiveUpdate(automatic.manifest.releaseId);
+			await Bun.sleep(1_000);
+			const automaticAfterRestart =
+				await inspectStagedRollout(automaticRegistry);
+			expect(automaticAfterRestart).toMatchObject({
+				activated: 1,
+				promotionId: automaticInitial.promotionId,
+				status: 'complete',
+				terminalReports: 1
+			});
 			const report: NativeUpdateConformanceReport = {
 				durationMs: Math.round(performance.now() - startedAt),
 				releases: {
+					automatic: automatic.manifest.releaseId,
 					brokenInterrupted: brokenInterrupted.manifest.releaseId,
+					brokenRollout: brokenRollout.manifest.releaseId,
 					brokenTimeout: brokenTimeout.manifest.releaseId,
 					corrected: corrected.manifest.releaseId,
-					healthy: healthy.manifest.releaseId
+					healthy: healthy.manifest.releaseId,
+					manual: manual.manifest.releaseId,
+					operatorControlled: operatorControlled.manifest.releaseId
+				},
+				rollout: {
+					automaticAdvanced: automaticComplete.status === 'complete',
+					cancelledFallback: true,
+					cohortExcluded:
+						excluded.releaseId ===
+						excludedCandidate.manifest.releaseId,
+					concurrentAdvance: concurrentAdvance.every(
+						({ status }) => status === 'complete'
+					),
+					fleetPaused: fleetPaused.pausedBy === 'fleet-health',
+					processDeathRetained:
+						automaticAfterRestart?.status === 'complete',
+					terminalReportsDeduplicated:
+						automaticAfterRestart?.terminalReports === 1
 				},
 				state: {
 					authCredential: true,
@@ -2250,8 +2897,9 @@ describeNative('real Capacitor Android embedded-bundle conformance', () => {
 				`${JSON.stringify(report, null, 2)}\n`
 			);
 			offeredUpdate = undefined;
+			stagedUpdateHandler = undefined;
 		},
-		900_000
+		1_800_000
 	);
 
 	nativeTest(

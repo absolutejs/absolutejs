@@ -123,9 +123,12 @@ public final class AbsoluteMobileUpdateWatchdogPlugin: CAPPlugin, CAPBridgedPlug
     private static func recover(_ reason: String) -> (String, String?, Bool)? {
         var value = state()
         guard let release = value["pendingRelease"] as? String, validRelease(release) else { return nil }
-        let previous = value["previousPath"] as? String
         let active = value["activeRelease"] as? String
-        let hasActive = active.map(validRelease) ?? false
+        let activePath = active.flatMap { candidate in
+            validRelease(candidate) ? snapshotRoot()?.appendingPathComponent(candidate, isDirectory: true).path : nil
+        }
+        let hasActive = activePath.map { FileManager.default.fileExists(atPath: $0) } ?? false
+        let previous = hasActive ? activePath : nil
         let started = value["pendingStartedAt"] as? Double ?? Date().timeIntervalSince1970 * 1000
         let duration = max(0, Date().timeIntervalSince1970 * 1000 - started)
         value.removeValue(forKey: "pendingRelease")
@@ -339,8 +342,10 @@ public final class AbsoluteMobileUpdateWatchdogPlugin extends Plugin {
         JSONObject value = state(context);
         String release = value.optString("pendingRelease", "");
         if (!validRelease(release)) return null;
-        String previous = value.optString("previousPath", "");
-        boolean hasActive = validRelease(value.optString("activeRelease", ""));
+        String activeRelease = value.optString("activeRelease", "");
+        File activePath = new File(snapshotRoot(context), activeRelease);
+        boolean hasActive = validRelease(activeRelease) && activePath.isDirectory();
+        String previous = hasActive ? activePath.getAbsolutePath() : "";
         long started = value.optLong("pendingStartedAt", System.currentTimeMillis());
         long duration = Math.max(0, System.currentTimeMillis() - started);
         value.remove("pendingRelease");
