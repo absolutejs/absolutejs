@@ -11,3 +11,5 @@ build/
 example/vue/client/
 example/vue/indexes/
 example/vue/server/
+changelog.json
+CHANGELOG.md
