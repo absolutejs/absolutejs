@@ -30,7 +30,7 @@
       },
       "devDependencies": {
         "@absolutejs/blob": "0.5.2",
-        "@absolutejs/changelog": "^0.2.0",
+        "@absolutejs/changelog": "^0.4.0",
         "@absolutejs/dispatch": "0.9.0",
         "@absolutejs/manifest": "0.9.0",
         "@absolutejs/scoped-state": "0.2.2",
@@ -302,7 +302,7 @@
 
     "@absolutejs/blob": ["@absolutejs/blob@0.5.2", "", { "dependencies": { "@absolutejs/manifest": "^0.7.2", "@sinclair/typebox": "^0.34.0" }, "peerDependencies": { "@aws-sdk/client-s3": "^3.1087.0", "@aws-sdk/lib-storage": "^3.1087.0", "@aws-sdk/s3-request-presigner": "^3.1087.0", "uploadthing": "^7.7.4" }, "optionalPeers": ["@aws-sdk/client-s3", "@aws-sdk/lib-storage", "@aws-sdk/s3-request-presigner", "uploadthing"] }, "sha512-3g6aR8B2G5lRdP6kRcih7FGRk0aII+FXq+VvM/+aFV3rfmDHGkyBHJg1ggawjAoMhjuhPCEmc8RLKaQC0CTkSQ=="],
 
-    "@absolutejs/changelog": ["@absolutejs/changelog@0.2.0", "", { "bin": { "absolute-changelog": "dist/cli.js" } }, "sha512-9GdRyWB3X5zEwlTcVCH+qUS84FTChCoZvli0z3Gp8SI3pnLN4XK3vO0s45dPk5ZfezxAzC1ZwlKWTh44eLxh1w=="],
+    "@absolutejs/changelog": ["@absolutejs/changelog@0.4.0", "", { "dependencies": { "typescript": "^5.8.3" }, "bin": { "absolute-changelog": "dist/cli.js" } }, "sha512-4+rna0EUk1kZMGHJRmXIWvP+MV6pS4Ay24m+3h0XybYD/4ycgOXwdez7CUdb6hZQr7GC7XXTyhDzheEDAdlFcQ=="],
 
     "@absolutejs/deploy": ["@absolutejs/deploy@0.25.13", "", { "dependencies": { "google-auth-library": "10.9.0" } }, "sha512-XG4/3YWiddFHuTkk7w6ByqWWhyyEXulNZ85UF323B8j0Yllg1G1UvjIgQfuxn/AFPVviSHEZFJUpuMeAOUXLxg=="],
 
