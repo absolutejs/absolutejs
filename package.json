@@ -33,7 +33,7 @@
 	"description": "A fullstack meta-framework for building web applications with TypeScript",
 	"devDependencies": {
 		"@absolutejs/blob": "0.5.2",
-		"@absolutejs/changelog": "^0.5.1",
+		"@absolutejs/changelog": "^0.6.0",
 		"@absolutejs/dispatch": "0.9.0",
 		"@absolutejs/manifest": "0.9.0",
 		"@absolutejs/scoped-state": "0.2.2",
@@ -482,7 +482,7 @@
 		"typecheck": "bun run src/cli/index.ts typecheck --config example/absolute.config.ts",
 		"verify:client-bundle": "bun run scripts/verifyPublishedClientBundle.ts",
 		"check:package": "absolute-changelog check",
-		"prepublishOnly": "absolute-changelog check"
+		"prepublishOnly": "bun run check:package"
 	},
 	"types": "./dist/src/index.d.ts",
 	"typesVersions": {
