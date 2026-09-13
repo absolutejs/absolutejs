@@ -600,6 +600,22 @@ a boolean result. Its real SecureStore installation UUID is used for cohort
 selection but never written to the artifact. A passing artifact is written to
 `.absolutejs/expo-android-update/artifacts/expo-android-update-conformance.json`.
 
+The matching installed Expo iOS gate runs only on macOS with Xcode and an iOS
+Simulator runtime:
+
+```bash
+bun run test:native:expo:ios:updates
+```
+
+It builds and installs the Expo iOS Release configuration without Metro and
+drives the same signed-update, unsafe-release rejection, recovery, native Auth,
+encrypted exactly-once Sync, rollback, staged-rollout, fleet-health, and restart
+deduplication matrix. Its sanitized proof is
+`.absolutejs/expo-ios-update/artifacts/expo-ios-update-conformance.json`. The
+harness is checked by platform-neutral unit/type gates; its first real Xcode
+execution remains an explicit partner acceptance item in
+`docs/IOS_MACOS_TESTING.md` rather than an inferred pass on non-macOS CI.
+
 ## Current limitations
 
 - Binary patch generation is not implemented. Content-addressed file reuse and

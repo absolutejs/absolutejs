@@ -1,7 +1,7 @@
 # AbsoluteJS iOS and TestFlight macOS test runbook
 
 This runbook validates the iOS release path shipped in
-`@absolutejs/absolute@0.20.0-beta.88` and
+`@absolutejs/absolute@0.20.0-beta.90` and
 `@absolutejs/deploy@0.25.13`. It covers a signed local IPA, an internal
 TestFlight upload, retry behavior, and installation on an iPhone or iPad.
 
@@ -28,8 +28,9 @@ directories or commands:
    Capacitor release gate.
 
 If you were sent only this Markdown file and were not sent a staging
-application repository plus its non-secret configuration values, complete Track
-A only. Do not invent an application, bundle ID, server origin, or Apple team.
+application repository plus its non-secret configuration values, complete the
+Track A framework gates only. Do not invent an application, bundle ID, server
+origin, or Apple team.
 
 ### Track A — run this first from the AbsoluteJS repository
 
@@ -158,6 +159,76 @@ Return these Track A2 results:
 If the Mac cannot run an Android emulator, record
 `SKIPPED — Android virtualization unavailable` for Track A2. This does not block
 the iOS Track A result.
+
+### Track A2-iOS — Expo iOS production OTA gate from the same repository
+
+This is the installed-app Expo iOS counterpart to Track A2. It requires macOS,
+Xcode, and an installed iOS Simulator runtime, but it does not require an Expo
+account, paid Apple developer account, application repository, or persistent
+update server. Run every command from the AbsoluteJS repository root:
+
+```sh
+cd /absolute/path/to/the/absolutejs-clone
+pwd
+test -f tests/native/expo-ios-update-conformance.test.ts && echo "AbsoluteJS root: OK"
+bun run src/cli/index.ts mobile doctor ios
+```
+
+If the doctor reports a missing Simulator runtime, use the first-class setup
+flow and rerun the doctor:
+
+```sh
+bun run src/cli/index.ts mobile doctor ios --fix
+bun run src/cli/index.ts mobile doctor ios
+```
+
+Then run the production gate. Do not run it from `.absolutejs`, a generated
+native project, or a staging application:
+
+```sh
+bun run test:native:expo:ios:updates
+```
+
+The command generates a clean Expo CNG project, selects or starts an iOS
+Simulator through Expo, builds and installs the Release configuration without a
+Metro server, and drives the app against an ephemeral local AbsoluteJS update
+registry. The first run can take several minutes. A successful run ends with
+one passing test and 31 assertions. Its SecureStore installation identity is
+used for real cohort selection but is never written to the result artifact.
+
+Return these Track A2-iOS results:
+
+- [ ] `EXPO-IOS-OTA-01` `AbsoluteJS root: OK` was printed.
+- [ ] `EXPO-IOS-OTA-02` Every `mobile doctor ios` check passed.
+- [ ] `EXPO-IOS-OTA-03` The complete terminal output from
+  `bun run test:native:expo:ios:updates`.
+- [ ] `EXPO-IOS-OTA-04` The test ended with `1 pass`, `0 fail`, and 31
+  assertions.
+- [ ] `EXPO-IOS-OTA-05`
+  `.absolutejs/expo-ios-update/artifacts/expo-ios-update-conformance.json`
+  exists and reports `outcome: "pass"` and `platform: "ios"`.
+- [ ] `EXPO-IOS-OTA-06` Signature, corrupt-asset, incompatible-runtime,
+  interrupted-download, and broken-startup recovery fields are all `true`.
+- [ ] `EXPO-IOS-OTA-07` Previous-release and embedded rollback fields are
+  `true`.
+- [ ] `EXPO-IOS-OTA-08` The Auth credential is retained, Sync is delivered
+  exactly once, encrypted-at-rest is `true`, and the final pending count is
+  zero.
+- [ ] `EXPO-IOS-OTA-09` Every field under `rollout` is `true`: excluded cohort,
+  manual/automatic and concurrent advancement, operator pause, cancellation
+  fallback, fleet auto-pause, restart retention, and terminal deduplication.
+- [ ] `EXPO-IOS-OTA-10` Confirm the artifact contains no installation UUID,
+  Auth credential, Sync value, signing key, certificate, Simulator identifier,
+  or filesystem path.
+- [ ] `EXPO-IOS-OTA-11` Return `git rev-parse HEAD`, `bun --version`, and
+  `xcodebuild -version` with the report.
+
+If this command fails, return the named Bun test failure and the final 100 lines
+of terminal output. The fixture is disposable and remains under
+`.absolutejs/expo-ios-update`; do not send its generated certificate or native
+application data. Track A2-iOS is the remaining macOS-only acceptance gate for
+this release, so report failures rather than marking the track skipped when
+Xcode and a Simulator runtime are available.
 
 ### Track A3 — Capacitor Android staged-update gate from the same repository
 

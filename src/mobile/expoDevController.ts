@@ -95,6 +95,22 @@ export type AbsoluteExpoAndroidReleaseInstallation = {
 	serial: string;
 };
 
+export type InstallAbsoluteExpoIosReleaseOptions = {
+	capture?: (command: string[]) => { exitCode: number; stdout: string };
+	config: NormalizedAbsoluteMobileConfig;
+	executable?: string;
+	iosDevice?: string;
+	log?: (message: string) => void;
+	signal?: AbortSignal;
+	spawnProcess?: typeof spawn;
+	xcrun?: string;
+};
+
+export type AbsoluteExpoIosReleaseInstallation = {
+	durationMs: number;
+	udid: string;
+};
+
 const METRO_READY_TIMEOUT_MS = 120_000;
 const PROCESS_CLOSE_TIMEOUT_MS = 2_000;
 
@@ -703,7 +719,126 @@ export const installAbsoluteExpoAndroidRelease = async (
 
 	return { durationMs: performance.now() - started, serial };
 };
+export const installAbsoluteExpoIosRelease = async (
+	options: InstallAbsoluteExpoIosReleaseOptions
+): Promise<AbsoluteExpoIosReleaseInstallation> => {
+	if (options.config.engine !== 'expo')
+		throw new TypeError('The Expo iOS release installer requires Expo.');
+	if (!options.config.platforms.includes('ios'))
+		throw new TypeError(
+			'The Expo iOS release installer requires the ios platform.'
+		);
+	const project = options.config.nativeProjectDirectory;
+	const executable =
+		options.executable ?? (await absoluteExpoExecutable(project));
+	const capture = options.capture ?? captureCommand;
+	const run = options.spawnProcess ?? spawn;
+	const log = options.log ?? (() => undefined);
+	const xcrun = options.xcrun ?? 'xcrun';
+	const env: NodeJS.ProcessEnv = { ...process.env, NODE_ENV: 'production' };
+	const utilityOptions: ExpoUtilityCommandOptions = {
+		cwd: project,
+		env,
+		log,
+		signal: options.signal
+	};
+	const bootedSimulators = () => {
+		const inventory = capture([
+			xcrun,
+			'simctl',
+			'list',
+			'devices',
+			'booted',
+			'-j'
+		]);
+		if (inventory.exitCode !== 0)
+			throw new Error(
+				'Could not inspect booted iOS Simulators. Run `absolute mobile doctor ios --fix`.'
+			);
 
+		return parseBootedAbsoluteExpoIosSimulators(inventory.stdout);
+	};
+	const started = performance.now();
+	const prebuildExit = await runUtilityCommand(
+		run,
+		executable,
+		['prebuild', '--clean', '--no-install', '--platform', 'ios'],
+		utilityOptions
+	);
+	if (prebuildExit !== 0)
+		throw new Error(
+			`Expo iOS production preparation exited with status ${prebuildExit}.`
+		);
+	const beforeBuild = bootedSimulators();
+	const selectedBeforeBuild = options.iosDevice
+		? beforeBuild.find((udid) => udid === options.iosDevice)
+		: beforeBuild[0];
+	if (options.iosDevice && !selectedBeforeBuild)
+		throw new Error('The selected Expo iOS Simulator is not booted.');
+	const releaseExit = await runUtilityCommand(
+		run,
+		executable,
+		[
+			'run:ios',
+			'--configuration',
+			'Release',
+			'--no-bundler',
+			...(selectedBeforeBuild ? ['--device', selectedBeforeBuild] : [])
+		],
+		utilityOptions
+	);
+	if (releaseExit !== 0)
+		throw new Error(
+			`Expo iOS release build exited with status ${releaseExit}.`
+		);
+	const udid = selectedBeforeBuild ?? bootedSimulators()[0];
+	if (!udid)
+		throw new Error(
+			'Expo iOS release build completed but its Simulator could not be identified.'
+		);
+	const launched = capture([
+		xcrun,
+		'simctl',
+		'launch',
+		'--terminate-running-process',
+		udid,
+		options.config.appId
+	]);
+	if (launched.exitCode !== 0)
+		throw new Error('Expo iOS release app launch failed.');
+	log(`Installed and launched the Expo iOS release app on ${udid}.`);
+
+	return { durationMs: performance.now() - started, udid };
+};
+export const parseBootedAbsoluteExpoIosSimulators = (source: string) => {
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(source);
+	} catch {
+		throw new TypeError('Invalid iOS Simulator inventory JSON.');
+	}
+	if (!parsed || typeof parsed !== 'object')
+		throw new TypeError('Invalid iOS Simulator inventory JSON.');
+	const devices = Reflect.get(parsed, 'devices');
+	if (!devices || typeof devices !== 'object') return [];
+
+	return Object.values(devices).flatMap((values) => {
+		if (!Array.isArray(values)) return [];
+
+		return values.flatMap((value) => {
+			if (!value || typeof value !== 'object') return [];
+			const udid = Reflect.get(value, 'udid');
+			const state = Reflect.get(value, 'state');
+			const isAvailable = Reflect.get(value, 'isAvailable');
+
+			return typeof udid === 'string' &&
+				state === 'Booted' &&
+				isAvailable !== false
+				? [udid]
+				: [];
+		});
+	});
+};
 export const startAbsoluteExpoDevSession = async (
 	options: StartAbsoluteExpoDevOptions
 ) => {

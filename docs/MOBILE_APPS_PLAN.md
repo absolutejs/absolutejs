@@ -1,6 +1,19 @@
 # AbsoluteJS Mobile Apps: Research and Implementation Plan
 
-Status: Capacitor Android development/release, all-framework embedded bundles, universal native Auth/Sync, Expo hybrid native Auth/Sync, background Sync, automatic device provisioning, provider-neutral native push registration, signed staged Capacitor updates, end-to-end RSA-signed self-hosted Expo production updates, and Android conformance are operational; iOS development/release automation is shipped and awaiting real macOS/physical-device acceptance
+Status: Capacitor Android development/release, all-framework embedded bundles, universal native Auth/Sync, Expo hybrid native Auth/Sync, background Sync, automatic device provisioning, provider-neutral native push registration, signed staged Capacitor updates, end-to-end RSA-signed self-hosted Expo production updates, and Android conformance are operational; iOS development/release automation and the installed Expo iOS OTA conformance harness are shipped and awaiting real macOS/physical-device acceptance
+
+Implementation checkpoint (September 13, 2026, installed Expo iOS staged
+rollout harness): AbsoluteJS now has a macOS-only production Expo iOS gate that
+mirrors the 31-assertion Android matrix in an installed Release-configured app,
+without Metro or developer-authored native code. It covers signed activation,
+unsafe update rejection, fatal-startup recovery, native Auth, encrypted
+exactly-once Sync, previous and embedded rollback, deterministic staged cohorts,
+operator and fleet controls, automatic advancement, and restart deduplication.
+The platform-neutral driver and tests are complete; a real Xcode/Simulator pass
+must still be returned through the exact Track A2-iOS checklist in
+`docs/IOS_MACOS_TESTING.md` before this checkpoint can be called operational.
+Run that gate from this repository root with
+`bun run test:native:expo:ios:updates`.
 
 Implementation checkpoint (September 13, 2026, installed Expo Android staged
 rollout conformance): the real non-debuggable Expo release-app gate now covers

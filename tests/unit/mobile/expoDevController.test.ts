@@ -5,6 +5,8 @@ import type { ChildProcess, spawn } from 'node:child_process';
 import { normalizeAbsoluteMobileConfig } from '../../../src/mobile/config';
 import {
 	installAbsoluteExpoAndroidRelease,
+	installAbsoluteExpoIosRelease,
+	parseBootedAbsoluteExpoIosSimulators,
 	planAbsoluteExpoDevSession,
 	startAbsoluteExpoDevSession
 } from '../../../src/mobile/expoDevController';
@@ -314,6 +316,130 @@ describe('Expo development controller', () => {
 			"shell monkey -p 'com.example.product' -c android.intent.category.LAUNCHER 1"
 		);
 		expect(script).not.toContain('expo-development-client/?url=');
+	});
+
+	test('builds and launches an installable Expo iOS Simulator release', async () => {
+		const harness = processHarness();
+		const captures: string[][] = [];
+		const inventory = JSON.stringify({
+			devices: {
+				'com.apple.CoreSimulator.SimRuntime.iOS-26-0': [
+					{
+						isAvailable: true,
+						state: 'Booted',
+						udid: 'IOS-UDID-1'
+					}
+				]
+			}
+		});
+		const release = await installAbsoluteExpoIosRelease({
+			config,
+			executable: '/workspace/expo',
+			spawnProcess: harness.spawnProcess,
+			xcrun: '/usr/bin/xcrun',
+			capture: (command) => {
+				captures.push(command);
+
+				return command.includes('list')
+					? { exitCode: 0, stdout: inventory }
+					: { exitCode: 0, stdout: '' };
+			}
+		});
+
+		expect(release.udid).toBe('IOS-UDID-1');
+		expect(harness.commands).toEqual([
+			[
+				'/workspace/expo',
+				'prebuild',
+				'--clean',
+				'--no-install',
+				'--platform',
+				'ios'
+			],
+			[
+				'/workspace/expo',
+				'run:ios',
+				'--configuration',
+				'Release',
+				'--no-bundler',
+				'--device',
+				'IOS-UDID-1'
+			]
+		]);
+		expect(captures).toContainEqual([
+			'/usr/bin/xcrun',
+			'simctl',
+			'launch',
+			'--terminate-running-process',
+			'IOS-UDID-1',
+			'com.example.product'
+		]);
+	});
+
+	test('discovers the iOS Simulator that Expo boots for a first release', async () => {
+		const harness = processHarness();
+		let inventoryReads = 0;
+		const release = await installAbsoluteExpoIosRelease({
+			config,
+			executable: '/workspace/expo',
+			spawnProcess: harness.spawnProcess,
+			xcrun: '/usr/bin/xcrun',
+			capture: (command) => {
+				if (!command.includes('list'))
+					return { exitCode: 0, stdout: '' };
+				inventoryReads += 1;
+
+				return {
+					exitCode: 0,
+					stdout: JSON.stringify({
+						devices:
+							inventoryReads === 1
+								? {}
+								: {
+										runtime: [
+											{
+												state: 'Booted',
+												udid: 'IOS-BOOTED-BY-EXPO'
+											}
+										]
+									}
+					})
+				};
+			}
+		});
+
+		expect(release.udid).toBe('IOS-BOOTED-BY-EXPO');
+		expect(inventoryReads).toBe(2);
+		expect(harness.commands[1]).toEqual([
+			'/workspace/expo',
+			'run:ios',
+			'--configuration',
+			'Release',
+			'--no-bundler'
+		]);
+	});
+
+	test('parses only available booted Expo iOS Simulators', () => {
+		expect(
+			parseBootedAbsoluteExpoIosSimulators(
+				JSON.stringify({
+					devices: {
+						runtime: [
+							{ state: 'Booted', udid: 'IOS-1' },
+							{
+								isAvailable: false,
+								state: 'Booted',
+								udid: 'IOS-2'
+							},
+							{ state: 'Shutdown', udid: 'IOS-3' }
+						]
+					}
+				})
+			)
+		).toEqual(['IOS-1']);
+		expect(() => parseBootedAbsoluteExpoIosSimulators('not-json')).toThrow(
+			'Invalid iOS Simulator inventory JSON'
+		);
 	});
 
 	test('restarts a local Android development client on the managed Metro URL', async () => {
