@@ -1,5 +1,16 @@
 {
 	"contract": 1,
 	"name": "@absolutejs/absolute",
-	"releases": []
+	"releases": [
+		{
+			"changes": [
+				{
+					"kind": "added",
+					"summary": "Installed Expo Android apps now exercise staged cohorts, automatic advancement, pause, resume, cancellation, fleet recovery, and restart-safe health reporting in the native conformance suite."
+				}
+			],
+			"date": "2026-09-13",
+			"version": "0.20.0-beta.89"
+		}
+	]
 }

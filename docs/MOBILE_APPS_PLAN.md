@@ -2,6 +2,22 @@
 
 Status: Capacitor Android development/release, all-framework embedded bundles, universal native Auth/Sync, Expo hybrid native Auth/Sync, background Sync, automatic device provisioning, provider-neutral native push registration, signed staged Capacitor updates, end-to-end RSA-signed self-hosted Expo production updates, and Android conformance are operational; iOS development/release automation is shipped and awaiting real macOS/physical-device acceptance
 
+Implementation checkpoint (September 13, 2026, installed Expo Android staged
+rollout conformance): the real non-debuggable Expo release-app gate now covers
+the same trusted rollout lifecycle as Capacitor. It proves stable 50% cohort
+inclusion and exclusion, manual and automatic 50% -> 100% advancement,
+concurrent advancement idempotency, operator pause/resume/cancel fallback,
+fleet-health auto-pause and prior-release recovery, and terminal-report
+deduplication after process restart. `@absolutejs/deploy` gives each server-side
+selection transition a stable Expo activation identity, so Expo can select an
+older trusted AbsoluteJS release without developers touching generated native
+code. The gate also retains its signature, corruption, runtime, interrupted
+download, fatal-startup, Auth, encrypted Sync, previous-release, and embedded
+rollback checks. Its sanitized artifact contains booleans and counts only; the
+SecureStore installation UUID used for real cohort selection is never exported.
+Run it from this repository root with
+`bun run test:native:expo:android:updates`.
+
 Implementation checkpoint (September 8, 2026, installed Android staged-update
 conformance): a real Capacitor app now exercises the production
 `@absolutejs/deploy` registry through two independently timed phases. The first

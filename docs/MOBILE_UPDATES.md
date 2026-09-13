@@ -281,7 +281,12 @@ The `absolute:mobile-update` stream emits `download-progress` events and a final
 aggregates contain no URL, local path, manifest, Auth/Sync value, or page data.
 The staged release is still digest-checked file by file and activated atomically.
 Expo retains its native update/cache protocol while sharing the registry's
-content-addressed and byte-range-capable backing storage.
+content-addressed and byte-range-capable backing storage. When a pause,
+resumption, cancellation, fleet-health fallback, or explicit rollback changes
+the server-selected release, the registry derives a stable transition-specific
+Expo update identity and commit time. This lets Expo activate the trusted
+selection even when it points to an older immutable AbsoluteJS release; app code
+and generated native projects remain unchanged.
 
 ## Fleet health and automatic rollout protection
 
@@ -586,9 +591,13 @@ proves healthy activation; rejection of invalid signatures, corrupt assets,
 incompatible runtimes, and interrupted downloads; recovery from a fatal update
 before its first root commit; activation of a later corrected release; rollback
 to a previous OTA and to the embedded bundle; retained native Auth; exactly-once
-Sync replay; and encrypted-at-rest SQLite/WAL bytes. The production APK stays
+Sync replay; and encrypted-at-rest SQLite/WAL bytes. It also drives real 50%
+included and excluded cohorts, manual and automatic advancement to 100%, two
+concurrent advancement requests, pause/resume/cancel fallback, fleet-health
+auto-pause, and terminal-report deduplication after restart. The production APK stays
 non-debuggable: storage inspection occurs inside its own sandbox and exports only
-a boolean result. A passing artifact is written to
+a boolean result. Its real SecureStore installation UUID is used for cohort
+selection but never written to the artifact. A passing artifact is written to
 `.absolutejs/expo-android-update/artifacts/expo-android-update-conformance.json`.
 
 ## Current limitations

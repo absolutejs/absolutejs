@@ -10,7 +10,9 @@ import {
 } from '@expo/code-signing-certificates';
 import {
 	createMobileUpdateHandler,
-	createMobileUpdateRegistry
+	createMobileUpdateRegistry,
+	type MobileUpdateRegistry,
+	type MobileUpdateRolloutReport
 } from '@absolutejs/deploy/mobile-update';
 import type { NativeReleaseBlobStore } from '@absolutejs/deploy/native-release';
 import { findFreePort } from '../../src/cli/utils';
@@ -25,6 +27,7 @@ import {
 } from '../../src/mobile/expoUpdate';
 import { writeAbsoluteExpoProject } from '../../src/mobile/expoProject';
 import { resolveAbsoluteMobileUpdateRuntime } from '../../src/mobile/updateRuntime';
+import { isAbsoluteMobileUpdateRolloutMember } from '../../src/mobile/updateRollout';
 import { buildAbsoluteMobileUpdate } from '../../src/mobile/updateSigning';
 import {
 	ABSOLUTE_ANDROID_AVD_NAME,
@@ -47,7 +50,9 @@ const KEY_ID = 'acceptance-ecdsa';
 const EXPO_KEY_ID = 'acceptance-rsa';
 const AUTH_SENTINEL = 'absolute-expo-ota-renewable-credential';
 const SYNC_SENTINEL = 'absolute-expo-ota-private-mutation';
+const COMMAND_ATTEMPTS = 3;
 const COMMAND_TIMEOUT_MS = 30_000;
+const COMMAND_RETRY_MS = 1_000;
 const WAIT_TIMEOUT_MS = 120_000;
 const EMULATOR_WAIT_TIMEOUT_MS = 180_000;
 
@@ -59,7 +64,12 @@ type ReleaseLabel =
 	| 'incompatible'
 	| 'interrupted'
 	| 'broken'
-	| 'recovery';
+	| 'recovery'
+	| 'rollout-excluded'
+	| 'rollout-manual'
+	| 'rollout-operator'
+	| 'rollout-broken'
+	| 'rollout-automatic';
 type AppReport = {
 	authRetained?: boolean;
 	embedded?: boolean;
@@ -70,6 +80,7 @@ type AppReport = {
 	updateId?: string | null;
 };
 type Fault = 'asset' | 'delay-asset' | 'signature' | undefined;
+type PublishOptions = { eligible?: boolean; rollout?: number };
 type StoredBlob = {
 	bytes: Uint8Array;
 	metadata?: Record<string, string>;
@@ -78,16 +89,26 @@ type StoredBlob = {
 let backend: ReturnType<typeof Bun.serve> | undefined;
 
 const command = (executable: string, ...args: string[]) => {
-	const result = Bun.spawnSync([executable, ...args], {
-		killSignal: 'SIGKILL',
-		stderr: 'pipe',
-		stdout: 'pipe',
-		timeout: COMMAND_TIMEOUT_MS
-	});
-	if (result.exitCode === 0) return result.stdout.toString().trim();
-	throw new Error(
-		`${executable} ${args.join(' ')} failed: ${result.stderr.toString().trim() || result.stdout.toString().trim()}`
-	);
+	let failure = '';
+	for (let attempt = 0; attempt < COMMAND_ATTEMPTS; attempt += 1) {
+		const result = Bun.spawnSync([executable, ...args], {
+			killSignal: 'SIGKILL',
+			stderr: 'pipe',
+			stdout: 'pipe',
+			timeout: COMMAND_TIMEOUT_MS
+		});
+		if (result.exitCode === 0) return result.stdout.toString().trim();
+		failure =
+			result.stderr.toString().trim() || result.stdout.toString().trim();
+		if (
+			!failure.includes('UtilAcceptVsock') ||
+			attempt === COMMAND_ATTEMPTS - 1
+		)
+			break;
+		Bun.sleepSync(COMMAND_RETRY_MS);
+	}
+
+	throw new Error(`${executable} ${args.join(' ')} failed: ${failure}`);
 };
 
 const readyAndroidSerials = (adb: string) => {
@@ -133,6 +154,7 @@ const memoryStore = (): NativeReleaseBlobStore => {
 	const objects = new Map<string, StoredBlob>();
 
 	return {
+		delete: async (key) => void objects.delete(key),
 		get: async (key) => objects.get(key)?.bytes ?? null,
 		head: async (key) => {
 			const value = objects.get(key);
@@ -145,13 +167,26 @@ const memoryStore = (): NativeReleaseBlobStore => {
 					}
 				: null;
 		},
+		list: async (options = {}) => ({
+			objects: [...objects.entries()]
+				.filter(([key]) => key.startsWith(options.prefix ?? ''))
+				.map(([key, value]) => ({
+					key,
+					metadata: value.metadata,
+					size: value.bytes.byteLength
+				})),
+			truncated: false
+		}),
 		put: async (key, body, options) => {
 			let bytes: Uint8Array;
 			if (typeof body === 'string')
 				bytes = new TextEncoder().encode(body);
 			else if (body instanceof Uint8Array) bytes = body;
 			else bytes = new Uint8Array(await new Response(body).arrayBuffer());
-			objects.set(key, { bytes, metadata: options?.metadata });
+			objects.set(key, {
+				bytes: new Uint8Array(bytes),
+				...(options?.metadata ? { metadata: options.metadata } : {})
+			});
 		}
 	};
 };
@@ -285,7 +320,7 @@ const runExpoExport = async (
 	);
 	const packagePath = resolve(NATIVE_PROJECT, 'package.json');
 	const packageSource = await readFile(packagePath, 'utf8');
-	if (label === 'broken') {
+	if (label === 'broken' || label === 'rollout-broken') {
 		const packageJson = JSON.parse(packageSource) as Record<
 			string,
 			unknown
@@ -325,7 +360,8 @@ const runExpoExport = async (
 		if ((await child.exited) !== 0)
 			throw new Error(`Expo ${label} update export failed.`);
 	} finally {
-		if (label === 'broken') await writeFile(packagePath, packageSource);
+		if (label === 'broken' || label === 'rollout-broken')
+			await writeFile(packagePath, packageSource);
 	}
 	const app: unknown = JSON.parse(
 		await readFile(resolve(NATIVE_PROJECT, 'app.json'), 'utf8')
@@ -445,27 +481,82 @@ module.exports = config => withAndroidManifest(config, value => {
 		if ((await install.exited) !== 0)
 			throw new Error('Expo OTA dependency installation failed.');
 
-		const registry = createMobileUpdateRegistry({
-			publicKeys: { [KEY_ID]: publicKey(registrySigning.publicKey) },
-			store: memoryStore()
-		});
-		const updateHandler = createMobileUpdateHandler({
-			allowedOrigins: [],
-			appId: APP_ID,
-			channel: CHANNEL,
-			expoCodeSigning: {
-				keys: {
-					[EXPO_KEY_ID]: {
-						certificate,
-						privateKey: expoPrivateKey
+		const createRegistry = (automatic?: boolean) =>
+			createMobileUpdateRegistry({
+				...(automatic === undefined
+					? {}
+					: {
+							health: {
+								autoPause: {
+									failureRate: 0.5,
+									minimumReports: 1
+								},
+								secret: 'absolutejs-expo-rollout-conformance-secret'
+							},
+							rollout: {
+								automatic,
+								stages: [
+									{
+										maximumFailureRate: 0.25,
+										minimumReports: 1,
+										observationMs: 0,
+										rollout: 0.5
+									},
+									{
+										maximumFailureRate: 0.25,
+										minimumReports: 1,
+										observationMs: 0,
+										rollout: 1
+									}
+								]
+							}
+						}),
+				publicKeys: {
+					[KEY_ID]: publicKey(registrySigning.publicKey)
+				},
+				store: memoryStore()
+			});
+		const createHandler = (target: MobileUpdateRegistry) => {
+			const { recordUpdateHealth } = target;
+
+			return createMobileUpdateHandler({
+				allowedOrigins: [],
+				appId: APP_ID,
+				channel: CHANNEL,
+				expoCodeSigning: {
+					keys: {
+						[EXPO_KEY_ID]: {
+							certificate,
+							privateKey: expoPrivateKey
+						}
 					}
-				}
-			},
-			registry
-		});
+				},
+				registry: recordUpdateHealth
+					? {
+							...target,
+							recordUpdateHealth: async (input) => {
+								try {
+									return await recordUpdateHealth(input);
+								} catch (error) {
+									healthErrors.push(
+										error instanceof Error
+											? error.message
+											: String(error)
+									);
+									throw error;
+								}
+							}
+						}
+					: target
+			});
+		};
+		const healthErrors: string[] = [];
+		let registry = createRegistry();
+		let updateHandler = createHandler(registry);
 		let fault: Fault;
 		let delayedAssetStarted = false;
 		let releaseDelayedAsset: (() => void) | undefined;
+		let updateInstallationId: string | undefined;
 		const delayedAsset = new Promise<void>((_resolve) => {
 			releaseDelayedAsset = _resolve;
 		});
@@ -499,6 +590,20 @@ module.exports = config => withAndroidManifest(config, value => {
 						`/__absolute/mobile/updates/${CHANNEL}/`
 					)
 				) {
+					const extraParameters =
+						request.headers.get('expo-extra-params');
+					const installationMatch =
+						/absolute-installation="([0-9a-f-]+)"/u.exec(
+							extraParameters ?? ''
+						);
+					const [, matchedInstallationId] = installationMatch ?? [];
+					if (
+						matchedInstallationId &&
+						/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u.test(
+							matchedInstallationId
+						)
+					)
+						updateInstallationId = matchedInstallationId;
 					const response = await updateHandler(request);
 					if (
 						fault === 'signature' &&
@@ -647,15 +752,21 @@ module.exports = config => withAndroidManifest(config, value => {
 			embedded: true,
 			pending: 1
 		});
+		const installationId = await waitFor(
+			() => updateInstallationId,
+			'Expo OTA requests did not expose their SecureStore installation identity.'
+		);
 
 		const executable = await absoluteExpoExecutable(NATIVE_PROJECT);
 		const runtimeVersion = resolveAbsoluteMobileUpdateRuntime(
 			config,
 			FIXTURE_ROOT
 		).fingerprint;
+		let lastCreatedAt = 0;
 		const publish = async (
 			label: ReleaseLabel,
-			runtime = runtimeVersion
+			runtime = runtimeVersion,
+			options: PublishOptions = {}
 		) => {
 			const exported = await runExpoExport(
 				executable,
@@ -663,24 +774,48 @@ module.exports = config => withAndroidManifest(config, value => {
 				runtime,
 				origin
 			);
-			const update = await buildAbsoluteMobileUpdate({
-				appId: APP_ID,
-				bundleDirectory: exported.directory,
-				channel: CHANNEL,
-				classification: 'bug-fix',
-				createdAt: new Date(Date.now() + reports.length * 1_000),
-				keyId: KEY_ID,
-				outputDirectory: RELEASE_ROOT,
-				privateKey: registrySigning.privateKey.export({
-					format: 'pem',
-					type: 'pkcs8'
-				}),
-				runtimeFingerprint: runtime
-			});
+			const createdAt = Math.max(Date.now(), lastCreatedAt + 1);
+			let update:
+				| Awaited<ReturnType<typeof buildAbsoluteMobileUpdate>>
+				| undefined;
+			for (let attempt = 0; attempt < 128; attempt += 1) {
+				const candidate = await buildAbsoluteMobileUpdate({
+					appId: APP_ID,
+					bundleDirectory: exported.directory,
+					channel: CHANNEL,
+					classification: 'bug-fix',
+					createdAt: new Date(createdAt + attempt),
+					keyId: KEY_ID,
+					outputDirectory: RELEASE_ROOT,
+					privateKey: registrySigning.privateKey.export({
+						format: 'pem',
+						type: 'pkcs8'
+					}),
+					runtimeFingerprint: runtime
+				});
+				if (
+					options.eligible === undefined ||
+					isAbsoluteMobileUpdateRolloutMember({
+						appId: APP_ID,
+						channel: CHANNEL,
+						installationId,
+						releaseId: candidate.manifest.releaseId,
+						rollout: options.rollout ?? 1
+					}) === options.eligible
+				) {
+					update = candidate;
+					break;
+				}
+			}
+			if (!update)
+				throw new Error(
+					`Could not build an Expo update for the requested rollout cohort (${label}).`
+				);
+			lastCreatedAt = Date.parse(update.manifest.createdAt);
 			await registry.publishUpdate({
 				manifest: update.manifest,
 				releaseDirectory: update.outputDirectory,
-				rollout: 1
+				rollout: options.rollout ?? 1
 			});
 
 			const { android } = exported.descriptor.platforms;
@@ -690,7 +825,8 @@ module.exports = config => withAndroidManifest(config, value => {
 			return {
 				expectedFiles: android.assets.length + 1,
 				launchAssetPath: android.launchAsset.path,
-				manifest: update.manifest
+				manifest: update.manifest,
+				outputDirectory: update.outputDirectory
 			};
 		};
 		const activate = async (
@@ -744,6 +880,43 @@ module.exports = config => withAndroidManifest(config, value => {
 			launch();
 
 			return report(label, before);
+		};
+		const releaseFileRequests = (releaseId: string) => {
+			const prefix = `/__absolute/mobile/updates/${CHANNEL}/${releaseId}/files/`;
+
+			return [...requestCounts].reduce(
+				(count, [path, requests]) =>
+					count + (path.startsWith(prefix) ? requests : 0),
+				0
+			);
+		};
+		const inspectRollout = async (target: MobileUpdateRegistry) => {
+			if (!target.inspectUpdateRollout)
+				throw new Error(
+					'Expected Expo staged rollout inspection support.'
+				);
+
+			return target.inspectUpdateRollout({
+				appId: APP_ID,
+				channel: CHANNEL
+			});
+		};
+		const waitForRollout = async (
+			target: MobileUpdateRegistry,
+			accept: (value: MobileUpdateRolloutReport) => boolean
+		) => {
+			const deadline = Date.now() + WAIT_TIMEOUT_MS;
+			let last: MobileUpdateRolloutReport | null = null;
+			while (Date.now() < deadline) {
+				const value = await inspectRollout(target);
+				last = value;
+				if (value && accept(value)) return value;
+				await Bun.sleep(250);
+			}
+
+			throw new Error(
+				`Expo staged rollout did not reach the expected state. Last report: ${JSON.stringify(last)}. Health errors: ${JSON.stringify(healthErrors)}`
+			);
 		};
 
 		const healthyPublication = await publish('healthy');
@@ -878,6 +1051,217 @@ module.exports = config => withAndroidManifest(config, value => {
 		expect(previous).toMatchObject({ authRetained: true, pending: 0 });
 		expect(previous.updateId).not.toBe(recovered.updateId);
 
+		const manualRegistry = createRegistry(false);
+		registry = manualRegistry;
+		updateHandler = createHandler(registry);
+		await manualRegistry.publishUpdate({
+			manifest: healthyPublication.manifest,
+			releaseDirectory: healthyPublication.outputDirectory,
+			rollout: 1
+		});
+
+		const excludedPublication = await publish(
+			'rollout-excluded',
+			runtimeVersion,
+			{ eligible: false, rollout: 0.5 }
+		);
+		const excluded = await inspectRollout(manualRegistry);
+		if (!excluded)
+			throw new Error('Expected an excluded Expo staged rollout.');
+		const excludedRequests = releaseFileRequests(
+			excludedPublication.manifest.releaseId
+		);
+		const excludedStart = reports.length;
+		launch();
+		await report('healthy', excludedStart);
+		await Bun.sleep(1_000);
+		expect(
+			releaseFileRequests(excludedPublication.manifest.releaseId)
+		).toBe(excludedRequests);
+
+		const manualPublication = await publish(
+			'rollout-manual',
+			runtimeVersion,
+			{ eligible: true, rollout: 0.5 }
+		);
+		const eligible = await inspectRollout(manualRegistry);
+		if (!eligible)
+			throw new Error('Expected an eligible Expo staged rollout.');
+		expect(eligible.promotionId).not.toBe(excluded.promotionId);
+		const manual = await activate(
+			'rollout-manual',
+			manualPublication,
+			false
+		);
+		expect(manual).toMatchObject({ authRetained: true, pending: 0 });
+		const manualHealth = await waitForRollout(
+			manualRegistry,
+			(value) =>
+				value.promotionId === eligible.promotionId &&
+				value.activated === 1 &&
+				value.terminalReports === 1
+		);
+		expect(manualHealth.status).toBe('active');
+		if (!manualRegistry.advanceUpdateRollout)
+			throw new Error(
+				'Expected Expo staged rollout advancement support.'
+			);
+		const concurrentAdvance = await Promise.all([
+			manualRegistry.advanceUpdateRollout({
+				appId: APP_ID,
+				channel: CHANNEL,
+				rollout: 1
+			}),
+			manualRegistry.advanceUpdateRollout({
+				appId: APP_ID,
+				channel: CHANNEL,
+				rollout: 1
+			})
+		]);
+		for (const advanced of concurrentAdvance)
+			expect(advanced).toMatchObject({
+				currentStage: 1,
+				promotionId: eligible.promotionId,
+				rollout: 1,
+				status: 'complete'
+			});
+		const manualRestart = reports.length;
+		launch();
+		await report('rollout-manual', manualRestart);
+		const afterManualRestart = await inspectRollout(manualRegistry);
+		expect(afterManualRestart).toMatchObject({
+			activated: 1,
+			promotionId: eligible.promotionId,
+			status: 'complete',
+			terminalReports: 1
+		});
+
+		const operatorPublication = await publish(
+			'rollout-operator',
+			runtimeVersion,
+			{ eligible: true, rollout: 0.5 }
+		);
+		if (
+			!manualRegistry.pauseUpdateRollout ||
+			!manualRegistry.resumeUpdateRollout ||
+			!manualRegistry.cancelUpdateRollout
+		)
+			throw new Error('Expected Expo staged rollout operator controls.');
+		await manualRegistry.pauseUpdateRollout({
+			appId: APP_ID,
+			channel: CHANNEL
+		});
+		const pausedRequests = releaseFileRequests(
+			operatorPublication.manifest.releaseId
+		);
+		const pausedStart = reports.length;
+		launch();
+		await report('rollout-manual', pausedStart);
+		expect(
+			releaseFileRequests(operatorPublication.manifest.releaseId)
+		).toBe(pausedRequests);
+		await manualRegistry.resumeUpdateRollout({
+			appId: APP_ID,
+			channel: CHANNEL
+		});
+		await activate('rollout-operator', operatorPublication, false);
+		await manualRegistry.cancelUpdateRollout({
+			appId: APP_ID,
+			channel: CHANNEL
+		});
+		await activateCached('rollout-manual');
+		expect(await inspectRollout(manualRegistry)).toMatchObject({
+			status: 'cancelled'
+		});
+
+		const brokenRollout = await publish('rollout-broken', runtimeVersion, {
+			eligible: true,
+			rollout: 0.5
+		});
+		const brokenRolloutRequests = releaseFileRequests(
+			brokenRollout.manifest.releaseId
+		);
+		launch();
+		await waitFor(
+			() =>
+				releaseFileRequests(brokenRollout.manifest.releaseId) >
+				brokenRolloutRequests
+					? true
+					: undefined,
+			'Expo staged rollout did not download its intentionally broken candidate.'
+		);
+		await Bun.sleep(5_000);
+		const fleetRecoveryStart = reports.length;
+		launch();
+		await Bun.sleep(7_000);
+		launch();
+		await report('rollout-manual', fleetRecoveryStart);
+		const fleetPaused = await waitForRollout(
+			manualRegistry,
+			(value) =>
+				value.releaseId === brokenRollout.manifest.releaseId &&
+				value.status === 'paused'
+		);
+		expect(fleetPaused).toMatchObject({
+			failures: 1,
+			pausedBy: 'fleet-health',
+			rolledBack: 1,
+			terminalReports: 1
+		});
+		const fleetPausedRequests = releaseFileRequests(
+			brokenRollout.manifest.releaseId
+		);
+		const fleetPausedStart = reports.length;
+		launch();
+		await report('rollout-manual', fleetPausedStart);
+		await Bun.sleep(1_000);
+		expect(releaseFileRequests(brokenRollout.manifest.releaseId)).toBe(
+			fleetPausedRequests
+		);
+
+		const automaticRegistry = createRegistry(true);
+		registry = automaticRegistry;
+		updateHandler = createHandler(registry);
+		await automaticRegistry.publishUpdate({
+			manifest: manualPublication.manifest,
+			releaseDirectory: manualPublication.outputDirectory,
+			rollout: 1
+		});
+		const automaticPublication = await publish(
+			'rollout-automatic',
+			runtimeVersion,
+			{ eligible: true, rollout: 0.5 }
+		);
+		const automaticInitial = await inspectRollout(automaticRegistry);
+		if (!automaticInitial)
+			throw new Error('Expected an automatic Expo staged rollout.');
+		const automatic = await activate(
+			'rollout-automatic',
+			automaticPublication,
+			false
+		);
+		expect(automatic).toMatchObject({ authRetained: true, pending: 0 });
+		const automaticComplete = await waitForRollout(
+			automaticRegistry,
+			(value) => value.status === 'complete'
+		);
+		expect(automaticComplete).toMatchObject({
+			activated: 1,
+			currentStage: 1,
+			promotionId: automaticInitial.promotionId,
+			terminalReports: 1
+		});
+		const automaticRestart = reports.length;
+		launch();
+		await report('rollout-automatic', automaticRestart);
+		const automaticAfterRestart = await inspectRollout(automaticRegistry);
+		expect(automaticAfterRestart).toMatchObject({
+			activated: 1,
+			promotionId: automaticInitial.promotionId,
+			status: 'complete',
+			terminalReports: 1
+		});
+
 		await registry.rollbackUpdate({ appId: APP_ID, channel: CHANNEL });
 		const rollbackStart = reports.length;
 		const rollbackRequestCount =
@@ -912,6 +1296,23 @@ module.exports = config => withAndroidManifest(config, value => {
 					engine: 'expo',
 					outcome: 'pass',
 					platform: 'android',
+					rollout: {
+						automaticAdvanced:
+							automaticComplete.status === 'complete',
+						cancelledFallback: true,
+						cohortExcluded:
+							excluded.releaseId ===
+							excludedPublication.manifest.releaseId,
+						concurrentAdvance: concurrentAdvance.every(
+							({ status }) => status === 'complete'
+						),
+						fleetPaused: fleetPaused.pausedBy === 'fleet-health',
+						operatorPauseBlockedDownload: true,
+						processRestartRetained:
+							automaticAfterRestart?.status === 'complete',
+						terminalReportsDeduplicated:
+							automaticAfterRestart?.terminalReports === 1
+					},
 					sync: {
 						deliveredExactlyOnce: effects.size === 1,
 						encryptedAtRest: rolledBack.encryptedAtRest === true,

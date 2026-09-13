@@ -9,7 +9,7 @@
 	"dependencies": {
 		"@absolutejs/auth": ">=0.75.0 <0.77.0",
 		"@absolutejs/beacon": ">=0.7.0-beta.4 <0.8.0",
-		"@absolutejs/deploy": "0.25.13",
+		"@absolutejs/deploy": "0.25.14",
 		"@absolutejs/devices": "0.7.0",
 		"@absolutejs/devices-capacitor": "0.8.0",
 		"@absolutejs/devices-expo": "0.0.2",
@@ -446,6 +446,7 @@
 	"scripts": {
 		"bd": "bun run scripts/build.ts && bun",
 		"build": "bun run scripts/build.ts",
+		"check:package": "absolute-changelog check",
 		"config": "bun run src/cli/index.ts config",
 		"config:studio": "bun run src/cli/index.ts config --config example/absolute.config.ts",
 		"db:push": "drizzle-kit push",
@@ -455,6 +456,7 @@
 		"format:check": "bun run src/cli/index.ts prettier --check",
 		"lint": "bun run src/cli/index.ts eslint",
 		"ls": "bun run src/cli/index.ts ls",
+		"prepublishOnly": "bun run check:package",
 		"release": "bun run release:gate && bun publish",
 		"release:beta": "bun run release:gate && bun publish --tag beta",
 		"release:gate": "bun run scripts/releaseGate.ts",
@@ -480,9 +482,7 @@
 		"test:packed-compile": "bun run scripts/testPackedCompile.ts",
 		"test:unit": "bun test --max-concurrency 1 tests/unit",
 		"typecheck": "bun run src/cli/index.ts typecheck --config example/absolute.config.ts",
-		"verify:client-bundle": "bun run scripts/verifyPublishedClientBundle.ts",
-		"check:package": "absolute-changelog check",
-		"prepublishOnly": "bun run check:package"
+		"verify:client-bundle": "bun run scripts/verifyPublishedClientBundle.ts"
 	},
 	"types": "./dist/src/index.d.ts",
 	"typesVersions": {
@@ -528,7 +528,7 @@
 			]
 		}
 	},
-	"version": "0.20.0-beta.88",
+	"version": "0.20.0-beta.89",
 	"workspaces": [
 		"tests/fixtures/*",
 		"tests/fixtures/_packages/*"

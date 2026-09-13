@@ -123,8 +123,9 @@ bun run test:native:expo:android:updates
 
 The command launches or uses the managed Android emulator, generates a clean
 Expo project, builds and installs a non-debuggable release APK, and normally
-takes several minutes. A successful run ends with one passing test and seventeen
-assertions.
+takes several minutes. A successful run ends with one passing test and 31
+assertions. It uses a real SecureStore installation identity for deterministic
+cohort selection but does not include that identity in its result artifact.
 
 Return these Track A2 results:
 
@@ -132,7 +133,7 @@ Return these Track A2 results:
 - [ ] `EXPO-ANDROID-OTA-02` Every `mobile doctor android` check passed.
 - [ ] `EXPO-ANDROID-OTA-03` The complete terminal output from
   `bun run test:native:expo:android:updates`.
-- [ ] `EXPO-ANDROID-OTA-04` The test ended with `1 pass`, `0 fail`, and seventeen
+- [ ] `EXPO-ANDROID-OTA-04` The test ended with `1 pass`, `0 fail`, and 31
   assertions.
 - [ ] `EXPO-ANDROID-OTA-05`
   `.absolutejs/expo-android-update/artifacts/expo-android-update-conformance.json`
@@ -144,7 +145,14 @@ Return these Track A2 results:
   rollback fields are `true`.
 - [ ] `EXPO-ANDROID-OTA-08` In that artifact, the Auth credential is retained,
   Sync is delivered exactly once, and encrypted-at-rest is `true`.
-- [ ] `EXPO-ANDROID-OTA-09` Return `git rev-parse HEAD`, `bun --version`, and
+- [ ] `EXPO-ANDROID-OTA-09` Every field under `rollout` is `true`: excluded
+  cohort, manual/automatic advancement, concurrent advancement, operator pause,
+  cancellation fallback, fleet auto-pause, restart retention, and terminal
+  deduplication.
+- [ ] `EXPO-ANDROID-OTA-10` Confirm the artifact contains no installation UUID,
+  Auth credential, Sync value, signing key, certificate, device identifier, or
+  filesystem path.
+- [ ] `EXPO-ANDROID-OTA-11` Return `git rev-parse HEAD`, `bun --version`, and
   `xcodebuild -version` with the report.
 
 If the Mac cannot run an Android emulator, record
@@ -322,6 +330,9 @@ actual result, sanitized logs, and artifact or screenshot path in section 13.
 - [ ] `DEV-01` Complete the cold and warm `bun dev` simulator runs.
 - [ ] `DEV-02` Complete route traversal, HMR timing, relaunch, and recovery.
 - [ ] `HTTPS-01` Complete trusted local HTTPS and HMR in the iOS Simulator.
+- [ ] `EXPO-ANDROID-OTA-01` through `EXPO-ANDROID-OTA-11` From the AbsoluteJS
+  repository root, complete the installed Expo Android signed-update and staged
+  rollout gate, or mark it `SKIPPED — Android virtualization unavailable`.
 - [ ] `EXPO-01` through `EXPO-08` Complete Expo CNG, HTTPS, web HMR, native Fast
   Refresh, patterned native routing, cleanup, and physical-device enrollment
   acceptance.
