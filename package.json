@@ -475,6 +475,7 @@
 		"test:native:expo:android:observability": "ABSOLUTE_TEST_NATIVE_EXPO_ANDROID=1 bun test tests/native/expo-android-observability-conformance.test.ts",
 		"test:native:expo:android:updates": "ABSOLUTE_TEST_NATIVE_EXPO_ANDROID_UPDATES=1 bun test tests/native/expo-android-update-conformance.test.ts",
 		"test:native:expo:android:upgrade": "ABSOLUTE_TEST_NATIVE_EXPO_ANDROID_UPGRADE=1 bun test tests/native/expo-android-upgrade-conformance.test.ts",
+		"test:native:expo:ios:observability": "ABSOLUTE_TEST_NATIVE_EXPO_IOS_OBSERVABILITY=1 bun test tests/native/expo-ios-observability-conformance.test.ts",
 		"test:native:expo:ios:updates": "ABSOLUTE_TEST_NATIVE_EXPO_IOS_UPDATES=1 bun test tests/native/expo-ios-update-conformance.test.ts",
 		"test:native:expo:ios:upgrade": "ABSOLUTE_TEST_NATIVE_EXPO_IOS_UPGRADE=1 bun test tests/native/expo-ios-upgrade-conformance.test.ts",
 		"test:native:ios": "bun run test:native:ios:lifecycle && bun run test:native:ios:bundle",
@@ -530,7 +531,7 @@
 			]
 		}
 	},
-	"version": "0.20.0-beta.91",
+	"version": "0.20.0-beta.92",
 	"workspaces": [
 		"tests/fixtures/*",
 		"tests/fixtures/_packages/*"

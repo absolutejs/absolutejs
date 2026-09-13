@@ -2,6 +2,19 @@
 
 Status: Capacitor Android development/release, all-framework embedded bundles, universal native Auth/Sync, Expo hybrid native Auth/Sync, background Sync, automatic device provisioning, provider-neutral native push registration, signed staged Capacitor updates, end-to-end RSA-signed self-hosted Expo production updates, and Android conformance are operational; iOS development/release automation plus installed Expo iOS OTA and replacement-upgrade harnesses are shipped and awaiting real macOS/physical-device acceptance
 
+Implementation checkpoint (September 13, 2026, Expo iOS observability
+conformance): the generated Expo Swift module now has a Debug-build-only
+synthetic diagnostic boundary for deterministic framework testing. The macOS
+gate compiles and autolinks that module in a real development client, sends the
+diagnostic through the same restart-safe queue and trusted relay as MetricKit,
+proves non-2xx retention, retries the identical diagnostic after process
+relaunch, acknowledges a 2xx response, and proves another relaunch creates no
+duplicate. It also proves the sensitive canary is redacted and emits only a
+sanitized result artifact. Run it from the repository root with
+`bun run test:native:expo:ios:observability`. Simulator execution validates the
+transport lifecycle; genuine MetricKit payload delivery remains a separate
+physical-iPhone acceptance item because iOS controls that delivery.
+
 Implementation checkpoint (September 13, 2026, installed Expo iOS replacement
 upgrade harness): AbsoluteJS now automates the Simulator proof that was formerly
 an eight-row manual-only procedure. One command generates and installs Expo iOS

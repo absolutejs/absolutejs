@@ -1,7 +1,7 @@
 # AbsoluteJS iOS and TestFlight macOS test runbook
 
 This runbook validates the iOS release path shipped in
-`@absolutejs/absolute@0.20.0-beta.90` and
+`@absolutejs/absolute@0.20.0-beta.92` and
 `@absolutejs/deploy@0.25.13`. It covers a signed local IPA, an internal
 TestFlight upload, retry behavior, and installation on an iPhone or iPad.
 
@@ -277,6 +277,61 @@ If it fails, return the named Bun assertion and final 100 terminal lines. Leave
 the generated fixture in place for diagnosis, but do not send its native data
 container, Keychain data, SQLite files, credentials, callback URLs, or raw
 backend payloads.
+
+### Track A2-observability — Expo iOS native diagnostic delivery gate
+
+Run this after Track A2-upgrade from the same **AbsoluteJS framework repository
+root**. It builds a real Expo iOS Debug development client, compiles and
+autolinks the generated Swift module, and uses a Debug-only synthetic diagnostic
+to test the production queue and relay lifecycle deterministically:
+
+```sh
+cd /absolute/path/to/the/absolutejs-clone
+pwd
+test -f tests/native/expo-ios-observability-conformance.test.ts && echo "AbsoluteJS root: OK"
+bun run src/cli/index.ts mobile doctor ios
+bun run test:native:expo:ios:observability
+```
+
+Do not run this command from `.absolutejs`, the generated `native` directory, or
+a staging application. The first run can take several minutes while Expo and
+Xcode generate and build the client. A passing run ends with one passing test
+and zero failures. Return this checklist verbatim:
+
+- [ ] `EXPO-IOS-OBS-01` `AbsoluteJS root: OK` was printed and every
+  `mobile doctor ios` check passed.
+- [ ] `EXPO-IOS-OBS-02` The complete terminal output from
+  `bun run test:native:expo:ios:observability` is attached.
+- [ ] `EXPO-IOS-OBS-03` The command ended with `1 pass` and `0 fail`.
+- [ ] `EXPO-IOS-OBS-04` Xcode compiled the generated
+  `AbsoluteMobileObservabilityModule.swift`, and Expo autolinked it without any
+  application-authored native code.
+- [ ] `EXPO-IOS-OBS-05` The relay first rejected the diagnostic with 503 and
+  the generated on-device queue retained it.
+- [ ] `EXPO-IOS-OBS-06` A full terminate/relaunch retried the same diagnostic
+  identity, the relay accepted it with 202, and the queue acknowledged it.
+- [ ] `EXPO-IOS-OBS-07` A second terminate/relaunch produced no third delivery.
+- [ ] `EXPO-IOS-OBS-08` The accepted event reported `mobileEngine: "expo"`,
+  `mobilePlatform: "ios"`, and `mobileFailurePhase: "native-process"`.
+- [ ] `EXPO-IOS-OBS-09` The literal canary
+  `token=mobile-observability-secret` was absent and `[REDACTED]` was present at
+  the relay boundary.
+- [ ] `EXPO-IOS-OBS-10`
+  `.absolutejs/expo-ios-observability-conformance/artifacts/expo-ios-native-observability.json`
+  exists and contains only booleans, counts, platform/kind, and tag keys.
+- [ ] `EXPO-IOS-OBS-11` Confirm the artifact contains no diagnostic identity,
+  payload, canary, token, account/device/Simulator identifier, or filesystem
+  path.
+- [ ] `EXPO-IOS-OBS-12` Return `git rev-parse HEAD`, `bun --version`, and
+  `xcodebuild -version` with the report.
+
+This track proves generated Swift compilation and the exact persistence,
+redaction, trusted-relay, retry, acknowledgement, and deduplication path used by
+MetricKit. It does **not** prove that iOS delivered a genuine MetricKit payload.
+Complete `OBS-06` through `OBS-08` below on a physical iPhone for that final
+platform-owned boundary. If this automated gate fails, leave its disposable
+fixture in place for diagnosis but return only the named assertion and final 100
+terminal lines—never its raw queue or application data container.
 
 ### Track A3 — Capacitor Android staged-update gate from the same repository
 
@@ -2534,6 +2589,11 @@ Never add `--testflight-submit-review` casually: it creates an external beta
 review submission. Merely naming an external group does not submit review.
 
 ### Production mobile observability acceptance
+
+First complete Track A2-observability above. That automated gate must pass
+before physical-device diagnosis; the following staging checks add genuine
+MetricKit delivery, symbolication, and application integration that Simulator
+cannot prove.
 
 Run this only when the staging application owner supplies a working trusted
 observability relay and its public project ID. No API token belongs in the

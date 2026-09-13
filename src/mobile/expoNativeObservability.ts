@@ -73,6 +73,27 @@ public final class AbsoluteMobileObservabilityModule: Module, MXMetricManagerSub
         }
       }
     }
+
+#if DEBUG
+    AsyncFunction("enqueueForTesting") { (options: [String: String]) -> Bool in
+      guard let testId = options["testId"],
+            testId.range(of: "^[A-Za-z0-9._:-]{1,128}$", options: .regularExpression) != nil else { return false }
+      let key = "absolute-native-observability-test-id"
+      guard UserDefaults.standard.string(forKey: key) != testId else { return false }
+      UserDefaults.standard.set(testId, forKey: key)
+      Self.queue.sync {
+        Self.enqueue(
+          kind: "crash",
+          occurredAt: Date().timeIntervalSince1970 * 1000,
+          details: [
+            "message": "token=mobile-observability-secret",
+            "source": "absolutejs-conformance"
+          ]
+        )
+      }
+      return true
+    }
+#endif
   }
 
   private static func root() -> URL? {
@@ -360,6 +381,7 @@ import { ABSOLUTE_MOBILE_MANIFEST } from './webAssets';
 type NativeObservabilityModule = {
 	acknowledge(options: { ids: string[] }): Promise<void>;
 	crashForTesting(options: { testId: string }): Promise<boolean>;
+	enqueueForTesting(options: { testId: string }): Promise<boolean>;
 	pending(): Promise<{ reports: unknown[] }>;
 };
 type NativeReport = { details: Record<string, unknown>; id: string; kind: string; occurredAt: number; platform: 'android' | 'ios' };
@@ -421,6 +443,12 @@ export const startAbsoluteExpoNativeObservability = () => {
 	return drain();
 };
 export const crashAbsoluteExpoNativeObservabilityForTesting = (testId: string) => native.crashForTesting({ testId });
+export const enqueueAbsoluteExpoNativeObservabilityForTesting = async (testId: string) => {
+	await drain();
+	const enqueued = await native.enqueueForTesting({ testId });
+	await drain();
+	return enqueued;
+};
 `;
 
 export const absoluteExpoNativeObservabilityFiles = (project: string) =>

@@ -255,6 +255,9 @@ describe('experimental Expo project', () => {
 		expect(nativeObservability).toContain(
 			'crashAbsoluteExpoNativeObservabilityForTesting'
 		);
+		expect(nativeObservability).toContain(
+			'enqueueAbsoluteExpoNativeObservabilityForTesting'
+		);
 		expect(nativeObservabilityAndroid).toContain('MAX_REPORTS = 8');
 		expect(nativeObservabilityAndroidManifest).toStartWith('<!--');
 		expect(nativeObservabilityAndroidManifest).not.toContain(
@@ -262,6 +265,11 @@ describe('experimental Expo project', () => {
 		);
 		expect(nativeObservabilityIos).toContain('MXMetricManagerSubscriber');
 		expect(nativeObservabilityIos).toContain('maximumReports = 8');
+		expect(nativeObservabilityIos).toContain('#if DEBUG');
+		expect(nativeObservabilityIos).toContain('enqueueForTesting');
+		expect(nativeObservabilityIos).toContain(
+			'token=mobile-observability-secret'
+		);
 		expect(nativeRouteRuntime).toContain('redactErrorText');
 		expect(nativeRoute).toContain('export const ErrorBoundary');
 		expect(nativeRouteRuntime).toContain('x-absolute-mobile-app-build');
