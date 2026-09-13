@@ -6,6 +6,23 @@
 			"changes": [
 				{
 					"kind": "added",
+					"summary": "Expo iOS now has an automated installed-app replacement gate for native Auth, encrypted Sync migration, and exactly-once recovery.",
+					"symbols": [
+						"AbsoluteIosInstalledApp",
+						"AbsoluteIosUpgradeCommandResult",
+						"assertAbsoluteIosInstalledAppUpgrade",
+						"inspectAbsoluteIosInstalledApp",
+						"parseAbsoluteIosInstalledAppInfo"
+					]
+				}
+			],
+			"date": "2026-09-13",
+			"version": "0.20.0-beta.91"
+		},
+		{
+			"changes": [
+				{
+					"kind": "added",
 					"summary": "Installed Expo iOS apps now have a production Simulator conformance gate for signed OTA safety, native Auth and Sync continuity, staged rollout controls, fleet recovery, and restart-safe reporting."
 				}
 			],

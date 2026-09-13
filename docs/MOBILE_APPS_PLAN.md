@@ -1,6 +1,20 @@
 # AbsoluteJS Mobile Apps: Research and Implementation Plan
 
-Status: Capacitor Android development/release, all-framework embedded bundles, universal native Auth/Sync, Expo hybrid native Auth/Sync, background Sync, automatic device provisioning, provider-neutral native push registration, signed staged Capacitor updates, end-to-end RSA-signed self-hosted Expo production updates, and Android conformance are operational; iOS development/release automation and the installed Expo iOS OTA conformance harness are shipped and awaiting real macOS/physical-device acceptance
+Status: Capacitor Android development/release, all-framework embedded bundles, universal native Auth/Sync, Expo hybrid native Auth/Sync, background Sync, automatic device provisioning, provider-neutral native push registration, signed staged Capacitor updates, end-to-end RSA-signed self-hosted Expo production updates, and Android conformance are operational; iOS development/release automation plus installed Expo iOS OTA and replacement-upgrade harnesses are shipped and awaiting real macOS/physical-device acceptance
+
+Implementation checkpoint (September 13, 2026, installed Expo iOS replacement
+upgrade harness): AbsoluteJS now automates the Simulator proof that was formerly
+an eight-row manual-only procedure. One command generates and installs Expo iOS
+Release generation N, completes native S256 PKCE Auth, persists an encrypted
+SQLite snapshot and unacknowledged operation, proves restoration after process
+death, generates schema generation N+1, and installs it over the same bundle
+without uninstalling. The gate verifies the installed `CFBundleVersion`
+increased while the app data container remained stable, Auth and the outbox
+survived, migration reached version 2, replay produced exactly one business
+effect, and another process relaunch produced no duplicate. Its artifact exposes
+only booleans, versions, counts, and build-number comparisons. Run it from this
+repository root on macOS with `bun run test:native:expo:ios:upgrade`; real
+Xcode/Simulator acceptance remains in `docs/IOS_MACOS_TESTING.md`.
 
 Implementation checkpoint (September 13, 2026, installed Expo iOS staged
 rollout harness): AbsoluteJS now has a macOS-only production Expo iOS gate that
@@ -103,9 +117,9 @@ second relaunch causes no duplicate business effect. Generated code exposes only
 redacted schema state—not the store, rows, namespace, key, or credentials. Run
 the focused API 36 gate from this repository with
 `bun run test:native:expo:android:upgrade`; its artifact contains only booleans,
-versions, counts, and package-identity comparisons. The corresponding iOS
-installed-upgrade checklist is in
-[IOS_MACOS_TESTING.md](./IOS_MACOS_TESTING.md); real iOS acceptance remains the
+versions, counts, and package-identity comparisons. The corresponding automated
+iOS harness and physical-device follow-up are in
+[IOS_MACOS_TESTING.md](./IOS_MACOS_TESTING.md); real iOS execution remains the
 partner gate.
 
 The passing Android run retained the same Linux UID, private data directory, and

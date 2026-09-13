@@ -3,6 +3,7 @@ export * from './adaptiveShell';
 export * from './androidRelease';
 export * from './androidUpgradeConformance';
 export * from './iosRelease';
+export * from './iosUpgradeConformance';
 export * from './iosConformance';
 export * from './iosSimulatorController';
 export * from './iosPhysicalDeviceTransport';

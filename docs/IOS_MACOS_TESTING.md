@@ -230,6 +230,54 @@ application data. Track A2-iOS is the remaining macOS-only acceptance gate for
 this release, so report failures rather than marking the track skipped when
 Xcode and a Simulator runtime are available.
 
+### Track A2-upgrade — Expo iOS installed replacement gate
+
+Run this immediately after Track A2-iOS from the same **AbsoluteJS framework
+repository root**. Do not change into the generated fixture or a staging
+application. The command builds two Expo iOS Release generations and installs
+the second over the first on one Simulator without uninstalling or clearing
+application data:
+
+```sh
+cd /absolute/path/to/the/absolutejs-clone
+pwd
+test -f tests/native/expo-ios-upgrade-conformance.test.ts && echo "AbsoluteJS root: OK"
+bun run test:native:expo:ios:upgrade
+```
+
+The first run can take several minutes because it performs two clean Expo CNG
+Release builds. A successful run ends with one passing test and zero failures.
+Return this checklist verbatim:
+
+- [ ] `EXPO-IOS-UPGRADE-01` `AbsoluteJS root: OK` was printed.
+- [ ] `EXPO-IOS-UPGRADE-02` The complete terminal output from
+  `bun run test:native:expo:ios:upgrade` is attached.
+- [ ] `EXPO-IOS-UPGRADE-03` The command ended with `1 pass` and `0 fail`.
+- [ ] `EXPO-IOS-UPGRADE-04` Generation N restored Auth and one pending Sync
+  operation after a full terminate/relaunch.
+- [ ] `EXPO-IOS-UPGRADE-05` The generated SQLite database existed and did not
+  contain the private plaintext sentinel.
+- [ ] `EXPO-IOS-UPGRADE-06` Generation N+1 was installed without uninstalling;
+  its `CFBundleVersion` increased and its data-container path stayed unchanged.
+- [ ] `EXPO-IOS-UPGRADE-07` The generated schema reported `state: "ready"`,
+  `storedVersion: 2`, and `targetVersion: 2` after replacement.
+- [ ] `EXPO-IOS-UPGRADE-08` The retained operation was acknowledged with exactly
+  one business effect, pending reached zero, and a second relaunch produced no
+  duplicate.
+- [ ] `EXPO-IOS-UPGRADE-09`
+  `.absolutejs/expo-ios-upgrade-conformance/artifacts/expo-ios-upgrade-conformance.json`
+  exists and reports `outcome: "pass"` and `platform: "ios"`.
+- [ ] `EXPO-IOS-UPGRADE-10` Confirm the artifact contains no account identity,
+  credential, token, operation ID, mutation arguments, row contents, Keychain
+  value, database contents, Simulator identifier, or filesystem path.
+- [ ] `EXPO-IOS-UPGRADE-11` Return `git rev-parse HEAD`, `bun --version`, and
+  `xcodebuild -version` with the report.
+
+If it fails, return the named Bun assertion and final 100 terminal lines. Leave
+the generated fixture in place for diagnosis, but do not send its native data
+container, Keychain data, SQLite files, credentials, callback URLs, or raw
+backend payloads.
+
 ### Track A3 — Capacitor Android staged-update gate from the same repository
 
 Run this track when the Mac has Android virtualization available. Stay in the
@@ -1265,6 +1313,10 @@ return database contents, encryption keys, SecureStore values, credentials,
 tokens, tickets, raw bridge frames, or personal account data.
 
 #### Expo iOS installed-upgrade acceptance
+
+First complete the automated `Track A2-upgrade` gate above. This section remains
+the signed-IPA and physical-device follow-up; it is not a substitute for the
+repeatable Simulator gate.
 
 Run this section from the **staging application root** after `EXPO-AUTH` and
 `EXPO-SYNC`; do not run it from `.absolutejs/mobile/expo` or Xcode's generated
