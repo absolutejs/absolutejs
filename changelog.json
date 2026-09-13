@@ -5,8 +5,11 @@
 		{
 			"changes": [
 				{
-					"kind": "added",
-					"summary": "Expo iOS now has an automated native observability gate for generated Swift compilation, trusted-relay redaction, restart-safe retry, acknowledgement, and deduplication."
+					"kind": "changed",
+					"summary": "Expo iOS now has an automated native observability gate for generated Swift compilation, trusted-relay redaction, restart-safe retry, acknowledgement, and deduplication.",
+					"symbols": [
+						"expoNativeObservabilityRuntimeSource"
+					]
 				}
 			],
 			"date": "2026-09-13",
