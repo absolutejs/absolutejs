@@ -22,6 +22,7 @@ import {
 } from 'node:path';
 import type { MobileConfig } from '../../types/build';
 import type { FileSink } from 'bun';
+import { unrefTimer } from '../utils/unrefTimer';
 import type { NormalizedAbsoluteMobileConfig } from './config';
 import {
 	installAbsoluteIosRelease,
@@ -706,7 +707,35 @@ export const acquireAbsoluteRemoteMacReleaseLease = async (
 		release: () => runOwned(`rm -rf ${shellQuote(path)}`)
 	};
 };
+const cleanAbsoluteRemoteMacWorkspace = async (
+	profile: AbsoluteRemoteMacProfile,
+	transport?: Pick<AbsoluteRemoteMacTransport, 'capture'>
+) => {
+	const root = profile.workspaceRoot;
+	const projects = posix.join(root, 'projects');
+	const script = [
+		'set -eu',
+		`mkdir -p ${shellQuote(root)}`,
+		`project_staging=$(find ${shellQuote(projects)} -mindepth 2 -maxdepth 2 -type d \\( -name '.incoming-*' -o -name '.previous' -o -name '.release-lease.stale-*' \\) -mtime +0 -prune -print 2>/dev/null | wc -l | tr -d ' ')`,
+		`mobile_staging=$(find ${shellQuote(projects)} -type d \\( -path '*/current/.absolutejs/mobile/.ios-build-*' -o -path '*/current/.absolutejs/mobile/.ios-stage-*' -o -path '*/current/.absolutejs/mobile/*.incoming-*' \\) -mtime +0 -prune -print 2>/dev/null | wc -l | tr -d ' ')`,
+		`count=$((project_staging+mobile_staging))`,
+		`find ${shellQuote(projects)} -mindepth 2 -maxdepth 2 -type d \\( -name '.incoming-*' -o -name '.previous' -o -name '.release-lease.stale-*' \\) -mtime +0 -prune -exec rm -rf {} + 2>/dev/null || true`,
+		`find ${shellQuote(projects)} -type d \\( -path '*/current/.absolutejs/mobile/.ios-build-*' -o -path '*/current/.absolutejs/mobile/.ios-stage-*' -o -path '*/current/.absolutejs/mobile/*.incoming-*' \\) -mtime +0 -prune -exec rm -rf {} + 2>/dev/null || true`,
+		`printf '%s\\n' "$count"`
+	].join('; ');
+	const result = await (transport?.capture ?? defaultTransport.capture)([
+		...absoluteRemoteMacSshBase(profile),
+		'/bin/sh -lc',
+		shellQuote(script)
+	]);
+	const removed = Number(
+		requireRemoteSuccess(result, 'Remote Mac workspace cleanup')
+	);
+	if (!Number.isSafeInteger(removed) || removed < 0)
+		throw new TypeError('Remote Mac returned an invalid cleanup result.');
 
+	return { profile: profile.name, removed, workspaceRoot: root };
+};
 const inspectAbsoluteRemoteMacWorkspace = async (
 	profile: AbsoluteRemoteMacProfile,
 	transport?: Pick<AbsoluteRemoteMacTransport, 'capture'>
@@ -752,39 +781,6 @@ const inspectAbsoluteRemoteMacWorkspace = async (
 		projectCount: projectCount ?? 0,
 		workspaceRoot: root
 	};
-};
-
-/** Remove only abandoned staging directories. Project dependency/native caches,
- * immutable releases, and active leases are deliberately retained.
- */
-const cleanAbsoluteRemoteMacWorkspace = async (
-	profile: AbsoluteRemoteMacProfile,
-	transport?: Pick<AbsoluteRemoteMacTransport, 'capture'>
-) => {
-	const root = profile.workspaceRoot;
-	const projects = posix.join(root, 'projects');
-	const script = [
-		'set -eu',
-		`mkdir -p ${shellQuote(root)}`,
-		`project_staging=$(find ${shellQuote(projects)} -mindepth 2 -maxdepth 2 -type d \\( -name '.incoming-*' -o -name '.previous' -o -name '.release-lease.stale-*' \\) -mtime +0 -prune -print 2>/dev/null | wc -l | tr -d ' ')`,
-		`mobile_staging=$(find ${shellQuote(projects)} -type d \\( -path '*/current/.absolutejs/mobile/.ios-build-*' -o -path '*/current/.absolutejs/mobile/.ios-stage-*' -o -path '*/current/.absolutejs/mobile/*.incoming-*' \\) -mtime +0 -prune -print 2>/dev/null | wc -l | tr -d ' ')`,
-		`count=$((project_staging+mobile_staging))`,
-		`find ${shellQuote(projects)} -mindepth 2 -maxdepth 2 -type d \\( -name '.incoming-*' -o -name '.previous' -o -name '.release-lease.stale-*' \\) -mtime +0 -prune -exec rm -rf {} + 2>/dev/null || true`,
-		`find ${shellQuote(projects)} -type d \\( -path '*/current/.absolutejs/mobile/.ios-build-*' -o -path '*/current/.absolutejs/mobile/.ios-stage-*' -o -path '*/current/.absolutejs/mobile/*.incoming-*' \\) -mtime +0 -prune -exec rm -rf {} + 2>/dev/null || true`,
-		`printf '%s\\n' "$count"`
-	].join('; ');
-	const result = await (transport?.capture ?? defaultTransport.capture)([
-		...absoluteRemoteMacSshBase(profile),
-		'/bin/sh -lc',
-		shellQuote(script)
-	]);
-	const removed = Number(
-		requireRemoteSuccess(result, 'Remote Mac workspace cleanup')
-	);
-	if (!Number.isSafeInteger(removed) || removed < 0)
-		throw new TypeError('Remote Mac returned an invalid cleanup result.');
-
-	return { profile: profile.name, removed, workspaceRoot: root };
 };
 export { cleanAbsoluteRemoteMacWorkspace, inspectAbsoluteRemoteMacWorkspace };
 export const installAbsoluteRemoteMacAgent = async (
@@ -1297,7 +1293,7 @@ export const buildAbsoluteRemoteIosRelease = async (
 				heartbeat = undefined;
 			});
 	}, REMOTE_RELEASE_LEASE_HEARTBEAT_MS);
-	heartbeatTimer.unref();
+	unrefTimer(heartbeatTimer);
 	try {
 		const syncStartedAt = performance.now();
 		if (options.syncProject) await options.syncProject(options.project);
@@ -1497,8 +1493,8 @@ export const buildAbsoluteRemoteIosRelease = async (
 
 export const startAbsoluteRemoteExpoIosDevSession = async (
 	options: AbsoluteRemoteExpoIosOptions
-): Promise<AbsoluteExpoDevSession> => {
-	const session = await startAbsoluteRemoteDevSession({
+) => {
+	let session = await startAbsoluteRemoteDevSession({
 		certificateAuthorityPath: options.certificateAuthorityPath,
 		deviceIdentifier: options.deviceIdentifier,
 		https: options.https,
@@ -1515,12 +1511,20 @@ export const startAbsoluteRemoteExpoIosDevSession = async (
 		transport: options.transport
 	});
 
-	return {
+	const expoSession: AbsoluteExpoDevSession = {
 		close: session.close,
 		metroPort: options.metroPort,
 		platforms: ['ios'],
-		timings: session.timings
+		timings: session.timings,
+		rebuild: async () => {
+			session = await session.rebuild();
+			expoSession.timings = session.timings;
+
+			return expoSession;
+		}
 	};
+
+	return expoSession;
 };
 export const startAbsoluteRemoteIosDevSession = (
 	options: AbsoluteRemoteIosOptions

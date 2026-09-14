@@ -1891,6 +1891,30 @@ reverse/reset/open sequence without the mirror. No administrator setting,
 manual `android/` edit, disabled New Architecture, or application code change is
 required.
 
+Implementation checkpoint (September 13, 2026): Expo development now owns one
+long-lived Metro process and watches only effective CNG/native inputs. Ordinary
+application routes—including Angular, React, Vue, Svelte, HTML, HTMX, and CSS—stay
+on their framework HMR path and never invoke Gradle or Xcode. A config, package,
+lockfile, config-plugin, or native-module edit is fingerprinted and coalesced into
+one prebuild/native rebuild; edits arriving during a rebuild queue behind it, and
+Metro remains on the same port. Local Android and iOS sessions and Remote Mac iOS
+sessions expose the same serialized `rebuild()` contract. `bun dev` reports native
+rebuild time in the terminal and emits timing-only `mobile:native-rebuild`
+telemetry without source paths or application data.
+
+The shared installed-app conformance driver proves React Native Fast Refresh with
+state preservation and the embedded framework matrix in the same generated Expo
+shell, waits for lazy-route and restoration convergence, rebuilds after a watched
+config-plugin edit, and requires the app to reconnect without replacing Metro. It
+writes a sanitized platform/timing/boolean summary only. The clean managed API 36
+Android run passed all seven embedded cases; observed apply times were 71–244 ms,
+the initial native build was 178.7 seconds, and the watched warm rebuild was 99.1
+seconds. The matching iOS command and explicit checklist are ready in
+`docs/IOS_MACOS_TESTING.md`; real Simulator confirmation remains the partner-owned
+macOS gate. Generated native React screens can embed a specific normal AbsoluteJS
+route through `AbsoluteWebHost({ path })`, while the default catch-all remains
+zero-configuration.
+
 The same acceptance run installed and cold-booted the managed API 36 AVD with WHPX,
 built 93 Gradle tasks, installed and launched a real debug APK, and rendered the
 ordinary dynamic route `/account/Ada` with request-time props. Android HTTP live

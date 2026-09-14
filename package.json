@@ -12,7 +12,7 @@
 		"@absolutejs/deploy": "0.25.14",
 		"@absolutejs/devices": "0.7.0",
 		"@absolutejs/devices-capacitor": "0.8.0",
-		"@absolutejs/devices-expo": "0.0.2",
+		"@absolutejs/devices-expo": "0.0.3",
 		"@absolutejs/http": "0.0.1",
 		"@absolutejs/pwa": "0.14.0",
 		"@capacitor/browser": "8.0.4",
@@ -472,9 +472,11 @@
 		"test:native:android:observability": "ABSOLUTE_TEST_NATIVE_ANDROID=1 bun test tests/native/android-embedded-bundle-conformance.test.ts -t 'native process crash'",
 		"test:native:android:updates": "ABSOLUTE_TEST_NATIVE_ANDROID=1 bun test tests/native/android-embedded-bundle-conformance.test.ts -t 'signed web updates'",
 		"test:native:android:upgrade": "ABSOLUTE_TEST_NATIVE_ANDROID=1 bun test tests/native/android-embedded-bundle-conformance.test.ts -t 'installed APK upgrade'",
+		"test:native:expo:android:hmr": "ABSOLUTE_TEST_NATIVE_EXPO_HMR_PLATFORM=android bun test tests/native/expo-hmr-conformance.test.ts",
 		"test:native:expo:android:observability": "ABSOLUTE_TEST_NATIVE_EXPO_ANDROID=1 bun test tests/native/expo-android-observability-conformance.test.ts",
 		"test:native:expo:android:updates": "ABSOLUTE_TEST_NATIVE_EXPO_ANDROID_UPDATES=1 bun test tests/native/expo-android-update-conformance.test.ts",
 		"test:native:expo:android:upgrade": "ABSOLUTE_TEST_NATIVE_EXPO_ANDROID_UPGRADE=1 bun test tests/native/expo-android-upgrade-conformance.test.ts",
+		"test:native:expo:ios:hmr": "ABSOLUTE_TEST_NATIVE_EXPO_HMR_PLATFORM=ios bun test tests/native/expo-hmr-conformance.test.ts",
 		"test:native:expo:ios:observability": "ABSOLUTE_TEST_NATIVE_EXPO_IOS_OBSERVABILITY=1 bun test tests/native/expo-ios-observability-conformance.test.ts",
 		"test:native:expo:ios:updates": "ABSOLUTE_TEST_NATIVE_EXPO_IOS_UPDATES=1 bun test tests/native/expo-ios-update-conformance.test.ts",
 		"test:native:expo:ios:upgrade": "ABSOLUTE_TEST_NATIVE_EXPO_IOS_UPGRADE=1 bun test tests/native/expo-ios-upgrade-conformance.test.ts",
@@ -531,7 +533,7 @@
 			]
 		}
 	},
-	"version": "0.20.0-beta.92",
+	"version": "0.20.0-beta.93",
 	"workspaces": [
 		"tests/fixtures/*",
 		"tests/fixtures/_packages/*"

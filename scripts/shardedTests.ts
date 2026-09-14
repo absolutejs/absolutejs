@@ -44,6 +44,7 @@ const CLOSED_BROWSER_RE =
 // not pass/fail thresholds; unknown files fall back to source size.
 const DURATION_HINTS_MS: Record<string, number> = {
 	'tests/integration/compile.test.ts': 139_473,
+	'tests/integration/dev/link-prefetch-browser.test.ts': 22_000,
 	'tests/integration/hmr/frameworks/svelte-hmr.test.ts': 63_523,
 	'tests/integration/hmr/lifecycle/angular-config-providers.test.ts': 35_980,
 	'tests/integration/hmr/lifecycle/angular-di-injectables.test.ts': 28_872,
@@ -75,6 +76,12 @@ const DURATION_HINTS_MS: Record<string, number> = {
 // and run them serially from clean runtime state before the parallel shards.
 const EXCLUSIVE_TEST_FILES = new Set([
 	'tests/integration/compile.test.ts',
+	// This browser test intentionally waits through hover debounce, two fetches,
+	// module hint insertion, and client navigation. A compiler-heavy parallel
+	// shard can cause the host to reclaim Chromium halfway through that chain;
+	// the runner's exclusive browser retry can recover that infrastructure-only
+	// failure without weakening any product assertion.
+	'tests/integration/dev/link-prefetch-browser.test.ts',
 	'tests/integration/pwa/runtimeConformance.test.ts',
 	'tests/integration/pwa/updateActivationConformance.test.ts',
 	'tests/integration/hmr/multiframework/native-target-conformance.test.ts',

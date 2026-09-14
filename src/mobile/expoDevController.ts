@@ -73,6 +73,7 @@ export type AbsoluteExpoDevSession = {
 	close: () => Promise<void>;
 	metroPort: number;
 	platforms: AbsoluteExpoDevPlatform[];
+	rebuild: () => Promise<AbsoluteExpoDevSession>;
 	timings: Partial<Record<AbsoluteExpoDevState, number>>;
 };
 
@@ -1150,17 +1151,43 @@ export const startAbsoluteExpoDevSession = async (
 		await runNativeCommands(nativeCommands);
 		setState('ready');
 
-		return {
+		let closed = false;
+		let rebuildQueue = Promise.resolve();
+		const session: AbsoluteExpoDevSession = {
 			metroPort: plan.metroPort,
 			platforms: options.platforms,
 			timings,
 			close: async () => {
+				if (closed) return;
+				closed = true;
 				options.signal?.removeEventListener('abort', abort);
+				await rebuildQueue;
 				if (metro) await stopProcess(metro);
 				await closeEnrollmentServer();
 				setState('closed');
+			},
+			rebuild: () => {
+				const rebuild = rebuildQueue.then(async () => {
+					if (closed)
+						throw new Error(
+							'The Expo development session is closed.'
+						);
+					if (prepareCommand) await runPrepareCommand(prepareCommand);
+					await runNativeCommands(nativeCommands);
+					setState('ready');
+
+					return session;
+				});
+				rebuildQueue = rebuild.then(
+					() => undefined,
+					() => undefined
+				);
+
+				return rebuild;
 			}
 		};
+
+		return session;
 	} catch (error) {
 		options.signal?.removeEventListener('abort', abort);
 		if (metro) await stopProcess(metro);

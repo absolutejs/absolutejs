@@ -104,7 +104,7 @@ const previewPreconnect = (
 
 const previewFetch: typeof globalThis.fetch = Object.assign(
 	(
-		input: Parameters<typeof globalThis.fetch>[0],
+		input: Parameters<typeof globalThis.fetch>[0] | URL,
 		init?: Parameters<typeof globalThis.fetch>[1]
 	) => {
 		const requestUrl = new URL(

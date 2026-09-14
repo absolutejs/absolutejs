@@ -57,7 +57,9 @@ const app = new Elysia()
 		};
 	})
 	.post('/api/form', { parse: 'none' }, async ({ request }) => {
-		const form = await request.formData();
+		const form = (await request.formData()) as unknown as {
+			get(name: string): File | string | null;
+		};
 		const file = form.get('file');
 
 		return {

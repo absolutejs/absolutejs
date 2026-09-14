@@ -35,7 +35,7 @@ const driveInspectTui = async (terminal: TuiInput) => {
 	// `at` of the pinned row; null = follow the newest request.
 	let selectedAt: number | null = null;
 	let disposed = false;
-	let refreshTimer: NodeJS.Timeout | null = null;
+	let refreshTimer: ReturnType<typeof setInterval> | null = null;
 	let escapeBuffer = '';
 
 	const selectedIndex = () => {

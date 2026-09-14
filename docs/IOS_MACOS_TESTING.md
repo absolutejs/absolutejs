@@ -1,7 +1,7 @@
 # AbsoluteJS iOS and TestFlight macOS test runbook
 
 This runbook validates the iOS release path shipped in
-`@absolutejs/absolute@0.20.0-beta.92` and
+`@absolutejs/absolute@0.20.0-beta.93` and
 `@absolutejs/deploy@0.25.13`. It covers a signed local IPA, an internal
 TestFlight upload, retry behavior, and installation on an iPhone or iPad.
 
@@ -92,6 +92,59 @@ Return these Track A results:
 
 After Track A, continue with Track B only if the staging application checkout
 and Apple access were supplied.
+
+### Track A-HMR — Expo development and Fast Refresh gate
+
+Run this from the same AbsoluteJS repository root after Track A. This is the
+development-client gate: it does not require an Expo account, paid Apple
+developer account, staging application, or App Store Connect. It requires
+Xcode and an installed iOS Simulator runtime.
+
+```sh
+cd /absolute/path/to/the/absolutejs-clone
+pwd
+test -f tests/native/expo-hmr-conformance.test.ts && echo "AbsoluteJS root: OK"
+bun run src/cli/index.ts mobile doctor ios
+bun run test:native:expo:ios:hmr
+```
+
+Do not change into `tests/fixtures/expo-hmr/.absolutejs/native`; the command
+creates and manages that disposable Expo project itself. The first run can take
+several minutes while Expo prebuilds and Xcode compiles the development client.
+The command then uses one installed app to prove both AbsoluteJS rendering
+planes: React Native Fast Refresh through Metro, and embedded Angular, React,
+Vue, Svelte, HTML, HTMX, and CSS HMR through the AbsoluteJS server. Finally it
+edits an Expo config plugin, waits for one automatic native rebuild, verifies
+that Metro was not restarted, and reconnects the native route.
+
+Return this checklist verbatim:
+
+- [ ] `EXPO-IOS-HMR-01` `AbsoluteJS root: OK` was printed.
+- [ ] `EXPO-IOS-HMR-02` Every `mobile doctor ios` check passed.
+- [ ] `EXPO-IOS-HMR-03` The complete terminal output from
+  `bun run test:native:expo:ios:hmr` is attached.
+- [ ] `EXPO-IOS-HMR-04` The command ended with `1 pass` and `0 fail`.
+- [ ] `EXPO-IOS-HMR-05` The React Native marker changed from v1 to v2 and its
+  randomly initialized state token was preserved.
+- [ ] `EXPO-IOS-HMR-06` Angular, React, Vue, Svelte, HTML, HTMX, and CSS each
+  emitted an `[hmr:expo-ios]` applied or deliberate reload acknowledgement.
+- [ ] `EXPO-IOS-HMR-07` Editing the generated Expo config plugin caused one
+  native rebuild and the log said Metro stayed live on the same port.
+- [ ] `EXPO-IOS-HMR-08` The native route reported again after the rebuilt app
+  reconnected.
+- [ ] `EXPO-IOS-HMR-09`
+  `.absolutejs/expo-hmr-conformance/artifacts/ios-hmr-summary.json` exists and
+  reports `statePreserved`, `completed`, `metroPreserved`, and `reconnected` as
+  `true`.
+- [ ] `EXPO-IOS-HMR-10` Confirm that artifact contains only platform, phase/HMR
+  kinds and durations, and booleans—no state token, URL, port, filesystem path,
+  device/Simulator identifier, credential, payload, or source text.
+- [ ] `EXPO-IOS-HMR-11` Return `git rev-parse HEAD`, `bun --version`, and
+  `xcodebuild -version` with the report.
+
+If the command fails, return the named Bun assertion and final 100 terminal
+lines. Leave the disposable fixture in place for diagnosis, but do not send the
+generated native project or raw application/device logs.
 
 ### Track A2 — Expo Android OTA gate from the same AbsoluteJS repository
 
@@ -1184,7 +1237,7 @@ Accept the generated dependency installation if prompted. Keep Terminal 1
 running and use only disposable text, files, and accounts.
 
 - [ ] `EXPO-DEVICES-01` Confirm the generated package contains exact
-  `@absolutejs/devices@0.7.0` and `@absolutejs/devices-expo@0.0.2`, plus only
+  `@absolutejs/devices@0.7.0` and `@absolutejs/devices-expo@0.0.3`, plus only
   Expo modules needed by imports. Confirm `app.json` has corresponding CNG
   plugins and human-readable iOS descriptions.
 - [ ] `EXPO-DEVICES-02` From `.absolutejs/mobile/expo`, run

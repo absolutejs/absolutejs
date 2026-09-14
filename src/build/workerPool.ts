@@ -27,6 +27,7 @@ import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { MILLISECONDS_IN_A_SECOND } from '../constants';
 import { devProfileEnabled } from '../utils/startupTimings';
+import { unrefTimer } from '../utils/unrefTimer';
 import type {
 	BuildWorkerJobKind,
 	BuildWorkerJobs,
@@ -258,7 +259,7 @@ export const createBuildWorkerPool = (
 		clearIdleTimer();
 		if (slots.length === 0) return;
 		idleTimer = setTimeout(terminateWorkers, idleTimeoutMs);
-		idleTimer.unref();
+		unrefTimer(idleTimer);
 	};
 
 	const takeJobFor = (slot: WorkerSlot) => {

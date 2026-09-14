@@ -5,6 +5,34 @@
 		{
 			"changes": [
 				{
+					"detail": "Native inputs are fingerprinted and coalesced, local and Remote Mac sessions share a serialized rebuild contract, generated WebView hosts can select an AbsoluteJS path, native timing logs and telemetry remain data-minimal, and Android conformance verifies state preservation, rebuild, and reconnect.",
+					"kind": "added",
+					"summary": "Expo development now preserves one Metro process across automatic native rebuilds and provides installed-app HMR conformance for native React plus every supported embedded framework.",
+					"symbols": [
+						"AbsoluteExpoDevSession",
+						"AbsoluteExpoNativeChange",
+						"AbsoluteExpoNativeWatcher",
+						"AbsoluteExpoNativeWatcherOptions",
+						"createAbsoluteExpoNativeWatcher",
+						"fingerprintAbsoluteExpoNativeInputs",
+						"isAbsoluteExpoNativeRootInput",
+						"startAbsoluteExpoDevSession",
+						"startAbsoluteRemoteExpoIosDevSession",
+						"writeAbsoluteExpoProject"
+					]
+				},
+				{
+					"detail": "AbsoluteJS now lets Svelte's compiler-owned HMR wrapper complete its state restoration instead of racing it with a redundant remount.",
+					"kind": "fixed",
+					"summary": "Svelte rune state now remains deterministic across template-only HMR updates."
+				}
+			],
+			"date": "2026-09-13",
+			"version": "0.20.0-beta.93"
+		},
+		{
+			"changes": [
+				{
 					"kind": "changed",
 					"summary": "Expo iOS now has an automated native observability gate for generated Swift compilation, trusted-relay redaction, restart-safe retry, acknowledgement, and deduplication.",
 					"symbols": [

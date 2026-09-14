@@ -233,6 +233,24 @@ describe('experimental Expo project', () => {
 		expect(nativeRouteRuntime).toContain("phase: 'native-route-load'");
 		expect(nativeRouteRuntime).toContain("phase: 'native-route-render'");
 		expect(nativeRouteRuntime).toContain('mobileAppBuild');
+		expect(webHost).toContain('const canGoBack = useRef(false)');
+		expect(webHost).toContain('canGoBack.current = state.canGoBack');
+		expect(webHost).toContain(
+			'if (canGoBack.current) webView.current?.goBack()'
+		);
+		expect(webHost).toContain(
+			'activeWebPath.current = route.pathname + route.search + route.hash'
+		);
+		expect(webHost).toContain(
+			'const webSource = useMemo(() => indexUri ? { uri: indexUri } : undefined, [indexUri])'
+		);
+		expect(webHost).toContain('source={webSource}');
+		expect(webHost).toContain(
+			'export type AbsoluteWebHostProps = { path?: string }'
+		);
+		expect(webHost).toContain(
+			"path?.startsWith('/') && !path.startsWith('//') ? path : routerPathname"
+		);
 		expect(layout).toContain('startAbsoluteExpoNativeObservability');
 		expect(nativeObservability).toContain('requireNativeModule');
 		expect(nativeObservability).toContain('if (response.ok)');
@@ -460,7 +478,7 @@ describe('experimental Expo project', () => {
 		expect(app).toContain('expo-image-picker');
 		expect(app).toContain('expo-document-picker');
 		expect(app).toContain('expo-location');
-		expect(manifest).toContain('"@absolutejs/devices-expo": "0.0.2"');
+		expect(manifest).toContain('"@absolutejs/devices-expo": "0.0.3"');
 		expect(manifest).toContain('"expo-image-manipulator": "57.0.14"');
 		expect(devices).toContain('createExpoCameraCapability');
 		expect(devices).toContain('createExpoClipboardCapability');

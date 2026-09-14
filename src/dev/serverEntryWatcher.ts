@@ -1,3 +1,5 @@
+import { unrefTimer } from '../utils/unrefTimer';
+
 /* Path B (framework-owned backend HMR — see
  * docs/ABSOLUTE_CONFIG_TOGGLE_LIMITATION.md): watch the user's entry file
  * (`ABSOLUTE_SERVER_ENTRY`) AND `absolute.config.ts` from inside the bun
@@ -96,7 +98,7 @@ export const startFilePollingFallback = (
 		previousHash = nextHash;
 		onChange();
 	}, interval);
-	timer.unref();
+	unrefTimer(timer);
 
 	return {
 		close: () => clearInterval(timer)

@@ -272,32 +272,28 @@ export const handleSvelteUpdate = (message: {
 		}
 
 		import(modulePath)
-			.then((newModule) => {
+			.then(async (newModule) => {
 				let applied = false;
 				if (acceptFn) {
 					acceptFn(newModule);
 					applied = true;
 				}
 
-				/* $.hmr_accept swaps component code in place but re-runs
-				 * the <script> body with the original mount props, so any
-				 * state seeded from a prop (e.g. a composable doing
-				 * $state(initialCount)) resets. Remount with the preserved
-				 * state merged into props — mirroring the bundled-fallback
-				 * bootstrap — so that state carries across (issue #41). */
+				/* Let the compiler-owned $.hmr wrapper finish its queued state
+				 * restoration before applying the prop-backed remount fallback. An
+				 * immediate remount can race that restoration and reset rune state. */
 				const preserved = window.__HMR_PRESERVED_STATE__;
 				const remount = window.__SVELTE_REMOUNT__;
 				const hasPreserved =
 					preserved && Object.keys(preserved).length > 0;
 
-				if (applied) {
-					if (typeof remount === 'function' && hasPreserved) {
-						remount({
-							...(window.__INITIAL_PROPS__ ?? {}),
-							...preserved
-						});
-					}
-				} else if (typeof remount === 'function') {
+				if (applied) await Promise.resolve();
+				if (applied && typeof remount === 'function' && hasPreserved) {
+					remount({
+						...(window.__INITIAL_PROPS__ ?? {}),
+						...preserved
+					});
+				} else if (!applied && typeof remount === 'function') {
 					/* Resilience fallback: no accept callback was found, so
 					 * `$.hmr` never wired the freshly imported module in. The
 					 * import warmed the module cache; remount the page with

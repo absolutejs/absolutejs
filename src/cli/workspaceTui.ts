@@ -210,11 +210,11 @@ export const createWorkspaceTui = ({
 		: openTtyStream();
 	const headless = headlessForced || (headlessOption !== false && !input);
 	let disposed = false;
-	let renderTimer: NodeJS.Timeout | null = null;
+	let renderTimer: ReturnType<typeof setTimeout> | null = null;
 	let shellMode = false;
 	let helpVisible = false;
 	let promptBuffer = '';
-	let escapeTimer: NodeJS.Timeout | null = null;
+	let escapeTimer: ReturnType<typeof setTimeout> | null = null;
 	let escapeBuffer = '';
 	let readyDurationMs: number | null = null;
 	let logScrollOffset = 0;

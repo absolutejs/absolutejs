@@ -88,9 +88,16 @@ describe('Svelte 5 state preservation across template edits', () => {
 		async () => {
 			const { client: c, session: s } = await startAll();
 
-			for (let i = 0; i < 7; i++) {
-				await s.page.click('button');
-			}
+			// One browser round trip keeps this assertion reliable after the
+			// resource-heavy scale suite; seven Playwright actionability cycles
+			// could outlive a pressured Chromium process before HMR was involved.
+			await s.page.locator('button').evaluate((button) => {
+				for (let i = 0; i < 7; i++) {
+					button.dispatchEvent(
+						new MouseEvent('click', { bubbles: true })
+					);
+				}
+			});
 			await waitForText(s.page, 'button', (t) =>
 				t.includes('count is 7')
 			);

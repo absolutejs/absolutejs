@@ -173,6 +173,38 @@ describe('Expo development controller', () => {
 		await session.close();
 	});
 
+	test('rebuilds native inputs without replacing the managed Metro process', async () => {
+		const harness = processHarness();
+		const states: string[] = [];
+		const session = await startAbsoluteExpoDevSession({
+			config,
+			executable: '/workspace/expo',
+			iosOrigin: 'http://localhost:3000',
+			metroPort: 8123,
+			platforms: ['ios'],
+			spawnProcess: harness.spawnProcess,
+			onStateChange: (state) => states.push(state)
+		});
+		const metroStartsBefore = harness.commands.filter(
+			(command) => command[1] === 'start'
+		).length;
+		const nativeBuildsBefore = harness.commands.filter(
+			(command) => command[1] === 'run:ios'
+		).length;
+		const rebuilt = await session.rebuild();
+
+		expect(rebuilt).toBe(session);
+		expect(
+			harness.commands.filter((command) => command[1] === 'start')
+		).toHaveLength(metroStartsBefore);
+		expect(
+			harness.commands.filter((command) => command[1] === 'run:ios')
+		).toHaveLength(nativeBuildsBefore + 1);
+		expect(states.at(-1)).toBe('ready');
+		await session.close();
+		await expect(session.rebuild()).rejects.toThrow('session is closed');
+	});
+
 	test('mirrors Expo Android builds onto the Windows host from WSL', async () => {
 		const harness = processHarness();
 		const logs: string[] = [];

@@ -5,6 +5,7 @@
  * runtime uses for state that must survive `bun --hot` re-evaluation. */
 
 import { MILLISECONDS_IN_A_SECOND } from '../constants';
+import { unrefTimer } from '../utils/unrefTimer';
 
 const DEFERRED_TASK_FALLBACK_SECONDS = 15;
 
@@ -46,7 +47,7 @@ export const deferUntilServing = (task: DeferredBootTask) => {
 		DEFERRED_TASK_FALLBACK_SECONDS * MILLISECONDS_IN_A_SECOND
 	);
 	// Never keep the process alive just for the fallback flush.
-	if (typeof timer === 'object' && 'unref' in timer) timer.unref();
+	unrefTimer(timer);
 };
 export const runDeferredBootTasks = () => {
 	const tasks = globalThis.__absoluteDeferredBootTasks ?? [];

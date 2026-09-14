@@ -32,6 +32,31 @@ bun test tests/integration/hmr/frameworks
 bun test tests/integration/hmr
 ```
 
+## Native mobile conformance
+
+The shared Expo development-client gate exercises both rendering planes in one
+installed app: Metro Fast Refresh for an application-owned React Native route,
+and AbsoluteJS HMR inside the generated Expo WebView for Angular, React, Vue,
+Svelte, HTML, HTMX, and CSS. It also proves app reconnect, automatic native
+module/config-plugin rebuild, stable Metro ownership, target-specific timing
+logs, and a sanitized performance artifact. Ember remains deferred to the
+adapter work tracked in `docs/EMBER_PLAN.md`.
+
+```sh
+# Linux, Windows/WSL, or macOS with the Android toolchain
+bun run test:native:expo:android:hmr
+
+# macOS with Xcode and an iOS Simulator runtime
+bun run test:native:expo:ios:hmr
+```
+
+The shared driver is
+[`tests/native/expo-hmr-conformance.test.ts`](../tests/native/expo-hmr-conformance.test.ts).
+Android assertions inspect the real debuggable WebView; iOS assertions consume
+the server's `expo-ios` apply acknowledgements. Both platforms receive native
+Fast Refresh proof from the application-owned route itself, including a state
+token that must survive the source edit.
+
 ---
 
 ## Universal — applies to all framework adapters

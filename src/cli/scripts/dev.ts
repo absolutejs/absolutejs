@@ -30,6 +30,7 @@ import {
 } from '../../dev/earlyListener';
 import { formatTimestamp } from '../../utils/startupBanner';
 import { bootTimelineChildEnv, markBoot } from '../../utils/bootTimeline';
+import { unrefTimer } from '../../utils/unrefTimer';
 import { createInteractiveHandler } from '../interactive';
 import { sendTelemetryEvent } from '../telemetryEvent';
 import {
@@ -73,6 +74,7 @@ import type {
 	AbsoluteRemoteMacProfile
 } from '../../mobile/remoteMacProtocol';
 import type { AbsoluteIosNativeWatcher } from '../../mobile/iosNativeWatcher';
+import type { AbsoluteExpoNativeWatcher } from '../../mobile/expoNativeWatcher';
 import {
 	COMPOSE_PATH,
 	findFreePort,
@@ -99,7 +101,8 @@ const loadAbsoluteMobileDevModules = async () => {
 		androidNativeWatcher,
 		iosSimulatorController,
 		remoteMacProtocol,
-		iosNativeWatcher
+		iosNativeWatcher,
+		expoNativeWatcher
 	] = await Promise.all([
 		import('../../mobile/config'),
 		import('../../mobile/expoProject'),
@@ -111,13 +114,16 @@ const loadAbsoluteMobileDevModules = async () => {
 		import('../../mobile/androidNativeWatcher'),
 		import('../../mobile/iosSimulatorController'),
 		import('../../mobile/remoteMacProtocol'),
-		import('../../mobile/iosNativeWatcher')
+		import('../../mobile/iosNativeWatcher'),
+		import('../../mobile/expoNativeWatcher')
 	]);
 
 	return {
 		absoluteExpoExecutable: expoDevController.absoluteExpoExecutable,
 		createAbsoluteAndroidNativeWatcher:
 			androidNativeWatcher.createAbsoluteAndroidNativeWatcher,
+		createAbsoluteExpoNativeWatcher:
+			expoNativeWatcher.createAbsoluteExpoNativeWatcher,
 		createAbsoluteIosNativeWatcher:
 			iosNativeWatcher.createAbsoluteIosNativeWatcher,
 		createAbsoluteRemoteExpoIosDevProject:
@@ -493,6 +499,7 @@ export const dev = async (
 	let expoDevProject:
 		| {
 				executable: string;
+				expoProjectDirectory: string;
 				mobile: NormalizedAbsoluteMobileConfig;
 				platforms: AbsoluteExpoDevPlatform[];
 				remoteIos?: AbsoluteRemoteExpoIosDevProject;
@@ -730,6 +737,7 @@ export const dev = async (
 						executable: await mobile.absoluteExpoExecutable(
 							generated.path
 						),
+						expoProjectDirectory: generated.path,
 						mobile: normalized,
 						platforms,
 						...(remoteIos ? { remoteIos } : {})
@@ -1112,6 +1120,7 @@ export const dev = async (
 	let iosDevStart: Promise<void> | null = null;
 	let iosNativeWatcher: AbsoluteIosNativeWatcher | null = null;
 	let expoDevSession: AbsoluteExpoDevSession | null = null;
+	let expoNativeWatcher: AbsoluteExpoNativeWatcher | null = null;
 	let expoDevStart: Promise<void> | null = null;
 	let expoDevState: AbsoluteExpoDevState | 'waiting-for-server' =
 		'waiting-for-server';
@@ -1460,6 +1469,68 @@ export const dev = async (
 
 		return 'shared';
 	};
+	const ensureExpoNativeWatcher = async (
+		project: NonNullable<typeof expoDevProject>
+	) => {
+		if (expoNativeWatcher) return;
+		const mobile = requireMobileDev();
+		expoNativeWatcher = await mobile.createAbsoluteExpoNativeWatcher({
+			expoProjectDirectory: project.expoProjectDirectory,
+			projectRoot: process.cwd(),
+			signal: expoDevAbort.signal,
+			onChange: async (change) => {
+				if (cleaning) return;
+				const startedAt = performance.now();
+				printNativeOutput(
+					cliTag(
+						'\x1b[35m',
+						`Expo native inputs changed (${change.paths.length} path${change.paths.length === 1 ? '' : 's'}); regenerating and rebuilding…`
+					)
+				);
+				const current = expoDevSession;
+				if (!current) return;
+				if (change.rootInputChanged)
+					await mobile.writeAbsoluteExpoProject(project.mobile, {
+						projectRoot: process.cwd()
+					});
+				const replacement = await current.rebuild();
+				if (cleaning) return;
+				expoDevSession = replacement;
+				expoDevState = 'ready';
+				const durationMs = performance.now() - startedAt;
+				sendTelemetryEvent('mobile:native-rebuild', {
+					durationMs: Math.round(durationMs),
+					host: mobile.detectAbsoluteMobileHost(),
+					platforms: replacement.platforms,
+					provider: 'expo',
+					rootInputChanged: change.rootInputChanged,
+					success: true,
+					timings: replacement.timings
+				});
+				printNativeOutput(
+					cliTag(
+						'\x1b[35m',
+						`Expo native rebuild completed in ${Math.round(durationMs)}ms; Metro stayed live on ${replacement.metroPort}.`
+					)
+				);
+			},
+			onError: (error) => {
+				expoDevState = 'failed';
+				sendTelemetryEvent('mobile:native-rebuild', {
+					host: mobile.detectAbsoluteMobileHost(),
+					platforms: project.platforms,
+					provider: 'expo',
+					success: false
+				});
+				printNativeOutput(
+					cliTag(
+						'\x1b[31m',
+						`Expo native rebuild failed: ${error instanceof Error ? error.message : String(error)}`
+					)
+				);
+			}
+		});
+	};
 	const startExpoDev = () => {
 		const project = expoDevProject;
 		if (
@@ -1630,6 +1701,20 @@ export const dev = async (
 							localNative?.close(),
 							remote?.close()
 						]);
+					},
+					rebuild: async () => {
+						const [, nextLocal, nextRemote] = await Promise.all([
+							metro.rebuild(),
+							localNative?.rebuild(),
+							remote?.rebuild()
+						]);
+						session.timings = {
+							...metro.timings,
+							...nextLocal?.timings,
+							...nextRemote?.timings
+						};
+
+						return session;
 					}
 				};
 				if (cleaning) {
@@ -1637,6 +1722,7 @@ export const dev = async (
 				} else {
 					expoDevSession = session;
 					expoDevState = 'ready';
+					await ensureExpoNativeWatcher(project);
 					sendTelemetryEvent('mobile:expo-dev-ready', {
 						metroPort: session.metroPort,
 						platforms: session.platforms,
@@ -2332,7 +2418,7 @@ export const dev = async (
 			const killTimer = setTimeout(() => {
 				signalChildTree(proc, 'SIGKILL');
 			}, FORCE_KILL_GRACE_MS);
-			killTimer.unref();
+			unrefTimer(killTimer);
 		});
 
 	const cleanup = async (exitCode = 0) => {
@@ -2352,6 +2438,7 @@ export const dev = async (
 		iosDevAbort.abort();
 		iosNativeWatcher?.close();
 		expoDevAbort.abort();
+		expoNativeWatcher?.close();
 		if (expoDevStart) await expoDevStart.catch(() => undefined);
 		if (androidDevSession) {
 			await androidDevSession.close();
@@ -2379,9 +2466,10 @@ export const dev = async (
 			}
 			serverProcess.once('exit', () => _resolve());
 			// Last-resort SIGKILL if the child didn't exit in 2s.
-			setTimeout(() => {
+			const forceKillTimer = setTimeout(() => {
 				killChildTree('SIGKILL');
-			}, 2000).unref();
+			}, 2000);
+			unrefTimer(forceKillTimer);
 		});
 		if (scripts) await stopDatabase(scripts);
 		try {
@@ -2653,7 +2741,7 @@ export const dev = async (
 		}
 	}, 1000);
 	// Don't keep the event loop alive just for the watcher.
-	if (typeof ppidWatcher.unref === 'function') ppidWatcher.unref();
+	unrefTimer(ppidWatcher);
 
 	printHint();
 

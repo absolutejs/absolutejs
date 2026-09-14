@@ -23,10 +23,10 @@ export type HMRState = {
 	dependencyGraph: DependencyGraph;
 	isRebuilding: boolean;
 	rebuildQueue: Set<string>;
-	rebuildTimeout: NodeJS.Timeout | null;
+	rebuildTimeout: ReturnType<typeof setTimeout> | null;
 	pendingBundleRebuilds: Set<'angular' | 'svelte' | 'vue'>;
 	fileChangeQueue: Map<string, string[]>;
-	debounceTimeout: NodeJS.Timeout | null;
+	debounceTimeout: ReturnType<typeof setTimeout> | null;
 	fileHashes: Map<string, number>; // filename -> Bun.hash (Wyhash) value
 	watchers: FSWatcher[];
 	moduleVersions: ModuleVersions; // module path -> version number (for client-server sync)

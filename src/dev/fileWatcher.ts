@@ -3,6 +3,7 @@ import { existsSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'path';
 import type { BuildConfig } from '../../types/build';
 import { sendTelemetryEvent } from '../cli/telemetryEvent';
+import { unrefTimer } from '../utils/unrefTimer';
 import type { HMRState } from './clientManager';
 import { addFileToGraph, removeFileFromGraph } from './dependencyGraph';
 import { getWatchPaths, shouldIgnorePath } from './pathUtils';
@@ -146,7 +147,7 @@ const setupWatcher = (
 							() => atomicRecoveryScan(eventDir),
 							delay
 						);
-						timer.unref();
+						unrefTimer(timer);
 					}
 				}
 

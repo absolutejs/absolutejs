@@ -10,7 +10,7 @@
         "@absolutejs/deploy": "0.25.14",
         "@absolutejs/devices": "0.7.0",
         "@absolutejs/devices-capacitor": "0.8.0",
-        "@absolutejs/devices-expo": "0.0.2",
+        "@absolutejs/devices-expo": "0.0.3",
         "@absolutejs/http": "0.0.1",
         "@absolutejs/pwa": "0.14.0",
         "@capacitor/browser": "8.0.4",
@@ -283,6 +283,9 @@
         "vue": "*",
       },
     },
+    "tests/fixtures/expo-hmr": {
+      "name": "@absolutejs/test-expo-hmr",
+    },
   },
   "overrides": {
     "@sinclair/typebox": "0.34.52",
@@ -310,7 +313,7 @@
 
     "@absolutejs/devices-capacitor": ["@absolutejs/devices-capacitor@0.8.0", "", { "dependencies": { "@capacitor/app": "^8.0.0", "@capacitor/browser": "^8.0.0", "@capacitor/network": "^8.0.0", "@capacitor/preferences": "^8.0.0" }, "peerDependencies": { "@absolutejs/devices": "^0.7.0", "@capacitor/camera": ">=8.1 <9", "@capacitor/clipboard": ">=8 <9", "@capacitor/core": ">=8 <9", "@capacitor/file-viewer": ">=2 <3", "@capacitor/filesystem": ">=8.1 <9", "@capacitor/geolocation": ">=8.2 <9", "@capacitor/haptics": ">=8 <9", "@capacitor/keyboard": ">=8 <9", "@capacitor/local-notifications": ">=8.2 <8.3", "@capacitor/push-notifications": ">=8.1 <9", "@capacitor/share": ">=8 <9" }, "optionalPeers": ["@capacitor/camera", "@capacitor/clipboard", "@capacitor/file-viewer", "@capacitor/filesystem", "@capacitor/geolocation", "@capacitor/haptics", "@capacitor/keyboard", "@capacitor/local-notifications", "@capacitor/push-notifications", "@capacitor/share"] }, "sha512-OGwf6eGnmKiYZy9uQ7spRw5MsOmTpRPDJT7Qy6f81UqlmmT7gTSODFezqVVfBOH8+NKlwGQpdpwq8ZSya0e20g=="],
 
-    "@absolutejs/devices-expo": ["@absolutejs/devices-expo@0.0.2", "", { "dependencies": { "@react-native-async-storage/async-storage": "2.2.0", "expo-application": "~57.0.2", "expo-device": "~57.0.1", "expo-linking": "~57.0.8", "expo-localization": "~57.0.1", "expo-network": "~57.0.1" }, "peerDependencies": { "@absolutejs/devices": "^0.7.0", "expo": ">=57 <58", "expo-clipboard": ">=57 <58", "expo-document-picker": ">=57 <58", "expo-file-system": ">=57 <58", "expo-haptics": ">=57 <58", "expo-image-manipulator": ">=57 <58", "expo-image-picker": ">=57 <58", "expo-location": ">=57 <58", "expo-navigation-bar": ">=57 <58", "expo-notifications": ">=57 <58", "expo-sharing": ">=57 <58", "expo-status-bar": ">=57 <58", "react-native": ">=0.86 <0.87" }, "optionalPeers": ["expo-clipboard", "expo-document-picker", "expo-file-system", "expo-haptics", "expo-image-manipulator", "expo-image-picker", "expo-location", "expo-navigation-bar", "expo-notifications", "expo-sharing", "expo-status-bar"] }, "sha512-UuVuSAS938Mnqqxhy4k/igk11Iz5hEkgiRzcGuXDeAe74uUo7Dvbd5kvH88mmbMk/FUrmlK+hTuKL2v/5qoxHw=="],
+    "@absolutejs/devices-expo": ["@absolutejs/devices-expo@0.0.3", "", { "dependencies": { "@react-native-async-storage/async-storage": "2.2.0", "expo-application": "~57.0.2", "expo-device": "~57.0.1", "expo-linking": "~57.0.8", "expo-localization": "~57.0.1", "expo-network": "~57.0.1" }, "peerDependencies": { "@absolutejs/devices": "^0.7.0", "expo": ">=57 <58", "expo-clipboard": ">=57 <58", "expo-document-picker": ">=57 <58", "expo-file-system": ">=57 <58", "expo-haptics": ">=57 <58", "expo-image-manipulator": ">=57 <58", "expo-image-picker": ">=57 <58", "expo-location": ">=57 <58", "expo-navigation-bar": ">=57 <58", "expo-notifications": ">=57 <58", "expo-sharing": ">=57 <58", "expo-status-bar": ">=57 <58", "react-native": ">=0.86 <0.87" }, "optionalPeers": ["expo-clipboard", "expo-document-picker", "expo-file-system", "expo-haptics", "expo-image-manipulator", "expo-image-picker", "expo-location", "expo-navigation-bar", "expo-notifications", "expo-sharing", "expo-status-bar"] }, "sha512-svOdrWP7rNSf5ivsPvPhxWdPNuUcAPD3KIh82ElyylxsvACzCWBeLa1LzIMG481G7f39tIGKgnncM1jTAqyBpQ=="],
 
     "@absolutejs/dispatch": ["@absolutejs/dispatch@0.9.0", "", { "dependencies": { "@absolutejs/manifest": "^0.9.0", "@absolutejs/telemetry": "^0.2.0", "@sinclair/typebox": "^0.34.0" }, "peerDependencies": { "@absolutejs/audit": ">= 0.0.1" }, "optionalPeers": ["@absolutejs/audit"] }, "sha512-8rF1diMvDomvm5f9JIU31LjmFdWF8sUnFANkjT/faqBYyWNkLhm1C/or7bX+q6lWxdKOOv+Cp/x/84Om0meAkw=="],
 
@@ -349,6 +352,8 @@
     "@absolutejs/sync-expo": ["@absolutejs/sync-expo@0.0.4", "", { "dependencies": { "@noble/ciphers": "^2.3.0" }, "peerDependencies": { "@absolutejs/sync": ">=2.31.0 <3", "expo-background-task": ">=57 <58", "expo-crypto": ">=57 <58", "expo-network": ">=57 <58", "expo-secure-store": ">=57 <58", "expo-sqlite": ">=57 <58", "expo-task-manager": ">=57 <58", "react-native": ">=0.86 <0.87" } }, "sha512-rewN1NO0F9+jpF96N+zQS7WzozIqS+XOh3p+Z8QilOaqxBHQVDLePZCmHZHk18rgEpS5Fk58UI3z6IyWfC1NNw=="],
 
     "@absolutejs/telemetry": ["@absolutejs/telemetry@0.2.1", "", { "dependencies": { "@absolutejs/handoff": "0.1.0" } }, "sha512-F3xGrKQ9d9MILlTw3glURAaMWzYTq7zo3XPvIdybWS7tv0KTRXqrC73I0AB5hjwj3k3zYCEWf0IgHPtBU2sMhA=="],
+
+    "@absolutejs/test-expo-hmr": ["@absolutejs/test-expo-hmr@workspace:tests/fixtures/expo-hmr"],
 
     "@adobe/css-tools": ["@adobe/css-tools@4.3.3", "", {}, "sha512-rE0Pygv0sEZ4vBWHlAgJLGDU7Pm8xoO6p3wsEceb7GYAjScrOHpEo8KK/eVkAcnSM+slAEtXjA2JpdjLp4fJQQ=="],
 

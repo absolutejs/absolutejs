@@ -199,7 +199,7 @@ const expoPackage = (
 ) => ({
 	dependencies: {
 		'@absolutejs/devices': '0.7.0',
-		'@absolutejs/devices-expo': '0.0.2',
+		'@absolutejs/devices-expo': '0.0.3',
 		...(auth
 			? {
 					'@absolutejs/auth': ABSOLUTE_EXPO_AUTH_CORE_VERSION,
@@ -912,7 +912,7 @@ const webHostSource = (
 
 	return `${EXPO_GENERATED_HEADER}import * as Linking from 'expo-linking';
 import { router, usePathname } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, BackHandler, Platform, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView, type WebViewMessageEvent } from 'react-native-webview';
@@ -1071,17 +1071,21 @@ const authStatus = async () => {
 	}
 };
 
-export function AbsoluteWebHost() {
-	const pathname = usePathname() || '/';
+export type AbsoluteWebHostProps = { path?: string };
+
+export function AbsoluteWebHost({ path }: AbsoluteWebHostProps = {}) {
+	const routerPathname = usePathname() || '/';
+	const pathname = path?.startsWith('/') && !path.startsWith('//') ? path : routerPathname;
 	const safeAreaInsets = useSafeAreaInsets();
 	const webView = useRef<WebView>(null);
 	const devicesBridge = useRef<{ close(): void | Promise<void>; request(method: string, params: Record<string, unknown>): Promise<unknown> } | undefined>(undefined);
 	const syncBridge = useRef<{ close(): void | Promise<void>; request(method: string, params: Record<string, unknown>): Promise<unknown> } | undefined>(undefined);
 	const [indexUri, setIndexUri] = useState<string>();
-	const [canGoBack, setCanGoBack] = useState(false);
+	const canGoBack = useRef(false);
 	const [runtimeReady, setRuntimeReady] = useState(!AUTH_ENABLED && !SYNC_ENABLED);
 	const [devicesReady, setDevicesReady] = useState(false);
 	const activeWebPath = useRef(pathname);
+	const webSource = useMemo(() => indexUri ? { uri: indexUri } : undefined, [indexUri]);
 
 	useEffect(() => {
 		if (!AUTH_ENABLED && !SYNC_ENABLED) return;
@@ -1147,7 +1151,7 @@ export function AbsoluteWebHost() {
 			if (!active) return;
 			respond({ event, format: BRIDGE_FORMAT, kind: 'event', path: activeWebPath.current, payload });
 		}).then(host => {
-			if (!active) return void host.close();
+			if (!active) return void Promise.resolve(host.close()).catch(() => undefined);
 			devicesBridge.current = host;
 			setDevicesReady(true);
 		});
@@ -1155,7 +1159,7 @@ export function AbsoluteWebHost() {
 			active = false;
 			const host = devicesBridge.current;
 			devicesBridge.current = undefined;
-			void host?.close();
+			if (host) void Promise.resolve(host.close()).catch(() => undefined);
 		};
 	}, []);
 	const hasOrigin = (source: string, origin: string) => {
@@ -1175,7 +1179,7 @@ export function AbsoluteWebHost() {
 			return;
 		}
 		if (message.kind === 'event' && message.event === 'back-unhandled') {
-			if (canGoBack) webView.current?.goBack();
+			if (canGoBack.current) webView.current?.goBack();
 			else BackHandler.exitApp();
 			return;
 		}
@@ -1217,22 +1221,27 @@ export function AbsoluteWebHost() {
 		}
 	};
 
-	if (!indexUri || !runtimeReady || !devicesReady) return <View style={styles.loading}><ActivityIndicator /></View>;
+	if (!webSource || !runtimeReady || !devicesReady) return <View style={styles.loading}><ActivityIndicator /></View>;
 	return <WebView
 		allowFileAccess
 		allowFileAccessFromFileURLs
 		allowUniversalAccessFromFileURLs={false}
-		allowingReadAccessToURL={indexUri.slice(0, indexUri.lastIndexOf('/') + 1)}
+		allowingReadAccessToURL={webSource.uri.slice(0, webSource.uri.lastIndexOf('/') + 1)}
 		injectedJavaScriptBeforeContentLoaded={bridgeBootstrap(pathname, safeAreaInsets)}
 		onMessage={onMessage}
-		onNavigationStateChange={state => setCanGoBack(state.canGoBack)}
+		onNavigationStateChange={state => {
+			canGoBack.current = state.canGoBack;
+			if (!DEV_ORIGIN || !hasOrigin(state.url, DEV_ORIGIN)) return;
+			const route = new URL(state.url);
+			activeWebPath.current = route.pathname + route.search + route.hash;
+		}}
 		onShouldStartLoadWithRequest={request => {
 			if (request.url.startsWith('file:') || hasOrigin(request.url, PRODUCTION_ORIGIN) || DEV_ORIGIN && hasOrigin(request.url, DEV_ORIGIN)) return true;
 			void Linking.openURL(request.url);
 			return false;
 		}}
 		ref={webView}
-		source={{ uri: indexUri }}
+		source={webSource}
 		style={styles.web}
 	/>;
 }

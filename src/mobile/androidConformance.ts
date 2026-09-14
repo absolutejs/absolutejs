@@ -58,7 +58,8 @@ const normalizeRoute = (route: string) => {
 export const absoluteAndroidDevelopmentUrl = (
 	port: number,
 	route: string,
-	https = false
+	https = false,
+	target: Extract<HMRClientTarget, `${string}-android`> = 'capacitor-android'
 ) => {
 	if (!Number.isInteger(port) || port < 1 || port > 65_535) {
 		throw new TypeError('Android conformance requires a valid dev port.');
@@ -66,7 +67,7 @@ export const absoluteAndroidDevelopmentUrl = (
 	const url = new URL(
 		`${https ? 'https' : 'http'}://localhost:${port}${normalizeRoute(route)}`
 	);
-	url.searchParams.set('__absolute_target', 'capacitor-android');
+	url.searchParams.set('__absolute_target', target);
 
 	return url.href;
 };
@@ -75,19 +76,29 @@ export const inspectAbsoluteAndroidRoute = async (
 	session: AbsoluteAndroidWebViewSession,
 	options: {
 		https?: boolean;
+		navigation?: 'devtools' | 'in-page' | 'none';
 		port: number;
 		route: string;
+		target?: Extract<HMRClientTarget, `${string}-android`>;
 		timeoutMs?: number;
 	}
 ) => {
 	const route = normalizeRoute(options.route);
-	await session.navigate(
-		absoluteAndroidDevelopmentUrl(options.port, route, options.https)
+	const url = absoluteAndroidDevelopmentUrl(
+		options.port,
+		route,
+		options.https,
+		options.target
 	);
+	if (options.navigation === 'in-page')
+		await session.evaluate<void>(`location.assign(${JSON.stringify(url)})`);
+	else if (options.navigation !== 'none') await session.navigate(url);
+	const target = options.target ?? 'capacitor-android';
+	const { origin } = new URL(url);
 	const result = await session.waitFor<RawRouteCheck>(
 		`(() => {
 			const value = ${routeExpression};
-			return value.bodyText.length > 0 && value.hmrConnected && value.nativeTarget === 'capacitor-android' ? value : null;
+			return value.bodyText.length > 0 && value.hmrConnected && value.nativeTarget === ${JSON.stringify(target)} && new URL(value.url).origin === ${JSON.stringify(origin)} && new URL(value.url).pathname === ${JSON.stringify(route)} ? value : null;
 		})()`,
 		{ timeoutMs: options.timeoutMs ?? DEFAULT_ROUTE_TIMEOUT_MS }
 	);
@@ -106,11 +117,13 @@ export const waitForAbsoluteAndroidHmrApply = async (
 	options: {
 		afterUpdateId?: number;
 		kind?: HMRApplyKind;
+		target?: Extract<HMRClientTarget, `${string}-android`>;
 		timeoutMs?: number;
 	}
 ) => {
 	const expectedKind = JSON.stringify(options.kind);
 	const afterUpdateId = JSON.stringify(options.afterUpdateId);
+	const target = JSON.stringify(options.target ?? 'capacitor-android');
 	const apply = await session.waitFor<AbsoluteAndroidHmrApply>(
 		`(() => {
 			const applies = window.__ABS_HMR_APPLIES__ ?? [];
@@ -119,7 +132,7 @@ export const waitForAbsoluteAndroidHmrApply = async (
 				: [window.__ABS_HMR_LAST_APPLY__];
 			for (let index = values.length - 1; index >= 0; index -= 1) {
 				const value = values[index];
-				if (!value || value.target !== 'capacitor-android') continue;
+				if (!value || value.target !== ${target}) continue;
 				if (${expectedKind} !== undefined && value.kind !== ${expectedKind}) continue;
 				if (${afterUpdateId} !== undefined && !(value.updateId > ${afterUpdateId})) continue;
 				return value;

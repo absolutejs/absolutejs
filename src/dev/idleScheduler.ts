@@ -1,3 +1,5 @@
+import { unrefTimer } from '../utils/unrefTimer';
+
 /* Cooperative idle scheduler for background dev-boot work.
  *
  * The source-module prewarm used to run flat out the moment the port
@@ -47,7 +49,7 @@ const defaultSleep = (delayMs: number) =>
 	new Promise<void>((resolve) => {
 		const timer = setTimeout(resolve, delayMs);
 		// Background warm-up must never hold the process open.
-		if (typeof timer === 'object' && 'unref' in timer) timer.unref();
+		unrefTimer(timer);
 	});
 
 /** Run `tasks` in the background, yielding between batches and pausing

@@ -760,7 +760,14 @@ describe('remote Mac protocol', () => {
 			return fakeProtocolProcess({
 				initial: [ready],
 				onRequest: (request, { emit, exit }) => {
-					emit({ id: request.id, ok: true, type: 'response' });
+					emit({
+						id: request.id,
+						ok: true,
+						...(request.command === 'rebuild'
+							? { result: ready }
+							: {}),
+						type: 'response'
+					});
 					if (request.command === 'close') exit();
 				}
 			});
@@ -781,6 +788,8 @@ describe('remote Mac protocol', () => {
 		expect(spawned[0]).toContain('43123:127.0.0.1:43123');
 		expect(spawned[0]).toContain('48123:127.0.0.1:48123');
 		expect(spawned[0]?.join(' ')).toContain('--metro-port');
+		const rebuilt = await session.rebuild();
+		expect(rebuilt).toBe(session);
 		await session.close();
 
 		const physical = await startAbsoluteRemoteExpoIosDevSession({

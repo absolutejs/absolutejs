@@ -169,11 +169,11 @@ const driveListTui = async (terminal: TuiInput) => {
 	let helpVisible = false;
 	let portBuffer = '';
 	let statusMessage: ListStatusMessage | null = null;
-	let statusTimer: NodeJS.Timeout | null = null;
-	let renderTimer: NodeJS.Timeout | null = null;
-	let refreshTimer: NodeJS.Timeout | null = null;
+	let statusTimer: ReturnType<typeof setTimeout> | null = null;
+	let renderTimer: ReturnType<typeof setTimeout> | null = null;
+	let refreshTimer: ReturnType<typeof setInterval> | null = null;
 	let escapeBuffer = '';
-	let escapeTimer: NodeJS.Timeout | null = null;
+	let escapeTimer: ReturnType<typeof setTimeout> | null = null;
 	let disposed = false;
 	let logScrollOffset = 0;
 	let lastLogLineCount = 0;

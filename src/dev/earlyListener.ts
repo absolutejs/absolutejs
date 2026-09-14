@@ -1,3 +1,5 @@
+import { unrefTimer } from '../utils/unrefTimer';
+
 /* Early dev listener.
  *
  * `absolute dev` used to leave the port closed until the user's entry
@@ -289,7 +291,7 @@ export const startEarlyListener = (options: EarlyListenerOptions) => {
 		} catch {
 			if (attempts >= BIND_RETRY_LIMIT) return;
 			retryTimer = setTimeout(tryBind, BIND_RETRY_INTERVAL_MS);
-			retryTimer.unref();
+			unrefTimer(retryTimer);
 		} finally {
 			bindingPlaceholder = false;
 		}
