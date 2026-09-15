@@ -1,7 +1,7 @@
 # AbsoluteJS iOS and TestFlight macOS test runbook
 
 This runbook validates the iOS release path shipped in
-`@absolutejs/absolute@0.20.0-beta.97`,
+`@absolutejs/absolute@0.20.0-beta.98`,
 `@absolutejs/devices-expo@0.0.11`, and
 `@absolutejs/deploy@0.25.13`. It covers a signed local IPA, an internal
 TestFlight upload, retry behavior, and installation on an iPhone or iPad.
@@ -146,6 +146,59 @@ Return this checklist verbatim:
 If the command fails, return the named Bun assertion and final 100 terminal
 lines. Leave the disposable fixture in place for diagnosis, but do not send the
 generated native project or raw application/device logs.
+
+### Track A-HMR-Android — Expo Android development quality gate
+
+Run this optional counterpart from the same AbsoluteJS repository root when
+the Mac can run an Android emulator. It does not require an Expo account,
+application repository, signing account, or source changes. Every command below
+runs from the directory containing this repository's `package.json`, `bun.lock`,
+`src`, `tests`, and `example` directories:
+
+```sh
+cd /absolute/path/to/the/absolutejs-clone
+pwd
+test -f tests/native/expo-hmr-conformance.test.ts && echo "AbsoluteJS root: OK"
+bun run src/cli/index.ts mobile doctor android
+bun run test:native:expo:android:quality
+```
+
+If the doctor reports missing requirements, run `bun run src/cli/index.ts
+mobile doctor android --fix`, rerun the doctor, and only then run the quality
+command. Do not change into `.absolutejs` or the generated Expo project. The
+first run performs Expo prebuild plus a native Android build and can take several
+minutes. Success ends with `2 pass`, `0 fail`, and prints one `[expo-quality]`
+line containing cold/warm launch, HMR p95, bridge p95, PSS/growth, and native/web
+target dimensions.
+
+Return this checklist verbatim:
+
+- [ ] `EXPO-ANDROID-QUALITY-01` `AbsoluteJS root: OK` was printed.
+- [ ] `EXPO-ANDROID-QUALITY-02` Every `mobile doctor android` check passed.
+- [ ] `EXPO-ANDROID-QUALITY-03` The complete terminal output from
+  `bun run test:native:expo:android:quality` is attached.
+- [ ] `EXPO-ANDROID-QUALITY-04` The command ended with `2 pass` and `0 fail`.
+- [ ] `EXPO-ANDROID-QUALITY-05` Angular, React, Vue, Svelte, HTML, HTMX, and CSS
+  each printed `applied and restored` (a logged cleanup reattach is acceptable).
+- [ ] `EXPO-ANDROID-QUALITY-06` The `[expo-quality]` line reports every metric
+  and the native/web targets are at least 44dp/px high.
+- [ ] `EXPO-ANDROID-QUALITY-07`
+  `.absolutejs/expo-hmr-conformance/artifacts/android-quality-summary.json`
+  exists and its launch, HMR, bridge, memory, and accessibility values are
+  within the included `budgets` object.
+- [ ] `EXPO-ANDROID-QUALITY-08`
+  `.absolutejs/expo-hmr-conformance/artifacts/android-hmr-summary.json` reports
+  native state preservation, completed HMR cases, Metro preservation, and
+  reconnect as successful.
+- [ ] `EXPO-ANDROID-QUALITY-09` Confirm both artifacts contain only platform,
+  numeric measurements, HMR kinds/outcomes, budgets, and booleans—no URL, port,
+  path, device identifier, state token, source, payload, or credential.
+- [ ] `EXPO-ANDROID-QUALITY-10` Return `git rev-parse HEAD`, `bun --version`,
+  `xcodebuild -version`, and the Android doctor output with the report.
+
+If Android virtualization is unavailable, record
+`SKIPPED — Android virtualization unavailable`. This does not block the iOS
+Track A or Track A-HMR result.
 
 ### Track A2 — Expo Android OTA gate from the same AbsoluteJS repository
 

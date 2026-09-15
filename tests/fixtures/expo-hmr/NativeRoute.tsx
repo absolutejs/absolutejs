@@ -1,6 +1,6 @@
 /* eslint-disable no-restricted-exports */
 import { useEffect, useState } from 'react';
-import { Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment -- The managed module may not exist before the generator runs.
 // @ts-ignore This managed module exists after the conformance generator runs.
 import { AbsoluteWebHost } from './.absolutejs/native/src/generated/AbsoluteWebHost';
@@ -8,6 +8,12 @@ import { AbsoluteWebHost } from './.absolutejs/native/src/generated/AbsoluteWebH
 const MARKER = 'expo-native-fast-refresh-v1';
 const REPORT_ORIGIN = process.env.EXPO_PUBLIC_ABSOLUTE_HMR_REPORT_ORIGIN;
 const RADIX = 36;
+const qualityActionStyle = {
+	alignItems: 'center',
+	justifyContent: 'center',
+	minHeight: 48,
+	minWidth: 48
+} as const;
 
 export default function NativeRoute() {
 	const [stateToken] = useState(
@@ -29,8 +35,16 @@ export default function NativeRoute() {
 
 	return (
 		<View>
-			<Text>{MARKER}</Text>
+			<Text accessibilityRole="header">{MARKER}</Text>
 			<Text testID="absolute-state-token">{stateToken}</Text>
+			<Pressable
+				accessibilityLabel="AbsoluteJS quality action"
+				accessibilityRole="button"
+				onPress={() => undefined}
+				style={qualityActionStyle}
+			>
+				<Text>Quality action</Text>
+			</Pressable>
 		</View>
 	);
 }

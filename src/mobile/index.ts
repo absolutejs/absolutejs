@@ -21,6 +21,7 @@ export * from './deviceCapabilities';
 export * from './expoBridge';
 export * from './expoCodeSigning';
 export * from './expoDevController';
+export * from './expoAndroidQuality';
 export * from './expoNativeWatcher';
 export * from './expoProject';
 export * from './expoNativeObservability';

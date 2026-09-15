@@ -27,6 +27,9 @@ the generated shell provides an explicit native cancellation signal, and the
 installed API 36 matrix covers camera and multi-photo
 process-death recovery, cancellation, stale suppression, and exactly-once
 delivery without time-based inference.
+`0.20.0-beta.98` adds an installed API 36 development-quality gate covering
+cold/warm launch, all-framework HMR p95, bridge p95, memory growth, native and
+web accessibility, native rebuild/reconnect, and sanitized result artifacts.
 
 AbsoluteJS can generate an experimental Expo Router shell in which explicitly
 selected routes render React Native UI and all other routes remain ordinary
@@ -72,6 +75,8 @@ Implemented in the first spike:
 - one Metro process plus configured Android/iOS local builds and launch;
 - native React Fast Refresh alongside framework-aware AbsoluteJS page HMR;
 - distinct `expo-android` and `expo-ios` timing logs and redacted telemetry;
+- an installed Expo Android quality budget covering startup, bridge, memory,
+  all-framework HMR, focus/labels, and 44dp/px interaction targets;
 - local HTTPS CA projection for Android, iOS Simulator, and physical iOS;
 - Expo iOS development through a paired developer-owned Remote Mac, including
   separate Bun and Metro tunnels and physical-device LAN relays;
