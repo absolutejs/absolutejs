@@ -2,6 +2,20 @@
 
 Status: Capacitor Android development/release, all-framework embedded bundles, universal native Auth/Sync, Expo hybrid native Auth/Sync, background Sync, automatic device provisioning, provider-neutral native push registration, signed staged Capacitor updates, end-to-end RSA-signed self-hosted Expo production updates, and Android conformance are operational; iOS development/release automation plus installed Expo iOS OTA and replacement-upgrade harnesses are shipped and awaiting real macOS/physical-device acceptance
 
+Implementation checkpoint (September 14, 2026, Expo Android picker recovery):
+`@absolutejs/devices-expo@0.0.9` durably records only the bounded,
+non-sensitive shape of an in-flight photo operation before opening Expo Image
+Picker, then clears it after ordinary completion or restored consumption. A
+fresh JavaScript process can therefore recover the correct provider-neutral
+`takePhoto`/`pick` result without application code, native-project edits, or a
+native file path crossing the bridge. The real API 36 gate uses a disposable
+opaque camera, kills the fully backgrounded host process as its own debug UID,
+relaunches it, and requires exactly one restored photo while proving the dead
+promise does not replay. Run it from this repository root with
+`bun run test:native:expo:android:picker`. WSL Expo builds also retain the
+Windows Bun-compatible mirror lock until the source lock hash changes, keeping
+warm native iterations fast without copying an incompatible lock format.
+
 Implementation checkpoint (September 13, 2026, Expo iOS observability
 conformance): the generated Expo Swift module now has a Debug-build-only
 synthetic diagnostic boundary for deterministic framework testing. The macOS

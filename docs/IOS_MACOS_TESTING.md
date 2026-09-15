@@ -1,7 +1,7 @@
 # AbsoluteJS iOS and TestFlight macOS test runbook
 
 This runbook validates the iOS release path shipped in
-`@absolutejs/absolute@0.20.0-beta.93` and
+`@absolutejs/absolute@0.20.0-beta.94` and
 `@absolutejs/deploy@0.25.13`. It covers a signed local IPA, an internal
 TestFlight upload, retry behavior, and installation on an iPhone or iPad.
 
@@ -212,6 +212,40 @@ Return these Track A2 results:
 If the Mac cannot run an Android emulator, record
 `SKIPPED — Android virtualization unavailable` for Track A2. This does not block
 the iOS Track A result.
+
+### Track A2-picker — Expo Android camera process-death gate
+
+Run this immediately after Track A2 from the same AbsoluteJS repository root.
+Do not run it from `.absolutejs`, the downloaded Markdown file's directory, or
+an application repository:
+
+```sh
+cd /absolute/path/to/the/absolutejs-clone
+pwd
+test -f tests/native/expo-android-picker-conformance.test.ts && echo "AbsoluteJS root: OK"
+bun run test:native:expo:android:picker
+```
+
+The command creates its own Expo fixture and deterministic disposable camera,
+uses the managed API 36 emulator, completes one ordinary photo, then kills the
+background host process while a second camera request is open. A cold emulator
+may take several minutes to verify the development client. Return these rows:
+
+- [ ] `EXPO-ANDROID-PICKER-01` `AbsoluteJS root: OK` was printed.
+- [ ] `EXPO-ANDROID-PICKER-02` The command ended with `1 pass` and `0 fail`.
+- [ ] `EXPO-ANDROID-PICKER-03` The terminal showed one direct result followed
+  by one restored `takePhoto` result after a second mount.
+- [ ] `EXPO-ANDROID-PICKER-04`
+  `.absolutejs/expo-android-picker-conformance/artifacts/expo-android-picker-conformance.json`
+  reports process death, one photo, exactly-once restoration, no replay of the
+  dead JavaScript promise, and no sensitive native path.
+- [ ] `EXPO-ANDROID-PICKER-05` Return `git rev-parse HEAD`, `bun --version`, and
+  `xcodebuild -version` with the report.
+
+Return the five rows and the sanitized JSON artifact only. Do not send the
+generated native project, selected photo, raw device logs, or application data.
+If Android virtualization is unavailable, use the same Track A2 skip reason;
+that does not block the iOS tracks.
 
 ### Track A2-iOS — Expo iOS production OTA gate from the same repository
 
@@ -1237,7 +1271,7 @@ Accept the generated dependency installation if prompted. Keep Terminal 1
 running and use only disposable text, files, and accounts.
 
 - [ ] `EXPO-DEVICES-01` Confirm the generated package contains exact
-  `@absolutejs/devices@0.7.0` and `@absolutejs/devices-expo@0.0.3`, plus only
+  `@absolutejs/devices@0.7.0` and `@absolutejs/devices-expo@0.0.9`, plus only
   Expo modules needed by imports. Confirm `app.json` has corresponding CNG
   plugins and human-readable iOS descriptions.
 - [ ] `EXPO-DEVICES-02` From `.absolutejs/mobile/expo`, run

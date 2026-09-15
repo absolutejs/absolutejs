@@ -5,6 +5,26 @@
 		{
 			"changes": [
 				{
+					"detail": "Generated Expo shells expose the provider-neutral restored-operation queue through the allowlisted bridge, and an installed API 36 gate proves exactly-once camera recovery without leaking native file paths.",
+					"kind": "added",
+					"summary": "Expo Android restores in-flight camera results after background process death",
+					"symbols": [
+						"ABSOLUTE_EXPO_BRIDGE_METHODS",
+						"parseAbsoluteExpoBridgeMessage"
+					]
+				},
+				{
+					"detail": "AbsoluteJS hashes the source lock input and invalidates the mirrored Windows lock only when dependencies change, avoiding repeated resolution while keeping each host Bun version in control of its own lock format.",
+					"kind": "fixed",
+					"summary": "WSL Expo Android rebuilds preserve a compatible Windows Bun lockfile until source dependencies change"
+				}
+			],
+			"date": "2026-09-15",
+			"version": "0.20.0-beta.94"
+		},
+		{
+			"changes": [
+				{
 					"detail": "Native inputs are fingerprinted and coalesced, local and Remote Mac sessions share a serialized rebuild contract, generated WebView hosts can select an AbsoluteJS path, native timing logs and telemetry remain data-minimal, and Android conformance verifies state preservation, rebuild, and reconnect.",
 					"kind": "added",
 					"summary": "Expo development now preserves one Metro process across automatic native rebuilds and provides installed-app HMR conformance for native React plus every supported embedded framework.",

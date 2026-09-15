@@ -242,6 +242,11 @@ describe('Expo development controller', () => {
 		const script = Buffer.from(encoded ?? '', 'base64').toString('utf16le');
 		expect(script).toContain('robocopy.exe $source $directory /MIR');
 		expect(script).toContain(
+			"$sourceLockHash = if ($sourceLock) { (Get-FileHash $sourceLock -Algorithm SHA256).Hash } else { 'none' }"
+		);
+		expect(script).toContain('$priorLockHash -ne $sourceLockHash');
+		expect(script).toContain('.absolutejs-source-lock.sha256');
+		expect(script).toContain(
 			'/XD node_modules .expo .git .gradle .cxx .kotlin build'
 		);
 		expect(script).toContain(

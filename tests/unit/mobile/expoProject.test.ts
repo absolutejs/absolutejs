@@ -154,6 +154,7 @@ describe('experimental Expo project', () => {
 			nativeObservabilityIos,
 			packageSource,
 			plugin,
+			activityResultPlugin,
 			nativeRouteRuntime,
 			webAssets,
 			webHost
@@ -205,6 +206,14 @@ describe('experimental Expo project', () => {
 				'utf8'
 			),
 			readFile(
+				join(
+					project,
+					'plugins',
+					'withAbsoluteActivityResultRecovery.js'
+				),
+				'utf8'
+			),
+			readFile(
 				join(project, 'src', 'generated', 'AbsoluteNativeRoute.tsx'),
 				'utf8'
 			),
@@ -221,6 +230,26 @@ describe('experimental Expo project', () => {
 		expect(dynamicConfig).toContain('ABSOLUTE_EXPO_DEVELOPMENT_CA_PATH');
 		expect(plugin).toContain('<debug-overrides>');
 		expect(plugin).toContain('android:networkSecurityConfig');
+		expect(appConfig).toContain(
+			'./plugins/withAbsoluteActivityResultRecovery'
+		);
+		expect(activityResultPlugin).toContain(
+			'AbsoluteActivityResultRecoveryState.enqueueActivityResult'
+		);
+		expect(activityResultPlugin).toContain(
+			'AbsoluteActivityResultRecoveryState.applicationRuntimeReady'
+		);
+		expect(layout).toContain('useActivityResultRecoveryEffect(() => {');
+		expect(layout).toContain('markAbsoluteApplicationRuntimeReady()');
+		expect(
+			await readFile(
+				join(
+					project,
+					'modules/absolute-activity-result-recovery/android/src/main/java/expo/modules/absoluteactivityresultrecovery/AbsoluteActivityResultRecoveryModule.kt'
+				),
+				'utf8'
+			)
+		).toContain('drainActivityResults()');
 		expect(appConfig).toContain('"scheme": "product"');
 		expect(nativeRoute).toContain('mobile/native/scanner');
 		expect(nativeRoute).toContain('createAbsoluteNativeRoute');
@@ -478,7 +507,7 @@ describe('experimental Expo project', () => {
 		expect(app).toContain('expo-image-picker');
 		expect(app).toContain('expo-document-picker');
 		expect(app).toContain('expo-location');
-		expect(manifest).toContain('"@absolutejs/devices-expo": "0.0.3"');
+		expect(manifest).toContain('"@absolutejs/devices-expo": "0.0.9"');
 		expect(manifest).toContain('"expo-image-manipulator": "57.0.14"');
 		expect(devices).toContain('createExpoCameraCapability');
 		expect(devices).toContain('createExpoClipboardCapability');

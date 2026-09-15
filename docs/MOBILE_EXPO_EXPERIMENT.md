@@ -20,6 +20,8 @@ schema migration, package-identity preservation, and exactly-once outbox replay.
 OTA conformance: stable installation cohorts through Expo extra parameters,
 native fatal-startup recovery, incompatible-runtime no-update responses, fresh
 activation identities for previous-release rollback, and rollback to embedded.
+`0.20.0-beta.94` adds real Android camera process-death restoration through
+`@absolutejs/devices-expo@0.0.9` plus dependency-aware WSL mirror locks.
 
 AbsoluteJS can generate an experimental Expo Router shell in which explicitly
 selected routes render React Native UI and all other routes remain ordinary
@@ -102,6 +104,9 @@ Implemented in the first spike:
 - process-restart durability, transactional migration rollback, schema
   downgrade rejection, readonly enforcement, quota/policy enforcement, and
   account-isolation conformance coverage;
+- Android in-flight camera restoration after background process death, with
+  only a bounded operation descriptor persisted and exactly-once results
+  delivered through the provider-neutral lifecycle API;
 - signed provider-neutral Expo OTA delivery with native code-signing
   verification, stable per-installation rollout selection, manual healthy-launch
   checks, native pre-root error recovery, previous-release rollback, embedded
@@ -117,7 +122,6 @@ Implemented in the first spike:
 
 Not implemented, and therefore not claimed:
 
-- Android process-death restoration of an in-flight Expo image picker result;
 - EAS Update, rollback, process-death, physical-device, accessibility, or
   performance acceptance;
 - Expo Android production builds from WSL. Use generated Linux CI or native

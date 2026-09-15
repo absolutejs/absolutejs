@@ -4,6 +4,7 @@ export const ABSOLUTE_EXPO_BRIDGE_MAX_BYTES = 64 * 1024;
 export const ABSOLUTE_EXPO_BRIDGE_METHODS = [
 	'devices.platform.getInfo',
 	'devices.lifecycle.getState',
+	'devices.lifecycle.takeRestoredOperations',
 	'devices.links.getLaunchUrl',
 	'devices.links.openExternal',
 	'devices.network.getStatus',
