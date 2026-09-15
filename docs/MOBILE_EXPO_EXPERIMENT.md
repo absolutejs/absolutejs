@@ -22,6 +22,11 @@ native fatal-startup recovery, incompatible-runtime no-update responses, fresh
 activation identities for previous-release rollback, and rollback to embedded.
 `0.20.0-beta.96` adds real Android camera process-death restoration through
 `@absolutejs/devices-expo@0.0.9` plus dependency-aware WSL mirror locks.
+`0.20.0-beta.97` upgrades that lifecycle to `@absolutejs/devices-expo@0.0.11`:
+the generated shell provides an explicit native cancellation signal, and the
+installed API 36 matrix covers camera and multi-photo
+process-death recovery, cancellation, stale suppression, and exactly-once
+delivery without time-based inference.
 
 AbsoluteJS can generate an experimental Expo Router shell in which explicitly
 selected routes render React Native UI and all other routes remain ordinary
@@ -104,9 +109,10 @@ Implemented in the first spike:
 - process-restart durability, transactional migration rollback, schema
   downgrade rejection, readonly enforcement, quota/policy enforcement, and
   account-isolation conformance coverage;
-- Android in-flight camera restoration after background process death, with
-  only a bounded operation descriptor persisted and exactly-once results
-  delivered through the provider-neutral lifecycle API;
+- Android in-flight camera and multi-photo restoration after background process
+  death, with only a bounded operation descriptor persisted, explicit trusted
+  native cancellation signaling, stale-result suppression, and exactly-once
+  results delivered through the provider-neutral lifecycle API;
 - signed provider-neutral Expo OTA delivery with native code-signing
   verification, stable per-installation rollout selection, manual healthy-launch
   checks, native pre-root error recovery, previous-release rollback, embedded
@@ -122,8 +128,9 @@ Implemented in the first spike:
 
 Not implemented, and therefore not claimed:
 
-- EAS Update, rollback, process-death, physical-device, accessibility, or
-  performance acceptance;
+- EAS Update, EAS rollback, iOS picker process-death acceptance,
+  physical-device acceptance, accessibility acceptance, or performance
+  acceptance;
 - Expo Android production builds from WSL. Use generated Linux CI or native
   Windows/Linux/macOS for this checkpoint.
 

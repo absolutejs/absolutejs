@@ -42,7 +42,10 @@ const androidManifest = `${XML_HEADER}<manifest xmlns:android="http://schemas.an
 
 const androidModule = `${HEADER}package expo.modules.absoluteactivityresultrecovery
 
+import android.app.Activity
+import android.content.Context
 import android.content.Intent
+import android.provider.MediaStore
 import android.util.Log
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
@@ -58,14 +61,56 @@ object AbsoluteActivityResultRecoveryState {
   var applicationRuntimeReady = false
 
   private val pendingActivityResults = ArrayDeque<AbsolutePendingActivityResult>()
+  private var pendingCancellations = 0
+
+  private const val preferencesName = "absolutejs.activity-result-recovery"
+  private const val pickerRequestCodeKey = "picker-request-code"
 
   @Synchronized
-  fun enqueueActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+  fun registerPickerRequest(context: Context, requestCode: Int, intent: Intent) {
+    val action = intent.action
+    val isPicker = action == MediaStore.ACTION_IMAGE_CAPTURE ||
+      action == MediaStore.ACTION_VIDEO_CAPTURE ||
+      action == MediaStore.ACTION_PICK_IMAGES ||
+      action == Intent.ACTION_PICK ||
+      action == Intent.ACTION_GET_CONTENT ||
+      action == Intent.ACTION_OPEN_DOCUMENT ||
+      action?.endsWith(".PICK") == true ||
+      intent.type?.startsWith("image/") == true ||
+      intent.hasExtra(MediaStore.EXTRA_OUTPUT)
+    if (!isPicker) return
+    context.getSharedPreferences(preferencesName, Context.MODE_PRIVATE)
+      .edit()
+      .putInt(pickerRequestCodeKey, requestCode)
+      .apply()
+  }
+
+  @Synchronized
+  fun consumePickerCancellation(context: Context, requestCode: Int, resultCode: Int): Boolean {
+	val preferences = context.getSharedPreferences(preferencesName, Context.MODE_PRIVATE)
+	val pickerRequestCode = preferences.getInt(pickerRequestCodeKey, Int.MIN_VALUE)
+	if (pickerRequestCode != requestCode) return false
+	preferences.edit().remove(pickerRequestCodeKey).apply()
+	return resultCode == Activity.RESULT_CANCELED
+  }
+
+  @Synchronized
+  fun enqueueActivityResult(requestCode: Int, resultCode: Int, data: Intent?, pickerCancelled: Boolean) {
     if (pendingActivityResults.size == 8) pendingActivityResults.removeFirst()
     pendingActivityResults.addLast(
       AbsolutePendingActivityResult(requestCode, resultCode, data?.let(::Intent))
     )
+	if (pickerCancelled && pendingCancellations < 8) {
+	  pendingCancellations += 1
+	}
 	Log.d("AbsoluteJS", "Queued early Android activity result; pending=" + pendingActivityResults.size)
+  }
+
+  @Synchronized
+  fun takePendingCancellation(): Boolean {
+    if (pendingCancellations == 0) return false
+    pendingCancellations -= 1
+	return true
   }
 
   @Synchronized
@@ -88,6 +133,10 @@ class AbsoluteActivityResultRecoveryModule : Module() {
       AbsoluteActivityResultRecoveryState.applicationRuntimeReady = true
 	  Log.d("AbsoluteJS", "Expo application runtime ready for Android activity results")
     }
+
+	Function("takePendingCancellation") {
+	  AbsoluteActivityResultRecoveryState.takePendingCancellation()
+	}
   }
 }
 `;
@@ -96,6 +145,7 @@ const runtime = `${HEADER}import { requireNativeModule } from 'expo-modules-core
 
 type AbsoluteActivityResultRecoveryNative = {
 	markApplicationRuntimeReady(): void;
+	takePendingCancellation(): boolean;
 };
 
 const native = requireNativeModule<AbsoluteActivityResultRecoveryNative>(
@@ -104,6 +154,9 @@ const native = requireNativeModule<AbsoluteActivityResultRecoveryNative>(
 
 export const markAbsoluteApplicationRuntimeReady = () =>
 	native.markApplicationRuntimeReady();
+
+export const takeAbsoluteActivityResultCancellation = () =>
+	native.takePendingCancellation();
 `;
 
 export const absoluteExpoActivityResultRecoveryFiles = (project: string) =>

@@ -200,7 +200,7 @@ const expoPackage = (
 ) => ({
 	dependencies: {
 		'@absolutejs/devices': '0.7.0',
-		'@absolutejs/devices-expo': '0.0.9',
+		'@absolutejs/devices-expo': '0.0.11',
 		...(auth
 			? {
 					'@absolutejs/auth': ABSOLUTE_EXPO_AUTH_CORE_VERSION,
@@ -496,6 +496,7 @@ const withAbsoluteActivityResultRecovery = config => withMainActivity(config, va
 		'import android.os.Bundle',
 		'import android.os.Handler',
 		'import android.os.Looper',
+		'import android.util.Log',
 		'import expo.modules.absoluteactivityresultrecovery.AbsoluteActivityResultRecoveryState'
 	].join('\\n'));
 	source = source.replace(CLASS_ANCHOR, \`\${CLASS_ANCHOR}
@@ -517,12 +518,19 @@ const withAbsoluteActivityResultRecovery = config => withMainActivity(config, va
     }
   }
 
+  @Suppress("DEPRECATION")
+  override fun startActivityForResult(intent: Intent, requestCode: Int, options: Bundle?) {
+	AbsoluteActivityResultRecoveryState.registerPickerRequest(applicationContext, requestCode, intent)
+	super.startActivityForResult(intent, requestCode, options)
+  }
+
   override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+	val pickerCancelled = AbsoluteActivityResultRecoveryState.consumePickerCancellation(applicationContext, requestCode, resultCode)
 		if (AbsoluteActivityResultRecoveryState.applicationRuntimeReady) {
       super.onActivityResult(requestCode, resultCode, data)
       return
     }
-	AbsoluteActivityResultRecoveryState.enqueueActivityResult(requestCode, resultCode, data)
+	AbsoluteActivityResultRecoveryState.enqueueActivityResult(requestCode, resultCode, data, pickerCancelled)
     absoluteActivityResultHandler.removeCallbacks(absoluteReplayActivityResults)
     absoluteActivityResultHandler.postDelayed(absoluteReplayActivityResults, 250)
   }
@@ -538,7 +546,9 @@ const withAbsoluteActivityResultRecovery = config => withMainActivity(config, va
 
   override fun onDestroy() {
     absoluteActivityResultHandler.removeCallbacks(absoluteReplayActivityResults)
+	AbsoluteActivityResultRecoveryState.applicationRuntimeReady = false
     super.onDestroy()
+	Log.d("AbsoluteJS", "Expo activity-result recovery activity destroyed")
   }
 \`);
 	value.modResults.contents = source;
@@ -792,6 +802,7 @@ const absoluteExpoPushOptions = {
 
 	return `${EXPO_GENERATED_HEADER}import { installDeviceAdapter } from '@absolutejs/devices/runtime';
 import { createExpoDeviceAdapter } from '@absolutejs/devices-expo';
+import { takeAbsoluteActivityResultCancellation } from './AbsoluteActivityResultRecovery';
 ${push ? "import { absoluteExpoAuth } from './AbsoluteAuth';" : ''}
 ${imports.join('\n')}
 
@@ -800,6 +811,7 @@ ${pushSource}
 export const absoluteExpoDeviceCapabilities = ${JSON.stringify(plan.capabilities)} as const;
 export const absoluteExpoDevices = createExpoDeviceAdapter({
 	storagePrefix: ${JSON.stringify(`absolutejs.${config.appId}.`)},
+	takeActivityResultCancellation: takeAbsoluteActivityResultCancellation,
 	${entries}
 });
 installDeviceAdapter(absoluteExpoDevices);

@@ -2,16 +2,21 @@
 
 Status: Capacitor Android development/release, all-framework embedded bundles, universal native Auth/Sync, Expo hybrid native Auth/Sync, background Sync, automatic device provisioning, provider-neutral native push registration, signed staged Capacitor updates, end-to-end RSA-signed self-hosted Expo production updates, and Android conformance are operational; iOS development/release automation plus installed Expo iOS OTA and replacement-upgrade harnesses are shipped and awaiting real macOS/physical-device acceptance
 
-Implementation checkpoint (September 14, 2026, Expo Android picker recovery):
-`@absolutejs/devices-expo@0.0.9` durably records only the bounded,
+Implementation checkpoint (September 15, 2026, Expo Android picker recovery):
+`@absolutejs/absolute@0.20.0-beta.97` provisions
+`@absolutejs/devices-expo@0.0.11`, which durably records only the bounded,
 non-sensitive shape of an in-flight photo operation before opening Expo Image
-Picker, then clears it after ordinary completion or restored consumption. A
-fresh JavaScript process can therefore recover the correct provider-neutral
-`takePhoto`/`pick` result without application code, native-project edits, or a
-native file path crossing the bridge. The real API 36 gate uses a disposable
-opaque camera, kills the fully backgrounded host process as its own debug UID,
-relaunches it, and requires exactly one restored photo while proving the dead
-promise does not replay. Run it from this repository root with
+Picker, then clears it after ordinary completion or restored consumption. The
+generated Android shell supplies an explicit trusted native cancellation
+signal; elapsed time is never treated as cancellation, so a slow successful
+picker cannot race a fabricated terminal result. A fresh JavaScript process can
+therefore recover the correct provider-neutral `takePhoto`/`pick` result without
+application code, native-project edits, or a native file path crossing the
+bridge. The real API 36 gate uses disposable opaque camera and gallery
+activities and covers direct camera success, camera and bounded multi-photo
+success after process death, explicit
+process-death cancellation, cold-restart stale-result suppression, exactly-once
+delivery, and path redaction. Run it from this repository root with
 `bun run test:native:expo:android:picker`. WSL Expo builds also retain the
 Windows Bun-compatible mirror lock until the source lock hash changes, keeping
 warm native iterations fast without copying an incompatible lock format.

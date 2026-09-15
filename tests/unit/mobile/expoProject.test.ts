@@ -239,6 +239,9 @@ describe('experimental Expo project', () => {
 		expect(activityResultPlugin).toContain(
 			'AbsoluteActivityResultRecoveryState.applicationRuntimeReady'
 		);
+		expect(activityResultPlugin).toContain(
+			'AbsoluteActivityResultRecoveryState.applicationRuntimeReady = false'
+		);
 		expect(layout).toContain('useActivityResultRecoveryEffect(() => {');
 		expect(layout).toContain('markAbsoluteApplicationRuntimeReady()');
 		expect(
@@ -249,7 +252,7 @@ describe('experimental Expo project', () => {
 				),
 				'utf8'
 			)
-		).toContain('drainActivityResults()');
+		).toContain('consumePickerCancellation');
 		expect(appConfig).toContain('"scheme": "product"');
 		expect(nativeRoute).toContain('mobile/native/scanner');
 		expect(nativeRoute).toContain('createAbsoluteNativeRoute');
@@ -507,13 +510,16 @@ describe('experimental Expo project', () => {
 		expect(app).toContain('expo-image-picker');
 		expect(app).toContain('expo-document-picker');
 		expect(app).toContain('expo-location');
-		expect(manifest).toContain('"@absolutejs/devices-expo": "0.0.9"');
+		expect(manifest).toContain('"@absolutejs/devices-expo": "0.0.11"');
 		expect(manifest).toContain('"expo-image-manipulator": "57.0.14"');
 		expect(devices).toContain('createExpoCameraCapability');
 		expect(devices).toContain('createExpoClipboardCapability');
 		expect(devices).toContain('createExpoDocumentsCapability');
 		expect(devices).toContain('createExpoLocationCapability');
 		expect(devices).toContain('createExpoShareCapability');
+		expect(devices).toContain(
+			'takeActivityResultCancellation: takeAbsoluteActivityResultCancellation'
+		);
 		expect(devices).toContain('installDeviceAdapter(absoluteExpoDevices)');
 	});
 

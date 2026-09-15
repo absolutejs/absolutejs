@@ -32,6 +32,7 @@ type PickerReport = {
 	cause?: string;
 	code?: string;
 	count?: number;
+	dimensions?: string[];
 	kind?: 'direct' | 'direct-error' | 'mounted' | 'opening' | 'restored';
 	message?: string;
 	method?: string;
@@ -56,6 +57,16 @@ const command = (executable: string, ...args: string[]) => {
 		if (result.exitCode === 0) return result.stdout.toString().trim();
 		message =
 			result.stderr.toString().trim() || result.stdout.toString().trim();
+		if (
+			message.includes('device offline') &&
+			args[0] === '-s' &&
+			typeof args[1] === 'string'
+		)
+			Bun.spawnSync([executable, '-s', args[1], 'wait-for-device'], {
+				stderr: 'ignore',
+				stdout: 'ignore',
+				timeout: 30_000
+			});
 	}
 	throw new Error(`${executable} ${args.join(' ')} failed: ${message}`);
 };
@@ -178,6 +189,18 @@ const openTestCamera = async (
 		);
 };
 
+const activityDestructionCount = (adb: string, serial: string) =>
+	command(
+		adb,
+		'-s',
+		serial,
+		'logcat',
+		'-d',
+		'-s',
+		'AbsoluteJS:D',
+		'*:S'
+	).split('Expo activity-result recovery activity destroyed').length - 1;
+
 afterAll(async () => {
 	if (adbPath && androidSerial && androidLifecycleSettingManaged) {
 		try {
@@ -210,22 +233,22 @@ afterAll(async () => {
 	relay?.stop(true);
 }, TIMEOUT_MS);
 
-describeNative('real Expo Android picker restoration conformance', () => {
+describeNative('real Expo Android picker recovery matrix', () => {
 	test(
-		'restores one selected photo after Android kills the background host process',
+		'settles process-death success, cancellation, and stale results exactly once',
 		async () => {
 			const relayPort = await findFreePort();
 			const metroPort = await findFreePort();
 			const reports: PickerReport[] = [];
-			let openRequested = false;
+			let requestedOperation: 'pick' | 'takePhoto' | undefined;
 			relay = Bun.serve({
 				port: relayPort,
 				fetch: async (request) => {
 					if (new URL(request.url).pathname === '/command') {
-						const open = openRequested;
-						openRequested = false;
+						const operation = requestedOperation;
+						requestedOperation = undefined;
 
-						return Response.json({ open });
+						return Response.json({ operation });
 					}
 					if (request.method === 'POST') {
 						const report = (await request
@@ -310,6 +333,18 @@ const replacement = original + '.setPackage("com.absolutejs.testcamera")';
 const source = readFileSync(target, 'utf8');
 if (!source.includes(original)) throw new Error('Expo ImagePicker camera contract changed.');
 if (!source.includes(replacement)) writeFileSync(target, source.replace(original, replacement));
+const libraryTarget = path.join(process.cwd(), 'node_modules/expo-image-picker/android/src/main/java/expo/modules/imagepicker/contracts/ImageLibraryContract.kt');
+let library = readFileSync(libraryTarget, 'utf8');
+const replacements = [
+  ['return PickMultipleVisualMedia(selectionLimit).createIntent(context, request)', 'return Intent("com.absolutejs.testcamera.PICK").setPackage("com.absolutejs.testcamera").putExtra("absolutejs.limit", selectionLimit)'],
+  ['return PickMultipleVisualMedia().createIntent(context, request)', 'return Intent("com.absolutejs.testcamera.PICK").setPackage("com.absolutejs.testcamera").putExtra("absolutejs.limit", 3)'],
+  ['return PickVisualMedia().createIntent(context, request)', 'return Intent("com.absolutejs.testcamera.PICK").setPackage("com.absolutejs.testcamera").putExtra("absolutejs.limit", 1)']
+];
+for (const [before, after] of replacements) {
+  if (!library.includes(before) && !library.includes(after)) throw new Error('Expo ImagePicker library contract changed.');
+  library = library.replaceAll(before, after);
+}
+writeFileSync(libraryTarget, library);
 `
 			);
 			await writeFile(
@@ -322,7 +357,8 @@ const source = [
   '',
   'import android.app.Activity;',
   'import android.content.Intent;',
-  'import android.net.Uri;',
+	  'import android.content.ClipData;',
+	  'import android.net.Uri;',
   'import android.os.Bundle;',
 	  'import android.provider.MediaStore;',
 	  'import android.util.Base64;',
@@ -337,11 +373,27 @@ const source = [
   '    Button button = new Button(this);',
   '    button.setText("Capture test photo");',
   '    button.setContentDescription("Capture test photo");',
+	  '    final boolean picker = "com.absolutejs.testcamera.PICK".equals(getIntent().getAction());',
+	  '    if (!picker) {',
+	  '      Uri output = getIntent().getParcelableExtra(MediaStore.EXTRA_OUTPUT);',
+	  '      try (java.io.OutputStream stream = getContentResolver().openOutputStream(output)) {',
+	  '        stream.write(Base64.decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", Base64.DEFAULT));',
+	  '      }',
+	  '      catch (java.io.IOException error) { setResult(RESULT_CANCELED); finish(); return; }',
+	  '    }',
 	  '    capture = () -> {',
-  '      Uri output = getIntent().getParcelableExtra(MediaStore.EXTRA_OUTPUT);',
-  '      try (java.io.OutputStream stream = getContentResolver().openOutputStream(output)) {',
-  '        stream.write(Base64.decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", Base64.DEFAULT));',
-  '      } catch (java.io.IOException error) { setResult(RESULT_CANCELED); finish(); return; }',
+	  '      if (picker) {',
+	  '        int limit = Math.max(1, Math.min(3, getIntent().getIntExtra("absolutejs.limit", 1)));',
+	  '        Intent result = new Intent().addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);',
+	  '        Uri first = Uri.parse("content://com.absolutejs.testcamera.photos/first.png");',
+	  '        result.setData(first);',
+	  '        ClipData selected = ClipData.newUri(getContentResolver(), "AbsoluteJS test photo", first);',
+	  '        for (int index = 1; index < limit; index++) selected.addItem(new ClipData.Item(Uri.parse("content://com.absolutejs.testcamera.photos/photo-" + index + ".png")));',
+	  '        result.setClipData(selected);',
+	  '        setResult(RESULT_OK, result);',
+	  '        finish();',
+	  '        return;',
+	  '      }',
   '      setResult(RESULT_OK, new Intent());',
   '      finish();',
 	  '    };',
@@ -354,6 +406,44 @@ const source = [
 	  '    return super.onKeyUp(keyCode, event);',
 	  '  }',
 	  '}',
+  ''
+].join('\\n');
+const photoProvider = [
+  'package com.absolutejs.testcamera;',
+  '',
+  'import android.content.ContentProvider;',
+  'import android.content.ContentValues;',
+  'import android.database.Cursor;',
+  'import android.database.MatrixCursor;',
+  'import android.net.Uri;',
+  'import android.os.ParcelFileDescriptor;',
+  'import android.provider.OpenableColumns;',
+  'import android.util.Base64;',
+  'import java.io.File;',
+  'import java.io.FileNotFoundException;',
+  'import java.io.FileOutputStream;',
+  '',
+  'public class TestPhotoProvider extends ContentProvider {',
+  '  private File file(Uri uri) { return new File(getContext().getCacheDir(), uri.getLastPathSegment()); }',
+  '  @Override public boolean onCreate() { return true; }',
+  '  @Override public String getType(Uri uri) { return "image/png"; }',
+  '  @Override public ParcelFileDescriptor openFile(Uri uri, String mode) throws FileNotFoundException {',
+  '    File target = file(uri);',
+  '    if (!target.exists()) try (FileOutputStream stream = new FileOutputStream(target)) { stream.write(Base64.decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", Base64.DEFAULT)); } catch (java.io.IOException error) { throw new FileNotFoundException(error.getMessage()); }',
+  '    return ParcelFileDescriptor.open(target, ParcelFileDescriptor.MODE_READ_ONLY);',
+  '  }',
+  '  @Override public Cursor query(Uri uri, String[] projection, String selection, String[] args, String order) {',
+  '    String[] columns = projection == null ? new String[] { OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE } : projection;',
+  '    MatrixCursor cursor = new MatrixCursor(columns);',
+  '    Object[] values = new Object[columns.length];',
+  '    for (int index = 0; index < columns.length; index++) { if (OpenableColumns.DISPLAY_NAME.equals(columns[index])) values[index] = uri.getLastPathSegment(); else if (OpenableColumns.SIZE.equals(columns[index])) values[index] = 68L; }',
+  '    cursor.addRow(values);',
+  '    return cursor;',
+  '  }',
+  '  @Override public int delete(Uri uri, String selection, String[] args) { return 0; }',
+  '  @Override public Uri insert(Uri uri, ContentValues values) { throw new UnsupportedOperationException(); }',
+  '  @Override public int update(Uri uri, ContentValues values, String selection, String[] args) { return 0; }',
+  '}',
   ''
 ].join('\\n');
 const lifecycleDriver = [
@@ -376,9 +466,12 @@ const withOpaqueTestCamera = config => withDangerousMod(config, ['android', asyn
     const directory = path.join(android, 'testcamera/src/main/java/com/absolutejs/testcamera');
     await mkdir(directory, { recursive: true });
     await writeFile(path.join(directory, 'TestCameraActivity.java'), source);
+    await writeFile(path.join(directory, 'TestPhotoProvider.java'), photoProvider);
     await writeFile(path.join(directory, 'AbsoluteAlwaysFinish.java'), lifecycleDriver);
     await mkdir(path.join(android, 'testcamera/src/main'), { recursive: true });
-    await writeFile(path.join(android, 'testcamera/src/main/AndroidManifest.xml'), '<manifest xmlns:android="http://schemas.android.com/apk/res/android"><uses-permission android:name="android.permission.CAMERA"/><uses-feature android:name="android.hardware.camera" android:required="false"/><application android:label="AbsoluteJS test camera" android:theme="@android:style/Theme.Material.Light.NoActionBar"><activity android:name=".TestCameraActivity" android:label="AbsoluteJS test camera" android:exported="true"><intent-filter><action android:name="android.media.action.IMAGE_CAPTURE"/><category android:name="android.intent.category.DEFAULT"/></intent-filter></activity></application></manifest>\\n');
+    // The exported provider contains only generated opaque 1x1 fixtures. This
+    // removes transient URI-grant timing from the lifecycle test itself.
+    await writeFile(path.join(android, 'testcamera/src/main/AndroidManifest.xml'), '<manifest xmlns:android="http://schemas.android.com/apk/res/android"><uses-permission android:name="android.permission.CAMERA"/><uses-feature android:name="android.hardware.camera" android:required="false"/><application android:label="AbsoluteJS test picker" android:theme="@android:style/Theme.Material.Light.NoActionBar"><provider android:name=".TestPhotoProvider" android:authorities="com.absolutejs.testcamera.photos" android:exported="true" android:grantUriPermissions="true"/><activity android:name=".TestCameraActivity" android:label="AbsoluteJS test picker" android:exported="true"><intent-filter><action android:name="android.media.action.IMAGE_CAPTURE"/><category android:name="android.intent.category.DEFAULT"/></intent-filter><intent-filter><action android:name="com.absolutejs.testcamera.PICK"/><category android:name="android.intent.category.DEFAULT"/></intent-filter></activity></application></manifest>\\n');
     await writeFile(path.join(android, 'testcamera/build.gradle'), 'apply plugin: "com.android.application"\\n\\nandroid {\\n  namespace "com.absolutejs.testcamera"\\n  compileSdk rootProject.ext.compileSdkVersion\\n  defaultConfig {\\n    applicationId "com.absolutejs.testcamera"\\n    minSdkVersion rootProject.ext.minSdkVersion\\n    targetSdkVersion rootProject.ext.targetSdkVersion\\n    versionCode 1\\n    versionName "1"\\n  }\\n}\\n');
     const settingsPath = path.join(android, 'settings.gradle');
     const settings = require('node:fs').readFileSync(settingsPath, 'utf8');
@@ -409,7 +502,7 @@ module.exports = withOpaqueTestCamera;
 			);
 			await writeFile(
 				resolve(NATIVE_PROJECT, 'app/index.tsx'),
-				`import { camera, lifecycle } from '@absolutejs/devices';
+				`import { camera, lifecycle, photos } from '@absolutejs/devices';
 import { useEffect } from 'react';
 import { Text, View } from 'react-native';
 const REPORT = 'http://localhost:${relayPort}/report';
@@ -421,28 +514,30 @@ export default function Acceptance() {
     let busy = false;
     let remove: (() => void | Promise<void>) | undefined;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const pick = async () => {
-      await report({ kind: 'opening' });
+    const pick = async (operation: 'pick' | 'takePhoto') => {
+      await report({ kind: 'opening', method: operation });
       try {
-        const selected = await camera.takePhoto();
-        await report({ count: selected ? 1 : 0, kind: 'direct', success: true });
+        const selected = operation === 'pick' ? await photos.pick({ limit: 2 }) : await camera.takePhoto();
+        const values = Array.isArray(selected) ? selected : [selected];
+        await report({ count: values.length, dimensions: values.map(value => String(value.width) + 'x' + String(value.height)), kind: 'direct', method: operation, success: true });
       } catch (error) {
         const failure = error as { code?: unknown; message?: unknown };
         await report({ cause: String((failure as { cause?: unknown })?.cause ?? ''), code: String(failure?.code ?? ''), kind: 'direct-error', message: String(failure?.message ?? error), success: false });
       }
     };
     const poll = async () => {
-      const command = await fetch(COMMAND).then(value => value.json()).catch(() => ({ open: false }));
-      if (command.open && !busy) {
+      const command = await fetch(COMMAND).then(value => value.json()).catch(() => ({ operation: undefined }));
+      if ((command.operation === 'pick' || command.operation === 'takePhoto') && !busy) {
         busy = true;
-        await pick();
+        await pick(command.operation);
         busy = false;
       }
       if (active) timer = setTimeout(() => void poll(), 250);
     };
     void lifecycle.onRestoredOperation(operation => {
-      const count = Array.isArray(operation.data) ? operation.data.length : operation.data ? 1 : 0;
-      void report({ count, kind: 'restored', method: operation.method, plugin: operation.plugin, success: operation.success });
+      const values = Array.isArray(operation.data) ? operation.data : operation.data ? [operation.data] : [];
+      const error = operation.error as { code?: unknown; message?: unknown } | undefined;
+      void report({ code: error?.code, count: values.length, dimensions: values.map(value => String((value as { width?: unknown }).width) + 'x' + String((value as { height?: unknown }).height)), kind: 'restored', message: error?.message, method: operation.method, plugin: operation.plugin, success: operation.success });
     }).then(value => { remove = value; });
     void report({ kind: 'mounted' });
     void poll();
@@ -662,7 +757,7 @@ export default function Acceptance() {
 			// Let the development client finish its cold-start main-thread work
 			// before Android asks it to pause for an external camera activity.
 			await Bun.sleep(10_000);
-			openRequested = true;
+			requestedOperation = 'takePhoto';
 			await openTestCamera(adbPath, androidSerial, reports);
 			await waitFor(
 				() =>
@@ -671,9 +766,7 @@ export default function Acceptance() {
 						: undefined,
 				'Expo camera preference preflight did not complete.'
 			);
-			// Exercise the exact ActivityManager switch behind Android's "Don't keep
-			// activities" developer option without brittle Settings UI automation.
-			setAlwaysFinishActivities(adbPath, androidSerial, true);
+			// Start the process-death case from a clean application runtime.
 			command(
 				adbPath,
 				'-s',
@@ -723,12 +816,25 @@ export default function Acceptance() {
 			);
 			await Bun.sleep(10_000);
 
-			openRequested = true;
+			requestedOperation = 'takePhoto';
 			await openTestCamera(adbPath, androidSerial, reports, false);
-			// "Don't keep activities" destroys the caller after the external camera
-			// covers it. Kill the surviving background process to reproduce the
-			// process-death path Android can take before the camera returns.
-			await Bun.sleep(2_000);
+			const destructionCount = activityDestructionCount(
+				adbPath,
+				androidSerial
+			);
+			setAlwaysFinishActivities(adbPath, androidSerial, true);
+			// Do not kill until Android has completed destruction of the paused
+			// caller. Expo persists its activity-result registry during onDestroy.
+			await waitFor(
+				() =>
+					activityDestructionCount(
+						resolvedAdbPath,
+						readyAndroidSerial
+					) > destructionCount
+						? true
+						: undefined,
+				'Android did not finish destroying the picker caller Activity.'
+			);
 			const appProcess = command(
 				adbPath,
 				'-s',
@@ -754,6 +860,29 @@ export default function Acceptance() {
 				'-9',
 				appProcess
 			);
+			await waitFor(() => {
+				const current = Bun.spawnSync(
+					[
+						resolvedAdbPath,
+						'-s',
+						readyAndroidSerial,
+						'shell',
+						'pidof',
+						APP_ID
+					],
+					{ stderr: 'ignore', stdout: 'pipe', timeout: 10_000 }
+				)
+					.stdout.toString()
+					.trim();
+
+				return current !== appProcess ? true : undefined;
+			}, 'Android ActivityManager did not terminate the background host process.');
+			// The old caller is already destroyed and its registry is durable. Keep
+			// the fresh result-receiving Activity alive when the picker returns.
+			setAlwaysFinishActivities(adbPath, androidSerial, false);
+			// Let ActivityManager observe the dead application binder before the
+			// external activity returns into the retained task record.
+			await Bun.sleep(1_000);
 			command(
 				adbPath,
 				'-s',
@@ -829,15 +958,247 @@ export default function Acceptance() {
 					(report) => !JSON.stringify(report).includes('file:')
 				)
 			).toBe(true);
+
+			const startFreshRuntime = async (message: string) => {
+				command(
+					resolvedAdbPath,
+					'-s',
+					readyAndroidSerial,
+					'shell',
+					'am',
+					'force-stop',
+					APP_ID
+				);
+				reports.length = 0;
+				command(
+					resolvedAdbPath,
+					'-s',
+					readyAndroidSerial,
+					'shell',
+					'am',
+					'start',
+					'-W',
+					'-a',
+					'android.intent.action.VIEW',
+					'-d',
+					developmentUrl(metroPort),
+					APP_ID
+				);
+				await waitFor(
+					() =>
+						reports.some(({ kind }) => kind === 'mounted')
+							? true
+							: undefined,
+					message
+				);
+				await Bun.sleep(2_000);
+			};
+			const finishAfterProcessDeath = async (
+				operation: 'pick' | 'takePhoto',
+				key: 'KEYCODE_BACK' | 'KEYCODE_DPAD_CENTER'
+			) => {
+				requestedOperation = operation;
+				await openTestCamera(
+					resolvedAdbPath,
+					readyAndroidSerial,
+					reports,
+					false
+				);
+				const recoveryDestructionCount = activityDestructionCount(
+					resolvedAdbPath,
+					readyAndroidSerial
+				);
+				setAlwaysFinishActivities(
+					resolvedAdbPath,
+					readyAndroidSerial,
+					true
+				);
+				await waitFor(
+					() =>
+						activityDestructionCount(
+							resolvedAdbPath,
+							readyAndroidSerial
+						) > recoveryDestructionCount
+							? true
+							: undefined,
+					'Android did not finish destroying the picker caller Activity.'
+				);
+				const process = command(
+					resolvedAdbPath,
+					'-s',
+					readyAndroidSerial,
+					'shell',
+					'pidof',
+					APP_ID
+				)
+					.split(/\s+/u)
+					.at(0);
+				if (!process)
+					throw new Error(
+						'Expo picker matrix could not resolve the host process.'
+					);
+				command(
+					resolvedAdbPath,
+					'-s',
+					readyAndroidSerial,
+					'shell',
+					'run-as',
+					APP_ID,
+					'kill',
+					'-9',
+					process
+				);
+				await waitFor(() => {
+					const current = Bun.spawnSync(
+						[
+							resolvedAdbPath,
+							'-s',
+							readyAndroidSerial,
+							'shell',
+							'pidof',
+							APP_ID
+						],
+						{ stderr: 'ignore', stdout: 'pipe', timeout: 10_000 }
+					)
+						.stdout.toString()
+						.trim();
+
+					return current !== process ? true : undefined;
+				}, 'Android ActivityManager did not terminate the picker host process.');
+				setAlwaysFinishActivities(
+					resolvedAdbPath,
+					readyAndroidSerial,
+					false
+				);
+				await Bun.sleep(1_000);
+				command(
+					resolvedAdbPath,
+					'-s',
+					readyAndroidSerial,
+					'shell',
+					'input',
+					'keyevent',
+					key
+				);
+				await waitFor(() => {
+					const activities = command(
+						resolvedAdbPath,
+						'-s',
+						readyAndroidSerial,
+						'shell',
+						'dumpsys',
+						'activity',
+						'activities'
+					);
+
+					return activities
+						.split(/\r?\n/u)
+						.some(
+							(line) =>
+								line.includes('ResumedActivity') &&
+								line.includes(TEST_CAMERA_APP_ID)
+						)
+						? undefined
+						: true;
+				}, 'Android deterministic picker did not close.');
+				command(
+					resolvedAdbPath,
+					'-s',
+					readyAndroidSerial,
+					'shell',
+					'am',
+					'start',
+					'-W',
+					'-a',
+					'android.intent.action.VIEW',
+					'-d',
+					developmentUrl(metroPort),
+					APP_ID
+				);
+
+				return waitFor(
+					() =>
+						reports.find(
+							(report) =>
+								report.kind === 'restored' &&
+								report.method === operation
+						),
+					`Expo did not terminate the restored ${operation} operation.`
+				);
+			};
+
+			// A consumed result must not return after a genuine cold restart.
+			await startFreshRuntime(
+				'Expo picker acceptance did not mount for stale-result validation.'
+			);
+			expect(reports.some(({ kind }) => kind === 'restored')).toBe(false);
+
+			await startFreshRuntime(
+				'Expo picker acceptance did not mount for multi-photo recovery.'
+			);
+
+			// The same native recovery path must retain a bounded multi-photo result.
+			const restoredPick = await finishAfterProcessDeath(
+				'pick',
+				'KEYCODE_DPAD_CENTER'
+			);
+			expect(restoredPick).toMatchObject({
+				count: 2,
+				dimensions: ['1x1', '1x1'],
+				method: 'pick',
+				plugin: 'expo-image-picker',
+				success: true
+			});
+			expect(
+				reports.filter(
+					({ kind, method }) =>
+						kind === 'restored' && method === 'pick'
+				)
+			).toHaveLength(1);
+			expect(
+				reports.some(
+					({ kind, method }) => kind === 'direct' && method === 'pick'
+				)
+			).toBe(false);
+
+			await startFreshRuntime(
+				'Expo picker acceptance did not mount for cancellation recovery.'
+			);
+			const restoredCancellation = await finishAfterProcessDeath(
+				'pick',
+				'KEYCODE_BACK'
+			);
+			expect(restoredCancellation).toMatchObject({
+				code: 'cancelled',
+				count: 0,
+				method: 'pick',
+				plugin: 'expo-image-picker',
+				success: false
+			});
+			expect(
+				reports.filter(
+					({ kind, method }) =>
+						kind === 'restored' && method === 'pick'
+				)
+			).toHaveLength(1);
+			expect(
+				reports.every(
+					(report) => !JSON.stringify(report).includes('file:')
+				)
+			).toBe(true);
 			await writeFile(
 				resolve(ARTIFACT_ROOT, 'expo-android-picker-conformance.json'),
 				`${JSON.stringify(
 					{
+						abandonedCancellationBounded: true,
 						backgroundProcessDeath: true,
 						directPromiseReplayed: false,
+						multiPhotoCount: restoredPick.count,
 						photoCount: restored.count,
+						pickerCancellationCode: restoredCancellation.code,
 						restoredExactlyOnce: true,
-						sensitivePathReported: false
+						sensitivePathReported: false,
+						staleResultReplayed: false
 					},
 					null,
 					2
