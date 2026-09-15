@@ -20,7 +20,7 @@ schema migration, package-identity preservation, and exactly-once outbox replay.
 OTA conformance: stable installation cohorts through Expo extra parameters,
 native fatal-startup recovery, incompatible-runtime no-update responses, fresh
 activation identities for previous-release rollback, and rollback to embedded.
-`0.20.0-beta.95` adds real Android camera process-death restoration through
+`0.20.0-beta.96` adds real Android camera process-death restoration through
 `@absolutejs/devices-expo@0.0.9` plus dependency-aware WSL mirror locks.
 
 AbsoluteJS can generate an experimental Expo Router shell in which explicitly
