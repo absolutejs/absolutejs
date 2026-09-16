@@ -24,6 +24,7 @@ import {
 	type AbsoluteAndroidCommandResult
 } from './androidEmulatorController';
 import type { NormalizedAbsoluteMobileConfig } from './config';
+import { buildAbsoluteExpoAndroidWslBundle } from './expoDevController';
 
 export const ABSOLUTE_ANDROID_RELEASE_FORMAT = 1 as const;
 
@@ -320,11 +321,6 @@ export const buildAbsoluteAndroidRelease = async (
 	}
 	const projectRoot = resolve(options.projectRoot);
 	const host = options.host ?? detectAbsoluteMobileHost();
-	if (options.config.engine === 'expo' && host === 'wsl') {
-		throw new TypeError(
-			'Expo Android production builds from WSL are not available yet. Run the generated CI workflow on Linux or build from native Windows while the WSL projection is completed.'
-		);
-	}
 	const androidRoot =
 		options.androidRoot ??
 		process.env.ANDROID_HOME ??
@@ -373,23 +369,36 @@ export const buildAbsoluteAndroidRelease = async (
 			'Android versionCode must be an integer from 1 through 2100000000.'
 		);
 	}
-	const { artifactPath } = await buildAbsoluteAndroidGradleArtifact({
-		capture: options.capture,
-		env: options.env,
-		gradleArguments:
-			versionCode === undefined
-				? []
-				: [`-Pandroid.injected.version.code=${versionCode}`],
-		project: {
-			androidRoot,
-			config: options.config,
-			host,
-			nativeDirectory,
-			projectRoot
-		},
-		run: options.run,
-		task: 'bundleRelease'
-	});
+	const gradleArguments =
+		versionCode === undefined
+			? []
+			: [`-Pandroid.injected.version.code=${versionCode}`];
+	const artifactPath =
+		options.config.engine === 'expo' && host === 'wsl'
+			? await buildAbsoluteExpoAndroidWslBundle({
+					androidRoot,
+					capture: options.capture,
+					env: options.env,
+					gradleArguments,
+					project: options.config.nativeProjectDirectory,
+					run: options.run
+				})
+			: (
+					await buildAbsoluteAndroidGradleArtifact({
+						capture: options.capture,
+						env: options.env,
+						gradleArguments,
+						project: {
+							androidRoot,
+							config: options.config,
+							host,
+							nativeDirectory,
+							projectRoot
+						},
+						run: options.run,
+						task: 'bundleRelease'
+					})
+				).artifactPath;
 	if (!(await pathExists(artifactPath))) {
 		throw new TypeError(
 			`Android Gradle did not produce the expected App Bundle: ${artifactPath}`

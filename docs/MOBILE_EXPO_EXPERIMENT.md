@@ -34,6 +34,14 @@ web accessibility, native rebuild/reconnect, and sanitized result artifacts.
 discovery, then carries the final port through local Android/iOS launch, WSL,
 Remote Mac tunneling, and later native rebuilds. Telemetry reports only the
 categorical conflict reason, bounded retry count, and startup duration.
+`0.20.0-beta.100` adds production Expo Android App Bundle builds from WSL. The
+ordinary provider-neutral build command uses a serialized Windows-local mirror,
+Windows Bun and Android SDK, a temporary short drive, full release ABIs, and the
+same versioning, signing, doctor, immutable-artifact, telemetry, and publishing
+contracts as every other Android host.
+The real WSL 2 acceptance run produced an 80.6 MB release AAB after compiling
+all four production ABIs. Its unchanged warm rerun reused 970 of 1,034 Gradle
+tasks and reduced Gradle time from 31m16s to 2m29s.
 
 AbsoluteJS can generate an experimental Expo Router shell in which explicitly
 selected routes render React Native UI and all other routes remain ordinary
@@ -83,6 +91,9 @@ Implemented in the first spike:
 - distinct `expo-android` and `expo-ios` timing logs and redacted telemetry;
 - an installed Expo Android quality budget covering startup, bridge, memory,
   all-framework HMR, focus/labels, and 44dp/px interaction targets;
+- production Expo Android App Bundle builds from WSL through the managed
+  Windows-local mirror, retaining warm native/package caches and returning the
+  artifact to the normal AbsoluteJS release pipeline;
 - local HTTPS CA projection for Android, iOS Simulator, and physical iOS;
 - Expo iOS development through a paired developer-owned Remote Mac, including
   separate Bun and Metro tunnels and physical-device LAN relays;
@@ -142,8 +153,6 @@ Not implemented, and therefore not claimed:
 - EAS Update, EAS rollback, iOS picker process-death acceptance,
   physical-device acceptance, accessibility acceptance, or performance
   acceptance;
-- Expo Android production builds from WSL. Use generated Linux CI or native
-  Windows/Linux/macOS for this checkpoint.
 
 Unsupported device capabilities still fail rather than silently degrading. The
 two JavaScript engines do not share globals: Auth and Sync cross only through
@@ -314,6 +323,14 @@ from both Prebuild and Metro/Gradle environments. The release doctor verifies
 the generated app configuration, installed SDK versions and lockfile, one-to-one
 opaque asset projection, bundle hashes, CSP, deep links, native debugging,
 cleartext/development trust, Sync policy, and detected device packages.
+
+From WSL the same command automatically mirrors the generated Expo project to a
+managed Windows-local directory, installs it with Windows Bun, and runs Gradle
+against the Windows Android SDK. Run it from the application root in WSL; do not
+copy the project to Windows or invoke Gradle manually. Warm builds preserve only
+managed dependency and native compiler caches. A source-lock change refreshes
+the Windows lock safely, and simultaneous `bun dev`/release invocations wait on
+the same project-scoped build lock instead of modifying one mirror concurrently.
 
 The immutable AAB and `release.json` are written beneath
 `.absolutejs/mobile/releases/android/`. Existing `mobile.release.ts` registry

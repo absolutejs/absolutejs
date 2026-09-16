@@ -100,6 +100,24 @@ export type AbsoluteExpoAndroidReleaseInstallation = {
 	serial: string;
 };
 
+type AbsoluteExpoWindowsBuildCommandOptions = {
+	env?: Record<string, string | undefined>;
+	signal?: AbortSignal;
+};
+
+export type BuildAbsoluteExpoAndroidWslBundleOptions = {
+	androidRoot: string;
+	capture?: (command: string[]) => { exitCode: number; stdout: string };
+	env?: Record<string, string | undefined>;
+	gradleArguments?: readonly string[];
+	project: string;
+	run?: (
+		command: string[],
+		options?: AbsoluteExpoWindowsBuildCommandOptions
+	) => Promise<number>;
+	signal?: AbortSignal;
+};
+
 export type InstallAbsoluteExpoIosReleaseOptions = {
 	capture?: (command: string[]) => { exitCode: number; stdout: string };
 	config: NormalizedAbsoluteMobileConfig;
@@ -120,6 +138,8 @@ const METRO_READY_TIMEOUT_MS = 120_000;
 const METRO_START_MAX_ATTEMPTS = 4;
 const MAX_TCP_PORT = 65_535;
 const PROCESS_CLOSE_TIMEOUT_MS = 2_000;
+const HASH_RADIX = 16;
+const WINDOWS_BUILD_ID_LENGTH = 10;
 
 const allocateAvailableMetroPort = () =>
 	new Promise<number>((resolve, reject) => {
@@ -213,6 +233,21 @@ const windowsPathFromWsl = (
 	}
 
 	return result.stdout.trim();
+};
+
+const absoluteExpoWindowsBuildDirectory = (
+	project: string,
+	androidRoot: string
+) => {
+	const buildId = Bun.hash(resolvePath(project)).toString(HASH_RADIX);
+
+	return resolvePath(
+		androidRoot,
+		'..',
+		'..',
+		'ExpoBuilds',
+		buildId.slice(0, WINDOWS_BUILD_ID_LENGTH)
+	);
 };
 
 const connectLocalExpoAndroid = (
@@ -337,16 +372,13 @@ const encodedWindowsExpoAndroidCommand = (
 	capture: NonNullable<StartAbsoluteExpoDevOptions['capture']>,
 	forwardedPort: number,
 	preferredDevice?: string,
-	mode: 'development' | 'release' = 'development'
+	mode: 'bundle' | 'development' | 'release' = 'development',
+	gradleArguments: readonly string[] = []
 ) => {
 	const windowsSource = windowsPathFromWsl(project, capture);
-	const buildId = Bun.hash(resolvePath(project)).toString(16);
-	const buildDirectory = resolvePath(
-		androidRoot,
-		'..',
-		'..',
-		'ExpoBuilds',
-		buildId.slice(0, 10)
+	const buildDirectory = absoluteExpoWindowsBuildDirectory(
+		project,
+		androidRoot
 	);
 	const windowsDirectory = windowsPathFromWsl(buildDirectory, capture);
 	const windowsAndroidRoot = windowsPathFromWsl(androidRoot, capture);
@@ -354,6 +386,59 @@ const encodedWindowsExpoAndroidCommand = (
 		Buffer.from(value, 'utf8').toString('base64');
 	const developmentScheme = expoDevelopmentClientScheme(appId);
 	const realpathHook = encode(preserveWindowsSubstRealpaths);
+	const mirrorMutex = `Local\\AbsoluteJS.Expo.${Bun.hash(buildDirectory).toString(HASH_RADIX)}`;
+	const deviceCommands =
+		mode === 'bundle'
+			? []
+			: [
+					"$adb = Join-Path $androidHome 'platform-tools\\adb.exe'",
+					'$deviceDeadline = [DateTime]::UtcNow.AddSeconds(60)',
+					"do { $readyDevices = @(& $adb devices) | Where-Object { $_ -match '\\tdevice$' } | ForEach-Object { ($_ -split '\\s+')[0] }; if (-not $readyDevices) { Start-Sleep -Milliseconds 500 } } while (-not $readyDevices -and [DateTime]::UtcNow -lt $deviceDeadline)",
+					...(preferredDevice
+						? [
+								`$serial = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${encode(preferredDevice)}'))`,
+								"if ($readyDevices -notcontains $serial) { throw 'The selected Expo Android device is not connected after build.' }"
+							]
+						: [
+								"$serial = $readyDevices | Where-Object { $_ -like 'emulator-*' } | Select-Object -First 1",
+								'if (-not $serial) { $serial = $readyDevices | Select-Object -First 1 }'
+							]),
+					"if (-not $serial) { throw 'Expo Android build completed but no ready device was found.' }",
+					...(mode === 'release'
+						? [
+								"$apk = Join-Path $mappedProject 'android\\app\\build\\outputs\\apk\\release\\app-release.apk'",
+								"$installOutput = Join-Path $env:TEMP ('absolutejs-adb-install-' + [Guid]::NewGuid().ToString('N') + '.out')",
+								"$installError = $installOutput + '.err'",
+								"$install = Start-Process -FilePath $adb -ArgumentList @('-s', $serial, 'install', '-r', $apk) -NoNewWindow -PassThru -RedirectStandardOutput $installOutput -RedirectStandardError $installError",
+								"if (-not $install.WaitForExit(900000)) { $install.Kill(); throw 'Expo Android release installation timed out after 15 minutes.' }",
+								'$install.WaitForExit()',
+								'$installText = ((Get-Content $installOutput -Raw -ErrorAction SilentlyContinue) + (Get-Content $installError -Raw -ErrorAction SilentlyContinue))',
+								'if ($installText) { Write-Output $installText.Trim() }',
+								'Remove-Item $installOutput, $installError -Force -ErrorAction SilentlyContinue',
+								"if ($install.ExitCode -ne 0 -and $installText -notmatch '(?m)^Success\\r?$') { throw 'Expo Android release installation failed.' }",
+								'$installedPackage = @(& $adb -s $serial shell pm path ' +
+									`'${appId}')`,
+								"if ($LASTEXITCODE -ne 0 -or $installedPackage -notmatch '^package:') { throw 'Expo Android release package verification failed.' }"
+							]
+						: []),
+					`& $adb -s $serial reverse 'tcp:${forwardedPort}' 'tcp:${forwardedPort}'`,
+					"if ($LASTEXITCODE -ne 0) { throw 'Expo Android port forwarding failed.' }",
+					`& $adb -s $serial shell am force-stop '${appId}'`,
+					"if ($LASTEXITCODE -ne 0) { throw 'Expo Android application reset failed.' }",
+					...(mode === 'development'
+						? [
+								`$developmentUrl = '${developmentScheme}://expo-development-client/?url=' + [Uri]::EscapeDataString('http://localhost:${forwardedPort}')`,
+								`& $adb -s $serial shell am start -a android.intent.action.VIEW -d $developmentUrl '${appId}'`,
+								"if ($LASTEXITCODE -ne 0) { throw 'Expo Android development-client launch failed.' }",
+								'Start-Sleep -Milliseconds 1000',
+								`& $adb -s $serial shell am start -a android.intent.action.VIEW -d $developmentUrl '${appId}'`,
+								"if ($LASTEXITCODE -ne 0) { throw 'Expo Android development-client retry failed.' }"
+							]
+						: [
+								`& $adb -s $serial shell monkey -p '${appId}' -c android.intent.category.LAUNCHER 1 | Out-Null`,
+								"if ($LASTEXITCODE -ne 0) { throw 'Expo Android release launch failed.' }"
+							])
+				];
 	const mappedBuild = [
 		"$mappedProject = Join-Path ($drive + '\\') (Split-Path -Leaf $directory)",
 		'Set-Location $mappedProject',
@@ -377,56 +462,12 @@ const encodedWindowsExpoAndroidCommand = (
 			: [
 					"$gradle = Join-Path $mappedProject 'android\\gradlew.bat'",
 					"$androidProject = Join-Path $mappedProject 'android'",
-					'& $gradle --no-daemon --console=plain -p $androidProject assembleRelease',
+					mode === 'bundle'
+						? '& $gradle --no-daemon --console=plain -p $androidProject @gradleArguments bundleRelease'
+						: '& $gradle --no-daemon --console=plain -p $androidProject assembleRelease',
 					"if ($LASTEXITCODE -ne 0) { throw 'Expo Android release compilation failed.' }"
 				]),
-		"$adb = Join-Path $androidHome 'platform-tools\\adb.exe'",
-		'$deviceDeadline = [DateTime]::UtcNow.AddSeconds(60)',
-		"do { $readyDevices = @(& $adb devices) | Where-Object { $_ -match '\\tdevice$' } | ForEach-Object { ($_ -split '\\s+')[0] }; if (-not $readyDevices) { Start-Sleep -Milliseconds 500 } } while (-not $readyDevices -and [DateTime]::UtcNow -lt $deviceDeadline)",
-		...(preferredDevice
-			? [
-					`$serial = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${encode(preferredDevice)}'))`,
-					"if ($readyDevices -notcontains $serial) { throw 'The selected Expo Android device is not connected after build.' }"
-				]
-			: [
-					"$serial = $readyDevices | Where-Object { $_ -like 'emulator-*' } | Select-Object -First 1",
-					'if (-not $serial) { $serial = $readyDevices | Select-Object -First 1 }'
-				]),
-		"if (-not $serial) { throw 'Expo Android build completed but no ready device was found.' }",
-		...(mode === 'release'
-			? [
-					"$apk = Join-Path $mappedProject 'android\\app\\build\\outputs\\apk\\release\\app-release.apk'",
-					"$installOutput = Join-Path $env:TEMP ('absolutejs-adb-install-' + [Guid]::NewGuid().ToString('N') + '.out')",
-					"$installError = $installOutput + '.err'",
-					"$install = Start-Process -FilePath $adb -ArgumentList @('-s', $serial, 'install', '-r', $apk) -NoNewWindow -PassThru -RedirectStandardOutput $installOutput -RedirectStandardError $installError",
-					"if (-not $install.WaitForExit(900000)) { $install.Kill(); throw 'Expo Android release installation timed out after 15 minutes.' }",
-					'$install.WaitForExit()',
-					'$installText = ((Get-Content $installOutput -Raw -ErrorAction SilentlyContinue) + (Get-Content $installError -Raw -ErrorAction SilentlyContinue))',
-					'if ($installText) { Write-Output $installText.Trim() }',
-					'Remove-Item $installOutput, $installError -Force -ErrorAction SilentlyContinue',
-					"if ($install.ExitCode -ne 0 -and $installText -notmatch '(?m)^Success\\r?$') { throw 'Expo Android release installation failed.' }",
-					'$installedPackage = @(& $adb -s $serial shell pm path ' +
-						`'${appId}')`,
-					"if ($LASTEXITCODE -ne 0 -or $installedPackage -notmatch '^package:') { throw 'Expo Android release package verification failed.' }"
-				]
-			: []),
-		`& $adb -s $serial reverse 'tcp:${forwardedPort}' 'tcp:${forwardedPort}'`,
-		"if ($LASTEXITCODE -ne 0) { throw 'Expo Android port forwarding failed.' }",
-		`& $adb -s $serial shell am force-stop '${appId}'`,
-		"if ($LASTEXITCODE -ne 0) { throw 'Expo Android application reset failed.' }",
-		...(mode === 'development'
-			? [
-					`$developmentUrl = '${developmentScheme}://expo-development-client/?url=' + [Uri]::EscapeDataString('http://localhost:${forwardedPort}')`,
-					`& $adb -s $serial shell am start -a android.intent.action.VIEW -d $developmentUrl '${appId}'`,
-					"if ($LASTEXITCODE -ne 0) { throw 'Expo Android development-client launch failed.' }",
-					'Start-Sleep -Milliseconds 1000',
-					`& $adb -s $serial shell am start -a android.intent.action.VIEW -d $developmentUrl '${appId}'`,
-					"if ($LASTEXITCODE -ne 0) { throw 'Expo Android development-client retry failed.' }"
-				]
-			: [
-					`& $adb -s $serial shell monkey -p '${appId}' -c android.intent.category.LAUNCHER 1 | Out-Null`,
-					"if ($LASTEXITCODE -ne 0) { throw 'Expo Android release launch failed.' }"
-				])
+		...deviceCommands
 	].join('; ');
 	const source = [
 		"$ErrorActionPreference = 'Stop'",
@@ -434,13 +475,20 @@ const encodedWindowsExpoAndroidCommand = (
 		`$source = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${encode(windowsSource)}'))`,
 		`$directory = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${encode(windowsDirectory)}'))`,
 		`$androidHome = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${encode(windowsAndroidRoot)}'))`,
+		`$mutexName = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${encode(mirrorMutex)}'))`,
 		`$expoArguments = @([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${encode(JSON.stringify(args))}')) | ConvertFrom-Json)`,
+		`$gradleArguments = @([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${encode(JSON.stringify(gradleArguments))}')) | ConvertFrom-Json)`,
 		'$env:ANDROID_HOME = $androidHome',
 		'$env:ANDROID_SDK_ROOT = $androidHome',
 		`$env:NODE_ENV = '${mode === 'development' ? 'development' : 'production'}'`,
-		...(preferredDevice
+		...(preferredDevice || mode === 'bundle'
 			? []
 			: ["$env:ORG_GRADLE_PROJECT_reactNativeArchitectures = 'x86_64'"]),
+		'$mutex = [Threading.Mutex]::new($false, $mutexName)',
+		'$mutexAcquired = $false',
+		'try {',
+		'try { $mutexAcquired = $mutex.WaitOne([TimeSpan]::FromMinutes(30)) } catch [Threading.AbandonedMutexException] { $mutexAcquired = $true }',
+		"if (-not $mutexAcquired) { throw 'Timed out waiting for another AbsoluteJS Expo Android build to release the managed Windows mirror.' }",
 		'New-Item -ItemType Directory -Force -Path $directory | Out-Null',
 		'& robocopy.exe $source $directory /MIR /XD node_modules .expo .git .gradle .cxx .kotlin build /XF bun.lock bun.lockb .absolutejs-preserve-subst.cjs .absolutejs-source-lock.sha256 /NFL /NDL /NJH /NJS /NP',
 		'$copyExit = $LASTEXITCODE',
@@ -462,6 +510,10 @@ const encodedWindowsExpoAndroidCommand = (
 		'& subst.exe $drive $mirrorRoot',
 		"if ($LASTEXITCODE -ne 0) { throw 'AbsoluteJS could not create the short Expo Android build path.' }",
 		`try { ${mappedBuild} } finally { Set-Location ($env:SystemDrive + '\\'); & subst.exe $drive /D | Out-Null }`,
+		'} finally {',
+		'if ($mutexAcquired) { $mutex.ReleaseMutex() }',
+		'$mutex.Dispose()',
+		'}',
 		'exit 0'
 	].join('; ');
 
@@ -471,6 +523,65 @@ const encodedWindowsExpoAndroidCommand = (
 		'-EncodedCommand',
 		Buffer.from(source, 'utf16le').toString('base64')
 	];
+};
+
+const runAbsoluteExpoWindowsBuild = async (
+	command: string[],
+	options: AbsoluteExpoWindowsBuildCommandOptions
+) => {
+	const child = Bun.spawn(command, {
+		env: options.env ?? process.env,
+		signal: options.signal,
+		stderr: 'inherit',
+		stdin: 'ignore',
+		stdout: 'inherit'
+	});
+
+	return child.exited;
+};
+
+/** Build the production Expo App Bundle in a Windows-local managed mirror.
+ * The returned path is the same mirror viewed through WSL, so signing and the
+ * immutable release pipeline continue on the caller side without copying the
+ * artifact through stdout or a temporary share. */
+export const buildAbsoluteExpoAndroidWslBundle = async (
+	options: BuildAbsoluteExpoAndroidWslBundleOptions
+) => {
+	const capture = options.capture ?? captureCommand;
+	const command = encodedWindowsExpoAndroidCommand(
+		options.project,
+		options.androidRoot,
+		'',
+		[],
+		capture,
+		0,
+		undefined,
+		'bundle',
+		options.gradleArguments
+	);
+	const exitCode = await (options.run ?? runAbsoluteExpoWindowsBuild)(
+		command,
+		{
+			env: options.env ?? process.env,
+			signal: options.signal
+		}
+	);
+	if (exitCode !== 0) {
+		throw new Error(
+			`Expo Android Windows release build exited with status ${exitCode}.`
+		);
+	}
+
+	return join(
+		absoluteExpoWindowsBuildDirectory(options.project, options.androidRoot),
+		'android',
+		'app',
+		'build',
+		'outputs',
+		'bundle',
+		'release',
+		'app-release.aab'
+	);
 };
 
 const commandEnvironment = (options: PlanAbsoluteExpoDevOptions) => ({

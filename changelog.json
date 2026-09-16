@@ -5,6 +5,22 @@
 		{
 			"changes": [
 				{
+					"detail": "AbsoluteJS projects generated in WSL build through a serialized Windows-local mirror with Windows Bun, a short temporary drive, full release ABIs, retained warm caches, sanitized phase telemetry, and the existing signing, doctor, immutable-artifact, and publishing contracts.",
+					"kind": "added",
+					"summary": "Expo Android production builds now run from WSL",
+					"symbols": [
+						"BuildAbsoluteExpoAndroidWslBundleOptions",
+						"buildAbsoluteExpoAndroidWslBundle",
+						"buildAbsoluteAndroidRelease"
+					]
+				}
+			],
+			"date": "2026-09-15",
+			"version": "0.20.0-beta.100"
+		},
+		{
+			"changes": [
+				{
 					"detail": "AbsoluteJS retries a newly allocated loopback port without prompting, propagates the final port through local, WSL, and Remote Mac native targets, preserves it across rebuilds, and emits only a categorical reason plus bounded retry count.",
 					"kind": "fixed",
 					"summary": "Expo development recovers from Metro startup port races",

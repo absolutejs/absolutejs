@@ -26,6 +26,7 @@ import { applyAbsoluteNativeBackgroundSync } from '../../mobile/nativeBackground
 import { applyAbsoluteNativeUpdates } from '../../mobile/nativeUpdates';
 import { applyAbsoluteNativeObservability } from '../../mobile/nativeObservability';
 import {
+	detectAbsoluteMobileHost,
 	inspectAbsoluteMobileToolchain,
 	type AbsoluteMobileDoctorCheck
 } from '../../mobile/emulatorDoctor';
@@ -2035,29 +2036,63 @@ const buildAndroid = async (
 		);
 	}
 	const startedAt = performance.now();
+	const host = detectAbsoluteMobileHost();
+	const runPhase = async <T>(
+		phase: 'bundle' | 'native-build' | 'native-project' | 'release-doctor',
+		action: () => Promise<T>
+	) => {
+		const phaseStartedAt = performance.now();
+		let phaseSuccess = false;
+		try {
+			const result = await action();
+			phaseSuccess = true;
+
+			return result;
+		} finally {
+			sendTelemetryEvent('mobile:android-release-phase', {
+				durationMs: Math.round(performance.now() - phaseStartedAt),
+				engine: mobile.engine,
+				host,
+				phase,
+				platform: 'android',
+				success: phaseSuccess
+			});
+		}
+	};
 	let success = false;
 	try {
 		if (mobile.engine === 'capacitor')
 			await repairAbsoluteAndroidDevSession(projectRoot);
-		await start(
-			mobileBuildServerEntry(args),
-			valueAfter(args, '--web-outdir'),
-			configPath,
-			{ prepareOnly: true }
+		await runPhase('bundle', () =>
+			start(
+				mobileBuildServerEntry(args),
+				valueAfter(args, '--web-outdir'),
+				configPath,
+				{ prepareOnly: true }
+			)
 		);
-		await prepareAndroidReleaseProject(mobile, projectRoot, args);
-		await requireAndroidReleaseReady(mobile, projectRoot);
-		const release = await buildAbsoluteAndroidRelease({
-			allowUnsigned: args.includes('--unsigned'),
-			config: mobile,
-			...(mobile.engine === 'expo'
-				? { env: expoProductionEnvironment() }
-				: {}),
-			outputDirectory: valueAfter(args, '--outdir'),
-			projectRoot,
-			signing: androidCiSigning(),
-			...(prepareVersionCode === undefined ? {} : { prepareVersionCode })
-		});
+		await runPhase('native-project', () =>
+			prepareAndroidReleaseProject(mobile, projectRoot, args)
+		);
+		await runPhase('release-doctor', () =>
+			requireAndroidReleaseReady(mobile, projectRoot)
+		);
+		const release = await runPhase('native-build', () =>
+			buildAbsoluteAndroidRelease({
+				allowUnsigned: args.includes('--unsigned'),
+				config: mobile,
+				...(mobile.engine === 'expo'
+					? { env: expoProductionEnvironment() }
+					: {}),
+				host,
+				outputDirectory: valueAfter(args, '--outdir'),
+				projectRoot,
+				signing: androidCiSigning(),
+				...(prepareVersionCode === undefined
+					? {}
+					: { prepareVersionCode })
+			})
+		);
 		success = true;
 		const durationMs = Math.round(performance.now() - startedAt);
 		console.log(
@@ -2071,6 +2106,7 @@ const buildAndroid = async (
 		sendTelemetryEvent('mobile:android-release-build', {
 			durationMs: Math.round(performance.now() - startedAt),
 			engine: mobile.engine,
+			host,
 			platform: 'android',
 			success,
 			type: 'aab',

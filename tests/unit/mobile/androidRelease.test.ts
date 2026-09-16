@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { buildAbsoluteAndroidRelease } from '../../../src/mobile/androidRelease';
 import { normalizeAbsoluteMobileConfig } from '../../../src/mobile/config';
 
@@ -200,19 +200,116 @@ describe('Android production releases', () => {
 		expect(identities[0]).toMatch(/^[a-f0-9]{64}$/u);
 	});
 
-	test('rejects Expo production builds from WSL with an actionable path', async () => {
-		const { config, projectRoot, run } = await fixture('expo');
+	test('builds Expo production AABs in a Windows-local mirror from WSL', async () => {
+		const { config, projectRoot } = await fixture('expo');
+		const androidRoot = join(projectRoot, 'Windows SDK', 'Android', 'Sdk');
+		const buildId = Bun.hash(resolve(config.nativeProjectDirectory))
+			.toString(16)
+			.slice(0, 10);
+		const mirroredArtifact = join(
+			resolve(androidRoot, '..', '..', 'ExpoBuilds', buildId),
+			'android',
+			'app',
+			'build',
+			'outputs',
+			'bundle',
+			'release',
+			'app-release.aab'
+		);
+		const commands: string[][] = [];
+		let buildEnvironment: Record<string, string | undefined> | undefined;
+		const release = await buildAbsoluteAndroidRelease({
+			allowUnsigned: true,
+			androidRoot,
+			config,
+			env: {
+				ABSOLUTE_ANDROID_KEY_PASSWORD: 'must-not-enter-script',
+				BABEL_ENV: 'production',
+				NODE_ENV: 'production'
+			},
+			host: 'wsl',
+			jarsigner: null,
+			projectRoot,
+			versionCode: 52,
+			capture: ([command, flag, path]) => ({
+				exitCode: command === 'wslpath' && flag === '-w' ? 0 : 1,
+				stderr: '',
+				stdout:
+					command === 'wslpath' && flag === '-w'
+						? `C:\\AbsoluteJS\\${Buffer.from(path ?? '').toString('hex')}\n`
+						: ''
+			}),
+			run: async (command, options) => {
+				commands.push(command);
+				buildEnvironment = options?.env;
+				await mkdir(dirname(mirroredArtifact), { recursive: true });
+				await writeFile(mirroredArtifact, 'wsl-expo-app-bundle');
+
+				return 0;
+			}
+		});
+
+		expect(release.metadata).toMatchObject({
+			engine: 'expo',
+			platform: 'android',
+			type: 'aab',
+			versionCode: 52
+		});
+		expect(await readFile(release.artifactPath, 'utf8')).toBe(
+			'wsl-expo-app-bundle'
+		);
+		expect(commands).toHaveLength(1);
+		expect(commands[0]?.slice(0, 3)).toEqual([
+			'powershell.exe',
+			'-NoProfile',
+			'-EncodedCommand'
+		]);
+		const script = Buffer.from(
+			commands[0]?.at(-1) ?? '',
+			'base64'
+		).toString('utf16le');
+		expect(script).toContain('robocopy.exe $source $directory /MIR');
+		expect(script).toContain('Get-Command bun.exe -ErrorAction Stop');
+		expect(script).toContain('$mutex.WaitOne([TimeSpan]::FromMinutes(30))');
+		expect(script).toContain('AbandonedMutexException');
+		expect(script).toContain('$mutex.ReleaseMutex()');
+		expect(script).toContain('& subst.exe $drive $mirrorRoot');
+		expect(script).toContain('@gradleArguments bundleRelease');
+		expect(script).toContain(
+			Buffer.from(
+				JSON.stringify(['-Pandroid.injected.version.code=52'])
+			).toString('base64')
+		);
+		expect(script).not.toContain('reactNativeArchitectures');
+		expect(script).not.toContain('adb.exe');
+		expect(script).not.toContain('must-not-enter-script');
+		expect(buildEnvironment).toEqual({
+			ABSOLUTE_ANDROID_KEY_PASSWORD: 'must-not-enter-script',
+			BABEL_ENV: 'production',
+			NODE_ENV: 'production'
+		});
+	});
+
+	test('fails closed when the Windows Expo production build fails', async () => {
+		const { config, projectRoot } = await fixture('expo');
 		await expect(
 			buildAbsoluteAndroidRelease({
 				allowUnsigned: true,
-				androidRoot: '/sdk',
+				androidRoot: join(projectRoot, 'Windows SDK', 'Android', 'Sdk'),
 				config,
 				host: 'wsl',
 				jarsigner: null,
 				projectRoot,
-				run
+				capture: ([command, flag]) => ({
+					exitCode: command === 'wslpath' && flag === '-w' ? 0 : 1,
+					stderr: '',
+					stdout: 'C:\\AbsoluteJS\\build\n'
+				}),
+				run: async () => 17
 			})
-		).rejects.toThrow('generated CI workflow on Linux');
+		).rejects.toThrow(
+			'Expo Android Windows release build exited with status 17'
+		);
 	});
 
 	test('rejects unsigned output by default and labels an explicit unsigned build', async () => {

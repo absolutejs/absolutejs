@@ -2,6 +2,24 @@
 
 Status: Capacitor Android development/release, all-framework embedded bundles, universal native Auth/Sync, Expo hybrid native Auth/Sync, background Sync, automatic device provisioning, provider-neutral native push registration, signed staged Capacitor updates, end-to-end RSA-signed self-hosted Expo production updates, and Android conformance are operational; iOS development/release automation plus installed Expo iOS OTA and replacement-upgrade harnesses are shipped and awaiting real macOS/physical-device acceptance
 
+Implementation checkpoint (September 15, 2026, Expo Android production builds
+from WSL): `@absolutejs/absolute@0.20.0-beta.100` makes the ordinary
+`absolute mobile build android` release path work from WSL through the same
+Windows-local managed Expo mirror used by development. AbsoluteJS regenerates
+the production CNG project in WSL, mirrors source inputs without Linux Bun lock
+artifacts, installs with Windows Bun, maps a short temporary drive, and runs an
+unrestricted-ABI `bundleRelease` through the Windows Android SDK. Gradle,
+Kotlin, C++ and package caches remain in the managed mirror across warm builds.
+The resulting AAB is consumed through its `/mnt` path by the normal version-code,
+signature-verification, optional CI-signing, immutable release-metadata, doctor,
+and publishing pipeline. A per-project Windows mutex serializes development and
+release mirror mutation, recovers abandoned ownership after a crash, and keeps
+temporary drive cleanup deterministic. Release telemetry separates bundle,
+native-project, doctor, and native-build duration and records only engine, host,
+platform, outcome, and timing. The real WSL 2 acceptance build completed all
+1,034 Gradle tasks and produced an 80.6 MB AAB through Windows; an unchanged
+warm build reused 970 tasks and reduced Gradle time from 31m16s to 2m29s.
+
 Implementation checkpoint (September 15, 2026, Metro startup reliability):
 `@absolutejs/absolute@0.20.0-beta.99` makes the Expo development controller
 recover when another process claims Metro's selected port between discovery and
@@ -250,8 +268,8 @@ Remote Mac production builds while retaining the Expo iOS work introduced in
 the prior beta:
 clean production CNG, generated workspace/scheme discovery, signed immutable
 IPA output, App Store build-number allocation, TestFlight publishing, and
-protected macOS CI. Expo-on-WSL production projection remains an
-engine-specific checkpoint.
+protected macOS CI. `0.20.0-beta.100` completes the engine-specific WSL
+production projection for Expo Android with a Windows-local managed build.
 
 Implementation checkpoint (August 31, 2026, Expo typed-data slice):
 `0.20.0-beta.48` makes application-owned Expo React routes a typed renderer for
