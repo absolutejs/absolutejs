@@ -5,6 +5,33 @@
 		{
 			"changes": [
 				{
+					"detail": "`absolute mobile certify` revalidates immutable Android and iOS releases plus sanitized installed-app reports, binds the exact artifact, embedded runtime, app version, and evidence tier into an atomic content-addressed record, and verifies promotion policy without native tools or credentials. Android requires installed offline proof; iOS preserves the honest Simulator, registered-device, and Apple-processed TestFlight hierarchy.",
+					"kind": "added",
+					"summary": "Mobile releases gain content-addressed installed-app certification",
+					"symbols": [
+						"ABSOLUTE_MOBILE_RELEASE_CERTIFICATION_FORMAT",
+						"AbsoluteMobileCertifiableRelease",
+						"AbsoluteMobileCertificationEvidence",
+						"AbsoluteMobileCertificationRelease",
+						"AbsoluteMobileCertificationRequirement",
+						"AbsoluteMobileCertificationStrength",
+						"AbsoluteMobileReleaseCertification",
+						"AbsoluteMobileReleaseCertificationPaths",
+						"CreateAbsoluteMobileReleaseCertificationOptions",
+						"createAbsoluteMobileReleaseCertification",
+						"readAbsoluteMobileReleaseCertification",
+						"renderAbsoluteMobileReleaseCertification",
+						"verifyAbsoluteMobileReleaseCertification",
+						"writeAbsoluteMobileReleaseCertification"
+					]
+				}
+			],
+			"date": "2026-09-16",
+			"version": "0.20.0-beta.107"
+		},
+		{
+			"changes": [
+				{
 					"detail": "Paired developer-owned Macs can now export and return the same-archive registered-device IPA, then execute source-equivalent Simulator, archive-equivalent registered-device, and store-delivered TestFlight acceptance from Windows or Linux. Protocol v4 atomically synchronizes and re-hashes immutable releases, validates returned evidence locally, propagates cancellation into Xcode and device tools, and emits sanitized remote-host reports and phase telemetry without transferring signing or publication credentials.",
 					"kind": "added",
 					"summary": "Remote Macs run all three installed iOS release acceptance lanes",

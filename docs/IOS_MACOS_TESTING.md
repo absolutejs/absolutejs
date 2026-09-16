@@ -2610,6 +2610,42 @@ bunx absolute mobile test ios \
   SSH destination, remote path, application data, native console contents,
   signing material, credentials, or environment dump.
 
+Record the three report directories printed by those commands, then certify the
+exact release from the Windows/Linux application root. Replace the placeholders
+with the printed directories; do not run this from the AbsoluteJS framework
+checkout:
+
+```sh
+export SIMULATOR_REPORT="$PWD/.absolutejs/mobile/test-reports/ios-<timestamp>"
+export DEVICE_REPORT="$PWD/.absolutejs/mobile/test-reports/ios-<timestamp>"
+export TESTFLIGHT_REPORT="$PWD/.absolutejs/mobile/test-reports/ios-<timestamp>"
+
+bunx absolute mobile certify "$RELEASE_DIR" \
+  --evidence "$SIMULATOR_REPORT" \
+  --evidence "$DEVICE_REPORT" \
+  --evidence "$TESTFLIGHT_REPORT" \
+  --require store
+```
+
+- [ ] `REMOTE-IOS-CERT-01` Certification succeeds at `store` strength and
+  prints a content-addressed directory beneath
+  `.absolutejs/mobile/certifications/ios/<release-id>/`.
+- [ ] `REMOTE-IOS-CERT-02` Run `absolute mobile certify "$RELEASE_DIR" --verify
+  <printed-certification-directory> --require store`; it succeeds before
+  production promotion. Copy the release
+  directory and certification directory to the CI runner and repeat it there;
+  it must produce the same result without needing a Mac, device, signing key, or
+  App Store credential.
+- [ ] `REMOTE-IOS-CERT-03` In a disposable copy, change one release identity
+  field or artifact byte and repeat verification. It must fail rather than
+  accepting stale evidence. Restore the untouched release before continuing.
+
+Return `certification.json` and `certification.md` with the three report
+directories. The certification contains only report SHA-256 digests and bounded
+release/evidence facts; it does not copy device identifiers, report paths, SSH
+destinations, application data, or credentials. Full CLI and CI examples are in
+`docs/MOBILE_RELEASE_CERTIFICATION.md`.
+
 Direct interaction with the remote Simulator currently uses the Mac screen or a
 trusted remote-desktop connection. The protocol itself carries screenshots and
 conformance artifacts. Full setup, security boundaries, and troubleshooting are

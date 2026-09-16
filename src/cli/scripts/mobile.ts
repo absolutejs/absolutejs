@@ -97,6 +97,14 @@ import {
 	writeAbsoluteNativeTestReport
 } from '../../mobile/nativeTestReport';
 import {
+	createAbsoluteMobileReleaseCertification,
+	readAbsoluteMobileReleaseCertification,
+	verifyAbsoluteMobileReleaseCertification,
+	writeAbsoluteMobileReleaseCertification,
+	type AbsoluteMobileCertifiableRelease,
+	type AbsoluteMobileCertificationRequirement
+} from '../../mobile/releaseCertification';
+import {
 	loadAbsoluteNativeReleasePublisher,
 	prepareAbsoluteAndroidRelease,
 	prepareAbsoluteIosRelease,
@@ -4441,6 +4449,168 @@ const testIos = async (args: string[]) => {
 	}
 };
 
+const readCertifiableMobileRelease = async (
+	projectRoot: string,
+	requested: string
+) => {
+	let androidError: unknown;
+	try {
+		return await readAbsoluteAndroidRelease(projectRoot, requested);
+	} catch (error) {
+		androidError = error;
+	}
+	try {
+		return await readAbsoluteIosRelease(projectRoot, requested);
+	} catch (iosError) {
+		throw new TypeError(
+			`Unable to read an immutable Android or iOS release from ${requested}. Android: ${androidError instanceof Error ? androidError.message : String(androidError)} iOS: ${iosError instanceof Error ? iosError.message : String(iosError)}`,
+			{ cause: iosError }
+		);
+	}
+};
+
+const mobileCertificationRequirement = (value: string | undefined) => {
+	if (value === undefined) return undefined;
+	if (
+		value !== 'installed' &&
+		value !== 'simulator' &&
+		value !== 'device' &&
+		value !== 'store'
+	)
+		throw new TypeError(
+			'mobile certify --require must be installed, simulator, device, or store.'
+		);
+
+	return value;
+};
+
+const mobileCertificationValue = (args: string[], flag: string) => {
+	const value = valueAfter(args, flag);
+	if (args.includes(flag) && (!value || value.startsWith('--')))
+		throw new TypeError(`mobile certify ${flag} requires a value.`);
+
+	return value;
+};
+
+type MobileCertificationCommandOptions = {
+	args: string[];
+	projectRoot: string;
+	release: AbsoluteMobileCertifiableRelease;
+	requirement?: AbsoluteMobileCertificationRequirement;
+	startedAt: number;
+};
+
+const verifyMobileCertification = async (
+	options: MobileCertificationCommandOptions & { verifyPath: string }
+) => {
+	if (valuesAfter(options.args, '--evidence').length > 0)
+		throw new TypeError(
+			'mobile certify --verify cannot be combined with --evidence.'
+		);
+	const loaded = await readAbsoluteMobileReleaseCertification(
+		options.projectRoot,
+		options.verifyPath
+	);
+	const certification = verifyAbsoluteMobileReleaseCertification(
+		loaded.certification,
+		options.release,
+		options.requirement
+	);
+	sendTelemetryEvent('mobile:release-certification', {
+		durationMs: Math.round(performance.now() - options.startedAt),
+		engine: options.release.metadata.engine,
+		mode: 'verify',
+		platform: options.release.metadata.platform,
+		requirement: options.requirement ?? certification.requirement,
+		strength: certification.strength,
+		success: true
+	});
+	if (options.args.includes('--json'))
+		console.log(JSON.stringify(certification, null, 2));
+	else
+		console.log(
+			`✓ ${certification.strength} certification ${certification.certificationId} still matches ${certification.release.releaseId}.`
+		);
+
+	return certification;
+};
+
+const createMobileCertification = async (
+	options: MobileCertificationCommandOptions
+) => {
+	const evidencePaths = valuesAfter(options.args, '--evidence');
+	const certification = await createAbsoluteMobileReleaseCertification({
+		evidencePaths,
+		projectRoot: options.projectRoot,
+		release: options.release,
+		...(options.requirement ? { requirement: options.requirement } : {})
+	});
+	const output = await writeAbsoluteMobileReleaseCertification(
+		options.projectRoot,
+		certification,
+		mobileCertificationValue(options.args, '--outdir')
+	);
+	sendTelemetryEvent('mobile:release-certification', {
+		durationMs: Math.round(performance.now() - options.startedAt),
+		engine: options.release.metadata.engine,
+		evidenceCount: certification.evidence.length,
+		mode: 'create',
+		platform: options.release.metadata.platform,
+		requirement: certification.requirement,
+		strength: certification.strength,
+		success: true
+	});
+	if (options.args.includes('--json'))
+		console.log(JSON.stringify(certification, null, 2));
+	else {
+		console.log(
+			`✓ Certified immutable ${certification.release.platform} release ${certification.release.releaseId} at ${certification.strength} strength.`
+		);
+		console.log(`Certification: ${output.jsonPath}`);
+		console.log(`Summary: ${output.markdownPath}`);
+	}
+
+	return certification;
+};
+
+const certifyMobileRelease = async (args: string[]) => {
+	const [requested] = args;
+	if (!requested || requested.startsWith('--'))
+		throw new TypeError(
+			'mobile certify requires a release directory or release.json path.'
+		);
+	const projectRoot = process.cwd();
+	const release = await readCertifiableMobileRelease(projectRoot, requested);
+	const requirement = mobileCertificationRequirement(
+		mobileCertificationValue(args, '--require')
+	);
+	const verifyPath = mobileCertificationValue(args, '--verify');
+	const startedAt = performance.now();
+	try {
+		const options: MobileCertificationCommandOptions = {
+			args,
+			projectRoot,
+			release,
+			...(requirement ? { requirement } : {}),
+			startedAt
+		};
+
+		return verifyPath
+			? await verifyMobileCertification({ ...options, verifyPath })
+			: await createMobileCertification(options);
+	} catch (error) {
+		sendTelemetryEvent('mobile:release-certification', {
+			durationMs: Math.round(performance.now() - startedAt),
+			engine: release.metadata.engine,
+			mode: verifyPath ? 'verify' : 'create',
+			platform: release.metadata.platform,
+			...(requirement ? { requirement } : {}),
+			success: false
+		});
+		throw error;
+	}
+};
+
 export const runMobile = async (args: string[]) => {
 	const [command] = args;
 	if (command === 'pair') {
@@ -4485,6 +4655,11 @@ export const runMobile = async (args: string[]) => {
 	}
 	if (command === 'inspect') {
 		await inspectMobile(args.slice(1));
+
+		return;
+	}
+	if (command === 'certify') {
+		await certifyMobileRelease(args.slice(1));
 
 		return;
 	}
@@ -4574,6 +4749,6 @@ export const runMobile = async (args: string[]) => {
 	}
 
 	throw new TypeError(
-		'Usage: absolute mobile <pair mac <name> <user@host> [--port n] [--workspace path] | remotes [inspect [name] [--json] | clean [name] --yes | --json] | unpair mac <name> | init [--no-native] [--force] | sync [ios|android] | inspect [--json] [--require-bundle] | associations [--outdir dir] [--verify] | ci github [server-entry] [--publish] [--registry module] [--secret-env NAME] [--output path] [--force] [--json] | doctor [ios|android|release [ios|android]] [--remote name] [--json|--fix [--yes]] | build <android|ios> [server-entry] [--remote name] [--registered-device-artifact] [--outdir dir] [--web-outdir dir] [--unsigned] | update provision [--storage local|s3] [--registry module] [--force] [--yes] | update signing generate --private-key path [--certificate path] [--public-key path] [--key-id id] [--common-name name] [--validity-years n] | update build [server-entry] --classification bug-fix|content|security --key-id id --signing-key path --within-submitted-purpose [--outdir dir] [--web-outdir dir] | update publish <release-directory> [--rollout fraction] [--registry module] | update promote --release id --rollout fraction [--registry module] | update rollback [--release id] [--registry module] | update status [--registry module] [--json] | update advance [--rollout fraction] [--registry module] [--json] | update pause|resume|cancel|reconcile [--registry module] [--json] | update storage [--retain count] [--min-age-days days] [--registry module] [--json] | update gc [--retain count] [--min-age-days days] [--grace-days days] [--apply] [--registry module] [--json] | publish android [server-entry] [--registry module] [--channel name] [--play-track track] [--play-status completed|draft|halted|in-progress] [--play-rollout fraction] [--play-name name] [--play-notes language=text] [--play-update-priority 0..5] [--play-hold-review] [--play-cancel-existing-review] [--outdir dir] [--web-outdir dir] [--unsigned] | publish ios [server-entry] [--remote name] [--registry module] [--channel name] [--testflight-group name-or-id] [--testflight-notes locale=text] [--testflight-submit-review] [--outdir dir] [--web-outdir dir] [--unsigned] | test android [--release release-dir [--yes] | --route path [--wait-for-hmr] [--port n]] [--report [dir]] [--serial id] [--artifacts dir] [--json] [--config path] | test ios [--release release-dir [--remote name] [--device id [--testflight] --yes] | --wait-for-hmr] [--report [dir]] [--udid id] [--artifacts dir] [--json] [--config path]'
+		'Usage: absolute mobile <pair mac <name> <user@host> [--port n] [--workspace path] | remotes [inspect [name] [--json] | clean [name] --yes | --json] | unpair mac <name> | init [--no-native] [--force] | sync [ios|android] | inspect [--json] [--require-bundle] | certify <release-dir> [--evidence report-dir]... [--require installed|simulator|device|store] [--outdir dir] [--json] | certify <release-dir> --verify certification-dir [--require installed|simulator|device|store] [--json] | associations [--outdir dir] [--verify] | ci github [server-entry] [--publish] [--registry module] [--secret-env NAME] [--output path] [--force] [--json] | doctor [ios|android|release [ios|android]] [--remote name] [--json|--fix [--yes]] | build <android|ios> [server-entry] [--remote name] [--registered-device-artifact] [--outdir dir] [--web-outdir dir] [--unsigned] | update provision [--storage local|s3] [--registry module] [--force] [--yes] | update signing generate --private-key path [--certificate path] [--public-key path] [--key-id id] [--common-name name] [--validity-years n] | update build [server-entry] --classification bug-fix|content|security --key-id id --signing-key path --within-submitted-purpose [--outdir dir] [--web-outdir dir] | update publish <release-directory> [--rollout fraction] [--registry module] | update promote --release id --rollout fraction [--registry module] | update rollback [--release id] [--registry module] | update status [--registry module] [--json] | update advance [--rollout fraction] [--registry module] [--json] | update pause|resume|cancel|reconcile [--registry module] [--json] | update storage [--retain count] [--min-age-days days] [--registry module] [--json] | update gc [--retain count] [--min-age-days days] [--grace-days days] [--apply] [--registry module] [--json] | publish android [server-entry] [--registry module] [--channel name] [--play-track track] [--play-status completed|draft|halted|in-progress] [--play-rollout fraction] [--play-name name] [--play-notes language=text] [--play-update-priority 0..5] [--play-hold-review] [--play-cancel-existing-review] [--outdir dir] [--web-outdir dir] [--unsigned] | publish ios [server-entry] [--remote name] [--registry module] [--channel name] [--testflight-group name-or-id] [--testflight-notes locale=text] [--testflight-submit-review] [--outdir dir] [--web-outdir dir] [--unsigned] | test android [--release release-dir [--yes] | --route path [--wait-for-hmr] [--port n]] [--report [dir]] [--serial id] [--artifacts dir] [--json] [--config path] | test ios [--release release-dir [--remote name] [--device id [--testflight] --yes] | --wait-for-hmr] [--report [dir]] [--udid id] [--artifacts dir] [--json] [--config path]'
 	);
 };

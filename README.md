@@ -281,6 +281,12 @@ The generated workflow keeps signing and provider credentials behind the
 `absolute-mobile-release` GitHub environment. See
 [mobile CI and store releases](docs/MOBILE_CI.md).
 
+After testing the immutable Android or iOS release, bind its exact artifact and
+runtime identity to the installed, Simulator, device, or store evidence with
+`absolute mobile certify`. The content-addressed result can be checked again in
+CI without credentials or native tooling. See
+[mobile release certification](docs/MOBILE_RELEASE_CERTIFICATION.md).
+
 An experimental Expo Router hybrid is also available behind
 `mobile.engine: 'expo'`. Explicit React Native routes use native UI while every
 unclaimed AbsoluteJS route remains an embedded, signed web route regardless of

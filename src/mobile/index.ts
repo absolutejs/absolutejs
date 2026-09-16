@@ -45,6 +45,7 @@ export * from './nativeReleaseReadiness';
 export * from './pageProtocol';
 export * from './producerContext';
 export * from './releaseArtifact';
+export * from './releaseCertification';
 export * from './releasePublisher';
 export * from './routeMetadataTransform';
 export * from './routeMatcher';

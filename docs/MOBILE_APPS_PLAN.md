@@ -2,6 +2,24 @@
 
 Status: Capacitor Android development/release, all-framework embedded bundles, universal native Auth/Sync, Expo hybrid native Auth/Sync, background Sync, automatic device provisioning, provider-neutral native push registration, signed staged Capacitor updates, end-to-end RSA-signed self-hosted Expo production updates, and provider-neutral Android development plus installed production-AAB conformance are operational; iOS development/release automation plus installed Expo iOS OTA and replacement-upgrade harnesses are shipped and awaiting real macOS/physical-device acceptance
 
+Implementation checkpoint (September 16, 2026, provider-neutral release
+certification): `absolute mobile certify` now converts installed Android or iOS
+test reports into one content-addressed certification for the exact immutable
+native release. The validator re-hashes the release artifact through its normal
+reader, ignores editable manual-checklist prose, and independently binds the
+successful installed run to release ID, SHA-256, bytes, signed state, app and
+engine, native runtime fingerprint, embedded app build, and native
+version/build. Android uses a fixed installed/offline policy. iOS preserves the
+ordered Simulator `source-equivalent`, registered-device `archive-equivalent`,
+and TestFlight `store-delivered` strengths; weaker evidence cannot satisfy a
+stronger policy. `--verify` is a nonzero-exit CI/promotion primitive and
+invalidates on any binary, embedded-bundle, fingerprint, signing, version, or
+build change. Atomic certification directories reject conflicting existing
+content, expose only report digests and bounded evidence facts, and can be
+wrapped in CI provenance without treating their content digest as an identity
+signature. The full contract and commands are in
+`docs/MOBILE_RELEASE_CERTIFICATION.md`.
+
 Implementation checkpoint (September 16, 2026, Capacitor Android installed
 release parity): the same provider-neutral `absolute mobile test android
 --release` command now installs Capacitor production AABs as well as Expo AABs.

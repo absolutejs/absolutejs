@@ -136,6 +136,51 @@ Workflow inputs are passed as quoted Bash-array elements, never evaluated as
 shell source. Each native job reruns the redacted release doctor after building
 and uploads `compliance.json` separately from the binary.
 
+## Gate promotion on release certification
+
+Build completion proves that the immutable release was produced correctly; it
+does not prove that the same release worked after installation. After the
+Android installation check or the appropriate iOS Simulator, registered-device,
+and TestFlight checks, create a content-addressed certification from the release
+directory and returned acceptance reports:
+
+```sh
+bunx absolute mobile certify .absolutejs/mobile/releases/<platform>/<release-id> \
+  --evidence .absolutejs/mobile/acceptance/<report-one> \
+  --evidence .absolutejs/mobile/acceptance/<report-two> \
+  --require store \
+  --json
+```
+
+Use `--require installed` for Android. For iOS, use `simulator`, `device`, or
+`store` to express the promotion boundary. Store proof includes Apple-processed,
+TestFlight-delivered evidence, so it necessarily happens after the workflow has
+uploaded the first candidate; require it when promoting that already-tested
+release onward, not before its initial TestFlight upload.
+
+Commit or transfer the generated `certification.json` with the release records,
+then make the later promotion job fail closed:
+
+```sh
+bunx absolute mobile certify .absolutejs/mobile/releases/<platform>/<release-id> \
+  --verify .absolutejs/mobile/certifications/<platform>/<release-id>/<certification-id> \
+  --require store \
+  --json
+```
+
+Certification creation validates the automated acceptance checks and stores the
+exact report digests. Later verification re-reads the immutable release,
+validates the certification digest and evidence semantics, matches the artifact
+digest and embedded runtime identity, and exits nonzero if the certification,
+release, or requested policy differs. Preserve the original reports beside the
+certification when an auditor must re-run report validation.
+
+The certification digest detects content changes; it is not an identity
+signature. Preserve the GitHub artifact attestation (or equivalent CI
+provenance) around the release, reports, and certification when actor identity
+matters. See [mobile release certification](MOBILE_RELEASE_CERTIFICATION.md) for
+the complete evidence hierarchy and partner handoff.
+
 ## Rotation, failures, and retries
 
 - Never commit decoded keys, profiles, `.p8` files, or credential JSON.
