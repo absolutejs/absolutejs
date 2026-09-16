@@ -1,5 +1,6 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { access } from 'node:fs/promises';
+import { createServer } from 'node:net';
 import { join, resolve as resolvePath } from 'node:path';
 import type { NormalizedAbsoluteMobileConfig } from './config';
 import {
@@ -52,6 +53,8 @@ export type PlanAbsoluteExpoDevOptions = {
 export type AbsoluteExpoDevPhaseTiming = {
 	durationMs: number;
 	phase: AbsoluteExpoDevState;
+	reason?: 'metro-port-conflict';
+	retryCount?: number;
 };
 
 export type StartAbsoluteExpoDevOptions = PlanAbsoluteExpoDevOptions & {
@@ -61,6 +64,7 @@ export type StartAbsoluteExpoDevOptions = PlanAbsoluteExpoDevOptions & {
 	config: NormalizedAbsoluteMobileConfig;
 	executable?: string;
 	host?: AbsoluteMobileHost;
+	allocateMetroPort?: (excludedPorts: readonly number[]) => Promise<number>;
 	log?: (message: string) => void;
 	onPhaseTiming?: (timing: AbsoluteExpoDevPhaseTiming) => void;
 	onStateChange?: (state: AbsoluteExpoDevState) => void;
@@ -113,7 +117,45 @@ export type AbsoluteExpoIosReleaseInstallation = {
 };
 
 const METRO_READY_TIMEOUT_MS = 120_000;
+const METRO_START_MAX_ATTEMPTS = 4;
+const MAX_TCP_PORT = 65_535;
 const PROCESS_CLOSE_TIMEOUT_MS = 2_000;
+
+const allocateAvailableMetroPort = () =>
+	new Promise<number>((resolve, reject) => {
+		const server = createServer();
+		server.unref();
+		server.once('error', reject);
+		server.listen(0, '127.0.0.1', () => {
+			const address = server.address();
+			if (!address || typeof address === 'string') {
+				server.close();
+				reject(
+					new Error('Failed to allocate a replacement Metro port.')
+				);
+
+				return;
+			}
+			server.close((error) => {
+				if (error) reject(error);
+				else resolve(address.port);
+			});
+		});
+	});
+
+const metroPortConflict = (line: string) =>
+	/(?:EADDRINUSE|address already in use|port \d+ is being used by another process)/iu.test(
+		line
+	);
+
+class MetroStartupError extends Error {
+	conflict: boolean;
+
+	constructor(exitCode: number, conflict: boolean) {
+		super(`Expo Metro exited with status ${exitCode}.`);
+		this.conflict = conflict;
+	}
+}
 
 const preserveWindowsSubstRealpaths = `
 const fs = require('node:fs');
@@ -848,7 +890,7 @@ export const parseBootedAbsoluteExpoIosSimulators = (source: string) => {
 export const startAbsoluteExpoDevSession = async (
 	options: StartAbsoluteExpoDevOptions
 ) => {
-	const plan = planAbsoluteExpoDevSession(options.config, options);
+	let plan = planAbsoluteExpoDevSession(options.config, options);
 	const executable =
 		options.executable ?? (await absoluteExpoExecutable(plan.project));
 	const run = options.spawnProcess ?? spawn;
@@ -862,9 +904,13 @@ export const startAbsoluteExpoDevSession = async (
 		caEnrollmentServer = null;
 		await server?.close();
 	};
-	const publishTiming = (phase: AbsoluteExpoDevState, durationMs: number) => {
+	const publishTiming = (
+		phase: AbsoluteExpoDevState,
+		durationMs: number,
+		details: Pick<AbsoluteExpoDevPhaseTiming, 'reason' | 'retryCount'> = {}
+	) => {
 		timings[phase] = (timings[phase] ?? 0) + durationMs;
-		options.onPhaseTiming?.({ durationMs, phase });
+		options.onPhaseTiming?.({ durationMs, phase, ...details });
 	};
 	const setState = (state: AbsoluteExpoDevState) => {
 		options.onStateChange?.(state);
@@ -873,10 +919,10 @@ export const startAbsoluteExpoDevSession = async (
 	const prepareCommand = plan.commands.find(
 		(command) => command.role === 'native-prepare'
 	);
-	const metroCommand = plan.commands.find(
+	let metroCommand = plan.commands.find(
 		(command) => command.role === 'metro'
 	);
-	const nativeCommands = plan.commands.filter(
+	let nativeCommands = plan.commands.filter(
 		(command) => command.role === 'native-build'
 	);
 	const runPrepareCommand = async (command: AbsoluteExpoDevCommand) => {
@@ -907,50 +953,92 @@ export const startAbsoluteExpoDevSession = async (
 	const managedMetro = metroCommand !== undefined;
 	if (managedMetro) setState('starting-metro');
 	const metroStarted = performance.now();
-	const metro = metroCommand
-		? run(executable, metroCommand.args, {
-				cwd: plan.project,
-				env: { ...process.env, ...metroCommand.env },
-				stdio: ['ignore', 'pipe', 'pipe']
-			})
-		: undefined;
-	let metroReady = false;
-	let resolveMetro: (() => void) | undefined;
-	const metroPromise = new Promise<void>((resolve, reject) => {
-		if (!metro) {
-			resolve();
-
-			return;
-		}
-		const timeout = setTimeout(() => {
-			reject(
-				new Error('Expo Metro did not become ready within 120 seconds.')
-			);
-		}, METRO_READY_TIMEOUT_MS);
-		resolveMetro = () => {
-			clearTimeout(timeout);
-			resolve();
-		};
-		metro.once('exit', (code) => {
-			if (!metroReady) {
-				clearTimeout(timeout);
+	let metro: ChildProcess | undefined;
+	let metroRetryCount = 0;
+	const attemptedMetroPorts = [plan.metroPort];
+	const waitForMetroReady = (child: ChildProcess) =>
+		new Promise<void>((resolve, reject) => {
+			let ready = false;
+			let conflict = false;
+			const timeout = setTimeout(() => {
 				reject(
-					new Error(`Expo Metro exited with status ${code ?? 1}.`)
+					new Error(
+						'Expo Metro did not become ready within 120 seconds.'
+					)
+				);
+			}, METRO_READY_TIMEOUT_MS);
+			forwardLines(child, (line) => {
+				if (line) log(`[metro] ${line}`);
+				if (metroPortConflict(line)) conflict = true;
+				if (
+					!ready &&
+					/(?:Waiting on|Metro waiting on|Dev server ready)/iu.test(
+						line
+					)
+				) {
+					ready = true;
+					clearTimeout(timeout);
+					resolve();
+				}
+			});
+			child.once('exit', (code) => {
+				if (ready) return;
+				clearTimeout(timeout);
+				reject(new MetroStartupError(code ?? 1, conflict));
+			});
+		});
+	const startManagedMetro = async (): Promise<void> => {
+		if (!metroCommand) return;
+		if (options.signal?.aborted) throw abortError();
+		metro = run(executable, metroCommand.args, {
+			cwd: plan.project,
+			env: { ...process.env, ...metroCommand.env },
+			stdio: ['ignore', 'pipe', 'pipe']
+		});
+		try {
+			await waitForMetroReady(metro);
+		} catch (error) {
+			if (
+				!(error instanceof MetroStartupError) ||
+				!error.conflict ||
+				attemptedMetroPorts.length >= METRO_START_MAX_ATTEMPTS
+			) {
+				throw error;
+			}
+			await stopProcess(metro);
+			const allocate =
+				options.allocateMetroPort ?? allocateAvailableMetroPort;
+			const replacementPort = await allocate(attemptedMetroPorts);
+			if (
+				!Number.isSafeInteger(replacementPort) ||
+				replacementPort < 1 ||
+				replacementPort > MAX_TCP_PORT ||
+				attemptedMetroPorts.includes(replacementPort)
+			) {
+				throw new Error(
+					'Could not allocate a distinct replacement Metro port.',
+					{ cause: error }
 				);
 			}
-		});
-	});
-	if (metro)
-		forwardLines(metro, (line) => {
-			if (line) log(`[metro] ${line}`);
-			if (
-				!metroReady &&
-				/(?:Waiting on|Metro waiting on|Dev server ready)/iu.test(line)
-			) {
-				metroReady = true;
-				resolveMetro?.();
-			}
-		});
+			attemptedMetroPorts.push(replacementPort);
+			metroRetryCount += 1;
+			log(
+				'Metro port was claimed during startup; retrying automatically on a new port.'
+			);
+			plan = planAbsoluteExpoDevSession(options.config, {
+				...options,
+				metroPort: replacementPort
+			});
+			metroCommand = plan.commands.find(
+				(command) => command.role === 'metro'
+			);
+			nativeCommands = plan.commands.filter(
+				(command) => command.role === 'native-build'
+			);
+
+			await startManagedMetro();
+		}
+	};
 	const abort = () => {
 		if (metro) void stopProcess(metro);
 	};
@@ -975,7 +1063,7 @@ export const startAbsoluteExpoDevSession = async (
 						options.config.appId,
 						command.args,
 						capture,
-						options.metroPort,
+						plan.metroPort,
 						options.androidDevice
 					)
 				: [executable, ...command.args];
@@ -1021,7 +1109,7 @@ export const startAbsoluteExpoDevSession = async (
 			connectLocalExpoAndroid(
 				adb,
 				options.config.appId,
-				options.metroPort,
+				plan.metroPort,
 				capture,
 				options.androidDevice
 			);
@@ -1100,7 +1188,7 @@ export const startAbsoluteExpoDevSession = async (
 					expoDevelopmentClientUrl(
 						options.config.appId,
 						options.metroHost ?? 'localhost',
-						options.metroPort
+						plan.metroPort
 					)
 				],
 				utilityOptions
@@ -1150,9 +1238,16 @@ export const startAbsoluteExpoDevSession = async (
 	};
 	try {
 		await startPhysicalIosEnrollment();
-		await metroPromise;
+		await startManagedMetro();
 		if (managedMetro)
-			publishTiming('starting-metro', performance.now() - metroStarted);
+			publishTiming('starting-metro', performance.now() - metroStarted, {
+				...(metroRetryCount > 0
+					? {
+							reason: 'metro-port-conflict' as const,
+							retryCount: metroRetryCount
+						}
+					: {})
+			});
 		await runNativeCommands(nativeCommands);
 		setState('ready');
 

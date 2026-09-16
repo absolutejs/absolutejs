@@ -2,6 +2,18 @@
 
 Status: Capacitor Android development/release, all-framework embedded bundles, universal native Auth/Sync, Expo hybrid native Auth/Sync, background Sync, automatic device provisioning, provider-neutral native push registration, signed staged Capacitor updates, end-to-end RSA-signed self-hosted Expo production updates, and Android conformance are operational; iOS development/release automation plus installed Expo iOS OTA and replacement-upgrade harnesses are shipped and awaiting real macOS/physical-device acceptance
 
+Implementation checkpoint (September 15, 2026, Metro startup reliability):
+`@absolutejs/absolute@0.20.0-beta.99` makes the Expo development controller
+recover when another process claims Metro's selected port between discovery and
+startup. AbsoluteJS recognizes the non-interactive Expo conflict, allocates a
+new loopback port, regenerates every port-sensitive command, and retries up to
+three times without prompting. Local Android forwarding, iOS development-client
+URLs, WSL host execution, and Remote Mac tunnels wait for and use the final
+port; automatic native rebuilds retain it. Startup telemetry records only a
+bounded retry count and the categorical `metro-port-conflict` reason. Unit
+coverage includes stale-port recovery, independent concurrent sessions, final
+Android forwarding, and rebuild preservation.
+
 Implementation checkpoint (September 15, 2026, Expo Android quality gate):
 `@absolutejs/absolute@0.20.0-beta.98` adds one installed API 36 gate for the
 complete Expo development experience. It measures cold and warm development-

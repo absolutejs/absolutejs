@@ -99,10 +99,13 @@ describe('Vue `setupApp(app, ctx)` page-export hook', () => {
 		// The SSR import cache may need a beat after the bundle
 		// rebuild to flip — poll for the new sentinel with a
 		// deadline.
-		const deadline = Date.now() + 30_000;
+		// Use the monotonic clock here. Integration shards are long-lived and may
+		// span a host clock correction or a machine resume; Date.now() can jump
+		// forward and prematurely end what is meant to be a 30-second poll.
+		const deadline = performance.now() + 30_000;
 		let v2 = '';
 		let sawComplete = false;
-		while (Date.now() < deadline) {
+		while (performance.now() < deadline) {
 			if (!sawComplete) {
 				try {
 					await c.waitFor(

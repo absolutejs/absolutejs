@@ -1,7 +1,7 @@
 # AbsoluteJS iOS and TestFlight macOS test runbook
 
 This runbook validates the iOS release path shipped in
-`@absolutejs/absolute@0.20.0-beta.98`,
+`@absolutejs/absolute@0.20.0-beta.99`,
 `@absolutejs/devices-expo@0.0.11`, and
 `@absolutejs/deploy@0.25.13`. It covers a signed local IPA, an internal
 TestFlight upload, retry behavior, and installation on an iPhone or iPad.
@@ -118,6 +118,12 @@ Vue, Svelte, HTML, HTMX, and CSS HMR through the AbsoluteJS server. Finally it
 edits an Expo config plugin, waits for one automatic native rebuild, verifies
 that Metro was not restarted, and reconnects the native route.
 
+Metro startup is non-interactive. If another process claims the initially
+selected port, the log says AbsoluteJS is retrying on a new port and the command
+continues automatically. Do not answer an Expo port prompt or restart the test;
+local Simulator launch and any Remote Mac tunnel use the final logged port, and
+the later native rebuild must preserve that same port.
+
 Return this checklist verbatim:
 
 - [ ] `EXPO-IOS-HMR-01` `AbsoluteJS root: OK` was printed.
@@ -142,6 +148,9 @@ Return this checklist verbatim:
   device/Simulator identifier, credential, payload, or source text.
 - [ ] `EXPO-IOS-HMR-11` Return `git rev-parse HEAD`, `bun --version`, and
   `xcodebuild -version` with the report.
+- [ ] `EXPO-IOS-HMR-12` No interactive Metro port prompt appeared. If the
+  automatic port-retry message appeared, record that the app still connected
+  and the rebuild retained the replacement port.
 
 If the command fails, return the named Bun assertion and final 100 terminal
 lines. Leave the disposable fixture in place for diagnosis, but do not send the
@@ -171,6 +180,10 @@ minutes. Success ends with `2 pass`, `0 fail`, and prints one `[expo-quality]`
 line containing cold/warm launch, HMR p95, bridge p95, PSS/growth, and native/web
 target dimensions.
 
+As in the iOS HMR track, a Metro port claimed during startup is recovered
+automatically. A retry message is informational; let the command continue and
+confirm the development client connects on the replacement port.
+
 Return this checklist verbatim:
 
 - [ ] `EXPO-ANDROID-QUALITY-01` `AbsoluteJS root: OK` was printed.
@@ -195,6 +208,9 @@ Return this checklist verbatim:
   path, device identifier, state token, source, payload, or credential.
 - [ ] `EXPO-ANDROID-QUALITY-10` Return `git rev-parse HEAD`, `bun --version`,
   `xcodebuild -version`, and the Android doctor output with the report.
+- [ ] `EXPO-ANDROID-QUALITY-11` No interactive Metro port prompt appeared. If
+  the automatic retry message appeared, the development client still connected
+  and the native rebuild retained the replacement port.
 
 If Android virtualization is unavailable, record
 `SKIPPED — Android virtualization unavailable`. This does not block the iOS

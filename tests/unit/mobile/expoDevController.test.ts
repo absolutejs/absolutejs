@@ -64,6 +64,57 @@ const processHarness = () => {
 	return { commands, running, spawnProcess };
 };
 
+const metroConflictHarness = () => {
+	const commands: string[][] = [];
+	let metroStarts = 0;
+	const spawnProcess = ((command: string, args: readonly string[]) => {
+		commands.push([command, ...args]);
+		const child = new EventEmitter() as ChildProcess;
+		const stdout = new PassThrough();
+		const stderr = new PassThrough();
+		Object.assign(child, {
+			exitCode: null,
+			killed: false,
+			stderr,
+			stdout,
+			kill: () => {
+				if (child.exitCode !== null) return true;
+				Reflect.set(child, 'killed', true);
+				Reflect.set(child, 'exitCode', 0);
+				queueMicrotask(() => child.emit('exit', 0));
+
+				return true;
+			}
+		});
+		if (args[0] === 'start') {
+			metroStarts += 1;
+			queueMicrotask(() => {
+				if (metroStarts === 1) {
+					stderr.write(
+						'Port 8123 is being used by another process\n'
+					);
+					Reflect.set(child, 'exitCode', 1);
+					child.emit('exit', 1);
+					stderr.end();
+				} else {
+					stdout.write('Metro waiting on exp://localhost\n');
+				}
+			});
+		} else {
+			queueMicrotask(() => {
+				Reflect.set(child, 'exitCode', 0);
+				child.emit('exit', 0);
+				stdout.end();
+				stderr.end();
+			});
+		}
+
+		return child;
+	}) as typeof spawn;
+
+	return { commands, spawnProcess };
+};
+
 describe('Expo development controller', () => {
 	test('coordinates one Metro server and both native development builds', () => {
 		const plan = planAbsoluteExpoDevSession(config, {
@@ -203,6 +254,118 @@ describe('Expo development controller', () => {
 		expect(states.at(-1)).toBe('ready');
 		await session.close();
 		await expect(session.rebuild()).rejects.toThrow('session is closed');
+	});
+
+	test('recovers from a stale Metro port and preserves the replacement across native rebuilds', async () => {
+		const harness = metroConflictHarness();
+		const captures: string[][] = [];
+		const timings: Array<{
+			phase: string;
+			reason?: string;
+			retryCount?: number;
+		}> = [];
+		const session = await startAbsoluteExpoDevSession({
+			androidAdb: '/sdk/adb',
+			config,
+			executable: '/workspace/expo',
+			host: 'linux',
+			metroPort: 8123,
+			platforms: ['android'],
+			spawnProcess: harness.spawnProcess,
+			allocateMetroPort: async (excluded) => {
+				expect(excluded).toEqual([8123]);
+
+				return 8124;
+			},
+			capture: (command) => {
+				captures.push(command);
+
+				return {
+					exitCode: 0,
+					stdout:
+						command.at(-1) === 'devices'
+							? 'emulator-5554\tdevice\n'
+							: ''
+				};
+			},
+			onPhaseTiming: (timing) => timings.push(timing)
+		});
+
+		expect(session.metroPort).toBe(8124);
+		expect(
+			harness.commands.filter((command) => command[1] === 'start')
+		).toEqual([
+			[
+				'/workspace/expo',
+				'start',
+				'--dev-client',
+				'--host',
+				'localhost',
+				'--port',
+				'8123'
+			],
+			[
+				'/workspace/expo',
+				'start',
+				'--dev-client',
+				'--host',
+				'localhost',
+				'--port',
+				'8124'
+			]
+		]);
+		expect(captures).toContainEqual([
+			'/sdk/adb',
+			'-s',
+			'emulator-5554',
+			'reverse',
+			'tcp:8124',
+			'tcp:8124'
+		]);
+		expect(timings).toContainEqual(
+			expect.objectContaining({
+				phase: 'starting-metro',
+				reason: 'metro-port-conflict',
+				retryCount: 1
+			})
+		);
+
+		await session.rebuild();
+		expect(session.metroPort).toBe(8124);
+		expect(
+			harness.commands.filter((command) => command[1] === 'start')
+		).toHaveLength(2);
+		expect(
+			captures.filter((command) => command.includes('tcp:8124'))
+		).not.toHaveLength(0);
+		await session.close();
+	});
+
+	test('isolates replacement Metro ports across concurrent sessions', async () => {
+		const first = metroConflictHarness();
+		const second = metroConflictHarness();
+		const [firstSession, secondSession] = await Promise.all([
+			startAbsoluteExpoDevSession({
+				config,
+				executable: '/workspace/expo',
+				metroPort: 8123,
+				platforms: [],
+				spawnProcess: first.spawnProcess,
+				allocateMetroPort: async () => 8124
+			}),
+			startAbsoluteExpoDevSession({
+				config,
+				executable: '/workspace/expo',
+				metroPort: 8123,
+				platforms: [],
+				spawnProcess: second.spawnProcess,
+				allocateMetroPort: async () => 8125
+			})
+		]);
+
+		expect(firstSession.metroPort).toBe(8124);
+		expect(secondSession.metroPort).toBe(8125);
+		await Promise.all([firstSession.close(), secondSession.close()]);
 	});
 
 	test('mirrors Expo Android builds onto the Windows host from WSL', async () => {

@@ -30,6 +30,10 @@ delivery without time-based inference.
 `0.20.0-beta.98` adds an installed API 36 development-quality gate covering
 cold/warm launch, all-framework HMR p95, bridge p95, memory growth, native and
 web accessibility, native rebuild/reconnect, and sanitized result artifacts.
+`0.20.0-beta.99` makes managed Metro startup retry a port claimed after
+discovery, then carries the final port through local Android/iOS launch, WSL,
+Remote Mac tunneling, and later native rebuilds. Telemetry reports only the
+categorical conflict reason, bounded retry count, and startup duration.
 
 AbsoluteJS can generate an experimental Expo Router shell in which explicitly
 selected routes render React Native UI and all other routes remain ordinary
@@ -73,6 +77,8 @@ Implemented in the first spike:
 - a generated native diagnostic screen at `/__absolute/native`;
 - an Expo SDK 57 development client managed by `bun dev`;
 - one Metro process plus configured Android/iOS local builds and launch;
+- prompt-free recovery when Metro's initially selected port is claimed during
+  startup, with the replacement propagated to every native target;
 - native React Fast Refresh alongside framework-aware AbsoluteJS page HMR;
 - distinct `expo-android` and `expo-ios` timing logs and redacted telemetry;
 - an installed Expo Android quality budget covering startup, bridge, memory,

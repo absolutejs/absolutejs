@@ -129,6 +129,43 @@ export const openReadyPage = async (
 	throw lastError;
 };
 
+/**
+ * Run a complete browser assertion against a ready page. Aggregate test lanes
+ * can have headless Chromium reclaimed after readiness; retry the whole browser
+ * transaction only for that lifecycle failure so partial assertions and request
+ * observations are never mixed across sessions.
+ */
+export const runReadyPage = async <T>(
+	url: string,
+	ready: (page: Page) => Promise<void>,
+	run: (page: Page) => Promise<T>,
+	options: ReadyPageOptions = {}
+) => {
+	const attempts = options.attempts ?? 3;
+	const retryDelayMs = options.retryDelayMs ?? 500;
+	let lastError: unknown;
+	for (let attempt = 0; attempt < attempts; attempt += 1) {
+		let session: BrowserSession | undefined;
+		try {
+			session = await openReadyPage(url, ready, {
+				...options,
+				attempts: 1
+			});
+
+			return await run(session.page);
+		} catch (error) {
+			lastError = error;
+			if (!isClosedBrowserError(error) || attempt === attempts - 1)
+				throw error;
+			await Bun.sleep(retryDelayMs * (attempt + 1));
+		} finally {
+			await session?.close();
+		}
+	}
+
+	throw lastError;
+};
+
 /* Wait until `predicate(text)` is true, polling `page.locator(selector).textContent()`.
  * Bounded by `timeoutMs`; throws on timeout with the last-seen text so the
  * failure message tells you exactly what arrived. No fixed-interval polling —

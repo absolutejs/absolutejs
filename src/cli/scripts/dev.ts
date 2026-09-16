@@ -1571,13 +1571,15 @@ export const dev = async (
 				signal: expoDevAbort.signal,
 				log: (message) =>
 					printNativeOutput(cliTag('\x1b[35m', `Expo ${message}`)),
-				onPhaseTiming: ({ durationMs, phase }) => {
+				onPhaseTiming: ({ durationMs, phase, reason, retryCount }) => {
 					sendTelemetryEvent('mobile:expo-dev-phase', {
 						durationMs: Math.round(durationMs),
 						host: mobile.detectAbsoluteMobileHost(),
 						phase,
 						platform: expoTelemetryPlatform(phase),
-						provider: 'expo'
+						provider: 'expo',
+						reason,
+						retryCount
 					});
 				},
 				onStateChange: (state) => {
@@ -1593,7 +1595,7 @@ export const dev = async (
 
 				return session;
 			});
-		const localNativeStart = metroStart.then(async () => {
+		const localNativeStart = metroStart.then(async (metro) => {
 			if (project.platforms.length === 0) return undefined;
 			const session = await mobile.startAbsoluteExpoDevSession({
 				androidDevice: options.androidDevice,
@@ -1605,18 +1607,20 @@ export const dev = async (
 				iosDevice: options.iosDevice,
 				iosOrigin,
 				metro: 'external',
-				metroPort: expoMetroPort,
+				metroPort: metro.metroPort,
 				platforms: project.platforms,
 				signal: expoDevAbort.signal,
 				log: (message) =>
 					printNativeOutput(cliTag('\x1b[35m', `Expo ${message}`)),
-				onPhaseTiming: ({ durationMs, phase }) => {
+				onPhaseTiming: ({ durationMs, phase, reason, retryCount }) => {
 					sendTelemetryEvent('mobile:expo-dev-phase', {
 						durationMs: Math.round(durationMs),
 						host: mobile.detectAbsoluteMobileHost(),
 						phase,
 						platform: expoTelemetryPlatform(phase),
-						provider: 'expo'
+						provider: 'expo',
+						reason,
+						retryCount
 					});
 				},
 				onStateChange: (state) => {
@@ -1633,14 +1637,14 @@ export const dev = async (
 		});
 		const remoteIosProject = project.remoteIos;
 		const remoteStart = remoteIosProject
-			? metroStart.then(async () => {
+			? metroStart.then(async (metro) => {
 					const session =
 						await mobile.startAbsoluteRemoteExpoIosDevSession({
 							certificateAuthorityPath:
 								devCertificateAuthorityPath ?? undefined,
 							deviceIdentifier: options.iosDevice,
 							https: httpsEnabled,
-							metroPort: expoMetroPort,
+							metroPort: metro.metroPort,
 							port,
 							project: remoteIosProject,
 							serverHost: options.iosDevice
@@ -1654,13 +1658,20 @@ export const dev = async (
 										`Expo [remote-ios] ${message}`
 									)
 								),
-							onPhaseTiming: ({ durationMs, phase }) => {
+							onPhaseTiming: ({
+								durationMs,
+								phase,
+								reason,
+								retryCount
+							}) => {
 								sendTelemetryEvent('mobile:expo-dev-phase', {
 									durationMs: Math.round(durationMs),
 									host: 'remote-macos',
 									phase,
 									platform: expoTelemetryPlatform(phase),
-									provider: 'expo'
+									provider: 'expo',
+									reason,
+									retryCount
 								});
 							},
 							onStateChange: (state) => {
