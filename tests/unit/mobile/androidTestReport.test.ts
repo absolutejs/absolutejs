@@ -17,7 +17,8 @@ describe('Android native test report', () => {
 	test('uses the shared report contract without fabricating manual results', () => {
 		const report = createAbsoluteAndroidTestReport({
 			absolutejsVersion: '0.20.0-beta.24',
-			adbVersion: 'Android Debug Bridge version 1.0.41',
+			adbVersion:
+				'Android Debug Bridge version 1.0.41\nVersion 36.0.0\nInstalled as C:\\Users\\person\\Android\\Sdk\\platform-tools\\adb.exe\nRunning on Windows 11',
 			bunVersion: '1.3.14',
 			generatedAt: '2026-08-26T12:00:00.000Z',
 			host: 'linux-x64',
@@ -67,6 +68,9 @@ describe('Android native test report', () => {
 		).toBeDefined();
 		expect(renderAbsoluteNativeTestReport(report)).toContain(
 			'Routes: /react, /vue.'
+		);
+		expect(report.metadata.adbVersion).toBe(
+			'Android Debug Bridge version 1.0.41\nVersion 36.0.0'
 		);
 	});
 
@@ -172,5 +176,50 @@ describe('Android native test report', () => {
 		});
 		expect(report.overallResult).toBe('FAIL');
 		expect(report.run.targetKind).toBe('device');
+	});
+
+	test('records immutable Expo release installation and offline relaunch evidence', () => {
+		const report = createAbsoluteAndroidTestReport({
+			absolutejsVersion: '0.20.0-beta.102',
+			adbVersion: 'adb',
+			bunVersion: '1.4.0',
+			host: 'linux-x64',
+			provider: 'expo',
+			run: {
+				appId: 'com.absolutejs.example',
+				durationMs: 500,
+				hmrConnected: false,
+				release: {
+					apksBytes: 90,
+					artifactBytes: 100,
+					artifactSha256: 'a'.repeat(64),
+					embeddedOffline: true,
+					engine: 'expo',
+					installMs: 200,
+					launchMs: 100,
+					relaunchMs: 80,
+					releaseId: `amobile_android_${'a'.repeat(64)}`,
+					signed: true
+				},
+				serial: 'emulator-5554',
+				status: 'pass'
+			}
+		});
+
+		expect(report.metadata.provider).toBe('expo');
+		expect(
+			report.automatedChecks.find(({ id }) => id === 'AUTO-RELEASE-01')
+		).toMatchObject({ result: 'PASS' });
+		expect(
+			report.automatedChecks.find(
+				({ id }) => id === 'AUTO-RELEASE-OFFLINE-01'
+			)
+		).toMatchObject({ result: 'PASS' });
+		expect(
+			report.automatedChecks.find(({ id }) => id === 'AUTO-HMR-01')
+		).toMatchObject({ result: 'NOT_RUN' });
+		expect(renderAbsoluteNativeTestReport(report)).toContain(
+			'HMR is intentionally not part of installed production-release acceptance.'
+		);
 	});
 });

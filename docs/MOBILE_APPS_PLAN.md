@@ -1,6 +1,6 @@
 # AbsoluteJS Mobile Apps: Research and Implementation Plan
 
-Status: Capacitor Android development/release, all-framework embedded bundles, universal native Auth/Sync, Expo hybrid native Auth/Sync, background Sync, automatic device provisioning, provider-neutral native push registration, signed staged Capacitor updates, end-to-end RSA-signed self-hosted Expo production updates, and Android conformance are operational; iOS development/release automation plus installed Expo iOS OTA and replacement-upgrade harnesses are shipped and awaiting real macOS/physical-device acceptance
+Status: Capacitor Android development/release, all-framework embedded bundles, universal native Auth/Sync, Expo hybrid native Auth/Sync, background Sync, automatic device provisioning, provider-neutral native push registration, signed staged Capacitor updates, end-to-end RSA-signed self-hosted Expo production updates, and Android development plus installed production-AAB conformance are operational; iOS development/release automation plus installed Expo iOS OTA and replacement-upgrade harnesses are shipped and awaiting real macOS/physical-device acceptance
 
 Implementation checkpoint (September 16, 2026, WSL Expo Android public-CLI
 release conformance): `@absolutejs/absolute@0.20.0-beta.101` adds a permanent
@@ -308,8 +308,9 @@ explicitly experimental Expo SDK
 57/Expo Router shell while Capacitor remains the default. AbsoluteJS generates
 CNG configuration, a native diagnostic screen, static native-route wrappers,
 and a WebView catch-all for all unclaimed framework routes. The existing signed
-page bundle is transported through Metro as opaque assets and reconstructed
-with stable relative paths. Expo Router owns deep links and native transitions;
+page bundle is transported through Metro as one deterministic opaque archive
+and reconstructed from a generated offset table with stable relative paths.
+Expo Router owns deep links and native transitions;
 the WebView retains web history. The original bridge format enforces a 64 KiB maximum,
 bounded IDs/paths, request timeouts, current-page identity, and a method
 allowlist; the first provider-neutral proof was `@absolutejs/devices` haptics.
@@ -1902,6 +1903,39 @@ and JSON in a timestamped project-local directory. Interactive capability, Auth,
 Sync, background, signing, and store rows remain `NOT_RUN` until a tester performs
 them; AbsoluteJS never promotes an automated WebView observation into a broader
 manual pass.
+
+Expo production artifacts have a separate installed-release path because a
+release WebView is intentionally not debuggable and does not connect to HMR.
+Build the AAB, then pass the printed immutable release directory back to the
+test command from the application root:
+
+```sh
+bunx absolute mobile build android server.ts --outdir .absolutejs/releases
+bunx absolute mobile test android \
+  --release .absolutejs/releases/amobile_android_SHA256 \
+  --report \
+  --yes
+```
+
+`--yes` authorizes the first checksum-pinned Bundletool download; later runs use
+the verified managed copy. The command starts or reuses the AbsoluteJS API 36
+emulator, re-hashes the AAB and its immutable metadata, asks Bundletool to create
+and install the APK set, and verifies the installed versionCode when release
+metadata contains one. It then records the emulator's current Wi-Fi and mobile
+data state, disables both, launches the installed release, waits for a native
+signal emitted only after the embedded WebView reports ready, force-stops the
+process, and proves the same offline path again after relaunch. Network state is
+restored in `finally`, including failed runs.
+
+The report adds `AUTO-RELEASE-01` for artifact/APK-set installation and
+`AUTO-RELEASE-OFFLINE-01` for the two offline embedded-content boots. It contains
+only artifact identity and sizes plus bounded timings; it excludes Bundletool
+output, local source paths, emulator package internals, Auth credentials, Sync
+rows, and page contents. Auth/Sync preservation is not inferred from a boot:
+the installed-upgrade conformance gate remains the authoritative state proof.
+An Expo application whose `mobile.entry` is a native route must choose an
+embedded web entry for this offline test, because native page props correctly
+come from the trusted production server rather than being fabricated locally.
 
 Implementation checkpoint (August 27, 2026, installed Android upgrade slice):
 the production embedded-app fixture now performs a real state-preserving

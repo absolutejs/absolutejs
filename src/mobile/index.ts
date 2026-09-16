@@ -1,6 +1,7 @@
 export * from './artifactStore';
 export * from './adaptiveShell';
 export * from './androidRelease';
+export * from './androidReleaseAcceptance';
 export * from './androidUpgradeConformance';
 export * from './iosRelease';
 export * from './iosUpgradeConformance';

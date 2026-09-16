@@ -244,6 +244,12 @@ describe('experimental Expo project', () => {
 		);
 		expect(layout).toContain('useActivityResultRecoveryEffect(() => {');
 		expect(layout).toContain('markAbsoluteApplicationRuntimeReady()');
+		const activityResultRuntime = await readFile(
+			join(project, 'src/generated/AbsoluteActivityResultRecovery.ts'),
+			'utf8'
+		);
+		expect(activityResultRuntime).toContain('markAbsoluteEmbeddedWebReady');
+		expect(activityResultRuntime).toContain('markAbsoluteEmbeddedWebPhase');
 		expect(
 			await readFile(
 				join(
@@ -252,7 +258,13 @@ describe('experimental Expo project', () => {
 				),
 				'utf8'
 			)
-		).toContain('consumePickerCancellation');
+		).toContain('Expo embedded web content ready');
+		expect(webHost).toContain('markAbsoluteEmbeddedWebReady()');
+		expect(webHost).toContain("error.message === 'assets-download-failed'");
+		expect(webHost).toContain(
+			"markAbsoluteEmbeddedWebPhase('devices-failed')"
+		);
+		expect(webHost).toContain('Embedded content could not start.');
 		expect(appConfig).toContain('"scheme": "product"');
 		expect(nativeRoute).toContain('mobile/native/scanner');
 		expect(nativeRoute).toContain('createAbsoluteNativeRoute');
@@ -482,6 +494,18 @@ describe('experimental Expo project', () => {
 		expect(source).toContain('pages/app.js');
 		expect(source).toContain('.absasset');
 		expect(source).toContain("new File(root, 'index.html').uri");
+		expect(source).toContain(
+			'if (!asset.localUri) asset = await asset.downloadAsync()'
+		);
+		expect(source).toContain('const ARCHIVE_MODULE = require(');
+		expect(source).toContain('await source.copy(archive)');
+		expect(source).toContain(
+			'await copyLegacyAsync({ from: asset.localUri'
+		);
+		expect(source).toContain('contents = await archive.bytes()');
+		expect(source).toContain('contents.slice(entry.offset');
+		expect(source).toContain("throw new Error('assets-read-failed')");
+		expect(source).toContain("throw new Error('assets-write-failed')");
 		expect(source).toContain('ABSOLUTE_MOBILE_MANIFEST');
 		expect(source).toContain('react:Product:schema-product');
 		expect(source).toContain(

@@ -833,33 +833,41 @@ const expoEmbeddedAssetsCheck = async (
 				})
 			)
 		).sort();
-		if (
-			sourceFiles.length === 0 ||
-			sourceFiles.length !== embeddedFiles.length
-		)
+		if (sourceFiles.length === 0 || embeddedFiles.length !== 1)
 			throw new TypeError(
 				'Generated Expo asset count does not match the prepared mobile bundle.'
 			);
-		const matches = await Promise.all(
-			sourceFiles.map(async (path, index) => {
-				const embedded = embeddedFiles[index];
-				if (!embedded) return false;
-				const [left, right] = await Promise.all([
-					readFile(join(config.bundleDirectory, path)),
-					readFile(join(assetsRoot, embedded))
-				]);
-
-				return left.equals(right);
-			})
+		const contents = await Promise.all(
+			sourceFiles.map((path) =>
+				readFile(join(config.bundleDirectory, path))
+			)
 		);
-		if (matches.some((value) => !value))
+		let offset = 0;
+		type ArchiveEntry = { length: number; offset: number; path: string };
+		const entries = sourceFiles.map((path, index) => {
+			const entry: ArchiveEntry = {
+				length: contents[index]?.byteLength ?? 0,
+				offset,
+				path: path.replaceAll('\\', '/')
+			};
+			offset += entry.length;
+
+			return entry;
+		});
+		const archive = await readFile(
+			join(assetsRoot, embeddedFiles[0] ?? '')
+		);
+		if (
+			!archive.equals(Buffer.concat(contents)) ||
+			entries.some((entry) => !source.includes(JSON.stringify(entry)))
+		)
 			throw new TypeError(
 				'Generated Expo asset bytes differ from the prepared mobile bundle.'
 			);
 
 		return pass(
 			'expo.bundle-projection',
-			`Expo embeds the complete signed mobile bundle as ${embeddedFiles.length} opaque asset(s).`,
+			`Expo embeds the complete signed mobile bundle as one opaque archive containing ${sourceFiles.length} file(s).`,
 			generated
 		);
 	} catch (error) {

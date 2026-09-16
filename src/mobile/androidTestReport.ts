@@ -14,6 +14,7 @@ type CreateAbsoluteAndroidTestReportOptions = {
 	bunVersion: string;
 	generatedAt?: string;
 	host: string;
+	provider?: 'capacitor' | 'expo';
 	run: AbsoluteAndroidAutomatedResult;
 };
 
@@ -134,6 +135,13 @@ const MANUAL_CHECKS = [
 	]
 ] as const;
 
+const portableAdbVersion = (version: string) =>
+	version
+		.split(/\r?\n/u)
+		.filter((line) => !/^\s*(?:Installed as|Running on)\b/iu.test(line))
+		.join('\n')
+		.trim();
+
 export const createAbsoluteAndroidTestReport = (
 	options: CreateAbsoluteAndroidTestReportOptions
 ) => {
@@ -144,10 +152,10 @@ export const createAbsoluteAndroidTestReport = (
 		manualChecks: MANUAL_CHECKS,
 		metadata: {
 			absolutejsVersion: options.absolutejsVersion,
-			adbVersion: options.adbVersion,
+			adbVersion: portableAdbVersion(options.adbVersion),
 			bunVersion: options.bunVersion,
 			host: options.host,
-			provider: 'capacitor'
+			provider: options.provider ?? 'capacitor'
 		},
 		run: {
 			...run,

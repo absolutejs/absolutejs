@@ -47,6 +47,19 @@ export type AbsoluteNativeSyncMigrationResult = {
 	};
 };
 
+export type AbsoluteNativeReleaseResult = {
+	apksBytes: number;
+	artifactBytes: number;
+	artifactSha256: string;
+	embeddedOffline: boolean;
+	engine: 'capacitor' | 'expo';
+	installMs: number;
+	launchMs: number;
+	releaseId: string;
+	relaunchMs: number;
+	signed: boolean;
+};
+
 export type AbsoluteNativeAutomatedRun = {
 	appId: string;
 	deviceAcceptance?: {
@@ -59,7 +72,8 @@ export type AbsoluteNativeAutomatedRun = {
 	hmr?: AbsoluteNativeHmrResult;
 	hmrConnected: boolean;
 	platform: 'android' | 'ios';
-	port: number;
+	port?: number;
+	release?: AbsoluteNativeReleaseResult;
 	routes?: string[];
 	screenshot?: string;
 	status: 'fail' | 'pass';
@@ -76,7 +90,7 @@ export type AbsoluteNativeTestReport = {
 	metadata: Record<string, string> & {
 		absolutejsVersion: string;
 		bunVersion: string;
-		provider: 'capacitor';
+		provider: 'capacitor' | 'expo';
 	};
 	overallResult: 'FAIL' | 'INCOMPLETE';
 	platform: 'android' | 'ios';
@@ -142,6 +156,22 @@ export const createAbsoluteNativeAutomatedChecks = (
 		artifactResult = 'SKIPPED';
 	}
 
+	let developmentDetails =
+		run.status === 'pass'
+			? `The app launched and connected to native HMR in ${run.durationMs}ms.${routeDetails}`
+			: `The automated native run failed after ${run.durationMs}ms: ${run.error ?? 'No error detail was available.'}`;
+	if (run.release)
+		developmentDetails =
+			run.status === 'pass'
+				? `The ${run.release.engine} release was installed from its generated APK set, launched offline in ${run.release.launchMs}ms, and relaunched in ${run.release.relaunchMs}ms.`
+				: `Installed ${run.release.engine} release acceptance failed after ${run.durationMs}ms.`;
+	let hmrDetails =
+		'Correlated edit timing was not requested. Rerun with --wait-for-hmr.';
+	if (run.release)
+		hmrDetails =
+			'HMR is intentionally not part of installed production-release acceptance.';
+	if (run.hmr)
+		hmrDetails = `Observed native HMR ${run.hmr.outcome} in ${run.hmr.durationMs}ms${run.hmr.serverMs === undefined ? '' : ` (server ${run.hmr.serverMs}ms, client ${run.hmr.clientMs}ms)`}.`;
 	const checks: AbsoluteNativeReportCheck[] = [
 		{
 			details: `Captured host, toolchain, Bun, and AbsoluteJS metadata for ${target}.`,
@@ -149,18 +179,13 @@ export const createAbsoluteNativeAutomatedChecks = (
 			result: 'PASS'
 		},
 		{
-			details:
-				run.status === 'pass'
-					? `The app launched and connected to native HMR in ${run.durationMs}ms.${routeDetails}`
-					: `The automated native run failed after ${run.durationMs}ms: ${run.error ?? 'No error detail was available.'}`,
+			details: developmentDetails,
 			...(evidence ? { evidence } : {}),
 			id: 'AUTO-DEV-01',
 			result: run.status === 'pass' ? 'PASS' : 'FAIL'
 		},
 		{
-			details: run.hmr
-				? `Observed native HMR ${run.hmr.outcome} in ${run.hmr.durationMs}ms${run.hmr.serverMs === undefined ? '' : ` (server ${run.hmr.serverMs}ms, client ${run.hmr.clientMs}ms)`}.`
-				: 'Correlated edit timing was not requested. Rerun with --wait-for-hmr.',
+			details: hmrDetails,
 			id: 'AUTO-HMR-01',
 			result: hmrResult
 		},
@@ -171,6 +196,22 @@ export const createAbsoluteNativeAutomatedChecks = (
 			result: artifactResult
 		}
 	];
+	if (run.release) {
+		checks.push(
+			{
+				details: `Validated immutable release ${run.release.releaseId} (${run.release.artifactBytes} bytes, SHA-256 ${run.release.artifactSha256}); Bundletool produced a ${run.release.apksBytes}-byte APK set and installed it in ${run.release.installMs}ms.`,
+				id: 'AUTO-RELEASE-01',
+				result: run.status === 'pass' ? 'PASS' : 'FAIL'
+			},
+			{
+				details: run.release.embeddedOffline
+					? 'The generated release rendered its embedded web content and survived a process relaunch with Wi-Fi and mobile data disabled.'
+					: 'The generated release did not prove embedded offline rendering.',
+				id: 'AUTO-RELEASE-OFFLINE-01',
+				result: run.release.embeddedOffline ? 'PASS' : 'FAIL'
+			}
+		);
+	}
 	if (run.upgrade) {
 		const { upgrade } = run;
 		checks.push(

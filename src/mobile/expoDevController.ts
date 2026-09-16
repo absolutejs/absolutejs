@@ -453,6 +453,8 @@ const encodedWindowsExpoAndroidCommand = (
 		"$env:GRADLE_OPTS = (($env:GRADLE_OPTS + ' -Dorg.gradle.daemon=false').Trim())",
 		"$autolinkingCache = Join-Path $mappedProject 'android\\build\\generated\\autolinking'",
 		'if ([IO.Directory]::Exists($autolinkingCache)) { [IO.Directory]::Delete($autolinkingCache, $true) }',
+		"$reactGeneratedResources = Join-Path $mappedProject 'android\\app\\build\\generated\\res\\react'",
+		'if ([IO.Directory]::Exists($reactGeneratedResources)) { [IO.Directory]::Delete($reactGeneratedResources, $true) }',
 		...(mode === 'development'
 			? [
 					"$expo = Join-Path $mappedProject 'node_modules\\.bin\\expo.exe'",

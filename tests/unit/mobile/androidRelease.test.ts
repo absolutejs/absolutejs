@@ -274,6 +274,9 @@ describe('Android production releases', () => {
 		expect(script).toContain('AbandonedMutexException');
 		expect(script).toContain('$mutex.ReleaseMutex()');
 		expect(script).toContain('& subst.exe $drive $mirrorRoot');
+		expect(script).toContain(
+			'[IO.Directory]::Delete($reactGeneratedResources, $true)'
+		);
 		expect(script).toContain('@gradleArguments bundleRelease');
 		expect(script).toContain(
 			Buffer.from(

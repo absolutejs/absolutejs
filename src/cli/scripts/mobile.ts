@@ -26,6 +26,7 @@ import { applyAbsoluteNativeBackgroundSync } from '../../mobile/nativeBackground
 import { applyAbsoluteNativeUpdates } from '../../mobile/nativeUpdates';
 import { applyAbsoluteNativeObservability } from '../../mobile/nativeObservability';
 import {
+	ABSOLUTE_ANDROID_AVD_NAME,
 	detectAbsoluteMobileHost,
 	inspectAbsoluteMobileToolchain,
 	type AbsoluteMobileDoctorCheck
@@ -57,6 +58,13 @@ import {
 	inspectAbsoluteMobileRelease
 } from '../../mobile/releaseDoctor';
 import { buildAbsoluteAndroidRelease } from '../../mobile/androidRelease';
+import {
+	ABSOLUTE_BUNDLETOOL_VERSION,
+	ensureAbsoluteBundletool,
+	inspectAbsoluteBundletool,
+	readAbsoluteAndroidRelease,
+	runAbsoluteAndroidReleaseAcceptance
+} from '../../mobile/androidReleaseAcceptance';
 import { buildAbsoluteIosRelease } from '../../mobile/iosRelease';
 import {
 	ABSOLUTE_IOS_SIMULATOR_NAME,
@@ -141,6 +149,8 @@ import {
 import { writeAbsoluteMobileUpdateRegistry } from '../../mobile/updateServer';
 
 const NOT_FOUND = -1;
+const ANDROID_EMULATOR_BOOT_POLL_MS = 500;
+const ANDROID_EMULATOR_BOOT_TIMEOUT_MS = 180_000;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
 	typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -711,7 +721,7 @@ const initialize = async (args: string[]) => {
 	);
 	if (mobile.engine === 'expo') {
 		console.warn(
-			'Experimental: Expo Android builds and publishing are available; iOS releases and physical-device acceptance are not complete.'
+			'Experimental: Expo Android and iOS release automation is available; real macOS and physical-device acceptance remains pending.'
 		);
 		const generated = await writeAbsoluteExpoProject(mobile, {
 			force: args.includes('--force'),
@@ -2702,6 +2712,79 @@ const selectAndroidSerial = (
 	return selected;
 };
 
+const selectOrStartAndroidReleaseEmulator = async (
+	adb: string,
+	emulator: string | undefined,
+	explicitSerial: string | undefined,
+	json: boolean
+) => {
+	if (explicitSerial) return selectAndroidSerial(adb, explicitSerial);
+	const current = captureCommand([adb, 'devices']);
+	const ready =
+		current.exitCode === 0
+			? parseAdbDevices(current.stdout).find((serial) =>
+					serial.startsWith('emulator-')
+				)
+			: undefined;
+	if (ready) return ready;
+	if (!emulator)
+		throw new TypeError(
+			'Android Emulator is unavailable. Run `absolute mobile doctor android --fix`.'
+		);
+	(json ? console.error : console.log)(
+		`Starting managed Android emulator ${ABSOLUTE_ANDROID_AVD_NAME}…`
+	);
+	const launched = Bun.spawn(
+		[
+			emulator,
+			'-avd',
+			ABSOLUTE_ANDROID_AVD_NAME,
+			'-netdelay',
+			'none',
+			'-netspeed',
+			'full'
+		],
+		{ stderr: 'ignore', stdin: 'ignore', stdout: 'ignore' }
+	);
+	launched.unref();
+	const startedAt = performance.now();
+	const bootedSerial = () => {
+		const devices = captureCommand([adb, 'devices']);
+		const serial =
+			devices.exitCode === 0
+				? parseAdbDevices(devices.stdout).find((candidate) =>
+						candidate.startsWith('emulator-')
+					)
+				: undefined;
+		if (!serial) return undefined;
+		const booted = captureCommand([
+			adb,
+			'-s',
+			serial,
+			'shell',
+			'getprop',
+			'sys.boot_completed'
+		]);
+
+		return booted.exitCode === 0 && booted.stdout.trim() === '1'
+			? serial
+			: undefined;
+	};
+	const waitForBoot: () => Promise<string> = async () => {
+		if (performance.now() - startedAt >= ANDROID_EMULATOR_BOOT_TIMEOUT_MS)
+			throw new Error(
+				`Managed Android emulator ${ABSOLUTE_ANDROID_AVD_NAME} did not finish booting within 180 seconds.`
+			);
+		const serial = bootedSerial();
+		if (serial) return serial;
+		await Bun.sleep(ANDROID_EMULATOR_BOOT_POLL_MS);
+
+		return waitForBoot();
+	};
+
+	return waitForBoot();
+};
+
 const safeArtifactRoot = (projectRoot: string, value: string | undefined) => {
 	const root = resolve(
 		projectRoot,
@@ -2792,10 +2875,251 @@ const writeAndroidFailureArtifacts = async (
 	return { diagnosticPath, screenshot };
 };
 
+const captureAndroidReleaseScreenshot = async (
+	adb: string,
+	serial: string,
+	destination: string
+) => {
+	const process = Bun.spawn(
+		[adb, '-s', serial, 'exec-out', 'screencap', '-p'],
+		{ stderr: 'pipe', stdin: 'ignore', stdout: 'pipe' }
+	);
+	const [exitCode, bytes, stderr] = await Promise.all([
+		process.exited,
+		new Response(process.stdout).bytes(),
+		new Response(process.stderr).text()
+	]);
+	if (exitCode !== 0)
+		throw new Error(
+			`Android release screenshot failed: ${stderr.trim() || `status ${exitCode}`}`
+		);
+	await writeFile(destination, bytes);
+
+	return destination;
+};
+
+const printAndroidReleaseAcceptance = (
+	result: Awaited<ReturnType<typeof runAbsoluteAndroidReleaseAcceptance>>,
+	json: boolean
+) => {
+	if (json) {
+		console.log(JSON.stringify(result, null, 2));
+
+		return;
+	}
+	console.log(
+		`✓ Installed immutable ${result.engine} release ${result.releaseId} with Bundletool in ${getDurationString(result.installMs)}.`
+	);
+	console.log(
+		`✓ Embedded web content booted offline in ${getDurationString(result.launchMs)} and relaunched in ${getDurationString(result.relaunchMs)}.`
+	);
+};
+
+const testAndroidRelease = async (
+	args: string[],
+	mobile: NormalizedAbsoluteMobileConfig,
+	projectRoot: string
+) => {
+	const requested = valueAfter(args, '--release');
+	if (!requested || requested.startsWith('--'))
+		throw new TypeError(
+			'mobile test android --release requires a release directory or release.json path.'
+		);
+	if (!mobile.platforms.includes('android'))
+		throw new TypeError(
+			'mobile test android requires android in mobile.platforms.'
+		);
+	if (mobile.engine !== 'expo')
+		throw new TypeError(
+			'mobile test android --release currently requires mobile.engine: expo; use the ordinary test command for Capacitor.'
+		);
+	const release = await readAbsoluteAndroidRelease(projectRoot, requested);
+	if (release.metadata.appId !== mobile.appId)
+		throw new TypeError(
+			`Android release app ID ${release.metadata.appId} does not match mobile.appId ${mobile.appId}.`
+		);
+	if (release.metadata.engine !== mobile.engine)
+		throw new TypeError(
+			`Android release engine ${release.metadata.engine} does not match configured engine ${mobile.engine}.`
+		);
+	if (mobile.engine === 'expo' && mobile.expoNativeRoutes[mobile.entry])
+		throw new TypeError(
+			'Offline Expo release acceptance requires mobile.entry to be an embedded web route; the configured entry is native and requires trusted server page data.'
+		);
+	const checks = await inspectAbsoluteMobileToolchain();
+	const adb = checks.find(
+		(check) => check.id === 'android.adb' && check.status === 'pass'
+	)?.path;
+	const java = checks.find(
+		(check) => check.id === 'android.java' && check.status === 'pass'
+	)?.path;
+	const emulator = checks.find(
+		(check) => check.id === 'android.emulator' && check.status === 'pass'
+	)?.path;
+	if (!adb)
+		throw new TypeError(
+			'Android Debug Bridge is unavailable. Run `absolute mobile doctor android --fix`.'
+		);
+	if (!java)
+		throw new TypeError(
+			'Java is unavailable. Install the JDK required by the Android toolchain and rerun `absolute mobile doctor android`.'
+		);
+	const serial = await selectOrStartAndroidReleaseEmulator(
+		adb,
+		emulator,
+		valueAfter(args, '--serial'),
+		args.includes('--json')
+	);
+	const inspectedBundletool = await inspectAbsoluteBundletool();
+	const approved =
+		inspectedBundletool.ready ||
+		args.includes('--yes') ||
+		(await confirmInstall(
+			`Bundletool ${ABSOLUTE_BUNDLETOOL_VERSION} is required to install the exact App Bundle. Download and checksum-verify it now?`
+		));
+	const bundletool = await ensureAbsoluteBundletool({
+		approved: approved === true
+	});
+	const reportRoot = nativeReportRoot(args, projectRoot, 'android');
+	const artifactRoot =
+		reportRoot ??
+		safeArtifactRoot(
+			projectRoot,
+			valueAfter(args, '--artifacts') ??
+				`.absolutejs/mobile/test-artifacts/${release.metadata.releaseId}`
+		);
+	const startedAt = performance.now();
+	try {
+		const result = await runAbsoluteAndroidReleaseAcceptance({
+			adb,
+			artifactDirectory: artifactRoot,
+			bundletool,
+			host: detectAbsoluteMobileHost(),
+			java,
+			...(mobile.deepLinkScheme
+				? {
+						launchUrl: `${mobile.deepLinkScheme}://${mobile.entry}`
+					}
+				: {}),
+			release,
+			serial
+		});
+		const screenshot = reportRoot
+			? await captureAndroidReleaseScreenshot(
+					adb,
+					serial,
+					join(reportRoot, 'android-release.png')
+				)
+			: undefined;
+		sendTelemetryEvent('mobile:android-release-conformance', {
+			durationMs: result.durationMs,
+			engine: result.engine,
+			installMs: result.installMs,
+			launchMs: result.launchMs,
+			platform: 'android',
+			relaunchMs: result.relaunchMs,
+			success: true
+		});
+		await writeRequestedAndroidReport({
+			adb,
+			args,
+			projectRoot,
+			provider: mobile.engine,
+			reportRoot,
+			run: {
+				appId: mobile.appId,
+				durationMs: result.durationMs,
+				hmrConnected: false,
+				release: {
+					apksBytes: result.apksBytes,
+					artifactBytes: result.artifactBytes,
+					artifactSha256: result.artifactSha256,
+					embeddedOffline: result.embeddedOffline,
+					engine: result.engine,
+					installMs: result.installMs,
+					launchMs: result.launchMs,
+					relaunchMs: result.relaunchMs,
+					releaseId: result.releaseId,
+					signed: result.signed
+				},
+				...(screenshot ? { screenshot } : {}),
+				serial,
+				status: 'pass'
+			}
+		});
+		printAndroidReleaseAcceptance(result, args.includes('--json'));
+
+		return result;
+	} catch (error) {
+		const durationMs = Math.round(performance.now() - startedAt);
+		sendTelemetryEvent('mobile:android-release-conformance', {
+			durationMs,
+			engine: mobile.engine,
+			platform: 'android',
+			success: false
+		});
+		await mkdir(artifactRoot, { recursive: true });
+		const diagnosticPath = join(
+			artifactRoot,
+			'android-release-failure.json'
+		);
+		await writeFile(
+			diagnosticPath,
+			`${JSON.stringify(
+				{
+					error: sanitizeNativeReportText(
+						error instanceof Error ? error.message : String(error)
+					),
+					platform: 'android',
+					provider: mobile.engine,
+					releaseId: release.metadata.releaseId,
+					status: 'fail'
+				},
+				null,
+				2
+			)}\n`
+		);
+		await writeRequestedAndroidReport({
+			adb,
+			args,
+			projectRoot,
+			provider: mobile.engine,
+			reportRoot,
+			run: {
+				appId: mobile.appId,
+				durationMs,
+				error: 'Installed release acceptance failed; inspect the local diagnostic artifact before sharing evidence.',
+				hmrConnected: false,
+				release: {
+					apksBytes: 0,
+					artifactBytes: release.metadata.bytes,
+					artifactSha256: release.metadata.sha256,
+					embeddedOffline: false,
+					engine: release.metadata.engine,
+					installMs: 0,
+					launchMs: 0,
+					relaunchMs: 0,
+					releaseId: release.metadata.releaseId,
+					signed: release.metadata.signed
+				},
+				serial,
+				status: 'fail'
+			}
+		});
+		throw new Error(
+			`${error instanceof Error ? error.message : String(error)} Failure diagnostics: ${diagnosticPath}`,
+			{ cause: error }
+		);
+	}
+};
+
 const testAndroid = async (args: string[]) => {
 	const { mobile, projectRoot } = await loadMobile(
 		valueAfter(args, '--config')
 	);
+	if (args.includes('--release')) {
+		return testAndroidRelease(args, mobile, projectRoot);
+	}
 	requireCapacitorEngine(mobile, 'mobile test android');
 	if (!mobile.platforms.includes('android')) {
 		throw new TypeError(
@@ -3260,13 +3584,13 @@ const writeRequestedAndroidReport = async (options: {
 	adb: string;
 	args: string[];
 	projectRoot: string;
+	provider?: 'capacitor' | 'expo';
+	reportRoot?: string;
 	run: Parameters<typeof createAbsoluteAndroidTestReport>[0]['run'];
 }) => {
-	const reportRoot = nativeReportRoot(
-		options.args,
-		options.projectRoot,
-		'android'
-	);
+	const reportRoot =
+		options.reportRoot ??
+		nativeReportRoot(options.args, options.projectRoot, 'android');
 	if (!reportRoot) return undefined;
 	const adbVersion = requireCapturedCommand(
 		[options.adb, 'version'],
@@ -3277,6 +3601,7 @@ const writeRequestedAndroidReport = async (options: {
 		adbVersion,
 		bunVersion: Bun.version,
 		host: `${process.platform}-${process.arch}`,
+		...(options.provider ? { provider: options.provider } : {}),
 		run: options.run
 	});
 	const paths = await writeAbsoluteNativeTestReport(reportRoot, report);
@@ -3808,6 +4133,6 @@ export const runMobile = async (args: string[]) => {
 	}
 
 	throw new TypeError(
-		'Usage: absolute mobile <pair mac <name> <user@host> [--port n] [--workspace path] | remotes [inspect [name] [--json] | clean [name] --yes | --json] | unpair mac <name> | init [--no-native] [--force] | sync [ios|android] | inspect [--json] [--require-bundle] | associations [--outdir dir] [--verify] | ci github [server-entry] [--publish] [--registry module] [--secret-env NAME] [--output path] [--force] [--json] | doctor [ios|android|release [ios|android]] [--remote name] [--json|--fix [--yes]] | build <android|ios> [server-entry] [--remote name] [--outdir dir] [--web-outdir dir] [--unsigned] | update provision [--storage local|s3] [--registry module] [--force] [--yes] | update signing generate --private-key path [--certificate path] [--public-key path] [--key-id id] [--common-name name] [--validity-years n] | update build [server-entry] --classification bug-fix|content|security --key-id id --signing-key path --within-submitted-purpose [--outdir dir] [--web-outdir dir] | update publish <release-directory> [--rollout fraction] [--registry module] | update promote --release id --rollout fraction [--registry module] | update rollback [--release id] [--registry module] | update status [--registry module] [--json] | update advance [--rollout fraction] [--registry module] [--json] | update pause|resume|cancel|reconcile [--registry module] [--json] | update storage [--retain count] [--min-age-days days] [--registry module] [--json] | update gc [--retain count] [--min-age-days days] [--grace-days days] [--apply] [--registry module] [--json] | publish android [server-entry] [--registry module] [--channel name] [--play-track track] [--play-status completed|draft|halted|in-progress] [--play-rollout fraction] [--play-name name] [--play-notes language=text] [--play-update-priority 0..5] [--play-hold-review] [--play-cancel-existing-review] [--outdir dir] [--web-outdir dir] [--unsigned] | publish ios [server-entry] [--remote name] [--registry module] [--channel name] [--testflight-group name-or-id] [--testflight-notes locale=text] [--testflight-submit-review] [--outdir dir] [--web-outdir dir] [--unsigned] | test android [--route path] [--wait-for-hmr] [--report [dir]] [--timeout ms] [--port n] [--serial id] [--artifacts dir] [--json]> [--config path]'
+		'Usage: absolute mobile <pair mac <name> <user@host> [--port n] [--workspace path] | remotes [inspect [name] [--json] | clean [name] --yes | --json] | unpair mac <name> | init [--no-native] [--force] | sync [ios|android] | inspect [--json] [--require-bundle] | associations [--outdir dir] [--verify] | ci github [server-entry] [--publish] [--registry module] [--secret-env NAME] [--output path] [--force] [--json] | doctor [ios|android|release [ios|android]] [--remote name] [--json|--fix [--yes]] | build <android|ios> [server-entry] [--remote name] [--outdir dir] [--web-outdir dir] [--unsigned] | update provision [--storage local|s3] [--registry module] [--force] [--yes] | update signing generate --private-key path [--certificate path] [--public-key path] [--key-id id] [--common-name name] [--validity-years n] | update build [server-entry] --classification bug-fix|content|security --key-id id --signing-key path --within-submitted-purpose [--outdir dir] [--web-outdir dir] | update publish <release-directory> [--rollout fraction] [--registry module] | update promote --release id --rollout fraction [--registry module] | update rollback [--release id] [--registry module] | update status [--registry module] [--json] | update advance [--rollout fraction] [--registry module] [--json] | update pause|resume|cancel|reconcile [--registry module] [--json] | update storage [--retain count] [--min-age-days days] [--registry module] [--json] | update gc [--retain count] [--min-age-days days] [--grace-days days] [--apply] [--registry module] [--json] | publish android [server-entry] [--registry module] [--channel name] [--play-track track] [--play-status completed|draft|halted|in-progress] [--play-rollout fraction] [--play-name name] [--play-notes language=text] [--play-update-priority 0..5] [--play-hold-review] [--play-cancel-existing-review] [--outdir dir] [--web-outdir dir] [--unsigned] | publish ios [server-entry] [--remote name] [--registry module] [--channel name] [--testflight-group name-or-id] [--testflight-notes locale=text] [--testflight-submit-review] [--outdir dir] [--web-outdir dir] [--unsigned] | test android [--release release-dir [--yes] | --route path [--wait-for-hmr] [--port n]] [--report [dir]] [--serial id] [--artifacts dir] [--json] [--config path]'
 	);
 };

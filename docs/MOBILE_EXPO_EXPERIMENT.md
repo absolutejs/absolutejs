@@ -50,6 +50,14 @@ builds twice, requires phase timing logs and Gradle cache reuse, independently
 checks immutable metadata and the AAB hash, verifies all four production ABIs
 plus the JavaScript bundle, and rejects development CA or cleartext residue.
 The passing cached runs took 2m54s and 1m56s, with 853 of 909 tasks up to date.
+`0.20.0-beta.102` closes the next production gap: `absolute mobile test android
+--release <release-directory>` checksum-validates one immutable AAB, downloads
+Google's pinned Bundletool only after approval, produces and installs its APK
+set on the managed emulator, disables both emulator network transports, and
+requires the generated Expo shell to report that its embedded web content is
+ready across an offline launch and process relaunch. It restores the emulator's
+previous network state even after failure and writes sanitized Markdown/JSON
+evidence with artifact, install, launch, and relaunch timings.
 
 AbsoluteJS can generate an experimental Expo Router shell in which explicitly
 selected routes render React Native UI and all other routes remain ordinary
@@ -71,7 +79,8 @@ Implemented in the first spike:
 - explicit, conflict-free ownership of static, parameterized, and
   terminal-wildcard native routes;
 - a WebView catch-all for every unclaimed AbsoluteJS route;
-- content-addressed embedded web assets copied through Metro as opaque assets
+- a content-addressed embedded web bundle carried through Metro as one opaque
+  archive and reconstructed from a generated offset table
   and restored with their original paths on the device;
 - Expo Router deep-link ownership and native-route transitions from web links;
 - Android WebView-history Back handling;
@@ -102,6 +111,10 @@ Implemented in the first spike:
 - production Expo Android App Bundle builds from WSL through the managed
   Windows-local mirror, retaining warm native/package caches and returning the
   artifact to the normal AbsoluteJS release pipeline;
+- installed production-AAB acceptance through checksum-pinned Bundletool,
+  including exact immutable-artifact validation, managed-emulator startup,
+  offline embedded-web readiness, process relaunch, sanitized reports, and
+  data-minimal telemetry;
 - local HTTPS CA projection for Android, iOS Simulator, and physical iOS;
 - Expo iOS development through a paired developer-owned Remote Mac, including
   separate Bun and Metro tunnels and physical-device LAN relays;
@@ -158,9 +171,8 @@ Implemented in the first spike:
 
 Not implemented, and therefore not claimed:
 
-- EAS Update, EAS rollback, iOS picker process-death acceptance,
-  physical-device acceptance, accessibility acceptance, or performance
-  acceptance;
+- EAS Update, EAS rollback, iOS picker process-death acceptance, or
+  physical-device acceptance;
 
 Unsupported device capabilities still fail rather than silently degrading. The
 two JavaScript engines do not share globals: Auth and Sync cross only through
@@ -328,8 +340,9 @@ Android through clean Expo CNG, installs the pinned generated-shell packages,
 embeds the compatibility bundle, and runs Gradle `bundleRelease`. Development
 origins, development CA configuration, and development-mode flags are removed
 from both Prebuild and Metro/Gradle environments. The release doctor verifies
-the generated app configuration, installed SDK versions and lockfile, one-to-one
-opaque asset projection, bundle hashes, CSP, deep links, native debugging,
+the generated app configuration, installed SDK versions and lockfile, the
+single-archive asset projection and complete offset table, bundle hashes, CSP,
+deep links, native debugging,
 cleartext/development trust, Sync policy, and detected device packages.
 
 From WSL the same command automatically mirrors the generated Expo project to a

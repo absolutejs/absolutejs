@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "`absolute mobile test android --release` revalidates one immutable AAB, approval-installs checksum-pinned Bundletool, starts the managed emulator, installs the derived APK set, and proves embedded content across two offline process launches. Expo production web files travel through Metro as one deterministic opaque archive and are reconstructed from a verified offset table, avoiding per-file registry failures. Sanitized reports and telemetry record only artifact identity, sizes, timings, provider, and outcome.",
+					"kind": "added",
+					"summary": "Expo Android releases now have installed offline AAB acceptance"
+				}
+			],
+			"date": "2026-09-16",
+			"version": "0.20.0-beta.102"
+		},
+		{
+			"changes": [
+				{
 					"detail": "The exact public build command now resolves React vendor assets from linked packages, recognizes declared workspace lockfiles without trusting unrelated ancestors, avoids false-positive production HMR detection, prints per-phase timings, and verifies AAB signatures with translated paths through the Windows JDK. A permanent two-build gate validates signing, immutable metadata, all production ABIs, bundled JavaScript, release hygiene, and warm Gradle reuse.",
 					"kind": "fixed",
 					"summary": "WSL Expo Android releases now pass public-CLI conformance",

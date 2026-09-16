@@ -1,6 +1,5 @@
 import {
 	access,
-	cp,
 	mkdir,
 	mkdtemp,
 	readdir,
@@ -60,7 +59,11 @@ type AbsoluteExpoNativeDataManifest = {
 	runtime: string;
 };
 
-type AbsoluteExpoAssetEntry = { asset: string; path: string };
+type AbsoluteExpoAssetEntry = {
+	length: number;
+	offset: number;
+	path: string;
+};
 
 export type WriteAbsoluteExpoProjectOptions = {
 	force?: boolean;
@@ -1004,10 +1007,11 @@ const webHostSource = (
 	return `${EXPO_GENERATED_HEADER}import * as Linking from 'expo-linking';
 import { router, usePathname } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, BackHandler, Platform, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, BackHandler, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView, type WebViewMessageEvent } from 'react-native-webview';
 import { materializeAbsoluteWebBundle } from './webAssets';
+import { markAbsoluteEmbeddedWebPhase, markAbsoluteEmbeddedWebReady } from './AbsoluteActivityResultRecovery';
 import { createExpoDevicesBridgeHost } from '@absolutejs/devices-expo/bridge';
 import { absoluteExpoDevices, beforeAbsoluteExpoDeviceSignOut } from './AbsoluteDevices';
 ${auth ? "import { absoluteExpoAuth, getAbsoluteExpoAuthPrincipal, startAbsoluteExpoAuth } from './AbsoluteAuth';" : ''}
@@ -1175,7 +1179,10 @@ export function AbsoluteWebHost({ path }: AbsoluteWebHostProps = {}) {
 	const canGoBack = useRef(false);
 	const [runtimeReady, setRuntimeReady] = useState(!AUTH_ENABLED && !SYNC_ENABLED);
 	const [devicesReady, setDevicesReady] = useState(false);
+	const [startupError, setStartupError] = useState<'assets' | 'devices'>();
+	const [startupRevision, setStartupRevision] = useState(0);
 	const activeWebPath = useRef(pathname);
+	const embeddedReadyReported = useRef(false);
 	const webSource = useMemo(() => indexUri ? { uri: indexUri } : undefined, [indexUri]);
 
 	useEffect(() => {
@@ -1217,8 +1224,18 @@ export function AbsoluteWebHost({ path }: AbsoluteWebHostProps = {}) {
 			setIndexUri(target.href);
 			return;
 		}
-		void materializeAbsoluteWebBundle().then(uri => setIndexUri(uri + '?absolutePath=' + encodeURIComponent(pathname)));
-	}, [pathname]);
+		markAbsoluteEmbeddedWebPhase('assets-start');
+		void materializeAbsoluteWebBundle().then(uri => {
+			markAbsoluteEmbeddedWebPhase('assets-ready');
+			setIndexUri(uri + '?absolutePath=' + encodeURIComponent(pathname));
+		}).catch(error => {
+			const phase = error instanceof Error && (error.message === 'assets-root-failed' || error.message === 'assets-directory-failed' || error.message === 'assets-destination-failed' || error.message === 'assets-module-failed' || error.message === 'assets-source-failed' || error.message === 'assets-download-failed' || error.message === 'assets-copy-failed' || error.message === 'assets-read-failed' || error.message === 'assets-write-failed' || error.message === 'assets-finalize-failed')
+				? error.message
+				: 'assets-unexpected-failed';
+			markAbsoluteEmbeddedWebPhase(phase);
+			setStartupError('assets');
+		});
+	}, [pathname, startupRevision]);
 	useEffect(() => {
 		webView.current?.injectJavaScript(hostMetricsScript(safeAreaInsets));
 	}, [safeAreaInsets.bottom, safeAreaInsets.left, safeAreaInsets.right, safeAreaInsets.top]);
@@ -1238,13 +1255,19 @@ export function AbsoluteWebHost({ path }: AbsoluteWebHostProps = {}) {
 	};
 	useEffect(() => {
 		let active = true;
+		markAbsoluteEmbeddedWebPhase('devices-start');
 		void createExpoDevicesBridgeHost(absoluteExpoDevices, (event, payload) => {
 			if (!active) return;
 			respond({ event, format: BRIDGE_FORMAT, kind: 'event', path: activeWebPath.current, payload });
 		}).then(host => {
 			if (!active) return void Promise.resolve(host.close()).catch(() => undefined);
 			devicesBridge.current = host;
+			markAbsoluteEmbeddedWebPhase('devices-ready');
 			setDevicesReady(true);
+		}).catch(() => {
+			if (!active) return;
+			markAbsoluteEmbeddedWebPhase('devices-failed');
+			setStartupError('devices');
 		});
 		return () => {
 			active = false;
@@ -1252,7 +1275,7 @@ export function AbsoluteWebHost({ path }: AbsoluteWebHostProps = {}) {
 			devicesBridge.current = undefined;
 			if (host) void Promise.resolve(host.close()).catch(() => undefined);
 		};
-	}, []);
+	}, [startupRevision]);
 	const hasOrigin = (source: string, origin: string) => {
 		try { return new URL(source).origin === origin; } catch { return false; }
 	};
@@ -1265,6 +1288,10 @@ export function AbsoluteWebHost({ path }: AbsoluteWebHostProps = {}) {
 		if (message.kind === 'event' && (message.event === 'navigation' || message.event === 'ready')) {
 			const target = new URL(message.path, PRODUCTION_ORIGIN);
 			if (target.origin !== PRODUCTION_ORIGIN) return;
+			if (message.event === 'ready' && !DEV_ORIGIN && !embeddedReadyReported.current) {
+				embeddedReadyReported.current = true;
+				markAbsoluteEmbeddedWebReady();
+			}
 			if (isNativeRoute(target.pathname)) router.push(message.path as never);
 			else activeWebPath.current = message.path;
 			return;
@@ -1312,6 +1339,15 @@ export function AbsoluteWebHost({ path }: AbsoluteWebHostProps = {}) {
 		}
 	};
 
+	if (startupError) return <View style={styles.loading}>
+		<Text accessibilityRole="alert" style={styles.error}>Embedded content could not start.</Text>
+		<Pressable accessibilityRole="button" onPress={() => {
+			setStartupError(undefined);
+			setIndexUri(undefined);
+			setDevicesReady(false);
+			setStartupRevision(value => value + 1);
+		}} style={styles.retry}><Text>Try again</Text></Pressable>
+	</View>;
 	if (!webSource || !runtimeReady || !devicesReady) return <View style={styles.loading}><ActivityIndicator /></View>;
 	return <WebView
 		allowFileAccess
@@ -1337,7 +1373,7 @@ export function AbsoluteWebHost({ path }: AbsoluteWebHostProps = {}) {
 	/>;
 }
 
-const styles = StyleSheet.create({ loading: { alignItems: 'center', flex: 1, justifyContent: 'center' }, web: { flex: 1 } });
+const styles = StyleSheet.create({ error: { marginBottom: 12 }, loading: { alignItems: 'center', flex: 1, justifyContent: 'center' }, retry: { borderWidth: 1, paddingHorizontal: 16, paddingVertical: 12 }, web: { flex: 1 } });
 `;
 };
 
@@ -1922,36 +1958,74 @@ const installStagedDirectory = async (staging: string, destination: string) => {
 
 const assetModuleSource = (
 	assets: AbsoluteExpoAssetEntry[],
+	archiveAsset: string,
 	bundleId: string,
 	manifest: AbsoluteExpoNativeDataManifest
 ) => `${EXPO_GENERATED_HEADER}import { Asset } from 'expo-asset';
 import { Directory, File, Paths } from 'expo-file-system';
+import { copyAsync as copyLegacyAsync } from 'expo-file-system/legacy';
 
 ${nativeDataManifestTypeSource}
 declare const require: (path: string) => number;
 const BUNDLE_ID = ${JSON.stringify(bundleId)};
 export const ABSOLUTE_MOBILE_MANIFEST: AbsoluteMobileManifest = ${JSON.stringify(manifest)};
+const ARCHIVE_MODULE = require(${JSON.stringify(archiveAsset)});
 const ASSETS = [
-${assets.map(({ asset, path }) => `\t{ module: require(${JSON.stringify(asset)}), path: ${JSON.stringify(path)} }`).join(',\n')}
+${assets.map((entry) => `\t${JSON.stringify(entry)}`).join(',\n')}
 ] as const;
 
 export const materializeAbsoluteWebBundle = async () => {
-	const root = new Directory(Paths.document, 'absolutejs-web', BUNDLE_ID);
-	root.create({ idempotent: true, intermediates: true });
+	let root: Directory;
+	try {
+		root = new Directory(Paths.document, 'absolutejs-web', BUNDLE_ID);
+		root.create({ idempotent: true, intermediates: true });
+	} catch { throw new Error('assets-root-failed'); }
+	let archive: File;
+	try { archive = new File(root, '.absolutejs-bundle.absasset'); }
+	catch { throw new Error('assets-destination-failed'); }
+	if (!archive.exists) {
+		let asset: Asset;
+		try { asset = Asset.fromModule(ARCHIVE_MODULE); }
+		catch { throw new Error('assets-module-failed'); }
+		try { if (!asset.localUri) asset = await asset.downloadAsync(); }
+		catch { throw new Error('assets-download-failed'); }
+		if (!asset.localUri) throw new Error('assets-download-failed');
+		let source: File;
+		try { source = new File(asset.localUri); }
+		catch { throw new Error('assets-source-failed'); }
+		try { await source.copy(archive); }
+		catch {
+			try { await copyLegacyAsync({ from: asset.localUri, to: archive.uri }); }
+			catch { throw new Error('assets-copy-failed'); }
+		}
+	}
+	let contents: Uint8Array;
+	try { contents = await archive.bytes(); }
+	catch { throw new Error('assets-read-failed'); }
 	for (const entry of ASSETS) {
 		const parts = entry.path.split('/');
 		const name = parts.pop();
-		if (!name) throw new Error('AbsoluteJS embedded asset path is invalid.');
-		const directory = new Directory(root, ...parts);
-		directory.create({ idempotent: true, intermediates: true });
-		const destination = new File(directory, name);
-		if (destination.exists) continue;
-		const asset = await Asset.fromModule(entry.module).downloadAsync();
-		if (!asset.localUri) throw new Error('Expo did not materialize an embedded AbsoluteJS asset.');
-		new File(asset.localUri).copy(destination);
+		if (!name) throw new Error('assets-directory-failed');
+		let directory: Directory;
+		try {
+			directory = new Directory(root, ...parts);
+			directory.create({ idempotent: true, intermediates: true });
+		}
+		catch { throw new Error('assets-directory-failed'); }
+		let destination: File;
+		try {
+			destination = new File(directory, name);
+			if (destination.exists && destination.size === entry.length) continue;
+			if (destination.exists) destination.delete();
+		} catch { throw new Error('assets-destination-failed'); }
+		try { destination.write(contents.slice(entry.offset, entry.offset + entry.length)); }
+		catch { throw new Error('assets-write-failed'); }
 	}
+	try { archive.delete(); }
+	catch { throw new Error('assets-finalize-failed'); }
 
-	return new File(root, 'index.html').uri;
+	try { return new File(root, 'index.html').uri; }
+	catch { throw new Error('assets-finalize-failed'); }
 };
 `;
 
@@ -1997,23 +2071,30 @@ export const syncAbsoluteExpoWebAssets = async (
 		join(dirname(destination), `.${basename(destination)}.stage-`)
 	);
 	let assets: AbsoluteExpoAssetEntry[];
+	let archiveAsset: string;
 	try {
-		assets = await Promise.all(
-			files.map(async (source, index) => {
-				const name = `${String(index).padStart(6, '0')}${EXPO_ASSET_EXTENSION}`;
-				await cp(source, join(staging, name));
+		let offset = 0;
+		assets = filesWithContents.map(({ contents, file }) => {
+			const entry: AbsoluteExpoAssetEntry = {
+				length: contents.byteLength,
+				offset,
+				path: relative(config.bundleDirectory, file).replaceAll(
+					'\\',
+					'/'
+				)
+			};
+			offset += contents.byteLength;
 
-				return {
-					asset: portableRelative(
-						join(config.nativeProjectDirectory, 'src', 'generated'),
-						join(destination, name)
-					),
-					path: relative(config.bundleDirectory, source).replaceAll(
-						'\\',
-						'/'
-					)
-				};
-			})
+			return entry;
+		});
+		const name = `bundle${EXPO_ASSET_EXTENSION}`;
+		await writeFile(
+			join(staging, name),
+			Buffer.concat(filesWithContents.map(({ contents }) => contents))
+		);
+		archiveAsset = portableRelative(
+			join(config.nativeProjectDirectory, 'src', 'generated'),
+			join(destination, name)
 		);
 		await installStagedDirectory(staging, destination);
 	} catch (error) {
@@ -2028,7 +2109,7 @@ export const syncAbsoluteExpoWebAssets = async (
 	);
 	await writeManagedFile(
 		generated,
-		assetModuleSource(assets, bundleId, nativeDataManifest),
+		assetModuleSource(assets, archiveAsset, bundleId, nativeDataManifest),
 		true
 	);
 

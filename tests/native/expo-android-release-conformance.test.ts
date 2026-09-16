@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { readFile, stat, writeFile } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import type { AbsoluteAndroidReleaseMetadata } from '../../src/mobile/androidRelease';
 import {
 	detectAbsoluteMobileHost,
@@ -61,8 +61,63 @@ type ExpoAndroidReleaseConformanceReport = {
 	format: 1;
 	host: 'wsl';
 	initial: BuildReport;
+	installed: {
+		durationMs: number;
+		embeddedOffline: true;
+		installMs: number;
+		launchMs: number;
+		relaunchMs: number;
+	};
 	phases: string[];
 	warm: BuildReport;
+};
+
+const installedAcceptance = async (metadataPath: string) => {
+	const reportRoot = resolve(
+		FIXTURE_ROOT,
+		'.absolutejs/expo-android-release-installed'
+	);
+	const child = Bun.spawn(
+		[
+			process.execPath,
+			resolve(PROJECT_ROOT, 'src/cli/index.ts'),
+			'mobile',
+			'test',
+			'android',
+			'--config',
+			'absolute.config.ts',
+			'--release',
+			dirname(metadataPath),
+			'--report',
+			reportRoot,
+			'--yes',
+			'--json'
+		],
+		{
+			cwd: FIXTURE_ROOT,
+			env: { ...process.env, TELEMETRY_OFF: '1' },
+			stderr: 'pipe',
+			stdin: 'ignore',
+			stdout: 'pipe'
+		}
+	);
+	const [exitCode, stdout, stderr] = await Promise.all([
+		child.exited,
+		new Response(child.stdout).text(),
+		new Response(child.stderr).text()
+	]);
+	if (exitCode !== 0)
+		throw new Error(
+			`absolute mobile test android --release failed with status ${exitCode}.\n${stdout}\n${stderr}`
+		);
+
+	return JSON.parse(stdout) as {
+		durationMs: number;
+		embeddedOffline: true;
+		installMs: number;
+		launchMs: number;
+		relaunchMs: number;
+	};
 };
 
 const capture = (command: string[]) => {
@@ -242,6 +297,12 @@ describeNative('real Expo Android WSL production release conformance', () => {
 					entry.endsWith('/assets/index.android.bundle')
 				)
 			).toBe(true);
+			const installed = await installedAcceptance(warm.metadataPath);
+			expect(installed).toMatchObject({
+				embeddedOffline: true,
+				engine: 'expo',
+				status: 'pass'
+			});
 
 			const nativeRoot = resolve(FIXTURE_ROOT, '.absolutejs/mobile/expo');
 			const [appConfig, androidManifest] = await Promise.all([
@@ -275,6 +336,13 @@ describeNative('real Expo Android WSL production release conformance', () => {
 				initial: {
 					durationMs: initial.durationMs,
 					gradle: initial.gradle
+				},
+				installed: {
+					durationMs: installed.durationMs,
+					embeddedOffline: installed.embeddedOffline,
+					installMs: installed.installMs,
+					launchMs: installed.launchMs,
+					relaunchMs: installed.relaunchMs
 				},
 				phases: [...RELEASE_PHASES],
 				warm: {

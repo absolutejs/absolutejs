@@ -134,6 +134,15 @@ class AbsoluteActivityResultRecoveryModule : Module() {
 	  Log.d("AbsoluteJS", "Expo application runtime ready for Android activity results")
     }
 
+    Function("markEmbeddedWebReady") {
+	  Log.i("AbsoluteJS", "Expo embedded web content ready")
+    }
+
+    Function("markEmbeddedWebPhase") { phase: String ->
+	  val allowed = setOf("assets-start", "assets-ready", "assets-root-failed", "assets-directory-failed", "assets-destination-failed", "assets-module-failed", "assets-source-failed", "assets-download-failed", "assets-copy-failed", "assets-read-failed", "assets-write-failed", "assets-finalize-failed", "assets-unexpected-failed", "devices-start", "devices-ready", "devices-failed")
+	  if (allowed.contains(phase)) Log.i("AbsoluteJS", "Expo embedded web phase: " + phase)
+    }
+
 	Function("takePendingCancellation") {
 	  AbsoluteActivityResultRecoveryState.takePendingCancellation()
 	}
@@ -145,6 +154,8 @@ const runtime = `${HEADER}import { requireNativeModule } from 'expo-modules-core
 
 type AbsoluteActivityResultRecoveryNative = {
 	markApplicationRuntimeReady(): void;
+	markEmbeddedWebPhase(phase: AbsoluteEmbeddedWebPhase): void;
+	markEmbeddedWebReady(): void;
 	takePendingCancellation(): boolean;
 };
 
@@ -154,6 +165,30 @@ const native = requireNativeModule<AbsoluteActivityResultRecoveryNative>(
 
 export const markAbsoluteApplicationRuntimeReady = () =>
 	native.markApplicationRuntimeReady();
+
+export const markAbsoluteEmbeddedWebReady = () =>
+	native.markEmbeddedWebReady();
+
+export type AbsoluteEmbeddedWebPhase =
+	| 'assets-start'
+	| 'assets-ready'
+	| 'assets-root-failed'
+	| 'assets-directory-failed'
+	| 'assets-destination-failed'
+	| 'assets-module-failed'
+	| 'assets-source-failed'
+	| 'assets-download-failed'
+	| 'assets-copy-failed'
+	| 'assets-read-failed'
+	| 'assets-write-failed'
+	| 'assets-finalize-failed'
+	| 'assets-unexpected-failed'
+	| 'devices-start'
+	| 'devices-ready'
+	| 'devices-failed';
+
+export const markAbsoluteEmbeddedWebPhase = (phase: AbsoluteEmbeddedWebPhase) =>
+	native.markEmbeddedWebPhase(phase);
 
 export const takeAbsoluteActivityResultCancellation = () =>
 	native.takePendingCancellation();
