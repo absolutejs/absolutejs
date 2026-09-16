@@ -60,6 +60,24 @@ export type AbsoluteNativeReleaseResult = {
 	signed: boolean;
 };
 
+export type AbsoluteNativeIosReleaseResult = {
+	artifactBytes: number;
+	artifactExactness:
+		| 'archive-equivalent'
+		| 'source-equivalent'
+		| 'store-delivered';
+	artifactSha256: string;
+	distribution: 'apple-processed' | 'registered-device' | 'simulator-release';
+	embeddedLocal: boolean;
+	engine: 'capacitor' | 'expo';
+	installMs: number;
+	launchMs: number;
+	networkUnavailable: 'not-proven' | 'user-confirmed';
+	releaseId: string;
+	relaunchMs: number;
+	signed: boolean;
+};
+
 export type AbsoluteNativeAutomatedRun = {
 	appId: string;
 	deviceAcceptance?: {
@@ -71,6 +89,7 @@ export type AbsoluteNativeAutomatedRun = {
 	error?: string;
 	hmr?: AbsoluteNativeHmrResult;
 	hmrConnected: boolean;
+	iosRelease?: AbsoluteNativeIosReleaseResult;
 	platform: 'android' | 'ios';
 	port?: number;
 	release?: AbsoluteNativeReleaseResult;
@@ -165,9 +184,14 @@ export const createAbsoluteNativeAutomatedChecks = (
 			run.status === 'pass'
 				? `The ${run.release.engine} release was installed from its generated APK set, launched offline in ${run.release.launchMs}ms, and relaunched in ${run.release.relaunchMs}ms.`
 				: `Installed ${run.release.engine} release acceptance failed after ${run.durationMs}ms.`;
+	if (run.iosRelease)
+		developmentDetails =
+			run.status === 'pass'
+				? `The ${run.iosRelease.engine} iOS release rendered embedded local content in ${run.iosRelease.launchMs}ms and relaunched in ${run.iosRelease.relaunchMs}ms.`
+				: `Installed ${run.iosRelease.engine} iOS release acceptance failed after ${run.durationMs}ms.`;
 	let hmrDetails =
 		'Correlated edit timing was not requested. Rerun with --wait-for-hmr.';
-	if (run.release)
+	if (run.release || run.iosRelease)
 		hmrDetails =
 			'HMR is intentionally not part of installed production-release acceptance.';
 	if (run.hmr)
@@ -209,6 +233,27 @@ export const createAbsoluteNativeAutomatedChecks = (
 					: 'The generated release did not prove embedded offline rendering.',
 				id: 'AUTO-RELEASE-OFFLINE-01',
 				result: run.release.embeddedOffline ? 'PASS' : 'FAIL'
+			}
+		);
+	}
+	if (run.iosRelease) {
+		const release = run.iosRelease;
+		checks.push(
+			{
+				details: `Validated immutable release ${release.releaseId} (${release.artifactBytes} bytes, SHA-256 ${release.artifactSha256}); ${release.distribution} evidence is ${release.artifactExactness}, installed in ${release.installMs}ms.`,
+				id: 'AUTO-IOS-RELEASE-01',
+				result: run.status === 'pass' ? 'PASS' : 'FAIL'
+			},
+			{
+				details:
+					release.networkUnavailable === 'user-confirmed'
+						? 'The tester explicitly confirmed Airplane Mode was enabled and Wi-Fi was disabled before both physical-device launches.'
+						: 'Simulator Release proved embedded local rendering, but does not claim physical-device network-unavailable behavior.',
+				id: 'AUTO-IOS-RELEASE-OFFLINE-01',
+				result:
+					release.networkUnavailable === 'user-confirmed'
+						? 'PASS'
+						: 'SKIPPED'
 			}
 		);
 	}

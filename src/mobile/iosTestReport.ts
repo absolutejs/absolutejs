@@ -19,6 +19,7 @@ type CreateAbsoluteIosPartnerReportOptions = {
 	bunVersion: string;
 	generatedAt?: string;
 	macosVersion: string;
+	provider?: 'capacitor' | 'expo';
 	run: AbsoluteIosAutomatedResult;
 	xcodeVersion: string;
 };
@@ -170,7 +171,7 @@ export const createAbsoluteIosPartnerReport = (
 			absolutejsVersion: options.absolutejsVersion,
 			bunVersion: options.bunVersion,
 			macosVersion: options.macosVersion,
-			provider: 'capacitor',
+			provider: options.provider ?? 'capacitor',
 			xcodeVersion: options.xcodeVersion
 		},
 		run: {

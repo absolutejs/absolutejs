@@ -259,6 +259,15 @@ describe('experimental Expo project', () => {
 				'utf8'
 			)
 		).toContain('Expo embedded web content ready');
+		expect(
+			await readFile(
+				join(
+					project,
+					'modules/absolute-activity-result-recovery/ios/AbsoluteActivityResultRecoveryModule.swift'
+				),
+				'utf8'
+			)
+		).toContain('Expo embedded web content ready; version=%@; build=%@');
 		expect(webHost).toContain('markAbsoluteEmbeddedWebReady()');
 		expect(webHost).toContain("error.message === 'assets-download-failed'");
 		expect(webHost).toContain(

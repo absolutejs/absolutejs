@@ -8,8 +8,8 @@ const plugin = registerPlugin<AbsoluteReleaseReadinessPlugin>(
 	'AbsoluteReleaseReadiness'
 );
 
-/** Notify the generated Android host only after the embedded shell is ready. */
+/** Notify the installed native host only after the embedded shell is ready. */
 export const markAbsoluteMobileShellReady = async () => {
-	if (Capacitor.getPlatform() !== 'android') return;
+	if (Capacitor.getPlatform() === 'web') return;
 	await plugin.ready();
 };

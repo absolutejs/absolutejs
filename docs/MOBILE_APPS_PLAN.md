@@ -3978,3 +3978,26 @@ status` exposes the same provider-neutral report. Download/network failures do
 not pause releases, receipt failures never block app recovery, and production
 ingress rate limiting remains required because anonymous identities are not
 hardware attestation.
+
+## Current iOS installed-release acceptance checkpoint
+
+The Apple validation contract now has three provider-neutral lanes instead of
+overclaiming from Simulator alone. Simulator Release rebuilds the generated
+native source in Release configuration and records `source-equivalent` evidence;
+it proves embedded-local launch/relaunch but explicitly records offline as not
+proven. An optional `--registered-device-artifact` export creates a debugging IPA
+from the exact same Xcode archive as the App Store IPA; physical-device
+acceptance records `archive-equivalent` evidence only after a tester explicitly
+confirms Airplane Mode plus Wi-Fi off. The TestFlight lane observes the exact
+version/build installed by Apple and records `store-delivered` evidence without
+side-loading the local App Store IPA.
+
+Capacitor and Expo iOS shells emit the same data-minimal, version/build-specific
+readiness marker. The immutable release manifest hashes both IPA variants, the
+CLI validates every artifact before use, performs two launches, emits bounded
+timings/telemetry, and projects the distinction into the partner Markdown and
+JSON reports. The macOS runbook contains application-root commands and separate
+checklist IDs for all three lanes. Paired Remote Mac transport for the optional
+registered-device artifact and these installed-release commands remains a
+follow-up; the first acceptance implementation runs on a local Mac so it cannot
+silently claim evidence from the wrong host or artifact.

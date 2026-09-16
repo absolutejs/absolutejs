@@ -206,6 +206,42 @@ describe('mobile emulator CLI', () => {
 		expect(stderr).not.toContain('TypeError:');
 	});
 
+	test('requires an explicit immutable release before iOS acceptance', async () => {
+		const subprocess = Bun.spawn(
+			[
+				process.execPath,
+				resolve(ROOT, 'src/cli/index.ts'),
+				'mobile',
+				'test',
+				'ios',
+				'--config',
+				resolve(
+					ROOT,
+					'tests/fixtures/mobile-native-conformance/absolute.config.ts'
+				),
+				'--release',
+				'--json'
+			],
+			{
+				cwd: ROOT,
+				stderr: 'pipe',
+				stdin: 'ignore',
+				stdout: 'pipe'
+			}
+		);
+		const [exitCode, stderr] = await Promise.all([
+			subprocess.exited,
+			new Response(subprocess.stderr).text()
+		]);
+
+		expect(exitCode).toBe(1);
+		expect(stderr).toContain(
+			'requires a release directory or release.json path'
+		);
+		expect(stderr).not.toContain('Start `bun dev`');
+		expect(stderr).not.toContain('TypeError:');
+	});
+
 	test('validates an iOS conformance port before inspecting Xcode', async () => {
 		const subprocess = Bun.spawn(
 			[

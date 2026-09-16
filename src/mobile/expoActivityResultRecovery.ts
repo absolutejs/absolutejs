@@ -12,11 +12,63 @@ const moduleConfig = `${JSON.stringify(
 				'expo.modules.absoluteactivityresultrecovery.AbsoluteActivityResultRecoveryModule'
 			]
 		},
-		platforms: ['android']
+		apple: { modules: ['AbsoluteActivityResultRecoveryModule'] },
+		platforms: ['apple', 'android']
 	},
 	null,
 	2
 )}
+`;
+
+const podspec = `${HEADER}Pod::Spec.new do |s|
+  s.name = 'AbsoluteActivityResultRecovery'
+  s.version = '0.0.1'
+  s.summary = 'AbsoluteJS native runtime readiness bridge'
+  s.description = 'Generated lifecycle and embedded-content readiness bridge for an AbsoluteJS Expo application.'
+  s.author = 'AbsoluteJS'
+  s.homepage = 'https://absolutejs.com'
+  s.platforms = { :ios => '16.4' }
+  s.source = { git: '' }
+  s.static_framework = true
+  s.dependency 'ExpoModulesCore'
+  s.pod_target_xcconfig = { 'DEFINES_MODULE' => 'YES' }
+  s.source_files = '**/*.{h,m,mm,swift,hpp,cpp}'
+end
+`;
+
+const iosModule = `${HEADER}import ExpoModulesCore
+
+public final class AbsoluteActivityResultRecoveryModule: Module {
+  public func definition() -> ModuleDefinition {
+    Name("AbsoluteActivityResultRecovery")
+
+    Function("markApplicationRuntimeReady") { }
+
+    Function("markEmbeddedWebReady") {
+		let info = Bundle.main.infoDictionary ?? [:]
+		let version = info["CFBundleShortVersionString"] as? String ?? "unknown"
+		let build = info["CFBundleVersion"] as? String ?? "unknown"
+		NSLog("AbsoluteJS: Expo embedded web content ready; version=%@; build=%@", version, build)
+    }
+
+    Function("markEmbeddedWebPhase") { (phase: String) in
+      let allowed = [
+        "assets-start", "assets-ready", "assets-root-failed",
+        "assets-directory-failed", "assets-destination-failed",
+        "assets-module-failed", "assets-source-failed",
+        "assets-download-failed", "assets-copy-failed",
+        "assets-read-failed", "assets-write-failed",
+        "assets-finalize-failed", "assets-unexpected-failed",
+        "devices-start", "devices-ready", "devices-failed"
+      ]
+      if allowed.contains(phase) {
+        NSLog("AbsoluteJS: Expo embedded web phase: %@", phase)
+      }
+    }
+
+    Function("takePendingCancellation") { false }
+  }
+}
 `;
 
 const androidBuild = `${HEADER}plugins {
@@ -202,6 +254,20 @@ export const absoluteExpoActivityResultRecoveryFiles = (project: string) =>
 				'modules/absolute-activity-result-recovery/expo-module.config.json'
 			),
 			moduleConfig
+		],
+		[
+			join(
+				project,
+				'modules/absolute-activity-result-recovery/ios/AbsoluteActivityResultRecovery.podspec'
+			),
+			podspec
+		],
+		[
+			join(
+				project,
+				'modules/absolute-activity-result-recovery/ios/AbsoluteActivityResultRecoveryModule.swift'
+			),
+			iosModule
 		],
 		[
 			join(

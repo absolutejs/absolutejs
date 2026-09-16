@@ -4,6 +4,7 @@ export * from './androidRelease';
 export * from './androidReleaseAcceptance';
 export * from './androidUpgradeConformance';
 export * from './iosRelease';
+export * from './iosReleaseAcceptance';
 export * from './iosUpgradeConformance';
 export * from './iosConformance';
 export * from './iosSimulatorController';

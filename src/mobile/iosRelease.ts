@@ -30,6 +30,11 @@ export type AbsoluteIosReleaseMetadata = {
 	format: typeof ABSOLUTE_IOS_RELEASE_FORMAT;
 	marketingVersion: string;
 	platform: 'ios';
+	registeredDevice?: {
+		artifact: 'App.registered.ipa';
+		bytes: number;
+		sha256: string;
+	};
 	releaseId: string;
 	runtime: string;
 	sha256: string;
@@ -58,6 +63,7 @@ export type BuildAbsoluteIosReleaseOptions = {
 	outputDirectory?: string;
 	prepareBuildNumber?: (buildIdentity: string) => Promise<number>;
 	projectRoot: string;
+	registeredDeviceArtifact?: boolean;
 	run?: (command: string[], options?: CommandOptions) => Promise<number>;
 	buildNumber?: number;
 	scheme?: string;
@@ -69,6 +75,7 @@ type InstallAbsoluteIosReleaseOptions = {
 	metadata: unknown;
 	outputDirectory?: string;
 	projectRoot: string;
+	registeredArtifactPath?: string;
 };
 
 const developmentTeamArgument = (value: string | undefined) => {
@@ -232,6 +239,43 @@ const sha256File = async (path: string) =>
 		.update(await readFile(path))
 		.digest('hex');
 
+const verifyRegisteredReleaseArtifact = async (
+	releaseRoot: string,
+	metadata: Omit<AbsoluteIosReleaseMetadata, 'artifact'>
+) => {
+	if (!metadata.registeredDevice) return undefined;
+	const destination = join(releaseRoot, metadata.registeredDevice.artifact);
+	const [bytes, sha256] = await Promise.all([
+		stat(destination).then(({ size }) => size),
+		sha256File(destination)
+	]);
+	if (
+		bytes !== metadata.registeredDevice.bytes ||
+		sha256 !== metadata.registeredDevice.sha256
+	)
+		throw new TypeError(
+			`Immutable iOS release ${metadata.releaseId} registered-device artifact is missing or modified.`
+		);
+
+	return destination;
+};
+
+const copyRegisteredReleaseArtifact = async (
+	staging: string,
+	metadata: Omit<AbsoluteIosReleaseMetadata, 'artifact'>,
+	registeredArtifactPath: string | undefined
+) => {
+	if (!metadata.registeredDevice) return;
+	if (!registeredArtifactPath)
+		throw new TypeError(
+			'iOS release metadata requires a registered-device artifact.'
+		);
+	await copyFile(
+		registeredArtifactPath,
+		join(staging, metadata.registeredDevice.artifact)
+	);
+};
+
 const findByExtension = async (
 	root: string,
 	extension: string
@@ -331,12 +375,14 @@ export const resolveAbsoluteIosXcodeProject = async (
 	return { scheme: schemes[0], workspacePath };
 };
 
-const exportOptions = () => `<?xml version="1.0" encoding="UTF-8"?>
+const exportOptions = (
+	method: 'app-store-connect' | 'debugging'
+) => `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
 	<key>destination</key><string>export</string>
 	<key>manageAppVersionAndBuildNumber</key><false/>
-	<key>method</key><string>app-store-connect</string>
+	<key>method</key><string>${method}</string>
 	<key>signingStyle</key><string>automatic</string>
 	<key>stripSwiftSymbols</key><true/>
 	<key>uploadSymbols</key><true/>
@@ -350,7 +396,32 @@ const requireBuildNumber = (value: number | undefined) => {
 	return value;
 };
 
+const normalizeRegisteredDevice = (
+	value: unknown
+): AbsoluteIosReleaseMetadata['registeredDevice'] => {
+	if (value === undefined) return undefined;
+	if (
+		!isRecord(value) ||
+		value.artifact !== 'App.registered.ipa' ||
+		typeof value.bytes !== 'number' ||
+		!Number.isSafeInteger(value.bytes) ||
+		value.bytes < 1 ||
+		typeof value.sha256 !== 'string' ||
+		!/^[a-f0-9]{64}$/u.test(value.sha256)
+	)
+		throw new TypeError('Invalid AbsoluteJS iOS release metadata.');
+
+	return {
+		artifact: 'App.registered.ipa',
+		bytes: value.bytes,
+		sha256: value.sha256
+	};
+};
+
 export const requireAbsoluteIosReleaseMetadata = (value: unknown) => {
+	const registeredDevice = normalizeRegisteredDevice(
+		isRecord(value) ? value.registeredDevice : undefined
+	);
 	if (
 		!isRecord(value) ||
 		value.artifact !== 'App.ipa' ||
@@ -391,6 +462,7 @@ export const requireAbsoluteIosReleaseMetadata = (value: unknown) => {
 		format: value.format,
 		marketingVersion: value.marketingVersion,
 		platform: value.platform,
+		...(registeredDevice ? { registeredDevice } : {}),
 		releaseId: value.releaseId,
 		runtime: value.runtime,
 		sha256: value.sha256,
@@ -402,7 +474,8 @@ export const requireAbsoluteIosReleaseMetadata = (value: unknown) => {
 const installRelease = async (
 	artifactPath: string,
 	metadata: Omit<AbsoluteIosReleaseMetadata, 'artifact'>,
-	outputRoot: string
+	outputRoot: string,
+	registeredArtifactPath?: string
 ) => {
 	const releaseRoot = join(outputRoot, metadata.releaseId);
 	const destination = join(releaseRoot, 'App.ipa');
@@ -410,12 +483,10 @@ const installRelease = async (
 		const value: unknown = JSON.parse(
 			await readFile(join(releaseRoot, 'release.json'), 'utf8')
 		);
+		const existing = requireAbsoluteIosReleaseMetadata(value);
 		if (
-			!isRecord(value) ||
-			value.artifact !== 'App.ipa' ||
-			Object.entries(metadata).some(
-				([key, expected]) => Reflect.get(value, key) !== expected
-			)
+			JSON.stringify(existing) !==
+			JSON.stringify({ ...metadata, artifact: 'App.ipa' })
 		) {
 			throw new TypeError(
 				`Immutable iOS release ${metadata.releaseId} does not match its content.`
@@ -429,6 +500,10 @@ const installRelease = async (
 			throw new TypeError(
 				`Immutable iOS release ${metadata.releaseId} artifact is missing or modified.`
 			);
+		const registeredDestination = await verifyRegisteredReleaseArtifact(
+			releaseRoot,
+			metadata
+		);
 
 		return {
 			artifactPath: destination,
@@ -436,6 +511,9 @@ const installRelease = async (
 				...metadata,
 				artifact: 'App.ipa'
 			} satisfies AbsoluteIosReleaseMetadata,
+			...(registeredDestination
+				? { registeredArtifactPath: registeredDestination }
+				: {}),
 			releaseRoot
 		};
 	}
@@ -443,6 +521,11 @@ const installRelease = async (
 	const staging = await mkdtemp(join(dirname(releaseRoot), '.ios-stage-'));
 	try {
 		await copyFile(artifactPath, join(staging, 'App.ipa'));
+		await copyRegisteredReleaseArtifact(
+			staging,
+			metadata,
+			registeredArtifactPath
+		);
 		const complete = {
 			...metadata,
 			artifact: 'App.ipa'
@@ -454,12 +537,69 @@ const installRelease = async (
 		);
 		await rename(staging, releaseRoot);
 
-		return { artifactPath: destination, metadata: complete, releaseRoot };
+		return {
+			artifactPath: destination,
+			metadata: complete,
+			...(metadata.registeredDevice
+				? {
+						registeredArtifactPath: join(
+							releaseRoot,
+							metadata.registeredDevice.artifact
+						)
+					}
+				: {}),
+			releaseRoot
+		};
 	} finally {
 		await rm(staging, { force: true, recursive: true }).catch(
 			() => undefined
 		);
 	}
+};
+
+const exportRegisteredDeviceArtifact = async (options: {
+	archivePath: string;
+	env?: Record<string, string | undefined>;
+	nativeDirectory: string;
+	run: NonNullable<BuildAbsoluteIosReleaseOptions['run']>;
+	staging: string;
+}) => {
+	const exportPath = join(options.staging, 'registered-export');
+	const exportPlist = join(options.staging, 'RegisteredExportOptions.plist');
+	await mkdir(exportPath, { recursive: true });
+	await writeFile(exportPlist, exportOptions('debugging'));
+	const exitCode = await options.run(
+		[
+			'xcodebuild',
+			'-exportArchive',
+			'-archivePath',
+			options.archivePath,
+			'-exportPath',
+			exportPath,
+			'-exportOptionsPlist',
+			exportPlist
+		],
+		{ cwd: options.nativeDirectory, env: options.env }
+	);
+	if (exitCode !== 0)
+		throw new TypeError(
+			'Xcode failed to export the registered-device IPA. Confirm the selected development team includes the test device.'
+		);
+	const artifactPath = await findByExtension(exportPath, '.ipa');
+	if (!artifactPath)
+		throw new TypeError('Xcode did not produce a registered-device IPA.');
+	const [bytes, sha256] = await Promise.all([
+		stat(artifactPath).then(({ size }) => size),
+		sha256File(artifactPath)
+	]);
+	const metadata: NonNullable<
+		AbsoluteIosReleaseMetadata['registeredDevice']
+	> = { artifact: 'App.registered.ipa', bytes, sha256 };
+
+	return {
+		artifactPath,
+		metadata
+	};
 };
 
 /** Import an IPA produced by a trusted AbsoluteJS build host.
@@ -521,7 +661,7 @@ export const buildAbsoluteIosRelease = async (
 	const exportPath = join(staging, 'export');
 	const exportPlist = join(staging, 'ExportOptions.plist');
 	await mkdir(exportPath, { recursive: true });
-	await writeFile(exportPlist, exportOptions());
+	await writeFile(exportPlist, exportOptions('app-store-connect'));
 	const run = options.run ?? defaultRun;
 	try {
 		const developmentTeam = developmentTeamArgument(
@@ -595,6 +735,15 @@ export const buildAbsoluteIosRelease = async (
 			sha256File(artifactPath)
 		]);
 		const releaseId = `amobile_ios_${sha256}`;
+		const registered = options.registeredDeviceArtifact
+			? await exportRegisteredDeviceArtifact({
+					archivePath,
+					...(options.env ? { env: options.env } : {}),
+					nativeDirectory,
+					run,
+					staging
+				})
+			: undefined;
 
 		return await installRelease(
 			artifactPath,
@@ -607,13 +756,17 @@ export const buildAbsoluteIosRelease = async (
 				format: 1,
 				marketingVersion,
 				platform: 'ios',
+				...(registered
+					? { registeredDevice: registered.metadata }
+					: {}),
 				releaseId,
 				runtime: manifest.runtime,
 				sha256,
 				signed,
 				type: 'ipa'
 			},
-			safeOutputDirectory(options.projectRoot, options.outputDirectory)
+			safeOutputDirectory(options.projectRoot, options.outputDirectory),
+			registered?.artifactPath
 		);
 	} finally {
 		await rm(staging, { force: true, recursive: true }).catch(
@@ -633,12 +786,30 @@ export const installAbsoluteIosRelease = async (
 		throw new TypeError(
 			'Remote iOS release artifact does not match its signed metadata.'
 		);
+	if (metadata.registeredDevice) {
+		if (!options.registeredArtifactPath)
+			throw new TypeError(
+				'Remote iOS release metadata requires its registered-device artifact.'
+			);
+		const [registeredBytes, registeredSha256] = await Promise.all([
+			stat(options.registeredArtifactPath).then(({ size }) => size),
+			sha256File(options.registeredArtifactPath)
+		]);
+		if (
+			registeredBytes !== metadata.registeredDevice.bytes ||
+			registeredSha256 !== metadata.registeredDevice.sha256
+		)
+			throw new TypeError(
+				'Remote iOS registered-device artifact does not match its signed metadata.'
+			);
+	}
 
 	const { artifact: _artifact, ...releaseMetadata } = metadata;
 
 	return installRelease(
 		options.artifactPath,
 		releaseMetadata,
-		safeOutputDirectory(options.projectRoot, options.outputDirectory)
+		safeOutputDirectory(options.projectRoot, options.outputDirectory),
+		options.registeredArtifactPath
 	);
 };

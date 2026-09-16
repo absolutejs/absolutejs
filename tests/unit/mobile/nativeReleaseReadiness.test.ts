@@ -48,6 +48,36 @@ const fixture = async (kotlin: boolean) => {
 	return { activityPath, config };
 };
 
+const iosFixture = async () => {
+	const root = await mkdtemp(
+		join(tmpdir(), 'absolute-native-ios-release-readiness-')
+	);
+	temporaryDirectories.push(root);
+	const config = normalizeAbsoluteMobileConfig(
+		{
+			appId: 'com.example.absolute',
+			appName: 'Absolute readiness',
+			platforms: ['ios'],
+			server: { productionOrigin: 'https://example.com' }
+		},
+		root
+	);
+	const appRoot = join(config.nativeProjectDirectory, 'ios/App/App');
+	await mkdir(appRoot, { recursive: true });
+	const appDelegatePath = join(appRoot, 'AppDelegate.swift');
+	const capacitorConfigPath = join(appRoot, 'capacitor.config.json');
+	await writeFile(
+		appDelegatePath,
+		'import UIKit\nimport Capacitor\n\n@UIApplicationMain\nclass AppDelegate: UIResponder, UIApplicationDelegate {}\n'
+	);
+	await writeFile(
+		capacitorConfigPath,
+		`${JSON.stringify({ packageClassList: ['ExistingPlugin'] })}\n`
+	);
+
+	return { appDelegatePath, capacitorConfigPath, config };
+};
+
 describe('Capacitor Android release readiness projection', () => {
 	test('generates and idempotently registers the Java plugin', async () => {
 		const { activityPath, config } = await fixture(false);
@@ -101,5 +131,33 @@ describe('Capacitor Android release readiness projection', () => {
 				})
 			).changed
 		).toBe(false);
+	});
+});
+
+describe('Capacitor iOS release readiness projection', () => {
+	test('generates and idempotently registers the bridged plugin', async () => {
+		const { appDelegatePath, capacitorConfigPath, config } =
+			await iosFixture();
+		expect(
+			(await applyAbsoluteNativeReleaseReadiness(config)).changed
+		).toBe(true);
+		expect(
+			(await applyAbsoluteNativeReleaseReadiness(config)).changed
+		).toBe(false);
+		const source = await readFile(appDelegatePath, 'utf8');
+		expect(source).toContain('@objc(AbsoluteReleaseReadinessPlugin)');
+		expect(source).toContain(
+			'NSLog("AbsoluteJS: Capacitor embedded web content ready; version=%@; build=%@", version, build)'
+		);
+		expect(
+			source.match(/absolutejs:release-readiness-plugin:start/gu)
+		).toHaveLength(1);
+		const capacitorConfig = JSON.parse(
+			await readFile(capacitorConfigPath, 'utf8')
+		) as { packageClassList: string[] };
+		expect(capacitorConfig.packageClassList).toEqual([
+			'ExistingPlugin',
+			'AbsoluteReleaseReadinessPlugin'
+		]);
 	});
 });

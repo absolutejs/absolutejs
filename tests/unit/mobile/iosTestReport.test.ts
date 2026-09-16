@@ -124,6 +124,49 @@ describe('iOS partner test report', () => {
 		).toMatchObject({ result: 'SKIPPED' });
 	});
 
+	test('classifies iOS release exactness and offline evidence honestly', () => {
+		const report = createAbsoluteIosPartnerReport({
+			absolutejsVersion: '0.20.0-beta.105',
+			bunVersion: '1.4.0',
+			macosVersion: '26.0',
+			provider: 'expo',
+			run: {
+				...passingRun,
+				hmrConnected: false,
+				iosRelease: {
+					artifactBytes: 120,
+					artifactExactness: 'store-delivered',
+					artifactSha256: 'a'.repeat(64),
+					distribution: 'apple-processed',
+					embeddedLocal: true,
+					engine: 'expo',
+					installMs: 0,
+					launchMs: 140,
+					networkUnavailable: 'user-confirmed',
+					relaunchMs: 110,
+					releaseId: `amobile_ios_${'a'.repeat(64)}`,
+					signed: true
+				},
+				screenshot: undefined,
+				targetId: 'physical-device',
+				targetKind: 'device'
+			},
+			xcodeVersion: 'Xcode 26.0'
+		});
+
+		expect(report.metadata.provider).toBe('expo');
+		expect(
+			report.automatedChecks.find(
+				({ id }) => id === 'AUTO-IOS-RELEASE-01'
+			)
+		).toMatchObject({ result: 'PASS' });
+		expect(
+			report.automatedChecks.find(
+				({ id }) => id === 'AUTO-IOS-RELEASE-OFFLINE-01'
+			)
+		).toMatchObject({ result: 'PASS' });
+	});
+
 	test('writes matching Markdown and machine-readable reports', async () => {
 		const directory = await mkdtemp(join(tmpdir(), 'absolute-ios-report-'));
 		temporaryDirectories.push(directory);

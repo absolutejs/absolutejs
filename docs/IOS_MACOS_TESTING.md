@@ -2562,7 +2562,7 @@ bunx absolute mobile doctor ios
 bunx absolute mobile sync ios
 bunx absolute mobile doctor release
 bunx absolute mobile doctor release --json > absolute-mobile-compliance.json
-bunx absolute mobile build ios
+bunx absolute mobile build ios --registered-device-artifact
 ```
 
 Run these commands from the staging application root identified in Track B,
@@ -2586,12 +2586,67 @@ Do not pass `--unsigned`. A successful command prints output similar to:
 ```text
 Built signed iOS IPA 1.0.0 in 42.3s.
 Artifact: .../.absolutejs/mobile/releases/ios/amobile_ios_<sha256>/App.ipa
+Registered-device artifact: .../.absolutejs/mobile/releases/ios/amobile_ios_<sha256>/App.registered.ipa
 Metadata: .../.absolutejs/mobile/releases/ios/amobile_ios_<sha256>/release.json
 ```
 
-Confirm that both files exist. The release doctor must report no development
+Confirm that all three files exist. The release doctor must report no development
 server URL, HMR assets, or insecure App Transport Security override in the
 packaged application.
+
+### 6A. Run the installed Release acceptance matrix
+
+Run every command in this subsection from the staging application root—the
+directory containing `absolute.config.ts` and `package.json`. Do not run them
+from the AbsoluteJS framework checkout. Set `RELEASE_DIR` to the exact immutable
+directory printed by the build:
+
+```sh
+export RELEASE_DIR="$PWD/.absolutejs/mobile/releases/ios/amobile_ios_<sha256>"
+```
+
+First run the source-equivalent Simulator lane. AbsoluteJS boots its managed
+Simulator if necessary, builds the same generated native source in Xcode's
+Release configuration, installs it, verifies the marketing version and build
+number, then observes two embedded-local launches:
+
+```sh
+bunx absolute mobile test ios --release "$RELEASE_DIR" --report
+```
+
+- [ ] `IOS-REL-SIM-01` The command reports `artifactExactness:
+  source-equivalent`, `distribution: simulator-release`, and `status: pass`.
+- [ ] `IOS-REL-SIM-02` Both launch timings are present and the report says
+  `networkUnavailable: not-proven`. Simulator evidence must not be reported as
+  physical-device offline proof.
+
+Next connect a registered iPhone or iPad by USB, trust the Mac, enable Developer
+Mode, and copy its identifier from Xcode's Devices and Simulators window. The
+registered-device IPA was exported from the exact same `.xcarchive` as
+`App.ipa`; it is archive-equivalent, but is signed for registered devices rather
+than processed by App Store Connect.
+
+```sh
+bunx absolute mobile test ios \
+  --release "$RELEASE_DIR" \
+  --device 'DEVICE_IDENTIFIER' \
+  --report
+```
+
+The CLI pauses before launching. On the device, enable Airplane Mode and then
+turn Wi-Fi off in Settings. Confirm the prompt only after both are still off.
+For unattended scripting, `--yes` is the explicit confirmation and must be used
+only after a tester has performed those device steps.
+
+- [ ] `IOS-REL-DEVICE-01` The command reports `artifactExactness:
+  archive-equivalent`, `distribution: registered-device`, and `status: pass`.
+- [ ] `IOS-REL-DEVICE-02` The exact version/build readiness marker is observed
+  on both launches.
+- [ ] `IOS-REL-DEVICE-03` The report says `networkUnavailable:
+  user-confirmed`; restore the device's radios after the command finishes.
+
+Keep the generated report directory. The simulator and registered-device lanes
+answer different questions, so neither replaces the other.
 
 ## 7. Create an App Store Connect team API key
 
@@ -2671,6 +2726,7 @@ Run the first end-to-end publication with an existing internal group name:
 
 ```sh
 bunx absolute mobile publish ios \
+	--registered-device-artifact \
   --registry mobile.release.ts \
   --channel macos-smoke \
   --testflight-group 'AbsoluteJS Internal' \
@@ -2700,6 +2756,12 @@ Published iOS release amobile_ios_<sha256> on macos-smoke.
 Uploaded App Store Connect build 1.0.0 (17); committed.
 ```
 
+The publish allocates the store build number and therefore produces the release
+that TestFlight actually receives. Reset `RELEASE_DIR` to the immutable release
+directory printed by this publish command before running the TestFlight lane.
+For strict same-build coverage, repeat the registered-device lane with this new
+directory too; the earlier pre-upload run remains useful as a signing smoke test.
+
 ## 10. Verify in App Store Connect and on a device
 
 In App Store Connect:
@@ -2722,6 +2784,30 @@ On an iPhone or iPad:
    behavior, and at least one device capability used by the app.
 6. Confirm no development URL, HMR overlay, or cleartext-network exception is
    present in the shipped app.
+
+With that exact TestFlight build still installed, enable Airplane Mode, disable
+Wi-Fi in Settings, and run the Apple-processed lane from the application root:
+
+```sh
+bunx absolute mobile test ios \
+  --release "$RELEASE_DIR" \
+  --device 'DEVICE_IDENTIFIER' \
+  --testflight \
+  --report
+```
+
+- [ ] `IOS-REL-TF-01` The command reports `artifactExactness:
+  store-delivered`, `distribution: apple-processed`, and `status: pass`.
+- [ ] `IOS-REL-TF-02` The readiness marker contains the same version and build
+  number printed by the publish command and is observed on both launches.
+- [ ] `IOS-REL-TF-03` The report says `networkUnavailable: user-confirmed`.
+- [ ] `IOS-REL-TF-04` Return the report directory containing both the Markdown
+  checklist and JSON evidence. Do not send signing keys, provisioning profiles,
+  device identifiers, or App Store Connect credentials.
+
+The TestFlight command deliberately does not side-load `App.ipa`: Apple may
+re-sign and repackage an archived app for distribution, so only the build
+installed through TestFlight is valid store-delivered evidence.
 
 ## 11. Test retry and update behavior
 

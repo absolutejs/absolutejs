@@ -4,6 +4,8 @@ import type { NormalizedAbsoluteMobileConfig } from './config';
 
 const START = '// absolutejs:release-readiness:start';
 const END = '// absolutejs:release-readiness:end';
+const IOS_PLUGIN_START = '// absolutejs:release-readiness-plugin:start';
+const IOS_PLUGIN_END = '// absolutejs:release-readiness-plugin:end';
 const ANDROID_PLUGIN = 'AbsoluteReleaseReadinessPlugin.java';
 
 const optionalSource = async (path: string) => {
@@ -151,13 +153,105 @@ public final class AbsoluteReleaseReadinessPlugin extends Plugin {
 }
 `;
 
-/** Project the data-minimal production readiness signal into Capacitor Android. */
-export const applyAbsoluteNativeReleaseReadiness = async (
-	config: NormalizedAbsoluteMobileConfig,
-	platforms = config.platforms
+const iosPluginRegion = `${IOS_PLUGIN_START}
+@objc(AbsoluteReleaseReadinessPlugin)
+public final class AbsoluteReleaseReadinessPlugin: CAPPlugin, CAPBridgedPlugin {
+    public let identifier = "AbsoluteReleaseReadinessPlugin"
+    public let jsName = "AbsoluteReleaseReadiness"
+    public let pluginMethods: [CAPPluginMethod] = [
+        CAPPluginMethod(name: "ready", returnType: CAPPluginReturnPromise)
+    ]
+
+    @objc public func ready(_ call: CAPPluginCall) {
+		let info = Bundle.main.infoDictionary ?? [:]
+		let version = info["CFBundleShortVersionString"] as? String ?? "unknown"
+		let build = info["CFBundleVersion"] as? String ?? "unknown"
+		NSLog("AbsoluteJS: Capacitor embedded web content ready; version=%@; build=%@", version, build)
+        call.resolve(["ready": true])
+    }
+}
+${IOS_PLUGIN_END}
+`;
+
+const replaceIosPluginRegion = (
+	appDelegate: string,
+	existingStart: number,
+	existingEnd: number
 ) => {
-	if (config.engine !== 'capacitor' || !platforms.includes('android'))
-		return { changed: false };
+	const from = appDelegate.lastIndexOf('\n', existingStart) + 1;
+	const newline = appDelegate.indexOf(
+		'\n',
+		existingEnd + IOS_PLUGIN_END.length
+	);
+	const through = newline < 0 ? appDelegate.length : newline + 1;
+
+	return `${appDelegate.slice(0, from)}${iosPluginRegion}${appDelegate.slice(through)}`;
+};
+
+const configureIos = async (config: NormalizedAbsoluteMobileConfig) => {
+	const appDelegatePath = join(
+		config.nativeProjectDirectory,
+		'ios/App/App/AppDelegate.swift'
+	);
+	const capacitorConfigPath = join(
+		config.nativeProjectDirectory,
+		'ios/App/App/capacitor.config.json'
+	);
+	const appDelegate = await readFile(appDelegatePath, 'utf8');
+	const existingStart = appDelegate.indexOf(IOS_PLUGIN_START);
+	const existingEnd = appDelegate.indexOf(IOS_PLUGIN_END);
+	if (
+		existingStart < 0 !== existingEnd < 0 ||
+		(existingStart >= 0 && existingEnd < existingStart)
+	)
+		throw new TypeError(
+			'AbsoluteJS iOS release-readiness markers are malformed.'
+		);
+	const source =
+		existingStart < 0
+			? `${appDelegate.trimEnd()}\n\n${iosPluginRegion}`
+			: replaceIosPluginRegion(appDelegate, existingStart, existingEnd);
+	let capacitorConfig: unknown;
+	try {
+		capacitorConfig = JSON.parse(
+			await readFile(capacitorConfigPath, 'utf8')
+		);
+	} catch {
+		throw new TypeError(
+			'iOS capacitor.config.json is invalid; run Capacitor sync before projecting release readiness.'
+		);
+	}
+	if (typeof capacitorConfig !== 'object' || capacitorConfig === null)
+		throw new TypeError(
+			'iOS capacitor.config.json must contain an object.'
+		);
+	const packageClassList = Reflect.get(capacitorConfig, 'packageClassList');
+	if (!Array.isArray(packageClassList))
+		throw new TypeError(
+			'iOS capacitor.config.json has no packageClassList; run Capacitor sync before projecting release readiness.'
+		);
+	const classes = packageClassList.filter(
+		(value): value is string => typeof value === 'string'
+	);
+	const nextConfig = `${JSON.stringify(
+		{
+			...capacitorConfig,
+			packageClassList: [
+				...new Set([...classes, 'AbsoluteReleaseReadinessPlugin'])
+			]
+		},
+		null,
+		'\t'
+	)}\n`;
+	const changed = await Promise.all([
+		writeChanged(appDelegatePath, source),
+		writeChanged(capacitorConfigPath, nextConfig)
+	]);
+
+	return changed.some(Boolean);
+};
+
+const configureAndroid = async (config: NormalizedAbsoluteMobileConfig) => {
 	const mainActivityPath = await activityPath(config);
 	const activity = await readFile(mainActivityPath, 'utf8');
 	const packageName = activity.match(
@@ -176,6 +270,20 @@ export const applyAbsoluteNativeReleaseReadiness = async (
 	const changed = await Promise.all([
 		writeChanged(mainActivityPath, injectRegistration(activity)),
 		writeChanged(pluginPath, pluginSource(packageName))
+	]);
+
+	return changed.some(Boolean);
+};
+
+/** Project a data-minimal production readiness signal into Capacitor hosts. */
+export const applyAbsoluteNativeReleaseReadiness = async (
+	config: NormalizedAbsoluteMobileConfig,
+	platforms = config.platforms
+) => {
+	if (config.engine !== 'capacitor') return { changed: false };
+	const changed = await Promise.all([
+		platforms.includes('android') ? configureAndroid(config) : false,
+		platforms.includes('ios') ? configureIos(config) : false
 	]);
 
 	return { changed: changed.some(Boolean) };

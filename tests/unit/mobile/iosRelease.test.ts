@@ -75,7 +75,12 @@ const fixture = async () => {
 			const exportRoot = command.at(exportIndex + 1);
 			if (!exportRoot) throw new Error('missing export path');
 			await mkdir(exportRoot, { recursive: true });
-			await writeFile(join(exportRoot, 'Release.ipa'), 'signed-ios-ipa');
+			await writeFile(
+				join(exportRoot, 'Release.ipa'),
+				exportRoot.includes('registered-export')
+					? 'registered-ios-ipa'
+					: 'signed-ios-ipa'
+			);
 		}
 
 		return 0;
@@ -146,6 +151,33 @@ describe('iOS production releases', () => {
 				capture: () => ({ exitCode: 1, stderr: '', stdout: '' })
 			})
 		).rejects.toThrow('unsigned iOS archive');
+	});
+
+	test('exports an optional registered-device IPA from the same archive', async () => {
+		const { commands, config, projectRoot, run } = await fixture();
+		const release = await buildAbsoluteIosRelease({
+			config,
+			host: 'macos',
+			projectRoot,
+			registeredDeviceArtifact: true,
+			run,
+			capture: () => ({ exitCode: 0, stderr: '', stdout: '' })
+		});
+
+		expect(
+			commands.filter((command) => command.includes('archive'))
+		).toHaveLength(1);
+		expect(
+			commands.filter((command) => command.includes('-exportArchive'))
+		).toHaveLength(2);
+		expect(release.metadata.registeredDevice).toMatchObject({
+			artifact: 'App.registered.ipa',
+			bytes: Buffer.byteLength('registered-ios-ipa')
+		});
+		expect(release.registeredArtifactPath).toBeString();
+		expect(
+			await readFile(release.registeredArtifactPath ?? '', 'utf8')
+		).toBe('registered-ios-ipa');
 	});
 
 	test('discovers Expo CNG workspaces and schemes without Capacitor paths', async () => {
