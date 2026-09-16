@@ -42,6 +42,14 @@ contracts as every other Android host.
 The real WSL 2 acceptance run produced an 80.6 MB release AAB after compiling
 all four production ABIs. Its unchanged warm rerun reused 970 of 1,034 Gradle
 tasks and reduced Gradle time from 31m16s to 2m29s.
+`0.20.0-beta.101` adds a permanent public-CLI conformance gate around that
+release path. It caught and fixed linked-package React vendor resolution,
+workspace-root lockfile recognition, production hydration code being mistaken
+for an HMR client, and Windows JDK signature verification from WSL. The gate
+builds twice, requires phase timing logs and Gradle cache reuse, independently
+checks immutable metadata and the AAB hash, verifies all four production ABIs
+plus the JavaScript bundle, and rejects development CA or cleartext residue.
+The passing cached runs took 2m54s and 1m56s, with 853 of 909 tasks up to date.
 
 AbsoluteJS can generate an experimental Expo Router shell in which explicitly
 selected routes render React Native UI and all other routes remain ordinary
@@ -331,6 +339,23 @@ copy the project to Windows or invoke Gradle manually. Warm builds preserve only
 managed dependency and native compiler caches. A source-lock change refreshes
 the Windows lock safely, and simultaneous `bun dev`/release invocations wait on
 the same project-scoped build lock instead of modifying one mirror concurrently.
+The generated project may live in a package-manager workspace: the release
+doctor accepts the nearest ancestor lock only when that ancestor explicitly
+declares the application as a workspace. On WSL, signature verification uses
+the Windows JDK already selected by the native toolchain and explicitly
+translates AAB and keystore paths before invoking `jarsigner.exe`.
+
+Framework maintainers can reproduce the complete WSL contract from the
+AbsoluteJS repository root (not an application root or generated Expo
+directory):
+
+```sh
+bun run test:native:expo:android:release
+```
+
+The opt-in gate performs two real `absolute mobile build android` calls and
+writes its sanitized result to
+`tests/fixtures/expo-android-release/.absolutejs/expo-android-release-conformance.json`.
 
 The immutable AAB and `release.json` are written beneath
 `.absolutejs/mobile/releases/android/`. Existing `mobile.release.ts` registry

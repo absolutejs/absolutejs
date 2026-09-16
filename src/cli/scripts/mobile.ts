@@ -2049,8 +2049,12 @@ const buildAndroid = async (
 
 			return result;
 		} finally {
+			const durationMs = Math.round(performance.now() - phaseStartedAt);
+			console.log(
+				`[mobile:android-release] ${phase} ${phaseSuccess ? 'completed' : 'failed'} in ${getDurationString(durationMs)}`
+			);
 			sendTelemetryEvent('mobile:android-release-phase', {
-				durationMs: Math.round(performance.now() - phaseStartedAt),
+				durationMs,
 				engine: mobile.engine,
 				host,
 				phase,

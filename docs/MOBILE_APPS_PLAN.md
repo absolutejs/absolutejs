@@ -2,6 +2,24 @@
 
 Status: Capacitor Android development/release, all-framework embedded bundles, universal native Auth/Sync, Expo hybrid native Auth/Sync, background Sync, automatic device provisioning, provider-neutral native push registration, signed staged Capacitor updates, end-to-end RSA-signed self-hosted Expo production updates, and Android conformance are operational; iOS development/release automation plus installed Expo iOS OTA and replacement-upgrade harnesses are shipped and awaiting real macOS/physical-device acceptance
 
+Implementation checkpoint (September 16, 2026, WSL Expo Android public-CLI
+release conformance): `@absolutejs/absolute@0.20.0-beta.101` adds a permanent
+opt-in gate for the exact `absolute mobile build android` production path. A
+dedicated ordinary React application builds twice through clean Expo CNG, the
+release doctor, the serialized Windows mirror, Gradle `bundleRelease`, Windows
+JDK signature verification, and immutable release installation. The gate
+independently verifies metadata and SHA-256 identity, all four production ABIs,
+the embedded JavaScript bundle, phase timing logs, warm Gradle reuse, and the
+absence of development trust or cleartext residue. It also fixed package-
+relative React vendor lookup for linked/hoisted installs, accepts an ancestor
+dependency lock only when that package explicitly owns the app as a workspace,
+distinguishes dormant production hydration recovery from a real HMR client,
+and translates WSL artifact/keystore paths before invoking `jarsigner.exe` from
+the managed Windows JDK. The first cold gate build completed 909 tasks in
+30m05s and exposed the signature-verification boundary; after the fix, two
+unchanged CLI builds passed in 2m54s and 1m56s with 853 tasks up to date. Run it
+from this repository root with `bun run test:native:expo:android:release`.
+
 Implementation checkpoint (September 15, 2026, Expo Android production builds
 from WSL): `@absolutejs/absolute@0.20.0-beta.100` makes the ordinary
 `absolute mobile build android` release path work from WSL through the same

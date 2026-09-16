@@ -158,6 +158,6 @@ export const buildReactVendor = async (buildDir: string) => {
 	await rm(tmpDir, { force: true, recursive: true });
 
 	if (!result.success) {
-		console.warn('⚠️ React vendor build had errors:', result.logs);
+		throw new AggregateError(result.logs, 'React vendor build failed');
 	}
 };

@@ -312,6 +312,63 @@ describe('Android production releases', () => {
 		);
 	});
 
+	test('verifies WSL Expo output with Windows jarsigner paths', async () => {
+		const { config, projectRoot } = await fixture('expo');
+		const androidRoot = join(projectRoot, 'Windows SDK', 'Android', 'Sdk');
+		const buildId = Bun.hash(resolve(config.nativeProjectDirectory))
+			.toString(16)
+			.slice(0, 10);
+		const mirroredArtifact = join(
+			resolve(androidRoot, '..', '..', 'ExpoBuilds', buildId),
+			'android',
+			'app',
+			'build',
+			'outputs',
+			'bundle',
+			'release',
+			'app-release.aab'
+		);
+		const commands: string[][] = [];
+		const release = await buildAbsoluteAndroidRelease({
+			androidRoot,
+			config,
+			host: 'wsl',
+			jarsigner: 'C:\\jdk\\bin\\jarsigner.exe',
+			projectRoot,
+			capture: (command) => {
+				commands.push(command);
+				if (command[0] === 'wslpath')
+					return {
+						exitCode: 0,
+						stderr: '',
+						stdout: 'C:\\AbsoluteJS\\app-release.aab\n'
+					};
+
+				return {
+					exitCode: 0,
+					stderr: '',
+					stdout: 'jar verified.\n'
+				};
+			},
+			run: async () => {
+				await mkdir(dirname(mirroredArtifact), { recursive: true });
+				await writeFile(mirroredArtifact, 'signed-wsl-expo-app-bundle');
+
+				return 0;
+			}
+		});
+
+		expect(release.metadata.signed).toBe(true);
+		expect(commands).toContainEqual(['wslpath', '-w', mirroredArtifact]);
+		expect(commands).toContainEqual([
+			'C:\\jdk\\bin\\jarsigner.exe',
+			'-J-Duser.language=en',
+			'-J-Duser.country=US',
+			'-verify',
+			'C:\\AbsoluteJS\\app-release.aab'
+		]);
+	});
+
 	test('rejects unsigned output by default and labels an explicit unsigned build', async () => {
 		const { config, projectRoot, run } = await fixture();
 		const capture = () => ({ exitCode: 1, stderr: '', stdout: '' });

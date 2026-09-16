@@ -176,6 +176,21 @@ const signAab = (
 		);
 };
 
+const windowsJarsignerPath = (
+	path: string,
+	capture: NonNullable<BuildAbsoluteAndroidReleaseOptions['capture']>
+) => {
+	const result = capture(['wslpath', '-w', path]);
+	const translated = result.stdout.trim();
+	if (result.exitCode !== 0 || !translated) {
+		throw new TypeError(
+			`Could not translate an Android signing path for the Windows JDK: ${path}`
+		);
+	}
+
+	return translated;
+};
+
 const sha256File = async (path: string) =>
 	createHash('sha256')
 		.update(await readFile(path))
@@ -407,16 +422,34 @@ export const buildAbsoluteAndroidRelease = async (
 	const capture = options.capture ?? defaultCapture;
 	const jarsigner =
 		options.jarsigner === undefined
-			? Bun.which('jarsigner')
+			? (Bun.which('jarsigner') ??
+				(host === 'wsl' || host === 'windows'
+					? Bun.which('jarsigner.exe')
+					: null))
 			: options.jarsigner;
-	let signed = verifyAabSignature(artifactPath, capture, jarsigner);
-	if (signed === false && options.signing) {
+	const usesWindowsJarsigner =
+		host === 'wsl' && jarsigner?.toLowerCase().endsWith('.exe');
+	const signerArtifactPath = usesWindowsJarsigner
+		? windowsJarsignerPath(artifactPath, capture)
+		: artifactPath;
+	const signing =
+		usesWindowsJarsigner && options.signing
+			? {
+					...options.signing,
+					keystorePath: windowsJarsignerPath(
+						options.signing.keystorePath,
+						capture
+					)
+				}
+			: options.signing;
+	let signed = verifyAabSignature(signerArtifactPath, capture, jarsigner);
+	if (signed === false && signing) {
 		if (!jarsigner)
 			throw new TypeError(
 				'Could not sign the Android App Bundle because jarsigner is unavailable.'
 			);
-		signAab(artifactPath, capture, jarsigner, options.signing);
-		signed = verifyAabSignature(artifactPath, capture, jarsigner);
+		signAab(signerArtifactPath, capture, jarsigner, signing);
+		signed = verifyAabSignature(signerArtifactPath, capture, jarsigner);
 		if (!signed)
 			throw new TypeError(
 				'Android App Bundle signature verification failed after CI signing.'

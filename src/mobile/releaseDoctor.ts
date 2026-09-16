@@ -46,7 +46,7 @@ export type AbsoluteMobileComplianceReport = {
 };
 
 const HMR_ASSET_PATTERN =
-	/(?:__HMR_WS__|hmr-timing|__absolute_target|absolutejs-error-overlay)/u;
+	/(?:hmr-timing|__absolute_target|absolutejs-error-overlay)/u;
 const RELEASE_ASSET_EXTENSIONS = new Set(['.html', '.js', '.mjs']);
 const EXACT_VERSION_PATTERN = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/u;
 const NOT_FOUND = -1;
@@ -319,21 +319,74 @@ const expoVersionCheck = async (config: NormalizedAbsoluteMobileConfig) => {
 	}
 };
 
-const dependencyLockCheck = async (projectRoot: string) => {
-	const present = (
+const dependencyLockAt = async (directory: string) =>
+	(
 		await Promise.all(
 			LOCK_FILES.map(async (name) => ({
-				exists: await pathExists(join(projectRoot, name)),
-				name
+				exists: await pathExists(join(directory, name)),
+				name,
+				path: join(directory, name)
 			}))
 		)
 	).find(({ exists }) => exists);
+
+const declaredWorkspacePatterns = (declared: unknown) => {
+	if (Array.isArray(declared)) return declared;
+	if (isRecord(declared) && Array.isArray(declared.packages))
+		return declared.packages;
+
+	return [];
+};
+
+const ownsWorkspace = async (directory: string, projectRoot: string) => {
+	const manifest = await readJsonObject(
+		join(directory, 'package.json')
+	).catch(() => undefined);
+	const workspacePath = relative(directory, projectRoot).replace(/\\/gu, '/');
+
+	return declaredWorkspacePatterns(manifest?.workspaces).some(
+		(pattern) =>
+			typeof pattern === 'string' &&
+			new Bun.Glob(pattern).match(workspacePath)
+	);
+};
+
+const ancestorDirectories = (projectRoot: string) => {
+	const directories: string[] = [];
+	let directory = projectRoot;
+	while (true) {
+		directories.push(directory);
+		const parent = dirname(directory);
+		if (parent === directory) return directories;
+		directory = parent;
+	}
+};
+
+export const findAbsoluteDependencyLock = async (projectRoot: string) => {
+	const candidates = await Promise.all(
+		ancestorDirectories(projectRoot).map(async (directory, index) => {
+			const present = await dependencyLockAt(directory);
+			if (
+				!present ||
+				(index > 0 && !(await ownsWorkspace(directory, projectRoot)))
+			)
+				return undefined;
+
+			return present;
+		})
+	);
+
+	return candidates.find((candidate) => candidate !== undefined);
+};
+
+const dependencyLockCheck = async (projectRoot: string) => {
+	const present = await findAbsoluteDependencyLock(projectRoot);
 
 	return present
 		? pass(
 				'mobile.dependency-lock',
 				`Dependency graph is locked by ${present.name}.`,
-				join(projectRoot, present.name)
+				present.path
 			)
 		: fail(
 				'mobile.dependency-lock',

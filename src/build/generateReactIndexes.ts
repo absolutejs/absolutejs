@@ -8,12 +8,14 @@ const indexContentCache = new Map<string, string>();
 
 const resolveDevClientDir = () => {
 	const projectRoot = process.cwd();
-	const fromSource = resolve(import.meta.dir, '../dev/client');
+	const fromPackage = resolve(import.meta.dir, '../dev/client');
 
-	// Only use the source path if it exists AND is within the project root
-	// (i.e., we're developing absolutejs itself, not using it as a dependency)
-	if (existsSync(fromSource) && fromSource.startsWith(projectRoot)) {
-		return fromSource;
+	// Source checkouts and published packages both colocate the client one
+	// directory above this module (`src/build` -> `src/dev`, and `dist/build`
+	// -> `dist/dev`). Do not constrain this path to process.cwd(): package
+	// managers may hoist or link AbsoluteJS outside the consumer project.
+	if (existsSync(fromPackage)) {
+		return fromPackage;
 	}
 
 	// When running from a published npm package, use the installed copy

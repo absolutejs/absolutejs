@@ -20,6 +20,7 @@ import {
 } from '../../../src/mobile/expoProject';
 import {
 	createAbsoluteMobileComplianceReport,
+	findAbsoluteDependencyLock,
 	inspectAbsoluteMobileRelease
 } from '../../../src/mobile/releaseDoctor';
 import { applyAbsoluteNativeUpdates } from '../../../src/mobile/nativeUpdates';
@@ -90,6 +91,41 @@ const installPackageManifest = async (
 	await mkdir(dirname(path), { recursive: true });
 	await writeFile(path, `${JSON.stringify({ name, version })}\n`);
 };
+
+test('finds the governing dependency lock at a workspace root', async () => {
+	const workspaceRoot = await mkdtemp(join(tmpdir(), 'absolute-workspace-'));
+	temporaryDirectories.push(workspaceRoot);
+	const projectRoot = join(workspaceRoot, 'apps', 'mobile');
+	await mkdir(projectRoot, { recursive: true });
+	await Promise.all([
+		writeFile(join(workspaceRoot, 'bun.lock'), ''),
+		writeFile(
+			join(workspaceRoot, 'package.json'),
+			JSON.stringify({ workspaces: ['apps/*'] })
+		)
+	]);
+
+	expect(await findAbsoluteDependencyLock(projectRoot)).toMatchObject({
+		name: 'bun.lock',
+		path: join(workspaceRoot, 'bun.lock')
+	});
+});
+
+test('does not accept an unrelated ancestor dependency lock', async () => {
+	const ancestor = await mkdtemp(join(tmpdir(), 'absolute-non-workspace-'));
+	temporaryDirectories.push(ancestor);
+	const projectRoot = join(ancestor, 'app');
+	await mkdir(projectRoot, { recursive: true });
+	await Promise.all([
+		writeFile(join(ancestor, 'bun.lock'), ''),
+		writeFile(
+			join(ancestor, 'package.json'),
+			JSON.stringify({ private: true })
+		)
+	]);
+
+	expect(await findAbsoluteDependencyLock(projectRoot)).toBeUndefined();
+});
 
 afterEach(async () => {
 	await Promise.all(
@@ -669,7 +705,7 @@ describe('mobile release doctor', () => {
 		);
 		await writeFile(
 			join(assets, 'public', 'index.html'),
-			'<script>window.__HMR_WS__ = new WebSocket("/hmr")</script>'
+			'<script>window.__HMR_WS__ = new WebSocket("/hmr"); window.__HMR_WS__.send("hmr-timing")</script>'
 		);
 		const journal = join(
 			projectRoot,
@@ -837,7 +873,7 @@ describe('mobile release doctor', () => {
 		);
 		await writeFile(
 			join(iosApp, 'public', 'index.html'),
-			'<script>window.__HMR_WS__ = true</script>'
+			'<script>window.__HMR_WS__ = true; const kind = "hmr-timing"</script>'
 		);
 		const unsafe = await inspectAbsoluteMobileRelease(config, projectRoot);
 		expect(unsafe.ready).toBe(false);

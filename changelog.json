@@ -5,6 +5,20 @@
 		{
 			"changes": [
 				{
+					"detail": "The exact public build command now resolves React vendor assets from linked packages, recognizes declared workspace lockfiles without trusting unrelated ancestors, avoids false-positive production HMR detection, prints per-phase timings, and verifies AAB signatures with translated paths through the Windows JDK. A permanent two-build gate validates signing, immutable metadata, all production ABIs, bundled JavaScript, release hygiene, and warm Gradle reuse.",
+					"kind": "fixed",
+					"summary": "WSL Expo Android releases now pass public-CLI conformance",
+					"symbols": [
+						"buildAbsoluteAndroidRelease"
+					]
+				}
+			],
+			"date": "2026-09-16",
+			"version": "0.20.0-beta.101"
+		},
+		{
+			"changes": [
+				{
 					"detail": "AbsoluteJS projects generated in WSL build through a serialized Windows-local mirror with Windows Bun, a short temporary drive, full release ABIs, retained warm caches, sanitized phase telemetry, and the existing signing, doctor, immutable-artifact, and publishing contracts.",
 					"kind": "added",
 					"summary": "Expo Android production builds now run from WSL",
