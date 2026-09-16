@@ -40,6 +40,7 @@ export * from './nativeAuth';
 export * from './nativeRoute';
 export * from './nativeUpdates';
 export * from './nativeObservability';
+export * from './nativeReleaseReadiness';
 export * from './pageProtocol';
 export * from './producerContext';
 export * from './releaseArtifact';

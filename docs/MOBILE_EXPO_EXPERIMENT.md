@@ -50,7 +50,7 @@ builds twice, requires phase timing logs and Gradle cache reuse, independently
 checks immutable metadata and the AAB hash, verifies all four production ABIs
 plus the JavaScript bundle, and rejects development CA or cleartext residue.
 The passing cached runs took 2m54s and 1m56s, with 853 of 909 tasks up to date.
-`0.20.0-beta.102` closes the next production gap: `absolute mobile test android
+`0.20.0-beta.103` closes the next production gap: `absolute mobile test android
 --release <release-directory>` checksum-validates one immutable AAB, downloads
 Google's pinned Bundletool only after approval, produces and installs its APK
 set on the managed emulator, disables both emulator network transports, and

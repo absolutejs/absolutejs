@@ -1,0 +1,21 @@
+{
+	"dependencies": {
+		"@absolutejs/devices": "0.5.0",
+		"@absolutejs/devices-capacitor": "0.6.1",
+		"@capacitor/android": "8.5.0",
+		"@capacitor/app": "8.1.1",
+		"@capacitor/browser": "8.0.4",
+		"@capacitor/cli": "8.5.0",
+		"@capacitor/core": "8.5.0",
+		"@capacitor/ios": "8.5.0",
+		"@capacitor/network": "8.0.1",
+		"@capacitor/preferences": "8.0.1",
+		"elysia": "*",
+		"react": "*",
+		"react-dom": "*"
+	},
+	"name": "@absolutejs/fixture-capacitor-android-release",
+	"private": true,
+	"type": "module",
+	"version": "0.0.0"
+}

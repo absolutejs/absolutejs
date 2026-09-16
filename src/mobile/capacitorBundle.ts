@@ -134,6 +134,19 @@ const shellUpdateModule = () => {
 	throw new TypeError('AbsoluteJS mobile update shell module is missing.');
 };
 
+const shellReleaseReadinessModule = () => {
+	const candidate = ['js', 'ts']
+		.map((extension) =>
+			join(import.meta.dir, `shellReleaseReadiness.${extension}`)
+		)
+		.find(existsSync);
+	if (candidate) return candidate;
+
+	throw new TypeError(
+		'AbsoluteJS mobile release-readiness module is missing.'
+	);
+};
+
 const escapeHtml = (value: string) =>
 	value
 		.replaceAll('&', '&amp;')
@@ -290,6 +303,9 @@ const buildShellBootstrap = async (
 	const adapterImport = capacitor
 		? `import { installCapacitorDeviceAdapterIfNative } from ${JSON.stringify(baseAdapterModule)};`
 		: `import { createAbsoluteExpoBridgeFetch, installAbsoluteExpoWebDeviceAdapter } from ${JSON.stringify(baseAdapterModule)};`;
+	const readinessImport = capacitor
+		? `import { markAbsoluteMobileShellReady } from ${JSON.stringify(shellReleaseReadinessModule())};`
+		: '';
 	const adapterInstall = capacitor
 		? `installCapacitorDeviceAdapterIfNative({ storagePrefix: ${JSON.stringify(storagePrefix)}${capabilityOptions ? `, ${capabilityOptions}` : ''} });`
 		: `installAbsoluteExpoWebDeviceAdapter(${JSON.stringify(deviceCapabilities.capabilities)});`;
@@ -315,7 +331,7 @@ const buildShellBootstrap = async (
 	const shellOptions = `{ ${shellOptionProperties.join(', ')} }`;
 	await writeFile(
 		entryPath,
-		`import { startAbsoluteMobileShell } from ${JSON.stringify(modulePath)};\n${adapterImport}\n${authImport}${syncImport}${pushImport}${updateImport}${capabilityImports}\n${pushSetup}${adapterInstall}\nvoid startAbsoluteMobileShell(${shellOptions});\n`
+		`import { startAbsoluteMobileShell } from ${JSON.stringify(modulePath)};\n${adapterImport}\n${readinessImport}\n${authImport}${syncImport}${pushImport}${updateImport}${capabilityImports}\n${pushSetup}${adapterInstall}\nvoid startAbsoluteMobileShell(${shellOptions})${capacitor ? '.then(markAbsoluteMobileShellReady)' : ''};\n`
 	);
 	const build = await Bun.build({
 		entrypoints: [entryPath],

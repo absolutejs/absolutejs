@@ -189,6 +189,25 @@
       "name": "compile-asset-package",
       "version": "0.0.0",
     },
+    "tests/fixtures/capacitor-android-release": {
+      "name": "@absolutejs/fixture-capacitor-android-release",
+      "version": "0.0.0",
+      "dependencies": {
+        "@absolutejs/devices": "0.5.0",
+        "@absolutejs/devices-capacitor": "0.6.1",
+        "@capacitor/android": "8.5.0",
+        "@capacitor/app": "8.1.1",
+        "@capacitor/browser": "8.0.4",
+        "@capacitor/cli": "8.5.0",
+        "@capacitor/core": "8.5.0",
+        "@capacitor/ios": "8.5.0",
+        "@capacitor/network": "8.0.1",
+        "@capacitor/preferences": "8.0.1",
+        "elysia": "*",
+        "react": "*",
+        "react-dom": "*",
+      },
+    },
     "tests/fixtures/compile-angular": {
       "name": "@absolutejs/fixture-compile-angular",
       "version": "0.0.0",
@@ -325,6 +344,8 @@
     "@absolutejs/devices-expo": ["@absolutejs/devices-expo@0.0.11", "", { "dependencies": { "@react-native-async-storage/async-storage": "2.2.0", "expo-application": "~57.0.2", "expo-device": "~57.0.1", "expo-linking": "~57.0.8", "expo-localization": "~57.0.1", "expo-network": "~57.0.1" }, "peerDependencies": { "@absolutejs/devices": "^0.7.0", "expo": ">=57 <58", "expo-clipboard": ">=57 <58", "expo-document-picker": ">=57 <58", "expo-file-system": ">=57 <58", "expo-haptics": ">=57 <58", "expo-image-manipulator": ">=57 <58", "expo-image-picker": ">=57 <58", "expo-location": ">=57 <58", "expo-navigation-bar": ">=57 <58", "expo-notifications": ">=57 <58", "expo-sharing": ">=57 <58", "expo-status-bar": ">=57 <58", "react-native": ">=0.86 <0.87" }, "optionalPeers": ["expo-clipboard", "expo-document-picker", "expo-file-system", "expo-haptics", "expo-image-manipulator", "expo-image-picker", "expo-location", "expo-navigation-bar", "expo-notifications", "expo-sharing", "expo-status-bar"] }, "sha512-+Uhg1eiorvF/0IdsLPeGUbfBHbdtV1sakCH12r8LHYpVedt0UoAJfqi3tISwV/H27wSmf8rhqpMVgFumda7eBQ=="],
 
     "@absolutejs/dispatch": ["@absolutejs/dispatch@0.9.0", "", { "dependencies": { "@absolutejs/manifest": "^0.9.0", "@absolutejs/telemetry": "^0.2.0", "@sinclair/typebox": "^0.34.0" }, "peerDependencies": { "@absolutejs/audit": ">= 0.0.1" }, "optionalPeers": ["@absolutejs/audit"] }, "sha512-8rF1diMvDomvm5f9JIU31LjmFdWF8sUnFANkjT/faqBYyWNkLhm1C/or7bX+q6lWxdKOOv+Cp/x/84Om0meAkw=="],
+
+    "@absolutejs/fixture-capacitor-android-release": ["@absolutejs/fixture-capacitor-android-release@workspace:tests/fixtures/capacitor-android-release"],
 
     "@absolutejs/fixture-compile-angular": ["@absolutejs/fixture-compile-angular@workspace:tests/fixtures/compile-angular"],
 
@@ -2375,6 +2396,10 @@
     "@absolutejs/auth/@absolutejs/manifest": ["@absolutejs/manifest@0.10.0", "", { "peerDependencies": { "typebox": ">=1.3.0 <2" }, "bin": { "absolute-manifest": "dist/cli.js" } }, "sha512-aBzi7PPFfEl51DdJfB2XXT5KHBiLlB0KeNHsU68XnfeqZmjOtFdxlcxYjbGep94sDTCgAbapNLCT+D4azDL5Eg=="],
 
     "@absolutejs/blob/@absolutejs/manifest": ["@absolutejs/manifest@0.7.2", "", { "peerDependencies": { "@sinclair/typebox": ">=0.34.0 <0.35.0" }, "bin": { "absolute-manifest": "dist/cli.js" } }, "sha512-NSVzC4yHbH+n+WCNdWYrpbc+3k5rOfO4X85Ku9VCP8teRaa2VEibp29Cyvg9rQARUGaQjGGTz+l+APqM0+odxg=="],
+
+    "@absolutejs/fixture-capacitor-android-release/@absolutejs/devices": ["@absolutejs/devices@0.5.0", "", {}, "sha512-MHNh389aBEDstechCI17OxHofDgN94JWmJBe5tKv/6F907nZNsifNYaZ0U8k9ol9XAgi0k92VhWY79N05k7Ggw=="],
+
+    "@absolutejs/fixture-capacitor-android-release/@absolutejs/devices-capacitor": ["@absolutejs/devices-capacitor@0.6.1", "", { "dependencies": { "@capacitor/app": "^8.0.0", "@capacitor/browser": "^8.0.0", "@capacitor/network": "^8.0.0", "@capacitor/preferences": "^8.0.0" }, "peerDependencies": { "@absolutejs/devices": "^0.5.0", "@capacitor/camera": ">=8.1 <9", "@capacitor/clipboard": ">=8 <9", "@capacitor/core": ">=8 <9", "@capacitor/file-viewer": ">=2 <3", "@capacitor/filesystem": ">=8.1 <9", "@capacitor/geolocation": ">=8.2 <9", "@capacitor/haptics": ">=8 <9", "@capacitor/local-notifications": ">=8.2 <8.3", "@capacitor/share": ">=8 <9" }, "optionalPeers": ["@capacitor/camera", "@capacitor/clipboard", "@capacitor/file-viewer", "@capacitor/filesystem", "@capacitor/geolocation", "@capacitor/haptics", "@capacitor/local-notifications", "@capacitor/share"] }, "sha512-h5qEkCcvifg38sZl2w+A3709YdyPlwbRm1NQyXFdaV5WX0Kp9OgG8W3JOB6JdWRBeXkWiujO9rPvriHakD9Dpw=="],
 
     "@absolutejs/fixture-compile-dependency-assets/compile-asset-package": ["compile-asset-package@file:tests/fixtures/_packages/compile-asset-package", {}],
 

@@ -213,7 +213,10 @@ const capacitorVersionCheck = async (
 						`${name} must be a direct exact dependency.`
 					);
 				const installed = await readJsonObject(
-					join(projectRoot, 'node_modules', name, 'package.json')
+					await findAbsoluteInstalledPackageManifest(
+						projectRoot,
+						name
+					)
 				);
 				if (installed.version !== declared)
 					throw new TypeError(
@@ -377,6 +380,33 @@ export const findAbsoluteDependencyLock = async (projectRoot: string) => {
 	);
 
 	return candidates.find((candidate) => candidate !== undefined);
+};
+
+/** Resolve an installed package only from the app or its governing workspace. */
+export const findAbsoluteInstalledPackageManifest = async (
+	projectRoot: string,
+	name: string
+) => {
+	const candidates = await Promise.all(
+		ancestorDirectories(projectRoot).map(async (directory, index) => {
+			if (index > 0 && !(await ownsWorkspace(directory, projectRoot)))
+				return undefined;
+
+			const candidate = join(
+				directory,
+				'node_modules',
+				name,
+				'package.json'
+			);
+
+			return (await pathExists(candidate)) ? candidate : undefined;
+		})
+	);
+	const installed = candidates.find((candidate) => candidate !== undefined);
+
+	if (installed) return installed;
+
+	throw new TypeError(`${name} is not installed for this application.`);
 };
 
 const dependencyLockCheck = async (projectRoot: string) => {

@@ -21,6 +21,7 @@ import {
 import {
 	createAbsoluteMobileComplianceReport,
 	findAbsoluteDependencyLock,
+	findAbsoluteInstalledPackageManifest,
 	inspectAbsoluteMobileRelease
 } from '../../../src/mobile/releaseDoctor';
 import { applyAbsoluteNativeUpdates } from '../../../src/mobile/nativeUpdates';
@@ -125,6 +126,42 @@ test('does not accept an unrelated ancestor dependency lock', async () => {
 	]);
 
 	expect(await findAbsoluteDependencyLock(projectRoot)).toBeUndefined();
+});
+
+test('resolves hoisted packages only from a governing workspace', async () => {
+	const workspaceRoot = await mkdtemp(join(tmpdir(), 'absolute-workspace-'));
+	temporaryDirectories.push(workspaceRoot);
+	const projectRoot = join(workspaceRoot, 'apps', 'mobile');
+	const packageManifest = join(
+		workspaceRoot,
+		'node_modules/@capacitor/core/package.json'
+	);
+	await mkdir(dirname(packageManifest), { recursive: true });
+	await mkdir(projectRoot, { recursive: true });
+	await Promise.all([
+		writeFile(
+			join(workspaceRoot, 'package.json'),
+			JSON.stringify({ workspaces: ['apps/*'] })
+		),
+		writeFile(
+			packageManifest,
+			JSON.stringify({ version: CAPACITOR_VERSION })
+		)
+	]);
+
+	expect(
+		await findAbsoluteInstalledPackageManifest(
+			projectRoot,
+			'@capacitor/core'
+		)
+	).toBe(packageManifest);
+	await writeFile(
+		join(workspaceRoot, 'package.json'),
+		JSON.stringify({ private: true })
+	);
+	await expect(
+		findAbsoluteInstalledPackageManifest(projectRoot, '@capacitor/core')
+	).rejects.toThrow('is not installed for this application');
 });
 
 afterEach(async () => {

@@ -25,6 +25,7 @@ import { applyAbsoluteNativeDeviceCapabilities } from '../../mobile/nativeDevice
 import { applyAbsoluteNativeBackgroundSync } from '../../mobile/nativeBackgroundSync';
 import { applyAbsoluteNativeUpdates } from '../../mobile/nativeUpdates';
 import { applyAbsoluteNativeObservability } from '../../mobile/nativeObservability';
+import { applyAbsoluteNativeReleaseReadiness } from '../../mobile/nativeReleaseReadiness';
 import {
 	ABSOLUTE_ANDROID_AVD_NAME,
 	detectAbsoluteMobileHost,
@@ -396,22 +397,8 @@ const requireMobileConfig = (value: unknown) => {
 	return value;
 };
 
-const capacitorExecutable = async (projectRoot: string) => {
-	const executable = join(projectRoot, 'node_modules', '.bin', 'cap');
-	try {
-		await access(executable);
-
-		return executable;
-	} catch {
-		throw new TypeError(
-			`Capacitor is not installed in this app. Run: bun add ${CAPACITOR_PACKAGES.join(' ')}`
-		);
-	}
-};
-
 const runCapacitor = async (projectRoot: string, args: string[]) => {
-	const executable = await capacitorExecutable(projectRoot);
-	const process = Bun.spawn([executable, ...args], {
+	const process = Bun.spawn(['bun', 'x', '--no-install', 'cap', ...args], {
 		cwd: projectRoot,
 		stderr: 'inherit',
 		stdin: 'inherit',
@@ -419,7 +406,9 @@ const runCapacitor = async (projectRoot: string, args: string[]) => {
 	});
 	const exitCode = await process.exited;
 	if (exitCode !== 0) {
-		throw new TypeError(`Capacitor exited with status ${exitCode}.`);
+		throw new TypeError(
+			`Capacitor exited with status ${exitCode}. Ensure this app directly depends on: ${CAPACITOR_PACKAGES.join(' ')}`
+		);
 	}
 };
 
@@ -758,6 +747,7 @@ const initialize = async (args: string[]) => {
 	await applyAbsoluteNativeBackgroundSync(projectRoot, mobile);
 	await applyAbsoluteNativeUpdates(mobile);
 	await applyAbsoluteNativeObservability(mobile);
+	await applyAbsoluteNativeReleaseReadiness(mobile);
 };
 
 const sync = async (args: string[]) => {
@@ -805,6 +795,7 @@ const sync = async (args: string[]) => {
 	await applyAbsoluteNativeBackgroundSync(projectRoot, mobile, platforms);
 	await applyAbsoluteNativeUpdates(mobile, platforms);
 	await applyAbsoluteNativeObservability(mobile, platforms);
+	await applyAbsoluteNativeReleaseReadiness(mobile, platforms);
 };
 
 const associations = async (args: string[]) => {
@@ -2023,6 +2014,7 @@ const prepareCapacitorAndroidReleaseProject = async (
 	await applyAbsoluteNativeBackgroundSync(projectRoot, mobile, ['android']);
 	await applyAbsoluteNativeUpdates(mobile, ['android']);
 	await applyAbsoluteNativeObservability(mobile, ['android']);
+	await applyAbsoluteNativeReleaseReadiness(mobile, ['android']);
 };
 
 const prepareAndroidReleaseProject = (
@@ -2928,10 +2920,6 @@ const testAndroidRelease = async (
 	if (!mobile.platforms.includes('android'))
 		throw new TypeError(
 			'mobile test android requires android in mobile.platforms.'
-		);
-	if (mobile.engine !== 'expo')
-		throw new TypeError(
-			'mobile test android --release currently requires mobile.engine: expo; use the ordinary test command for Capacitor.'
 		);
 	const release = await readAbsoluteAndroidRelease(projectRoot, requested);
 	if (release.metadata.appId !== mobile.appId)

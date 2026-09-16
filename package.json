@@ -472,6 +472,7 @@
 		"test:native:android:observability": "ABSOLUTE_TEST_NATIVE_ANDROID=1 bun test tests/native/android-embedded-bundle-conformance.test.ts -t 'native process crash'",
 		"test:native:android:updates": "ABSOLUTE_TEST_NATIVE_ANDROID=1 bun test tests/native/android-embedded-bundle-conformance.test.ts -t 'signed web updates'",
 		"test:native:android:upgrade": "ABSOLUTE_TEST_NATIVE_ANDROID=1 bun test tests/native/android-embedded-bundle-conformance.test.ts -t 'installed APK upgrade'",
+		"test:native:capacitor:android:release": "ABSOLUTE_TEST_NATIVE_CAPACITOR_ANDROID_RELEASE=1 bun test tests/native/capacitor-android-release-conformance.test.ts",
 		"test:native:expo:android:hmr": "ABSOLUTE_TEST_NATIVE_EXPO_HMR_PLATFORM=android bun test tests/native/expo-hmr-conformance.test.ts",
 		"test:native:expo:android:observability": "ABSOLUTE_TEST_NATIVE_EXPO_ANDROID=1 bun test tests/native/expo-android-observability-conformance.test.ts",
 		"test:native:expo:android:picker": "ABSOLUTE_TEST_NATIVE_EXPO_ANDROID_PICKER=1 bun test tests/native/expo-android-picker-conformance.test.ts",
@@ -536,7 +537,7 @@
 			]
 		}
 	},
-	"version": "0.20.0-beta.103",
+	"version": "0.20.0-beta.104",
 	"workspaces": [
 		"tests/fixtures/*",
 		"tests/fixtures/_packages/*"

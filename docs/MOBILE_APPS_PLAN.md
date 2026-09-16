@@ -1,6 +1,21 @@
 # AbsoluteJS Mobile Apps: Research and Implementation Plan
 
-Status: Capacitor Android development/release, all-framework embedded bundles, universal native Auth/Sync, Expo hybrid native Auth/Sync, background Sync, automatic device provisioning, provider-neutral native push registration, signed staged Capacitor updates, end-to-end RSA-signed self-hosted Expo production updates, and Android development plus installed production-AAB conformance are operational; iOS development/release automation plus installed Expo iOS OTA and replacement-upgrade harnesses are shipped and awaiting real macOS/physical-device acceptance
+Status: Capacitor Android development/release, all-framework embedded bundles, universal native Auth/Sync, Expo hybrid native Auth/Sync, background Sync, automatic device provisioning, provider-neutral native push registration, signed staged Capacitor updates, end-to-end RSA-signed self-hosted Expo production updates, and provider-neutral Android development plus installed production-AAB conformance are operational; iOS development/release automation plus installed Expo iOS OTA and replacement-upgrade harnesses are shipped and awaiting real macOS/physical-device acceptance
+
+Implementation checkpoint (September 16, 2026, Capacitor Android installed
+release parity): the same provider-neutral `absolute mobile test android
+--release` command now installs Capacitor production AABs as well as Expo AABs.
+The generated Capacitor Android host registers one AbsoluteJS-owned readiness
+plugin, and the embedded shell invokes it only after shell startup completes.
+The plugin logs one categorical marker without application data, credentials,
+paths, URLs, or page contents. The gate validates immutable release identity,
+derives and installs the exact APK set with checksum-pinned Bundletool, disables
+both emulator network transports, and proves readiness across a cold launch and
+force-stop/relaunch before restoring prior network state. A permanent ordinary
+React fixture runs the public init, build, and test commands. Its real WSL API
+36 pass built a 3.32 MB AAB in 3m23s, reused 297 of 298 Gradle tasks on the 46s
+warm build, and completed installed offline acceptance in 35s. Run it from this
+repository root with `bun run test:native:capacitor:android:release`.
 
 Implementation checkpoint (September 16, 2026, WSL Expo Android public-CLI
 release conformance): `@absolutejs/absolute@0.20.0-beta.101` adds a permanent
@@ -1904,7 +1919,7 @@ Sync, background, signing, and store rows remain `NOT_RUN` until a tester perfor
 them; AbsoluteJS never promotes an automated WebView observation into a broader
 manual pass.
 
-Expo production artifacts have a separate installed-release path because a
+Production artifacts have a separate installed-release path because a
 release WebView is intentionally not debuggable and does not connect to HMR.
 Build the AAB, then pass the printed immutable release directory back to the
 test command from the application root:
@@ -1936,6 +1951,9 @@ the installed-upgrade conformance gate remains the authoritative state proof.
 An Expo application whose `mobile.entry` is a native route must choose an
 embedded web entry for this offline test, because native page props correctly
 come from the trusted production server rather than being fabricated locally.
+Capacitor applications require no special entry selection: AbsoluteJS invokes
+the data-minimal native readiness signal after the embedded shell settles, even
+when the trusted server is offline and the shell is showing its offline state.
 
 Implementation checkpoint (August 27, 2026, installed Android upgrade slice):
 the production embedded-app fixture now performs a real state-preserving

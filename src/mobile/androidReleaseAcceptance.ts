@@ -34,7 +34,10 @@ export const ABSOLUTE_BUNDLETOOL_SHA256 =
 	'a099cfa1543f55593bc2ed16a70a7c67fe54b1747bb7301f37fdfd6d91028e29';
 export const ABSOLUTE_BUNDLETOOL_URL = `https://github.com/google/bundletool/releases/download/${ABSOLUTE_BUNDLETOOL_VERSION}/bundletool-all-${ABSOLUTE_BUNDLETOOL_VERSION}.jar`;
 
-const EMBEDDED_READY_MARKER = 'Expo embedded web content ready';
+const EMBEDDED_READY_MARKERS = {
+	capacitor: 'Capacitor embedded web content ready',
+	expo: 'Expo embedded web content ready'
+} as const;
 const RELEASE_READY_POLL_MS = 250;
 const RELEASE_READY_TIMEOUT_MS = 30_000;
 const RELEASE_STABILITY_MS = 2_000;
@@ -311,6 +314,7 @@ const waitForMarker = async (
 	adbPath: string,
 	serial: string,
 	appId: string,
+	engine: 'capacitor' | 'expo',
 	timeoutMs: number
 ) => {
 	const startedAt = performance.now();
@@ -337,11 +341,13 @@ const waitForMarker = async (
 			throw new Error(
 				'The installed Android release exited before becoming ready.'
 			);
-		if (logs.stdout.includes(EMBEDDED_READY_MARKER)) return;
+		if (logs.stdout.includes(EMBEDDED_READY_MARKERS[engine])) return;
 		const failedPhase =
-			/Expo embedded web phase: (assets-(?:root|directory|destination|module|source|download|copy|read|write|finalize|unexpected)|devices)-failed/u.exec(
-				logs.stdout
-			)?.[1];
+			engine === 'expo'
+				? /Expo embedded web phase: (assets-(?:root|directory|destination|module|source|download|copy|read|write|finalize|unexpected)|devices)-failed/u.exec(
+						logs.stdout
+					)?.[1]
+				: undefined;
 		if (failedPhase)
 			throw new Error(
 				`The installed release could not initialize its embedded ${failedPhase} runtime offline.`
@@ -408,10 +414,6 @@ const launch = async (
 export const runAbsoluteAndroidReleaseAcceptance = async (
 	options: RunAbsoluteAndroidReleaseAcceptanceOptions
 ): Promise<AbsoluteAndroidReleaseAcceptanceResult> => {
-	if (options.release.metadata.engine !== 'expo')
-		throw new TypeError(
-			'Installed AAB release acceptance currently requires the Expo engine.'
-		);
 	if (!options.serial.startsWith('emulator-'))
 		throw new TypeError(
 			'Installed release acceptance changes network state and therefore requires an Android emulator.'
@@ -573,6 +575,7 @@ export const runAbsoluteAndroidReleaseAcceptance = async (
 			options.adb,
 			options.serial,
 			options.release.metadata.appId,
+			options.release.metadata.engine,
 			RELEASE_READY_TIMEOUT_MS
 		);
 		await Bun.sleep(options.stabilityMs ?? RELEASE_STABILITY_MS);
@@ -605,6 +608,7 @@ export const runAbsoluteAndroidReleaseAcceptance = async (
 			options.adb,
 			options.serial,
 			options.release.metadata.appId,
+			options.release.metadata.engine,
 			RELEASE_READY_TIMEOUT_MS
 		);
 	} finally {

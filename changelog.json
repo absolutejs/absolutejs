@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "The provider-neutral release command now installs the exact Capacitor AAB-derived APK set on the managed emulator, takes both network transports offline, and requires an AbsoluteJS-owned native readiness signal across a cold launch and process relaunch. Bun workspace-hoisted Capacitor executables and package manifests are resolved only through the application’s governing workspace. Reports and telemetry retain only provider, artifact identity, outcome, and bounded timings.",
+					"kind": "added",
+					"summary": "Capacitor Android releases gain installed offline AAB acceptance"
+				}
+			],
+			"date": "2026-09-16",
+			"version": "0.20.0-beta.104"
+		},
+		{
+			"changes": [
+				{
 					"detail": "`absolute mobile test android --release` revalidates one immutable AAB, approval-installs checksum-pinned Bundletool, starts the managed emulator, installs the derived APK set, and proves embedded content across two offline process launches. Expo production web files travel through Metro as one deterministic opaque archive and are reconstructed from a verified offset table, avoiding per-file registry failures. Sanitized reports and telemetry record only artifact identity, sizes, timings, provider, and outcome.",
 					"kind": "added",
 					"summary": "Expo Android releases now have installed offline AAB acceptance"
