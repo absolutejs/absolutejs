@@ -18,6 +18,7 @@ import {
 	materializeAbsoluteRemoteMacAgent,
 	pairAbsoluteRemoteMac,
 	removeAbsoluteRemoteMacProfile,
+	runAbsoluteRemoteIosReleaseAcceptance,
 	startAbsoluteRemoteIosDevSession,
 	startAbsoluteRemoteExpoIosDevSession,
 	createAbsoluteRemoteExpoIosDevProject,
@@ -28,6 +29,7 @@ import {
 } from '../../../src/mobile/remoteMacProtocol';
 import { normalizeAbsoluteMobileConfig } from '../../../src/mobile/config';
 import type { AbsoluteIosReleaseMetadata } from '../../../src/mobile/iosRelease';
+import type { AbsoluteIosRelease } from '../../../src/mobile/iosReleaseAcceptance';
 
 const temporaryDirectories: string[] = [];
 
@@ -64,6 +66,7 @@ type FakeReadyEvent = {
 };
 
 type FakeProtocolProcessOptions = {
+	autoExit?: boolean;
 	initial: Record<string, unknown>[];
 	onRequest: (
 		request: FakeProtocolRequest,
@@ -108,6 +111,7 @@ const fakeProtocolProcess = (options: FakeProtocolProcessOptions) => {
 		resolveExit(code);
 	};
 	options.initial.forEach(emit);
+	if (options.autoExit) queueMicrotask(() => exit());
 	const stdin = {
 		end: () => 0,
 		flush: () => 0,
@@ -399,16 +403,20 @@ describe('remote Mac protocol', () => {
 		};
 		const identities: string[] = [];
 		const phases: string[] = [];
+		let spawnedCommand = '';
 		const release = await buildAbsoluteRemoteIosRelease({
 			project,
+			registeredDeviceArtifact: true,
 			transport: {
 				capture: async () => ({
 					exitCode: 0,
 					stderr: '',
 					stdout: 'ACQUIRED\n'
 				}),
-				spawn: () =>
-					fakeProtocolProcess({
+				spawn: (command) => {
+					spawnedCommand = command.join(' ');
+
+					return fakeProtocolProcess({
 						initial: [
 							{
 								buildIdentity,
@@ -429,7 +437,8 @@ describe('remote Mac protocol', () => {
 							emit({ metadata, type: 'release' });
 							exit();
 						}
-					})
+					});
+				}
 			},
 			installAgent: async () => ({ remotePath: '/remote/agent.js' }),
 			onPhaseTiming: ({ phase }) => phases.push(phase),
@@ -450,6 +459,115 @@ describe('remote Mac protocol', () => {
 		expect(release.metadata).toEqual(metadata);
 		expect(phases).toContain('remote-release-sync');
 		expect(phases).toContain('remote-release-download');
+		expect(spawnedCommand).toContain('--registered-device-artifact');
+	});
+
+	test('runs immutable installed-release evidence on a paired Mac', async () => {
+		const root = await temporaryRoot();
+		const config = normalizeAbsoluteMobileConfig(
+			{
+				appId: 'com.example.remote.acceptance',
+				appName: 'Remote Acceptance',
+				platforms: ['ios'],
+				server: { productionOrigin: 'https://example.com' }
+			},
+			root
+		);
+		const project = createAbsoluteRemoteIosDevProject(config, root, {
+			bunPath: '/Users/builder/.bun/bin/bun',
+			createdAt: '2026-09-16T00:00:00.000Z',
+			destination: 'builder@mac',
+			name: 'mac',
+			workspaceRoot: '/Users/builder/.absolutejs/remote-ios',
+			xcodeVersion: 'Xcode 26.4'
+		});
+		const sha256 = 'c'.repeat(64);
+		const metadata: AbsoluteIosReleaseMetadata = {
+			appBuild: 'ambuild_acceptance',
+			appId: config.appId,
+			artifact: 'App.ipa',
+			buildNumber: 31,
+			bytes: 456,
+			engine: 'capacitor',
+			format: 1,
+			marketingVersion: '3.2.1',
+			platform: 'ios',
+			releaseId: `amobile_ios_${sha256}`,
+			runtime: '1',
+			sha256,
+			signed: true,
+			type: 'ipa'
+		};
+		const release: AbsoluteIosRelease = {
+			artifactPath: join(root, 'App.ipa'),
+			metadata,
+			metadataPath: join(root, 'release.json'),
+			releaseRoot: root
+		};
+		let command = '';
+		const phases: string[] = [];
+		const acceptance = await runAbsoluteRemoteIosReleaseAcceptance({
+			deviceIdentifier: 'device-1',
+			distribution: 'testflight',
+			networkUnavailableConfirmed: true,
+			project,
+			release,
+			transport: {
+				capture: async () => ({ exitCode: 0, stderr: '', stdout: '' }),
+				spawn: (spawned) => {
+					command = spawned.join(' ');
+
+					return fakeProtocolProcess({
+						autoExit: true,
+						initial: [
+							{
+								result: {
+									artifactBytes: 456,
+									artifactExactness: 'store-delivered',
+									artifactSha256: sha256,
+									buildNumber: 31,
+									distribution: 'apple-processed',
+									durationMs: 900,
+									embeddedLocal: true,
+									engine: 'capacitor',
+									installMs: 0,
+									launchMs: 400,
+									marketingVersion: '3.2.1',
+									networkUnavailable: 'user-confirmed',
+									relaunchMs: 350,
+									releaseId: metadata.releaseId,
+									signed: true,
+									status: 'pass',
+									target: 'device'
+								},
+								targetId: 'device-1',
+								type: 'release-acceptance'
+							}
+						],
+						onRequest: () => undefined
+					});
+				}
+			},
+			acquireLease: async () => ({
+				path: '/remote/lease',
+				recovered: false,
+				token: 'token',
+				heartbeat: async () => undefined,
+				release: async () => undefined
+			}),
+			installAgent: async () => ({ remotePath: '/remote/agent.js' }),
+			onPhaseTiming: ({ phase }) => phases.push(phase),
+			syncProject: async () => undefined,
+			syncRelease: async () => undefined,
+			syncReleaseInputs: async () => undefined
+		});
+		expect(acceptance.result.artifactExactness).toBe('store-delivered');
+		expect(acceptance.targetId).toBe('device-1');
+		expect(command).toContain('--test-ios-release');
+		expect(command).toContain('--distribution');
+		expect(command).toContain('testflight');
+		expect(command).toContain('--network-unavailable-confirmed');
+		expect(phases).toContain('remote-release-acceptance-sync');
 	});
 
 	test('coordinates release ownership with token-guarded leases', async () => {

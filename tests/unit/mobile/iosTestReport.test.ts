@@ -145,6 +145,7 @@ describe('iOS partner test report', () => {
 					networkUnavailable: 'user-confirmed',
 					relaunchMs: 110,
 					releaseId: `amobile_ios_${'a'.repeat(64)}`,
+					remote: true,
 					signed: true
 				},
 				screenshot: undefined,
@@ -164,6 +165,9 @@ describe('iOS partner test report', () => {
 			report.automatedChecks.find(
 				({ id }) => id === 'AUTO-IOS-RELEASE-OFFLINE-01'
 			)
+		).toMatchObject({ result: 'PASS' });
+		expect(
+			report.automatedChecks.find(({ id }) => id === 'AUTO-IOS-REMOTE-01')
 		).toMatchObject({ result: 'PASS' });
 	});
 

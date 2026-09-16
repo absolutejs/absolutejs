@@ -121,6 +121,7 @@ import {
 	captureAbsoluteRemoteMacCommand,
 	pairAbsoluteRemoteMac,
 	removeAbsoluteRemoteMacProfile,
+	runAbsoluteRemoteIosReleaseAcceptance,
 	type AbsoluteRemoteMacProfile
 } from '../../mobile/remoteMacProtocol';
 import { projectUsesAbsoluteSync } from '../../mobile/nativeAuth';
@@ -2308,10 +2309,6 @@ const buildIos = async (
 		throw new TypeError(
 			'iOS release builds require macOS or a paired Remote Mac. Run `absolute mobile pair mac <name> <user@host>`.'
 		);
-	if (remoteProfile && args.includes('--registered-device-artifact'))
-		throw new TypeError(
-			'--registered-device-artifact currently requires a local Mac; paired Remote Mac transfer support is not yet available.'
-		);
 	let success = false;
 	const cancellation = remoteProfile ? new AbortController() : undefined;
 	let stopListeningForCancellation: () => void = () => undefined;
@@ -2351,6 +2348,9 @@ const buildIos = async (
 						mobile,
 						projectRoot,
 						remoteProfile
+					),
+					registeredDeviceArtifact: args.includes(
+						'--registered-device-artifact'
 					),
 					signal: cancellation?.signal
 				})
@@ -3877,7 +3877,8 @@ const printIosReleaseAcceptance = (
 const iosReleaseRun = (
 	result: AbsoluteIosReleaseAcceptanceResult,
 	appId: string,
-	targetId: string
+	targetId: string,
+	remote: boolean
 ): AbsoluteIosAutomatedResult => ({
 	appId,
 	durationMs: result.durationMs,
@@ -3894,6 +3895,7 @@ const iosReleaseRun = (
 		networkUnavailable: result.networkUnavailable,
 		relaunchMs: result.relaunchMs,
 		releaseId: result.releaseId,
+		remote,
 		signed: result.signed
 	},
 	status: 'pass',
@@ -3958,6 +3960,76 @@ const runIosSimulatorReleaseTarget = async (options: {
 	return { result, targetId: simulator.udid };
 };
 
+type RemoteIosReleaseTargetOptions = {
+	args: string[];
+	cancellation?: AbortController;
+	mobile: NormalizedAbsoluteMobileConfig;
+	profile: AbsoluteRemoteMacProfile;
+	projectRoot: string;
+	release: Awaited<ReturnType<typeof readAbsoluteIosRelease>>;
+	requestedDevice?: string;
+};
+
+const runRemoteIosReleaseTarget = async (
+	options: RemoteIosReleaseTargetOptions
+) => {
+	const physical = options.requestedDevice !== undefined;
+	const confirmed =
+		!physical ||
+		options.args.includes('--yes') ||
+		(await confirmInstall(
+			'On the selected iPhone, enable Airplane Mode and then disable Wi-Fi in Settings. Confirm both are still disabled and continue with two release launches on the Remote Mac?'
+		));
+	if (!confirmed)
+		throw new TypeError(
+			'Physical iOS offline acceptance was cancelled because network-unavailable state was not confirmed.'
+		);
+	let distribution: 'registered-device' | 'simulator-release' | 'testflight' =
+		'simulator-release';
+	if (options.requestedDevice) distribution = 'registered-device';
+	if (options.args.includes('--testflight')) distribution = 'testflight';
+	const simulatorUdid =
+		valueAfter(options.args, '--udid') ??
+		valueAfter(options.args, '--serial');
+	const remoteAcceptance = await runAbsoluteRemoteIosReleaseAcceptance({
+		...(options.requestedDevice
+			? {
+					deviceIdentifier: normalizeAbsoluteIosDeviceIdentifier(
+						options.requestedDevice
+					),
+					networkUnavailableConfirmed: true
+				}
+			: {}),
+		distribution,
+		project: createAbsoluteRemoteIosDevProject(
+			options.mobile,
+			options.projectRoot,
+			options.profile
+		),
+		release: options.release,
+		signal: options.cancellation?.signal,
+		log: (message) => console.log(`[remote] ${message}`),
+		onPhaseTiming: ({ durationMs, phase }) => {
+			console.log(
+				`[mobile:ios-release-test] ${phase} ${getDurationString(durationMs)}`
+			);
+			sendTelemetryEvent('mobile:ios-release-test-phase', {
+				durationMs: Math.round(durationMs),
+				engine: options.mobile.engine,
+				phase,
+				platform: 'ios',
+				provider: 'remote-mac'
+			});
+		},
+		...(simulatorUdid ? { simulatorUdid } : {})
+	});
+
+	return {
+		result: remoteAcceptance.result,
+		targetId: remoteAcceptance.targetId
+	};
+};
+
 const testIosRelease = async (
 	args: string[],
 	mobile: NormalizedAbsoluteMobileConfig,
@@ -3972,9 +4044,24 @@ const testIosRelease = async (
 		throw new TypeError(
 			'mobile test ios requires ios in mobile.platforms.'
 		);
-	if (args.includes('--remote'))
+	const requestedRemote = valueAfter(args, '--remote');
+	if (
+		args.includes('--remote') &&
+		(!requestedRemote || requestedRemote.startsWith('-'))
+	)
 		throw new TypeError(
-			'Installed iOS release acceptance currently runs on a local Mac. Remote Mac acceptance will be added to the paired-host protocol.'
+			'mobile test ios --release requires --remote <name>.'
+		);
+	const remoteProfile =
+		requestedRemote !== undefined || process.platform !== 'darwin'
+			? await getAbsoluteRemoteMacProfile(
+					requestedRemote,
+					remoteProfilePath()
+				)
+			: undefined;
+	if (process.platform !== 'darwin' && !remoteProfile)
+		throw new TypeError(
+			'iOS release acceptance requires macOS or a paired Remote Mac. Run `absolute mobile pair mac <name> <user@host>`.'
 		);
 	const release = await readAbsoluteIosRelease(projectRoot, requested);
 	if (release.metadata.appId !== mobile.appId)
@@ -4005,7 +4092,7 @@ const testIosRelease = async (
 		throw new TypeError(
 			'mobile test ios --release --device cannot be combined with a simulator selector.'
 		);
-	const xcrun = await requireIosXcrun();
+	const xcrun = remoteProfile ? undefined : await requireIosXcrun();
 	const reportRoot = nativeReportRoot(args, projectRoot, 'ios');
 	const artifactRoot =
 		reportRoot ??
@@ -4016,21 +4103,56 @@ const testIosRelease = async (
 		);
 	const startedAt = performance.now();
 	let targetId = requestedDevice ?? 'ios-simulator';
+	let remoteReportMetadata:
+		| Awaited<ReturnType<typeof iosReportMetadata>>
+		| undefined;
+	if (remoteProfile && reportRoot) {
+		const macos = await captureAbsoluteRemoteMacCommand(remoteProfile, [
+			'/usr/bin/sw_vers',
+			'-productVersion'
+		]);
+		if (macos.exitCode !== 0)
+			throw new Error('Remote Mac version inspection failed.');
+		remoteReportMetadata = {
+			absolutejsVersion: await absolutejsVersionForReport(),
+			bunVersion: Bun.version,
+			macosVersion: macos.stdout.trim(),
+			xcodeVersion: remoteProfile.xcodeVersion
+		};
+	}
+	const cancellation = remoteProfile ? new AbortController() : undefined;
+	const stopListeningForCancellation = remoteProfile
+		? listenForRemoteReleaseCancellation(cancellation)
+		: () => undefined;
 	try {
-		const acceptance = requestedDevice
-			? await runIosPhysicalReleaseTarget({
-					args,
-					device: requestedDevice,
-					release,
-					xcrun
-				})
-			: await runIosSimulatorReleaseTarget({
-					args,
-					artifactRoot,
-					mobile,
-					release,
-					xcrun
-				});
+		let acceptance;
+		if (remoteProfile)
+			acceptance = await runRemoteIosReleaseTarget({
+				args,
+				...(cancellation ? { cancellation } : {}),
+				mobile,
+				profile: remoteProfile,
+				projectRoot,
+				release,
+				...(requestedDevice ? { requestedDevice } : {})
+			});
+		else if (!xcrun)
+			throw new Error('Local iOS release acceptance requires xcrun.');
+		else if (requestedDevice)
+			acceptance = await runIosPhysicalReleaseTarget({
+				args,
+				device: requestedDevice,
+				release,
+				xcrun
+			});
+		else
+			acceptance = await runIosSimulatorReleaseTarget({
+				args,
+				artifactRoot,
+				mobile,
+				release,
+				xcrun
+			});
 		const { result, targetId: acceptedTargetId } = acceptance;
 		targetId = acceptedTargetId;
 		sendTelemetryEvent('mobile:ios-release-conformance', {
@@ -4042,14 +4164,21 @@ const testIosRelease = async (
 			launchMs: result.launchMs,
 			platform: 'ios',
 			relaunchMs: result.relaunchMs,
+			remote: remoteProfile !== undefined,
 			success: true
 		});
 		await writeRequestedIosReport({
 			args,
+			...(remoteReportMetadata ? { metadata: remoteReportMetadata } : {}),
 			projectRoot,
 			provider: mobile.engine,
-			run: iosReleaseRun(result, mobile.appId, targetId),
-			xcrun
+			run: iosReleaseRun(
+				result,
+				mobile.appId,
+				targetId,
+				remoteProfile !== undefined
+			),
+			...(xcrun ? { xcrun } : {})
 		});
 		printIosReleaseAcceptance(result, args.includes('--json'));
 
@@ -4060,6 +4189,7 @@ const testIosRelease = async (
 			durationMs,
 			engine: mobile.engine,
 			platform: 'ios',
+			remote: remoteProfile !== undefined,
 			success: false
 		});
 		await mkdir(artifactRoot, { recursive: true });
@@ -4083,6 +4213,9 @@ const testIosRelease = async (
 		if (reportRoot)
 			await writeRequestedIosReport({
 				args,
+				...(remoteReportMetadata
+					? { metadata: remoteReportMetadata }
+					: {}),
 				projectRoot,
 				provider: mobile.engine,
 				run: {
@@ -4094,12 +4227,14 @@ const testIosRelease = async (
 					targetId,
 					targetKind: requestedDevice ? 'device' : 'simulator'
 				},
-				xcrun
+				...(xcrun ? { xcrun } : {})
 			});
 		throw new Error(
 			`${error instanceof Error ? error.message : String(error)} Failure diagnostics: ${diagnosticPath}`,
 			{ cause: error }
 		);
+	} finally {
+		stopListeningForCancellation();
 	}
 };
 
@@ -4439,6 +4574,6 @@ export const runMobile = async (args: string[]) => {
 	}
 
 	throw new TypeError(
-		'Usage: absolute mobile <pair mac <name> <user@host> [--port n] [--workspace path] | remotes [inspect [name] [--json] | clean [name] --yes | --json] | unpair mac <name> | init [--no-native] [--force] | sync [ios|android] | inspect [--json] [--require-bundle] | associations [--outdir dir] [--verify] | ci github [server-entry] [--publish] [--registry module] [--secret-env NAME] [--output path] [--force] [--json] | doctor [ios|android|release [ios|android]] [--remote name] [--json|--fix [--yes]] | build <android|ios> [server-entry] [--remote name] [--registered-device-artifact] [--outdir dir] [--web-outdir dir] [--unsigned] | update provision [--storage local|s3] [--registry module] [--force] [--yes] | update signing generate --private-key path [--certificate path] [--public-key path] [--key-id id] [--common-name name] [--validity-years n] | update build [server-entry] --classification bug-fix|content|security --key-id id --signing-key path --within-submitted-purpose [--outdir dir] [--web-outdir dir] | update publish <release-directory> [--rollout fraction] [--registry module] | update promote --release id --rollout fraction [--registry module] | update rollback [--release id] [--registry module] | update status [--registry module] [--json] | update advance [--rollout fraction] [--registry module] [--json] | update pause|resume|cancel|reconcile [--registry module] [--json] | update storage [--retain count] [--min-age-days days] [--registry module] [--json] | update gc [--retain count] [--min-age-days days] [--grace-days days] [--apply] [--registry module] [--json] | publish android [server-entry] [--registry module] [--channel name] [--play-track track] [--play-status completed|draft|halted|in-progress] [--play-rollout fraction] [--play-name name] [--play-notes language=text] [--play-update-priority 0..5] [--play-hold-review] [--play-cancel-existing-review] [--outdir dir] [--web-outdir dir] [--unsigned] | publish ios [server-entry] [--remote name] [--registry module] [--channel name] [--testflight-group name-or-id] [--testflight-notes locale=text] [--testflight-submit-review] [--outdir dir] [--web-outdir dir] [--unsigned] | test android [--release release-dir [--yes] | --route path [--wait-for-hmr] [--port n]] [--report [dir]] [--serial id] [--artifacts dir] [--json] [--config path] | test ios [--release release-dir [--device id [--testflight] --yes] | --wait-for-hmr] [--report [dir]] [--udid id] [--artifacts dir] [--json] [--config path]'
+		'Usage: absolute mobile <pair mac <name> <user@host> [--port n] [--workspace path] | remotes [inspect [name] [--json] | clean [name] --yes | --json] | unpair mac <name> | init [--no-native] [--force] | sync [ios|android] | inspect [--json] [--require-bundle] | associations [--outdir dir] [--verify] | ci github [server-entry] [--publish] [--registry module] [--secret-env NAME] [--output path] [--force] [--json] | doctor [ios|android|release [ios|android]] [--remote name] [--json|--fix [--yes]] | build <android|ios> [server-entry] [--remote name] [--registered-device-artifact] [--outdir dir] [--web-outdir dir] [--unsigned] | update provision [--storage local|s3] [--registry module] [--force] [--yes] | update signing generate --private-key path [--certificate path] [--public-key path] [--key-id id] [--common-name name] [--validity-years n] | update build [server-entry] --classification bug-fix|content|security --key-id id --signing-key path --within-submitted-purpose [--outdir dir] [--web-outdir dir] | update publish <release-directory> [--rollout fraction] [--registry module] | update promote --release id --rollout fraction [--registry module] | update rollback [--release id] [--registry module] | update status [--registry module] [--json] | update advance [--rollout fraction] [--registry module] [--json] | update pause|resume|cancel|reconcile [--registry module] [--json] | update storage [--retain count] [--min-age-days days] [--registry module] [--json] | update gc [--retain count] [--min-age-days days] [--grace-days days] [--apply] [--registry module] [--json] | publish android [server-entry] [--registry module] [--channel name] [--play-track track] [--play-status completed|draft|halted|in-progress] [--play-rollout fraction] [--play-name name] [--play-notes language=text] [--play-update-priority 0..5] [--play-hold-review] [--play-cancel-existing-review] [--outdir dir] [--web-outdir dir] [--unsigned] | publish ios [server-entry] [--remote name] [--registry module] [--channel name] [--testflight-group name-or-id] [--testflight-notes locale=text] [--testflight-submit-review] [--outdir dir] [--web-outdir dir] [--unsigned] | test android [--release release-dir [--yes] | --route path [--wait-for-hmr] [--port n]] [--report [dir]] [--serial id] [--artifacts dir] [--json] [--config path] | test ios [--release release-dir [--remote name] [--device id [--testflight] --yes] | --wait-for-hmr] [--report [dir]] [--udid id] [--artifacts dir] [--json] [--config path]'
 	);
 };

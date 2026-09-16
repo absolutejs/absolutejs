@@ -3997,7 +3997,15 @@ readiness marker. The immutable release manifest hashes both IPA variants, the
 CLI validates every artifact before use, performs two launches, emits bounded
 timings/telemetry, and projects the distinction into the partner Markdown and
 JSON reports. The macOS runbook contains application-root commands and separate
-checklist IDs for all three lanes. Paired Remote Mac transport for the optional
-registered-device artifact and these installed-release commands remains a
-follow-up; the first acceptance implementation runs on a local Mac so it cannot
-silently claim evidence from the wrong host or artifact.
+checklist IDs for all three lanes. Protocol v4 now extends the same contract
+through a paired developer-owned Mac: same-archive companion exports are
+independently streamed and re-hashed, immutable releases are atomically
+synchronized into a private acceptance directory, and Simulator,
+registered-device, and TestFlight evidence executes on the paired Mac. The
+client validates every returned identity, strength, distribution, target,
+offline state, and timing field before writing the local report. Signing state
+stays in the Mac Keychain, publication credentials stay on the initiating
+computer, and neither telemetry nor reports contain the SSH destination or
+remote paths. Real Windows/Linux-to-Mac and physical-device execution remains
+part of the partner acceptance run rather than being claimed from this Linux
+host.

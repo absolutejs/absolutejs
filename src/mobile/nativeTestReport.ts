@@ -73,6 +73,7 @@ export type AbsoluteNativeIosReleaseResult = {
 	installMs: number;
 	launchMs: number;
 	networkUnavailable: 'not-proven' | 'user-confirmed';
+	remote?: boolean;
 	releaseId: string;
 	relaunchMs: number;
 	signed: boolean;
@@ -240,7 +241,7 @@ export const createAbsoluteNativeAutomatedChecks = (
 		const release = run.iosRelease;
 		checks.push(
 			{
-				details: `Validated immutable release ${release.releaseId} (${release.artifactBytes} bytes, SHA-256 ${release.artifactSha256}); ${release.distribution} evidence is ${release.artifactExactness}, installed in ${release.installMs}ms.`,
+				details: `Validated immutable release ${release.releaseId} (${release.artifactBytes} bytes, SHA-256 ${release.artifactSha256}); ${release.distribution} evidence is ${release.artifactExactness}, executed on the ${release.remote ? 'paired Remote Mac' : 'local Mac'}, and installed in ${release.installMs}ms.`,
 				id: 'AUTO-IOS-RELEASE-01',
 				result: run.status === 'pass' ? 'PASS' : 'FAIL'
 			},
@@ -256,6 +257,13 @@ export const createAbsoluteNativeAutomatedChecks = (
 						: 'SKIPPED'
 			}
 		);
+		if (release.remote)
+			checks.push({
+				details:
+					'The installed-release lane executed through the paired Remote Mac protocol; immutable inputs and returned evidence were verified on the initiating host.',
+				id: 'AUTO-IOS-REMOTE-01',
+				result: run.status === 'pass' ? 'PASS' : 'FAIL'
+			});
 	}
 	if (run.upgrade) {
 		const { upgrade } = run;

@@ -21,6 +21,13 @@ import { applyAbsoluteNativeDeviceCapabilities } from './nativeDeviceCapabilitie
 import { inspectAbsoluteMobileRelease } from './releaseDoctor';
 import { buildAbsoluteIosRelease } from './iosRelease';
 import {
+	readAbsoluteIosRelease,
+	runAbsoluteIosDeviceReleaseAcceptance,
+	runAbsoluteIosSimulatorReleaseAcceptance
+} from './iosReleaseAcceptance';
+import {
+	ABSOLUTE_IOS_SIMULATOR_NAME,
+	parseIosSimulators,
 	prepareAbsoluteIosDevProject,
 	startAbsoluteIosDevSession,
 	type AbsoluteIosCommandOptions,
@@ -298,6 +305,9 @@ const runAbsoluteRemoteIosReleaseAgent = async (options: {
 				? { prepareBuildNumber: requestBuildNumber }
 				: {}),
 			projectRoot: process.cwd(),
+			registeredDeviceArtifact: options.args.includes(
+				'--registered-device-artifact'
+			),
 			run: (command, runOptions = {}) =>
 				run(command, {
 					...runOptions,
@@ -310,6 +320,152 @@ const runAbsoluteRemoteIosReleaseAgent = async (options: {
 			type: 'timing'
 		});
 		emit({ metadata: release.metadata, type: 'release' });
+	} finally {
+		process.removeListener('SIGHUP', cancel);
+		process.removeListener('SIGINT', cancel);
+		process.removeListener('SIGTERM', cancel);
+	}
+};
+
+const selectAbsoluteRemoteReleaseSimulator = async (explicitUdid?: string) => {
+	const listed = capture([
+		'/usr/bin/xcrun',
+		'simctl',
+		'list',
+		'devices',
+		'available',
+		'-j'
+	]);
+	if (listed.exitCode !== 0)
+		throw new Error(
+			`Remote iOS Simulator discovery failed: ${listed.stderr.trim() || listed.stdout.trim()}`
+		);
+	const devices = parseIosSimulators(listed.stdout).filter(
+		(device) => device.isAvailable
+	);
+	const selected = explicitUdid
+		? devices.find((device) => device.udid === explicitUdid)
+		: devices.find((device) => device.name === ABSOLUTE_IOS_SIMULATOR_NAME);
+	if (!selected)
+		throw new TypeError(
+			explicitUdid
+				? `Remote iOS simulator ${explicitUdid} is unavailable.`
+				: 'No managed AbsoluteJS iOS simulator exists on the Remote Mac. Run `absolute mobile doctor ios --remote <name> --fix`.'
+		);
+	if (selected.state !== 'Booted') {
+		const boot = capture([
+			'/usr/bin/xcrun',
+			'simctl',
+			'boot',
+			selected.udid
+		]);
+		if (boot.exitCode !== 0)
+			throw new Error(
+				`Remote iOS Simulator boot failed: ${boot.stderr.trim() || boot.stdout.trim()}`
+			);
+		const ready = await run([
+			'/usr/bin/xcrun',
+			'simctl',
+			'bootstatus',
+			selected.udid,
+			'-b'
+		]);
+		if (ready !== 0)
+			throw new Error('Remote iOS Simulator did not become ready.');
+	}
+
+	return selected.udid;
+};
+
+const runAbsoluteRemoteIosReleaseAcceptanceAgent = async (options: {
+	args: string[];
+	config: ReturnType<typeof normalizeAbsoluteMobileConfig>;
+}) => {
+	const cancellation = new AbortController();
+	const cancel = () =>
+		cancellation.abort(
+			new Error('Remote iOS release acceptance connection closed.')
+		);
+	process.once('SIGHUP', cancel);
+	process.once('SIGINT', cancel);
+	process.once('SIGTERM', cancel);
+	try {
+		const releaseId = valueAfter(options.args, '--release-id');
+		if (!releaseId || !/^amobile_ios_[a-f0-9]{64}$/u.test(releaseId))
+			throw new TypeError(
+				'Remote iOS release acceptance requires a valid immutable release ID.'
+			);
+		const distribution = valueAfter(options.args, '--distribution');
+		if (
+			distribution !== 'simulator-release' &&
+			distribution !== 'registered-device' &&
+			distribution !== 'testflight'
+		)
+			throw new TypeError(
+				'Remote iOS release acceptance received an invalid distribution.'
+			);
+		const release = await readAbsoluteIosRelease(
+			process.cwd(),
+			join('.absolutejs', 'mobile', 'acceptance', 'ios', releaseId)
+		);
+		if (
+			release.metadata.appId !== options.config.appId ||
+			release.metadata.engine !== options.config.engine
+		)
+			throw new TypeError(
+				'Remote iOS release identity does not match the synchronized application.'
+			);
+		const startedAt = performance.now();
+		let targetId: string;
+		let result;
+		if (distribution === 'simulator-release') {
+			await prepareAbsoluteRemoteIosRelease(
+				options.config,
+				cancellation.signal
+			);
+			targetId = await selectAbsoluteRemoteReleaseSimulator(
+				valueAfter(options.args, '--simulator-udid')
+			);
+			result = await runAbsoluteIosSimulatorReleaseAcceptance({
+				artifactDirectory: join(
+					'.absolutejs',
+					'mobile',
+					'acceptance',
+					'ios',
+					releaseId,
+					'artifacts'
+				),
+				config: options.config,
+				release,
+				signal: cancellation.signal,
+				udid: targetId
+			});
+		} else {
+			const device = valueAfter(options.args, '--device');
+			if (!device)
+				throw new TypeError(
+					'Remote physical iOS release acceptance requires --device.'
+				);
+			targetId = device;
+			result = await runAbsoluteIosDeviceReleaseAcceptance({
+				device,
+				distribution:
+					distribution === 'testflight'
+						? 'testflight'
+						: 'registered-device',
+				networkUnavailableConfirmed: options.args.includes(
+					'--network-unavailable-confirmed'
+				),
+				release,
+				signal: cancellation.signal
+			});
+		}
+		emit({
+			durationMs: performance.now() - startedAt,
+			phase: 'remote-release-acceptance',
+			type: 'timing'
+		});
+		emit({ result, targetId, type: 'release-acceptance' });
 	} finally {
 		process.removeListener('SIGHUP', cancel);
 		process.removeListener('SIGINT', cancel);
@@ -469,6 +625,11 @@ export const runAbsoluteRemoteMacAgent = async (args: string[]) => {
 	);
 	if (args.includes('--release-ios')) {
 		await runAbsoluteRemoteIosReleaseAgent({ args, config });
+
+		return;
+	}
+	if (args.includes('--test-ios-release')) {
+		await runAbsoluteRemoteIosReleaseAcceptanceAgent({ args, config });
 
 		return;
 	}

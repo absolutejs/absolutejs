@@ -144,6 +144,10 @@ describe('Angular state preservation across tier-0 surgical update', () => {
 
 			throw lastBrowserError;
 		},
-		{ timeout: 150_000 }
+		// Chromium can be reclaimed after hundreds of browser-heavy files in the
+		// aggregate lane. The inner retry repairs a closed session in-place; Bun's
+		// retry gives the test a fresh afterEach boundary if the browser process
+		// itself remains unavailable for that whole transaction.
+		{ retry: 2, timeout: 150_000 }
 	);
 });

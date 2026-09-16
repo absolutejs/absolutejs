@@ -30,6 +30,10 @@ import {
 	type AbsoluteIosReleaseMetadata
 } from './iosRelease';
 import type {
+	AbsoluteIosRelease,
+	AbsoluteIosReleaseAcceptanceResult
+} from './iosReleaseAcceptance';
+import type {
 	AbsoluteIosDevPhaseTiming,
 	AbsoluteIosDevSession,
 	AbsoluteIosDevState,
@@ -181,6 +185,7 @@ export type BuildAbsoluteRemoteIosReleaseOptions = {
 	outputDirectory?: string;
 	prepareBuildNumber?: (buildIdentity: string) => Promise<number>;
 	project: AbsoluteRemoteIosDevProject;
+	registeredDeviceArtifact?: boolean;
 	retrieveRelease?: (
 		project: AbsoluteRemoteIosDevProject,
 		metadata: AbsoluteIosReleaseMetadata,
@@ -190,6 +195,38 @@ export type BuildAbsoluteRemoteIosReleaseOptions = {
 	syncProject?: (project: AbsoluteRemoteIosDevProject) => Promise<void>;
 	signal?: AbortSignal;
 	transport?: Pick<AbsoluteRemoteMacTransport, 'capture' | 'spawn'>;
+};
+
+export type RunAbsoluteRemoteIosReleaseAcceptanceOptions = {
+	acquireLease?: (
+		project: AbsoluteRemoteIosDevProject,
+		signal?: AbortSignal
+	) => Promise<AbsoluteRemoteMacLease>;
+	deviceIdentifier?: string;
+	distribution: 'registered-device' | 'simulator-release' | 'testflight';
+	installAgent?: (
+		project: AbsoluteRemoteIosDevProject
+	) => Promise<{ remotePath: string; uploaded?: boolean }>;
+	log?: (message: string) => void;
+	networkUnavailableConfirmed?: boolean;
+	onPhaseTiming?: (timing: { durationMs: number; phase: string }) => void;
+	project: AbsoluteRemoteIosDevProject;
+	release: AbsoluteIosRelease;
+	signal?: AbortSignal;
+	simulatorUdid?: string;
+	syncProject?: (project: AbsoluteRemoteIosDevProject) => Promise<void>;
+	syncReleaseInputs?: (project: AbsoluteRemoteIosDevProject) => Promise<void>;
+	syncRelease?: (
+		project: AbsoluteRemoteIosDevProject,
+		release: AbsoluteIosRelease
+	) => Promise<void>;
+	transport?: Pick<AbsoluteRemoteMacTransport, 'capture' | 'spawn'>;
+};
+
+export type AbsoluteRemoteIosReleaseAcceptance = {
+	result: AbsoluteIosReleaseAcceptanceResult;
+	targetId: string;
+	timings: Record<string, number>;
 };
 
 export type AbsoluteRemoteMacLease = {
@@ -222,6 +259,12 @@ type RemoteEvent =
 	| {
 			metadata: AbsoluteIosReleaseMetadata;
 			type: 'release';
+			v: number;
+	  }
+	| {
+			result: AbsoluteIosReleaseAcceptanceResult;
+			targetId: string;
+			type: 'release-acceptance';
 			v: number;
 	  }
 	| {
@@ -707,7 +750,7 @@ export const acquireAbsoluteRemoteMacReleaseLease = async (
 		release: () => runOwned(`rm -rf ${shellQuote(path)}`)
 	};
 };
-const cleanAbsoluteRemoteMacWorkspace = async (
+export const cleanAbsoluteRemoteMacWorkspace = async (
 	profile: AbsoluteRemoteMacProfile,
 	transport?: Pick<AbsoluteRemoteMacTransport, 'capture'>
 ) => {
@@ -736,7 +779,7 @@ const cleanAbsoluteRemoteMacWorkspace = async (
 
 	return { profile: profile.name, removed, workspaceRoot: root };
 };
-const inspectAbsoluteRemoteMacWorkspace = async (
+export const inspectAbsoluteRemoteMacWorkspace = async (
 	profile: AbsoluteRemoteMacProfile,
 	transport?: Pick<AbsoluteRemoteMacTransport, 'capture'>
 ): Promise<AbsoluteRemoteMacWorkspaceInspection> => {
@@ -782,7 +825,7 @@ const inspectAbsoluteRemoteMacWorkspace = async (
 		workspaceRoot: root
 	};
 };
-export { cleanAbsoluteRemoteMacWorkspace, inspectAbsoluteRemoteMacWorkspace };
+
 export const installAbsoluteRemoteMacAgent = async (
 	project: AbsoluteRemoteIosDevProject
 ) => {
@@ -1102,7 +1145,65 @@ export const absoluteRemoteReleaseInputSyncCommands = (
 		tar: ['tar', '-cf', '-', '-C', project.config.bundleDirectory, '.']
 	};
 };
-
+export const syncAbsoluteRemoteMacAcceptanceRelease = async (
+	project: AbsoluteRemoteIosDevProject,
+	release: AbsoluteIosRelease,
+	options: { signal?: AbortSignal } = {}
+) => {
+	options.signal?.throwIfAborted();
+	const destination = posix.join(
+		project.remoteProjectRoot,
+		'.absolutejs',
+		'mobile',
+		'acceptance',
+		'ios',
+		release.metadata.releaseId
+	);
+	const staging = `${destination}.incoming-${randomUUID()}`;
+	const script = [
+		'set -eu',
+		'umask 077',
+		`rm -rf ${shellQuote(staging)}`,
+		`mkdir -p ${shellQuote(staging)}`,
+		`tar -xf - -C ${shellQuote(staging)}`,
+		`test -f ${shellQuote(posix.join(staging, 'release.json'))}`,
+		`rm -rf ${shellQuote(destination)}`,
+		`mkdir -p ${shellQuote(posix.dirname(destination))}`,
+		`mv ${shellQuote(staging)} ${shellQuote(destination)}`
+	].join('; ');
+	const archive = Bun.spawn(
+		['tar', '-cf', '-', '-C', release.releaseRoot, '.'],
+		{
+			signal: options.signal,
+			stderr: 'pipe',
+			stdout: 'pipe'
+		}
+	);
+	const upload = Bun.spawn(
+		[
+			...absoluteRemoteMacSshBase(project.profile),
+			'/bin/sh -lc',
+			shellQuote(script)
+		],
+		{
+			signal: options.signal,
+			stderr: 'pipe',
+			stdin: archive.stdout,
+			stdout: 'pipe'
+		}
+	);
+	const [archiveExit, uploadExit, archiveError, uploadError] =
+		await Promise.all([
+			archive.exited,
+			upload.exited,
+			new Response(archive.stderr).text(),
+			new Response(upload.stderr).text()
+		]);
+	if (archiveExit !== 0 || uploadExit !== 0)
+		throw new Error(
+			`Remote iOS acceptance artifact synchronization failed: ${(archiveError || uploadError).trim()}`
+		);
+};
 export const syncAbsoluteRemoteMacReleaseInputs = async (
 	project: AbsoluteRemoteIosDevProject,
 	options: { signal?: AbortSignal } = {}
@@ -1211,12 +1312,39 @@ const retrieveAbsoluteRemoteIosRelease = async (
 			throw new Error(
 				`Remote iOS release retrieval failed: ${downloadError.trim()}`
 			);
+		let registeredArtifactPath: string | undefined;
+		if (metadata.registeredDevice) {
+			registeredArtifactPath = join(staging, 'App.registered-device.ipa');
+			const registeredDownload = Bun.spawn(
+				[
+					...absoluteRemoteMacSshBase(project.profile),
+					'/bin/sh -lc',
+					shellQuote(
+						`cat ${shellQuote(posix.join(releaseRoot, metadata.registeredDevice.artifact))}`
+					)
+				],
+				{ stderr: 'pipe', stdout: 'pipe' }
+			);
+			const [registeredExit, registeredError] = await Promise.all([
+				registeredDownload.exited,
+				new Response(registeredDownload.stderr).text(),
+				writeRemoteArtifact(
+					registeredArtifactPath,
+					registeredDownload.stdout
+				)
+			]);
+			if (registeredExit !== 0)
+				throw new Error(
+					`Remote iOS registered-device artifact retrieval failed: ${registeredError.trim()}`
+				);
+		}
 
 		return await installAbsoluteIosRelease({
 			artifactPath,
 			metadata,
 			outputDirectory,
-			projectRoot: project.projectRoot
+			projectRoot: project.projectRoot,
+			...(registeredArtifactPath ? { registeredArtifactPath } : {})
 		});
 	} finally {
 		await rm(staging, { force: true, recursive: true }).catch(
@@ -1334,6 +1462,9 @@ export const buildAbsoluteRemoteIosRelease = async (
 			shellQuote(encodedConfig),
 			...(options.allowUnsigned ? ['--unsigned'] : []),
 			...(options.prepareBuildNumber ? ['--request-build-number'] : []),
+			...(options.registeredDeviceArtifact
+				? ['--registered-device-artifact']
+				: []),
 			...(options.developmentTeam
 				? ['--development-team', shellQuote(options.developmentTeam)]
 				: [])
@@ -1486,6 +1617,281 @@ export const buildAbsoluteRemoteIosRelease = async (
 		} catch (error) {
 			options.log?.(
 				`Remote Mac release lease cleanup failed and will recover after expiry: ${error instanceof Error ? error.message : String(error)}`
+			);
+		}
+	}
+};
+
+const requireRemoteIosReleaseAcceptance = (
+	value: unknown,
+	release: AbsoluteIosRelease,
+	distribution: RunAbsoluteRemoteIosReleaseAcceptanceOptions['distribution']
+) => {
+	if (typeof value !== 'object' || value === null)
+		throw new TypeError(
+			'Remote Mac returned invalid iOS release evidence.'
+		);
+	const result = value as Record<string, unknown>;
+	let expectedExactness:
+		| 'archive-equivalent'
+		| 'source-equivalent'
+		| 'store-delivered' = 'archive-equivalent';
+	if (distribution === 'simulator-release')
+		expectedExactness = 'source-equivalent';
+	if (distribution === 'testflight') expectedExactness = 'store-delivered';
+	const expectedDistribution =
+		distribution === 'testflight' ? 'apple-processed' : distribution;
+	const expectedTarget =
+		distribution === 'simulator-release' ? 'simulator' : 'device';
+	if (
+		result.status !== 'pass' ||
+		result.embeddedLocal !== true ||
+		result.releaseId !== release.metadata.releaseId ||
+		result.engine !== release.metadata.engine ||
+		result.marketingVersion !== release.metadata.marketingVersion ||
+		result.artifactSha256 !== release.metadata.sha256 ||
+		result.artifactBytes !== release.metadata.bytes ||
+		result.signed !== release.metadata.signed ||
+		result.artifactExactness !== expectedExactness ||
+		result.distribution !== expectedDistribution ||
+		result.target !== expectedTarget ||
+		(distribution === 'simulator-release'
+			? result.networkUnavailable !== 'not-proven'
+			: result.networkUnavailable !== 'user-confirmed') ||
+		(release.metadata.buildNumber === undefined
+			? result.buildNumber !== undefined
+			: result.buildNumber !== release.metadata.buildNumber) ||
+		!['durationMs', 'installMs', 'launchMs', 'relaunchMs'].every(
+			(field) =>
+				typeof result[field] === 'number' &&
+				Number.isFinite(result[field]) &&
+				result[field] >= 0
+		)
+	)
+		throw new TypeError(
+			'Remote Mac iOS release evidence does not match the immutable release or requested lane.'
+		);
+
+	return value as AbsoluteIosReleaseAcceptanceResult;
+};
+
+export const runAbsoluteRemoteIosReleaseAcceptance = async (
+	options: RunAbsoluteRemoteIosReleaseAcceptanceOptions
+) => {
+	options.signal?.throwIfAborted();
+	if (
+		options.distribution !== 'simulator-release' &&
+		!options.deviceIdentifier
+	)
+		throw new TypeError(
+			'Remote physical iOS release acceptance requires a device identifier.'
+		);
+	if (
+		options.distribution !== 'simulator-release' &&
+		!options.networkUnavailableConfirmed
+	)
+		throw new TypeError(
+			'Remote physical iOS release acceptance requires explicit network-unavailable confirmation.'
+		);
+	const operation = new AbortController();
+	const abort = () =>
+		operation.abort(
+			options.signal?.reason ??
+				new Error('Remote iOS release acceptance cancelled.')
+		);
+	options.signal?.addEventListener('abort', abort, { once: true });
+	const startedAt = performance.now();
+	const leaseStartedAt = performance.now();
+	let lease: AbsoluteRemoteMacLease;
+	try {
+		lease = await (
+			options.acquireLease ??
+			((project, signal) =>
+				acquireAbsoluteRemoteMacReleaseLease(project, {
+					signal,
+					transport: options.transport
+				}))
+		)(options.project, operation.signal);
+	} catch (error) {
+		options.signal?.removeEventListener('abort', abort);
+
+		throw error;
+	}
+	const leaseDuration = performance.now() - leaseStartedAt;
+	options.onPhaseTiming?.({
+		durationMs: leaseDuration,
+		phase: 'remote-release-acceptance-lease'
+	});
+	let heartbeat: Promise<void> | undefined;
+	const heartbeatTimer = setInterval(() => {
+		if (heartbeat) return;
+		heartbeat = lease
+			.heartbeat()
+			.catch((error: unknown) => operation.abort(error))
+			.finally(() => {
+				heartbeat = undefined;
+			});
+	}, REMOTE_RELEASE_LEASE_HEARTBEAT_MS);
+	unrefTimer(heartbeatTimer);
+	try {
+		const syncStartedAt = performance.now();
+		if (options.syncProject) await options.syncProject(options.project);
+		else
+			await syncAbsoluteRemoteMacProject(options.project, {
+				signal: operation.signal
+			});
+		operation.signal.throwIfAborted();
+		if (options.syncReleaseInputs)
+			await options.syncReleaseInputs(options.project);
+		else
+			await syncAbsoluteRemoteMacReleaseInputs(options.project, {
+				signal: operation.signal
+			});
+		operation.signal.throwIfAborted();
+		if (options.syncRelease)
+			await options.syncRelease(options.project, options.release);
+		else
+			await syncAbsoluteRemoteMacAcceptanceRelease(
+				options.project,
+				options.release,
+				{ signal: operation.signal }
+			);
+		operation.signal.throwIfAborted();
+		const syncDuration = performance.now() - syncStartedAt;
+		options.onPhaseTiming?.({
+			durationMs: syncDuration,
+			phase: 'remote-release-acceptance-sync'
+		});
+		const agent = await (
+			options.installAgent ?? installAbsoluteRemoteMacAgent
+		)(options.project);
+		const encodedConfig = Buffer.from(
+			JSON.stringify(portableMobileConfig(options.project))
+		).toString('base64url');
+		const remoteCommand = [
+			`cd ${shellQuote(options.project.remoteProjectRoot)}`,
+			'&&',
+			'exec',
+			shellQuote(options.project.profile.bunPath),
+			shellQuote(agent.remotePath),
+			'--test-ios-release',
+			'--mobile-config',
+			shellQuote(encodedConfig),
+			'--release-id',
+			shellQuote(options.release.metadata.releaseId),
+			'--distribution',
+			shellQuote(options.distribution),
+			...(options.deviceIdentifier
+				? ['--device', shellQuote(options.deviceIdentifier)]
+				: []),
+			...(options.simulatorUdid
+				? ['--simulator-udid', shellQuote(options.simulatorUdid)]
+				: []),
+			...(options.networkUnavailableConfirmed
+				? ['--network-unavailable-confirmed']
+				: [])
+		].join(' ');
+		const process = (options.transport?.spawn ?? defaultTransport.spawn)(
+			[
+				...absoluteRemoteMacSshBase(options.project.profile),
+				'/bin/sh -lc',
+				shellQuote(remoteCommand)
+			],
+			{ signal: operation.signal }
+		);
+		const killOnAbort = () => process.kill();
+		operation.signal.addEventListener('abort', killOnAbort, { once: true });
+		let failure: Error | undefined;
+		let accepted:
+			| { result: AbsoluteIosReleaseAcceptanceResult; targetId: string }
+			| undefined;
+		const stdoutDone = consumeLines(process.stdout, (line) => {
+			if (!line.startsWith(ABSOLUTE_REMOTE_MAC_EVENT_PREFIX)) return;
+			try {
+				const event = JSON.parse(
+					line.slice(ABSOLUTE_REMOTE_MAC_EVENT_PREFIX.length)
+				) as RemoteEvent;
+				if (event.v !== ABSOLUTE_REMOTE_MAC_PROTOCOL_VERSION)
+					throw new Error('Remote Mac protocol version mismatch.');
+				if (event.type === 'log') options.log?.(event.message);
+				if (event.type === 'timing') {
+					const durationMs = Reflect.get(event, 'durationMs');
+					const phase = Reflect.get(event, 'phase');
+					if (
+						typeof durationMs === 'number' &&
+						typeof phase === 'string'
+					)
+						options.onPhaseTiming?.({ durationMs, phase });
+				}
+				if (event.type === 'fatal') failure = new Error(event.error);
+				if (event.type === 'release-acceptance') {
+					if (!event.targetId || typeof event.targetId !== 'string')
+						throw new TypeError(
+							'Remote Mac returned an invalid iOS acceptance target.'
+						);
+					accepted = {
+						result: requireRemoteIosReleaseAcceptance(
+							event.result,
+							options.release,
+							options.distribution
+						),
+						targetId: event.targetId
+					};
+				}
+			} catch (error) {
+				failure =
+					error instanceof Error
+						? error
+						: new Error(
+								'Remote Mac emitted invalid iOS release evidence.'
+							);
+				process.kill();
+			}
+		});
+		const stderrDone = consumeLines(process.stderr, (line) =>
+			options.log?.(`[remote] ${line}`)
+		);
+		const exitCode = await process.exited;
+		operation.signal.removeEventListener('abort', killOnAbort);
+		try {
+			process.stdin.end();
+		} catch {
+			// The one-shot agent has already closed its input pipe.
+		}
+		await Promise.all([stdoutDone, stderrDone]);
+		operation.signal.throwIfAborted();
+		if (failure) throw failure;
+		if (exitCode !== 0)
+			throw new Error(
+				`Remote iOS release acceptance agent exited with status ${exitCode}.`
+			);
+		if (!accepted)
+			throw new Error(
+				'Remote iOS release acceptance agent returned no evidence.'
+			);
+		const total = performance.now() - startedAt;
+		options.log?.(
+			`Remote Mac ${options.project.profile.name} completed ${options.distribution} acceptance for ${options.release.metadata.releaseId} in ${total.toFixed(2)}ms (agent ${agent.uploaded ? 'uploaded' : 'cache hit'}).`
+		);
+
+		return {
+			...accepted,
+			timings: {
+				'remote-release-acceptance-lease': leaseDuration,
+				'remote-release-acceptance-sync': syncDuration,
+				total
+			}
+		};
+	} finally {
+		clearInterval(heartbeatTimer);
+		await heartbeat?.catch(() => undefined);
+		options.signal?.removeEventListener('abort', abort);
+		try {
+			await lease.release();
+			options.log?.('Released Remote Mac release acceptance lease.');
+		} catch (error) {
+			options.log?.(
+				`Remote Mac acceptance lease cleanup failed and will recover after expiry: ${error instanceof Error ? error.message : String(error)}`
 			);
 		}
 	}

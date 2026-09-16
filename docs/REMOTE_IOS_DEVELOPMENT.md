@@ -197,7 +197,8 @@ AbsoluteJS framework repository and not from the Remote Mac workspace:
 # Windows, Linux, or macOS; explicit profile
 bunx absolute mobile build ios src/backend/server.ts \
   --config absolute.config.ts \
-  --remote personal-mac
+  --remote personal-mac \
+  --registered-device-artifact
 
 # Uses the default paired Mac on Windows/Linux
 bunx absolute mobile publish ios src/backend/server.ts \
@@ -237,6 +238,56 @@ keys and release-registry credentials are never sent to the Mac. Apple signing
 certificates and provisioning material remain in the paired Mac's Keychain and
 Xcode configuration.
 
+When `--registered-device-artifact` is requested, the paired Mac exports the
+debugging/registered-device IPA from the exact same `.xcarchive` as the App
+Store IPA. Both artifacts are streamed independently, checked against their
+strict byte length and SHA-256 metadata, and atomically installed in the same
+local immutable release directory. The command never transfers a signing
+identity, provisioning profile, or Keychain item to the developer computer.
+
+## Installed-release acceptance from Windows or Linux
+
+Run these commands from the application root after the remote build. Use the
+exact immutable directory printed by that build:
+
+```bash
+export RELEASE_DIR="$PWD/.absolutejs/mobile/releases/ios/amobile_ios_<sha256>"
+
+# Source-equivalent Xcode Release build in the paired Mac's Simulator
+bunx absolute mobile test ios \
+  --release "$RELEASE_DIR" \
+  --remote personal-mac \
+  --report
+
+# Same-archive registered-device IPA; the device is connected to the Mac
+bunx absolute mobile test ios \
+  --release "$RELEASE_DIR" \
+  --remote personal-mac \
+  --device 'DEVICE_IDENTIFIER' \
+  --report
+
+# Exact version/build installed through TestFlight on that device
+bunx absolute mobile test ios \
+  --release "$RELEASE_DIR" \
+  --remote personal-mac \
+  --device 'DEVICE_IDENTIFIER' \
+  --testflight \
+  --report
+```
+
+For both physical-device commands, AbsoluteJS pauses locally while the tester
+enables Airplane Mode and disables Wi-Fi in iOS Settings. `--yes` is available
+for automation only after a human has performed those exact steps. The phone or
+tablet must be paired with and visible to Xcode under the remote macOS user; it
+does not connect to the Windows/Linux computer.
+
+The client synchronizes the immutable release into a project-scoped, private
+acceptance directory and the agent re-hashes it before use. Simulator evidence
+is `source-equivalent`; registered-device evidence is `archive-equivalent`; and
+only an already installed TestFlight build is `store-delivered`. The TestFlight
+lane never side-loads the local App Store IPA. Returned evidence is validated
+again against the local release before the Markdown/JSON report is written.
+
 Before synchronizing release inputs, AbsoluteJS takes an atomic project-scoped
 lease on the Mac. A second build for the same local-project identity fails fast
 with non-secret owner/time diagnostics instead of racing source snapshots,
@@ -252,11 +303,14 @@ the lease. Xcode already builds in a unique `.ios-build-*` directory and the IPA
 enters both remote and local immutable stores only through atomic promotion, so
 an interrupted archive is never mistaken for a completed artifact.
 
-Release logs include `remote-release-lease`, `remote-release-sync`, `remote-release-prepare`,
-`remote-release-xcode`, and `remote-release-download` timings. Telemetry records
-only those phase durations, engine, platform, and `remote-mac` provider; it does
-not record the profile name, SSH destination, paths, app identity, artifact
-hash, build number, or credentials.
+Release logs include `remote-release-lease`, `remote-release-sync`,
+`remote-release-prepare`, `remote-release-xcode`, and
+`remote-release-download` timings. Acceptance adds
+`remote-release-acceptance-lease`, `remote-release-acceptance-sync`, and
+`remote-release-acceptance`. Telemetry records only those phase durations,
+engine, platform, outcome, and the `remote-mac` provider; it does not record the
+profile name, SSH destination, paths, app identity, artifact hash, build number,
+device identifier, or credentials.
 
 ## Security properties
 

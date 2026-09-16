@@ -35,6 +35,7 @@ const READY_POLL_MS = 250;
 type CommandOptions = {
 	cwd?: string;
 	env?: Record<string, string | undefined>;
+	signal?: AbortSignal;
 };
 
 export type AbsoluteIosReleaseCommandResult = {
@@ -83,6 +84,7 @@ const defaultRun: AbsoluteIosReleaseCommand = async (command, options = {}) => {
 	const process = Bun.spawn(command, {
 		cwd: options.cwd,
 		env: options.env,
+		signal: options.signal,
 		stderr: 'pipe',
 		stdin: 'ignore',
 		stdout: 'pipe'
@@ -229,12 +231,14 @@ const releaseMarker = (release: AbsoluteIosRelease) => {
 const waitForSimulatorMarker = async (options: {
 	release: AbsoluteIosRelease;
 	run: AbsoluteIosReleaseCommand;
+	signal?: AbortSignal;
 	udid: string;
 	xcrun: string;
 	startedAt: Date;
 }) => {
 	const startedAt = performance.now();
 	const poll = async (): Promise<void> => {
+		options.signal?.throwIfAborted();
 		if (performance.now() - startedAt >= READY_TIMEOUT_MS)
 			throw new Error(
 				'The installed iOS Release app launched but its embedded content did not become ready.'
@@ -269,6 +273,7 @@ const waitForSimulatorMarker = async (options: {
 const launchSimulator = async (options: {
 	release: AbsoluteIosRelease;
 	run: AbsoluteIosReleaseCommand;
+	signal?: AbortSignal;
 	udid: string;
 	xcrun: string;
 }) => {
@@ -296,11 +301,18 @@ export const runAbsoluteIosSimulatorReleaseAcceptance = async (options: {
 	config: NormalizedAbsoluteMobileConfig;
 	release: AbsoluteIosRelease;
 	run?: AbsoluteIosReleaseCommand;
+	signal?: AbortSignal;
 	udid: string;
 	xcodebuild?: string;
 	xcrun?: string;
 }): Promise<AbsoluteIosReleaseAcceptanceResult> => {
-	const run = options.run ?? defaultRun;
+	const baseRun = options.run ?? defaultRun;
+	const run: AbsoluteIosReleaseCommand = (command, commandOptions = {}) =>
+		baseRun(command, {
+			...commandOptions,
+			...(options.signal ? { signal: options.signal } : {})
+		});
+	options.signal?.throwIfAborted();
 	const xcodebuild = options.xcodebuild ?? '/usr/bin/xcodebuild';
 	const xcrun = options.xcrun ?? '/usr/bin/xcrun';
 	const startedAt = performance.now();
@@ -426,6 +438,7 @@ const observeDeviceLaunch = async (options: {
 	appId: string;
 	device: string;
 	marker: string;
+	signal?: AbortSignal;
 	timeoutMs?: number;
 	xcrun: string;
 }) => {
@@ -443,7 +456,12 @@ const observeDeviceLaunch = async (options: {
 			options.device,
 			options.appId
 		],
-		{ stderr: 'pipe', stdin: 'ignore', stdout: 'pipe' }
+		{
+			signal: options.signal,
+			stderr: 'pipe',
+			stdin: 'ignore',
+			stdout: 'pipe'
+		}
 	);
 	const stdoutReader = process.stdout.getReader();
 	const stderrReader = process.stderr.getReader();
@@ -582,13 +600,20 @@ export const runAbsoluteIosDeviceReleaseAcceptance = async (options: {
 	}) => Promise<number>;
 	release: AbsoluteIosRelease;
 	run?: AbsoluteIosReleaseCommand;
+	signal?: AbortSignal;
 	xcrun?: string;
 }): Promise<AbsoluteIosReleaseAcceptanceResult> => {
 	if (!options.networkUnavailableConfirmed)
 		throw new TypeError(
 			'Physical iOS offline acceptance requires explicit confirmation that Airplane Mode is enabled and Wi-Fi is disabled in Settings.'
 		);
-	const run = options.run ?? defaultRun;
+	const baseRun = options.run ?? defaultRun;
+	const run: AbsoluteIosReleaseCommand = (command, commandOptions = {}) =>
+		baseRun(command, {
+			...commandOptions,
+			...(options.signal ? { signal: options.signal } : {})
+		});
+	options.signal?.throwIfAborted();
 	const xcrun = options.xcrun ?? '/usr/bin/xcrun';
 	const startedAt = performance.now();
 	await requireSuccess(
@@ -616,7 +641,12 @@ export const runAbsoluteIosDeviceReleaseAcceptance = async (options: {
 			: await inspectTestFlightInstallation(installation);
 	const observe =
 		options.observeLaunch ??
-		((launch) => observeDeviceLaunch({ ...launch, xcrun }));
+		((launch) =>
+			observeDeviceLaunch({
+				...launch,
+				...(options.signal ? { signal: options.signal } : {}),
+				xcrun
+			}));
 	const marker = releaseMarker(options.release);
 	const launchMs = await observe({
 		appId: options.release.metadata.appId,

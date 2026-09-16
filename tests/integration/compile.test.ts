@@ -996,17 +996,46 @@ const runBrowserProbe = async (baseUrl: string) => {
 	}
 };
 
+type FrameworkHydrationProbeOptions = {
+	buttonSelector: string;
+	buttonText: string;
+	heading: string;
+	readySelector: string;
+	readyText: string;
+	styleSelector: string;
+	styleValue: string;
+};
+
 const runFrameworkHydrationProbe = async (
 	baseUrl: string,
-	options: {
-		buttonSelector: string;
-		buttonText: string;
-		heading: string;
-		readySelector: string;
-		readyText: string;
-		styleSelector: string;
-		styleValue: string;
+	options: FrameworkHydrationProbeOptions
+) => {
+	let lastBrowserError: unknown;
+	for (let attempt = 0; attempt < 3; attempt += 1) {
+		try {
+			return await runFrameworkHydrationProbeOnce(baseUrl, options);
+		} catch (error) {
+			const message =
+				error instanceof Error ? error.message : String(error);
+			if (
+				!/target page, context or browser has been closed/iu.test(
+					message
+				) ||
+				attempt === 2
+			) {
+				throw error;
+			}
+			lastBrowserError = error;
+			await Bun.sleep(250 * (attempt + 1));
+		}
 	}
+
+	throw lastBrowserError;
+};
+
+const runFrameworkHydrationProbeOnce = async (
+	baseUrl: string,
+	options: FrameworkHydrationProbeOptions
 ) => {
 	const browserBaseUrl = baseUrl.replace('localhost', '127.0.0.1');
 	const consoleErrors: unknown[] = [];

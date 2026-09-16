@@ -2496,7 +2496,8 @@ Then, still from the Windows/Linux application root, test the production path:
 ```sh
 bunx absolute mobile build ios src/backend/server.ts \
   --config absolute.config.ts \
-  --remote test-mac
+  --remote test-mac \
+  --registered-device-artifact
 ```
 
 - [ ] `REMOTE-RELEASE-01` The command prints `remote-release-sync`,
@@ -2551,6 +2552,63 @@ bunx absolute mobile remotes inspect test-mac
 bunx absolute mobile remotes inspect test-mac --json
 bunx absolute mobile remotes clean test-mac --yes
 ```
+
+Set `RELEASE_DIR` to the immutable local release directory printed by the
+remote build. Still from the Windows/Linux application root, run the paired-Mac
+installed-release lanes:
+
+```sh
+export RELEASE_DIR="$PWD/.absolutejs/mobile/releases/ios/amobile_ios_<sha256>"
+
+bunx absolute mobile test ios \
+  --release "$RELEASE_DIR" \
+  --remote test-mac \
+  --report
+
+bunx absolute mobile test ios \
+  --release "$RELEASE_DIR" \
+  --remote test-mac \
+  --device 'DEVICE_IDENTIFIER' \
+  --report
+```
+
+The first command uses the paired Mac's managed Simulator. For the second,
+connect the registered device to the Mac, enable Airplane Mode, disable Wi-Fi in
+iOS Settings, and confirm the local prompt only after both remain disabled.
+
+- [ ] `REMOTE-IOS-REL-SIM-01` The remote Simulator lane passes with
+  `source-equivalent`, `simulator-release`, and `networkUnavailable:
+  not-proven`; its report identifies the paired Remote Mac as the execution
+  host.
+- [ ] `REMOTE-IOS-REL-DEVICE-01` The same-archive companion IPA is transferred,
+  re-hashed on both hosts, installed by the Mac, and passes both launches with
+  `archive-equivalent`, `registered-device`, and `networkUnavailable:
+  user-confirmed`.
+- [ ] `REMOTE-IOS-REL-RECOVERY-01` Interrupt acceptance during synchronization
+  or Xcode Release build. No incomplete directory is accepted; a subsequent run
+  recovers the lease and completes without deleting the immutable local release.
+
+After `REMOTE-RELEASE-05` has uploaded and assigned the build, install that
+exact version/build through TestFlight on the device attached to the Mac. Reset
+`RELEASE_DIR` to the immutable directory printed by the publish command, disable
+both network paths again, then run:
+
+```sh
+bunx absolute mobile test ios \
+  --release "$RELEASE_DIR" \
+  --remote test-mac \
+  --device 'DEVICE_IDENTIFIER' \
+  --testflight \
+  --report
+```
+
+- [ ] `REMOTE-IOS-REL-TESTFLIGHT-01` The command does not install either local
+  IPA; it verifies the already installed Apple-processed version/build and
+  passes both launches as `store-delivered` evidence.
+- [ ] `REMOTE-IOS-REL-REPORT-01` Return the local report directory. Confirm it
+  contains only bounded release identity/timing/outcome evidence and contains no
+  SSH destination, remote path, application data, native console contents,
+  signing material, credentials, or environment dump.
 
 Direct interaction with the remote Simulator currently uses the Mac screen or a
 trusted remote-desktop connection. The protocol itself carries screenshots and
