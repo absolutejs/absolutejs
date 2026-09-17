@@ -6,6 +6,23 @@ import type { MobileConfig, MobilePlatform } from '../../types/build';
 export type NormalizedAbsoluteMobileConfig = {
 	appId: string;
 	appName: string;
+	branding?: {
+		android: {
+			backgroundImage?: string;
+			backgroundColor: string;
+			foreground?: string;
+			monochrome?: string;
+		};
+		icon: string;
+		ios: { darkIcon?: string; tintedIcon?: string };
+		splash: {
+			backgroundColor: string;
+			darkBackgroundColor: string;
+			darkImage?: string;
+			image?: string;
+			logoScale: number;
+		};
+	};
 	androidCertificateFingerprints: string[];
 	appleAppIdPrefix?: string;
 	bundleDirectory: string;
@@ -83,6 +100,7 @@ const UPDATE_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/u;
 const RELEASE_TARGET_PATTERN = /^[a-z0-9][a-z0-9._-]{0,63}$/u;
 const UPDATE_PUBLIC_KEY_PATTERN = /^[A-Za-z0-9+/]+={0,2}$/u;
 const ENVIRONMENT_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/u;
+const COLOR_PATTERN = /^#[0-9A-F]{6}$/u;
 const DEFAULT_UPDATE_BOOT_TIMEOUT_MS = 20_000;
 const DEFAULT_UPDATE_HEALTH_FAILURE_RATE = 0.2;
 const DEFAULT_UPDATE_HEALTH_MINIMUM_REPORTS = 20;
@@ -126,6 +144,138 @@ const resolveProjectPath = (
 	}
 
 	return path;
+};
+
+const normalizeBrandingColor = (
+	value: string | undefined,
+	fallback: string,
+	field: string
+) => {
+	const normalized = (value ?? fallback).trim().toUpperCase();
+	if (!COLOR_PATTERN.test(normalized))
+		throw new TypeError(`${field} must use #RRGGBB hexadecimal notation.`);
+
+	return normalized;
+};
+
+const normalizeBrandingPath = (
+	projectRoot: string,
+	value: string,
+	field: string
+) => {
+	const path = resolveProjectPath(
+		projectRoot,
+		requireText(value, field),
+		field
+	);
+	if (!path.toLowerCase().endsWith('.png'))
+		throw new TypeError(`${field} must reference a PNG file.`);
+
+	return path;
+};
+
+const normalizeBranding = (
+	config: MobileConfig,
+	projectRoot: string
+): NormalizedAbsoluteMobileConfig['branding'] => {
+	const { branding } = config;
+	if (!branding) return undefined;
+	const darkIcon = branding.ios?.darkIcon
+		? normalizeBrandingPath(
+				projectRoot,
+				branding.ios.darkIcon,
+				'mobile.branding.ios.darkIcon'
+			)
+		: undefined;
+	const tintedIcon = branding.ios?.tintedIcon
+		? normalizeBrandingPath(
+				projectRoot,
+				branding.ios.tintedIcon,
+				'mobile.branding.ios.tintedIcon'
+			)
+		: undefined;
+	const logoScale = branding.splash?.logoScale ?? 0.2;
+	if (!Number.isFinite(logoScale) || logoScale < 0.1 || logoScale > 0.4)
+		throw new TypeError(
+			'mobile.branding.splash.logoScale must be between 0.1 and 0.4.'
+		);
+
+	return {
+		android: {
+			backgroundColor: normalizeBrandingColor(
+				branding.android?.backgroundColor,
+				'#FFFFFF',
+				'mobile.branding.android.backgroundColor'
+			),
+			...(branding.android?.backgroundImage
+				? {
+						backgroundImage: normalizeBrandingPath(
+							projectRoot,
+							branding.android.backgroundImage,
+							'mobile.branding.android.backgroundImage'
+						)
+					}
+				: {}),
+			...(branding.android?.foreground
+				? {
+						foreground: normalizeBrandingPath(
+							projectRoot,
+							branding.android.foreground,
+							'mobile.branding.android.foreground'
+						)
+					}
+				: {}),
+			...(branding.android?.monochrome
+				? {
+						monochrome: normalizeBrandingPath(
+							projectRoot,
+							branding.android.monochrome,
+							'mobile.branding.android.monochrome'
+						)
+					}
+				: {})
+		},
+		icon: normalizeBrandingPath(
+			projectRoot,
+			branding.icon,
+			'mobile.branding.icon'
+		),
+		ios: {
+			...(darkIcon ? { darkIcon } : {}),
+			...(tintedIcon ? { tintedIcon } : {})
+		},
+		splash: {
+			backgroundColor: normalizeBrandingColor(
+				branding.splash?.backgroundColor,
+				'#FFFFFF',
+				'mobile.branding.splash.backgroundColor'
+			),
+			darkBackgroundColor: normalizeBrandingColor(
+				branding.splash?.darkBackgroundColor,
+				'#111111',
+				'mobile.branding.splash.darkBackgroundColor'
+			),
+			...(branding.splash?.darkImage
+				? {
+						darkImage: normalizeBrandingPath(
+							projectRoot,
+							branding.splash.darkImage,
+							'mobile.branding.splash.darkImage'
+						)
+					}
+				: {}),
+			...(branding.splash?.image
+				? {
+						image: normalizeBrandingPath(
+							projectRoot,
+							branding.splash.image,
+							'mobile.branding.splash.image'
+						)
+					}
+				: {}),
+			logoScale
+		}
+	};
 };
 
 const requireText = (value: string, field: string) => {
@@ -923,6 +1073,7 @@ export const normalizeAbsoluteMobileConfig = (
 		updates
 	);
 	const observability = normalizeObservability(config, productionOrigin);
+	const branding = normalizeBranding(config, projectRoot);
 
 	return {
 		androidCertificateFingerprints: normalizeCertificateFingerprints(
@@ -933,6 +1084,7 @@ export const normalizeAbsoluteMobileConfig = (
 			config.deepLinks?.apple?.appIdPrefix
 		),
 		appName: requireText(config.appName, 'mobile.appName'),
+		...(branding ? { branding } : {}),
 		bundleDirectory: resolveProjectPath(
 			projectRoot,
 			config.bundleDirectory ?? '.absolutejs/mobile/web',

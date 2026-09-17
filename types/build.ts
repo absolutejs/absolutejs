@@ -111,6 +111,42 @@ type MobileSharedConfig = {
 	appName: string;
 	/** Initial canonical application route. Defaults to `/`. */
 	entry?: string;
+	/** One provider-neutral source of truth for native icons and launch artwork. */
+	branding?: {
+		/** Project-relative 1024x1024 PNG used for iOS and legacy Android icons. */
+		icon: string;
+		/** Android adaptive-icon layers. Unspecified layers derive from `icon` and a color. */
+		android?: {
+			/** Opaque 1024x1024 PNG. Defaults to a generated solid color. */
+			backgroundImage?: string;
+			/** Adaptive-icon background. Defaults to white. */
+			backgroundColor?: string;
+			/** Transparent 1024x1024 PNG whose artwork stays inside Android's safe zone. */
+			foreground?: string;
+			/** Transparent monochrome 1024x1024 PNG used for themed icons. */
+			monochrome?: string;
+		};
+		/** Optional iOS 18+ appearance variants. */
+		ios?: {
+			/** 1024x1024 PNG for dark appearance. */
+			darkIcon?: string;
+			/** 1024x1024 PNG for tinted appearance. */
+			tintedIcon?: string;
+		};
+		/** Native launch-screen artwork and colors. */
+		splash?: {
+			/** Light launch background. Defaults to white. */
+			backgroundColor?: string;
+			/** Dark launch background. Defaults to #111111. */
+			darkBackgroundColor?: string;
+			/** Optional precomposed square PNG, at least 2732x2732. */
+			image?: string;
+			/** Optional dark precomposed square PNG, at least 2732x2732. */
+			darkImage?: string;
+			/** Centered-logo scale when precomposed artwork is omitted. Defaults to 0.2. */
+			logoScale?: number;
+		};
+	};
 	/** Native projects generated and synchronized by AbsoluteJS. */
 	platforms?: readonly MobilePlatform[];
 	server: {

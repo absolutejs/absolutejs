@@ -12,6 +12,7 @@ import {
 } from './deviceCapabilities';
 import { resolveAbsoluteMobileUpdateRuntime } from './updateRuntime';
 import { inspectAbsoluteMobileUpdateServer } from './updateServer';
+import { inspectAbsoluteMobileBranding } from './branding';
 
 export type AbsoluteMobileReleaseCheck = {
 	detail: string;
@@ -163,6 +164,29 @@ const mobileUpdateServerCheck = async (
 			'Run `absolute mobile update provision --storage s3 --force`, provision its environment variables on the trusted server, and rerun the release doctor.'
 		);
 	}
+};
+
+const mobileBrandingCheck = async (
+	config: NormalizedAbsoluteMobileConfig,
+	projectRoot: string
+) => {
+	const inspection = await inspectAbsoluteMobileBranding(config, projectRoot);
+	if (inspection.status === 'absent')
+		return warn(
+			'mobile.branding',
+			inspection.detail,
+			undefined,
+			'Configure mobile.branding and run `absolute mobile assets` before store submission.'
+		);
+	if (!inspection.ready)
+		return fail(
+			'mobile.branding',
+			inspection.detail,
+			inspection.manifestPath,
+			'Run `absolute mobile assets`, review the generated preview, and commit the native resource changes.'
+		);
+
+	return pass('mobile.branding', inspection.detail, inspection.manifestPath);
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -2078,6 +2102,7 @@ export const inspectAbsoluteMobileRelease = async (
 		config.engine === 'expo'
 			? expoVersionCheck(config)
 			: capacitorVersionCheck(config, projectRoot),
+		mobileBrandingCheck(config, projectRoot),
 		mobileUpdateServerCheck(config, projectRoot)
 	]);
 	const checks: AbsoluteMobileReleaseCheck[] = globalChecks

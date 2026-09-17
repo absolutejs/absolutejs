@@ -1,7 +1,7 @@
 # AbsoluteJS iOS and TestFlight macOS test runbook
 
 This runbook validates the iOS release path shipped in
-`@absolutejs/absolute@0.20.0-beta.109`,
+`@absolutejs/absolute@0.20.0-beta.114`,
 `@absolutejs/devices-expo@0.0.11`, and
 `@absolutejs/deploy@0.26.0`. It covers a signed local IPA, an internal
 TestFlight upload, retry behavior, and installation on an iPhone or iPad.
@@ -32,6 +32,12 @@ If you were sent only this Markdown file and were not sent a staging
 application repository plus its non-secret configuration values, complete the
 Track A framework gates only. Do not invent an application, bundle ID, server
 origin, or Apple team.
+
+The typed icon and launch-screen acceptance steps are in
+`docs/MOBILE_BRANDING.md`. Complete its `BRAND-IOS-01` through `BRAND-IOS-10`
+checklist during Track B when a staging application and product artwork were
+supplied. Every command in that checklist runs from the staging application
+root; none runs from `mobile/ios`, an Xcode workspace, or this framework clone.
 
 ### Track A — run this first from the AbsoluteJS repository
 

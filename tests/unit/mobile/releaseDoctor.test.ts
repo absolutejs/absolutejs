@@ -486,9 +486,14 @@ describe('mobile release doctor', () => {
 		const result = await inspectAbsoluteMobileRelease(config, projectRoot);
 		expect(result.ready).toBe(true);
 		expect(result.checks.length).toBeGreaterThan(10);
-		expect(result.checks.every((check) => check.status === 'pass')).toBe(
-			true
-		);
+		expect(
+			result.checks.find(({ id }) => id === 'mobile.branding')
+		).toMatchObject({ status: 'warn' });
+		expect(
+			result.checks
+				.filter(({ id }) => id !== 'mobile.branding')
+				.every((check) => check.status === 'pass')
+		).toBe(true);
 	});
 
 	test('verifies the generated Android update watchdog against release config', async () => {
@@ -673,7 +678,7 @@ describe('mobile release doctor', () => {
 		expect(report).toMatchObject({
 			format: 1,
 			ready: true,
-			summary: { failed: 0, warnings: 0 }
+			summary: { failed: 0, warnings: 1 }
 		});
 		expect(report.checks.length).toBe(result.checks.length);
 		expect(serialized).not.toContain(projectRoot);

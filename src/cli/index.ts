@@ -262,7 +262,7 @@ if (command === 'dev') {
 		'  compile [entry] [--outdir dir] [--outfile path] Compile standalone executable'
 	);
 	console.error(
-		'  mobile <init|sync|inspect|ci|pair|remotes|doctor|test> Manage Capacitor apps and the experimental Expo hybrid shell'
+		'  mobile <init|sync|assets|inspect|ci|pair|remotes|doctor|test> Manage Capacitor apps and the experimental Expo hybrid shell'
 	);
 	console.error(
 		'  config [--port n] Open the unified config UI (ESLint, tsconfig, Prettier)'

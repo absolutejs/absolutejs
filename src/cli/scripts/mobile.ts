@@ -164,6 +164,13 @@ import {
 	type AbsoluteMobilePromotionOperation
 } from '../../mobile/ciPromotionLedger';
 import {
+	ABSOLUTE_CAPACITOR_ASSETS_SPEC,
+	generateAbsoluteCapacitorBranding,
+	inspectAbsoluteMobileBranding,
+	renderAbsoluteMobileBrandingPreview,
+	type AbsoluteMobileBrandingInspection
+} from '../../mobile/branding';
+import {
 	buildAbsoluteMobileUpdate,
 	verifyAbsoluteMobileUpdateSignature
 } from '../../mobile/updateSigning';
@@ -329,15 +336,16 @@ const installApprovedPackages = async (
 	projectRoot: string,
 	args: string[],
 	message: string,
-	specs: string[]
+	specs: string[],
+	dev = false
 ) => {
 	if (specs.length === 0) return;
 	const approved = args.includes('--yes') || (await confirmInstall(message));
 	if (!approved)
 		throw new TypeError(
-			`Mobile initialization requires: bun add ${specs.join(' ')}`
+			`Mobile tooling requires: bun add${dev ? ' --dev' : ''} ${specs.join(' ')}`
 		);
-	if (!installPackages(projectRoot, specs))
+	if (!installPackages(projectRoot, specs, dev))
 		throw new TypeError(
 			'Failed to install the AbsoluteJS mobile toolchain.'
 		);
@@ -403,6 +411,23 @@ const ensureCapacitorPackages = async (
 		`AbsoluteJS detected native device capabilities (${capabilityPlan.capabilities.join(', ')}). Install only their required Capacitor plugins now?`,
 		capabilityPackages
 	);
+	if (mobile?.branding) {
+		const installedBrandingPackages =
+			await directProjectPackages(projectRoot);
+		const brandingPackages = await packagesNeedingExactInstall(
+			projectRoot,
+			[ABSOLUTE_CAPACITOR_ASSETS_SPEC],
+			installedBrandingPackages,
+			new Set(['@capacitor/assets'])
+		);
+		await installApprovedPackages(
+			projectRoot,
+			args,
+			'AbsoluteJS mobile branding uses the pinned official Capacitor asset generator. Install it as a development dependency now?',
+			brandingPackages,
+			true
+		);
+	}
 };
 
 const valueAfter = (args: string[], flag: string) => {
@@ -780,6 +805,8 @@ const initialize = async (args: string[]) => {
 	);
 	if (args.includes('--no-native')) return;
 	await runCapacitorForPlatforms(projectRoot, 'add', mobile.platforms);
+	if (mobile.branding)
+		await generateAbsoluteCapacitorBranding(mobile, projectRoot);
 	await applyAbsoluteNativeDeepLinks(mobile);
 	await applyAbsoluteNativeDeviceCapabilities(projectRoot, mobile);
 	await applyAbsoluteNativeBackgroundSync(projectRoot, mobile);
@@ -828,12 +855,148 @@ const sync = async (args: string[]) => {
 	if (platforms.includes('ios'))
 		await repairAbsoluteIosDevSession(projectRoot);
 	await runCapacitorForPlatforms(projectRoot, 'sync', platforms);
+	if (mobile.branding)
+		await generateAbsoluteCapacitorBranding(mobile, projectRoot, {
+			platforms
+		});
 	await applyAbsoluteNativeDeepLinks(mobile, platforms);
 	await applyAbsoluteNativeDeviceCapabilities(projectRoot, mobile, platforms);
 	await applyAbsoluteNativeBackgroundSync(projectRoot, mobile, platforms);
 	await applyAbsoluteNativeUpdates(mobile, platforms);
 	await applyAbsoluteNativeObservability(mobile, platforms);
 	await applyAbsoluteNativeReleaseReadiness(mobile, platforms);
+};
+
+type MobileBrandingCommandResult = AbsoluteMobileBrandingInspection & {
+	preview?: string;
+};
+
+const printMobileBrandingInspection = (
+	inspection: AbsoluteMobileBrandingInspection,
+	json: boolean
+) => {
+	if (json) console.log(JSON.stringify(inspection, null, 2));
+	else console.log(inspection.detail);
+};
+
+const checkMobileBranding = async (
+	mobile: NormalizedAbsoluteMobileConfig,
+	projectRoot: string,
+	json: boolean
+) => {
+	const inspection = await inspectAbsoluteMobileBranding(mobile, projectRoot);
+	printMobileBrandingInspection(inspection, json);
+	if (!inspection.ready)
+		throw new TypeError(
+			'Mobile branding is not current. Run `absolute mobile assets`.'
+		);
+
+	return inspection;
+};
+
+const generateMobileBranding = async (
+	args: string[],
+	mobile: NormalizedAbsoluteMobileConfig,
+	platforms: ('android' | 'ios')[],
+	projectRoot: string
+) => {
+	if (!mobile.branding)
+		throw new TypeError(
+			'absolute.config.ts must define mobile.branding before generating mobile assets.'
+		);
+	if (mobile.engine !== 'expo') {
+		await ensureCapacitorPackages(projectRoot, args, mobile);
+		await generateAbsoluteCapacitorBranding(mobile, projectRoot, {
+			platforms
+		});
+
+		return;
+	}
+	await writeAbsoluteExpoProject(mobile, {
+		force: args.includes('--force'),
+		projectRoot
+	});
+	await ensureExpoPackages(mobile.nativeProjectDirectory, args);
+	await runExpo(mobile.nativeProjectDirectory, [
+		'prebuild',
+		'--no-install',
+		'--platform',
+		platforms.length === 2 ? 'all' : (platforms[0] ?? 'all')
+	]);
+};
+
+const renderMobileBrandingResult = (
+	inspection: AbsoluteMobileBrandingInspection,
+	json: boolean,
+	preview: string | undefined,
+	projectRoot: string
+) => {
+	const result: MobileBrandingCommandResult = {
+		...inspection,
+		...(preview
+			? { preview: relative(projectRoot, preview).replaceAll('\\', '/') }
+			: {})
+	};
+	if (json) console.log(JSON.stringify(result, null, 2));
+	else console.log(`✓ ${inspection.detail}`);
+	if (!json && result.preview) console.log(`Preview: ${result.preview}`);
+
+	return result;
+};
+
+const assets = async (args: string[]) => {
+	const startedAt = performance.now();
+	const { mobile, projectRoot } = await loadMobile(
+		valueAfter(args, '--config')
+	);
+	const requested = args.find(
+		(value): value is 'android' | 'ios' =>
+			value === 'android' || value === 'ios'
+	);
+	if (requested && !mobile.platforms.includes(requested))
+		throw new TypeError(
+			`Mobile platform ${requested} is not enabled in mobile.platforms.`
+		);
+	const platforms: ('android' | 'ios')[] = requested
+		? [requested]
+		: [...mobile.platforms];
+	try {
+		if (args.includes('--check'))
+			return await checkMobileBranding(
+				mobile,
+				projectRoot,
+				args.includes('--json')
+			);
+		await generateMobileBranding(args, mobile, platforms, projectRoot);
+		const preview = args.includes('--preview')
+			? await renderAbsoluteMobileBrandingPreview(mobile, projectRoot)
+			: undefined;
+		const inspection = await inspectAbsoluteMobileBranding(
+			mobile,
+			projectRoot
+		);
+		sendTelemetryEvent('mobile:assets', {
+			durationMs: Math.round(performance.now() - startedAt),
+			engine: mobile.engine,
+			platforms: platforms.join(','),
+			success: true
+		});
+
+		return renderMobileBrandingResult(
+			inspection,
+			args.includes('--json'),
+			preview,
+			projectRoot
+		);
+	} catch (error) {
+		sendTelemetryEvent('mobile:assets', {
+			durationMs: Math.round(performance.now() - startedAt),
+			engine: mobile.engine,
+			platforms: platforms.join(','),
+			success: false
+		});
+		throw error;
+	}
 };
 
 const associations = async (args: string[]) => {
@@ -5459,6 +5622,11 @@ export const runMobile = async (args: string[]) => {
 
 		return;
 	}
+	if (command === 'assets') {
+		await assets(args.slice(1));
+
+		return;
+	}
 	if (command === 'associations') {
 		await associations(args.slice(1));
 
@@ -5580,6 +5748,6 @@ export const runMobile = async (args: string[]) => {
 	}
 
 	throw new TypeError(
-		'Usage: absolute mobile <pair mac <name> <user@host> [--port n] [--workspace path] | remotes [inspect [name] [--json] | clean [name] --yes | --json] | unpair mac <name> | init [--no-native] [--force] | sync [ios|android] | inspect [--json] [--require-bundle] | certify <release-dir> [--evidence report-dir]... [--require installed|simulator|device|store] [--outdir dir] [--json] | certify <release-dir> --verify certification-dir [--require installed|simulator|device|store] [--json] | associations [--outdir dir] [--verify] | ci github [server-entry] [--publish] [--registry module] [--secret-env NAME] [--output path] [--force] [--json] | ci promote <android|ios> --run-id id --certification path [--channel name] [--play-track track|--testflight-group group] [--ref branch] [--repo owner/name] [--watch] [--audit] [--outdir path] [--json] | ci promote --resume dispatch-id [--watch] [--audit] [--outdir path] [--json] | ci promotions [--json] | ci status --run-id id [--watch] [--repo owner/name] [--json] | ci audit --run-id id [--source-run-id id] [--repo owner/name] [--outdir path] [--json] | doctor [ios|android|release [ios|android]] [--remote name] [--json|--fix [--yes]] | build <android|ios> [server-entry] [--remote name] [--registered-device-artifact] [--outdir dir] [--web-outdir dir] [--unsigned] | update provision [--storage local|s3] [--registry module] [--force] [--yes] | update signing generate --private-key path [--certificate path] [--public-key path] [--key-id id] [--common-name name] [--validity-years n] | update build [server-entry] --classification bug-fix|content|security --key-id id --signing-key path --within-submitted-purpose [--outdir dir] [--web-outdir dir] | update publish <release-directory> [--rollout fraction] [--registry module] | update promote --release id --rollout fraction [--registry module] | update rollback [--release id] [--registry module] | update status [--registry module] [--json] | update advance [--rollout fraction] [--registry module] [--json] | update pause|resume|cancel|reconcile [--registry module] [--json] | update storage [--retain count] [--min-age-days days] [--registry module] [--json] | update gc [--retain count] [--min-age-days days] [--grace-days days] [--apply] [--registry module] [--json] | publish android [server-entry] [--release release-dir] [--certification certification-dir] [--certification-attestation verification-json] [--registry module] [--channel name] [--play-track track] [--play-status completed|draft|halted|in-progress] [--play-rollout fraction] [--play-name name] [--play-notes language=text] [--play-update-priority 0..5] [--play-hold-review] [--play-cancel-existing-review] [--outdir dir] [--web-outdir dir] [--unsigned] | publish ios [server-entry] [--release release-dir] [--certification certification-dir] [--certification-attestation verification-json] [--remote name] [--registry module] [--channel name] [--testflight-group name-or-id] [--testflight-notes locale=text] [--testflight-submit-review] [--outdir dir] [--web-outdir dir] [--unsigned] | test android [--release release-dir [--yes] | --route path [--wait-for-hmr] [--port n]] [--report [dir]] [--serial id] [--artifacts dir] [--json] [--config path] | test ios [--release release-dir [--remote name] [--device id [--testflight] --yes] | --wait-for-hmr] [--report [dir]] [--udid id] [--artifacts dir] [--json] [--config path]'
+		'Usage: absolute mobile <pair mac <name> <user@host> [--port n] [--workspace path] | remotes [inspect [name] [--json] | clean [name] --yes | --json] | unpair mac <name> | init [--no-native] [--force] | sync [ios|android] | assets [ios|android] [--check] [--preview] [--json] [--yes] | inspect [--json] [--require-bundle] | certify <release-dir> [--evidence report-dir]... [--require installed|simulator|device|store] [--outdir dir] [--json] | certify <release-dir> --verify certification-dir [--require installed|simulator|device|store] [--json] | associations [--outdir dir] [--verify] | ci github [server-entry] [--publish] [--registry module] [--secret-env NAME] [--output path] [--force] [--json] | ci promote <android|ios> --run-id id --certification path [--channel name] [--play-track track|--testflight-group group] [--ref branch] [--repo owner/name] [--watch] [--audit] [--outdir path] [--json] | ci promote --resume dispatch-id [--watch] [--audit] [--outdir path] [--json] | ci promotions [--json] | ci status --run-id id [--watch] [--repo owner/name] [--json] | ci audit --run-id id [--source-run-id id] [--repo owner/name] [--outdir path] [--json] | doctor [ios|android|release [ios|android]] [--remote name] [--json|--fix [--yes]] | build <android|ios> [server-entry] [--remote name] [--registered-device-artifact] [--outdir dir] [--web-outdir dir] [--unsigned] | update provision [--storage local|s3] [--registry module] [--force] [--yes] | update signing generate --private-key path [--certificate path] [--public-key path] [--key-id id] [--common-name name] [--validity-years n] | update build [server-entry] --classification bug-fix|content|security --key-id id --signing-key path --within-submitted-purpose [--outdir dir] [--web-outdir dir] | update publish <release-directory> [--rollout fraction] [--registry module] | update promote --release id --rollout fraction [--registry module] | update rollback [--release id] [--registry module] | update status [--registry module] [--json] | update advance [--rollout fraction] [--registry module] [--json] | update pause|resume|cancel|reconcile [--registry module] [--json] | update storage [--retain count] [--min-age-days days] [--registry module] [--json] | update gc [--retain count] [--min-age-days days] [--grace-days days] [--apply] [--registry module] [--json] | publish android [server-entry] [--release release-dir] [--certification certification-dir] [--certification-attestation verification-json] [--registry module] [--channel name] [--play-track track] [--play-status completed|draft|halted|in-progress] [--play-rollout fraction] [--play-name name] [--play-notes language=text] [--play-update-priority 0..5] [--play-hold-review] [--play-cancel-existing-review] [--outdir dir] [--web-outdir dir] [--unsigned] | publish ios [server-entry] [--release release-dir] [--certification certification-dir] [--certification-attestation verification-json] [--remote name] [--registry module] [--channel name] [--testflight-group name-or-id] [--testflight-notes locale=text] [--testflight-submit-review] [--outdir dir] [--web-outdir dir] [--unsigned] | test android [--release release-dir [--yes] | --route path [--wait-for-hmr] [--port n]] [--report [dir]] [--serial id] [--artifacts dir] [--json] [--config path] | test ios [--release release-dir [--remote name] [--device id [--testflight] --yes] | --wait-for-hmr] [--report [dir]] [--udid id] [--artifacts dir] [--json] [--config path]'
 	);
 };

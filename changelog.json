@@ -5,6 +5,35 @@
 		{
 			"changes": [
 				{
+					"detail": "A typed mobile.branding contract now projects validated source PNGs into Capacitor and Expo icons, Android adaptive and themed layers, iOS appearance variants, and light/dark launch screens without application-authored native code. The mobile assets command wraps the pinned official Capacitor generator, installs it only as a direct development dependency when needed, previews artwork, records a content-addressed non-secret manifest, resumes platform-specific generation, reports bounded telemetry, and makes configured stale or missing output fail release doctor.",
+					"kind": "added",
+					"summary": "Capacitor and Expo share a first-class native branding pipeline",
+					"symbols": [
+						"ABSOLUTE_CAPACITOR_ASSETS_SPEC",
+						"ABSOLUTE_CAPACITOR_ASSETS_VERSION",
+						"ABSOLUTE_MOBILE_BRANDING_FORMAT",
+						"AbsoluteMobileBrandingGenerationOptions",
+						"AbsoluteMobileBrandingInspection",
+						"AbsoluteMobileBrandingManifest",
+						"AbsoluteMobileBrandingRunner",
+						"AbsoluteMobileBrandingSource",
+						"NormalizedAbsoluteMobileConfig",
+						"absoluteExpoBrandingConfig",
+						"absoluteMobileBrandingManifestPath",
+						"createAbsoluteMobileBrandingManifest",
+						"generateAbsoluteCapacitorBranding",
+						"inspectAbsoluteMobileBranding",
+						"renderAbsoluteMobileBrandingPreview",
+						"writeAbsoluteExpoBrandingInputs"
+					]
+				}
+			],
+			"date": "2026-09-17",
+			"version": "0.20.0-beta.114"
+		},
+		{
+			"changes": [
+				{
 					"detail": "AbsoluteJS fsyncs and atomically installs a bounded non-secret promotion operation before contacting GitHub, advances the same identity through exact run discovery, completion and audit, lists local operations, and resumes persisted intent after sleep, disconnect or process failure without issuing another workflow dispatch.",
 					"kind": "added",
 					"summary": "Mobile CI promotions survive local interruption without duplicate dispatch",

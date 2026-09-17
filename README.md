@@ -261,6 +261,12 @@ validation, and release projection. Add `--json` for a redacted CI or support
 artifact; it omits credentials, device/account identifiers, absolute paths, and
 detailed doctor messages. See [mobile project inspection](docs/MOBILE_INSPECT.md).
 
+Configure one typed source for native icons, Android adaptive/themed layers,
+iOS appearance variants, and launch artwork, then run `absolute mobile assets
+--preview`. AbsoluteJS projects it into either Capacitor or Expo, detects stale
+inputs, and includes the result in release doctor. See
+[mobile branding and native assets](docs/MOBILE_BRANDING.md).
+
 Before signing, run `absolute mobile doctor release`. It validates pinned and
 aligned Capacitor packages, dependency locking, HTTPS and signed-link identity,
 packaged app identity, SHA-256 page/style integrity, runtime compatibility, CSP,

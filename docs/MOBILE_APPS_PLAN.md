@@ -2,6 +2,17 @@
 
 Status: Capacitor Android development/release, all-framework embedded bundles, universal native Auth/Sync, Expo hybrid native Auth/Sync, background Sync, automatic device provisioning, provider-neutral native push registration, signed staged Capacitor updates, end-to-end RSA-signed self-hosted Expo production updates, and provider-neutral Android development plus installed production-AAB conformance are operational; iOS development/release automation plus installed Expo iOS OTA and replacement-upgrade harnesses are shipped and awaiting real macOS/physical-device acceptance
 
+Implementation checkpoint (September 17, 2026, portable native branding): one
+typed `mobile.branding` source now projects icons, Android adaptive/themed
+layers, iOS light/dark/tinted appearances, and light/dark launch artwork into
+both Capacitor and Expo without application-authored native code. Capacitor
+wraps the pinned official asset generator as an opt-in direct development
+dependency, while AbsoluteJS fills its modern Android monochrome and iOS
+appearance gaps. Content-addressed, non-secret manifests detect changed inputs,
+track incremental platform completion, and refuse missing generator output;
+release doctor enforces configured projections. Commands, ownership, and the
+macOS acceptance checklist are in `docs/MOBILE_BRANDING.md`.
+
 Implementation checkpoint (September 16, 2026, provider-neutral release
 certification): `absolute mobile certify` now converts installed Android or iOS
 test reports into one content-addressed certification for the exact immutable
