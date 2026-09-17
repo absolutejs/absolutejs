@@ -200,6 +200,36 @@ The protected `absolute-mobile-release` environment still controls approval and
 store credentials. A promotion cannot select `all`, omit the source run or
 certification, or run without a channel/store target.
 
+### Resume after sleep, disconnect, or process failure
+
+Before contacting GitHub, the CLI atomically writes a bounded non-secret
+operation record under
+`.absolutejs/mobile-ci/promotions/<dispatch-id>/operation.json`. It contains the
+source/release identities, certification digest, public target controls,
+workflow identity, and requested watch/audit behavior. It never contains the
+certification document, its base64 dispatch value, credentials, tokens, or
+GitHub command output.
+
+If the terminal closes, the computer sleeps, or connectivity fails, list local
+operations from the same application root and resume the recorded identity:
+
+```sh
+bunx absolute mobile ci promotions
+bunx absolute mobile ci promote --resume amp_<dispatch-id>
+```
+
+The original `--watch` and `--audit` intent is retained. Those flags may also be
+added when resuming an operation that originally stopped after dispatch. Add
+`--json` to either command for bounded machine-readable state. If an audit
+directory was written immediately before interruption, pass a new project-local
+`--outdir` to replay the independent audit without replacing existing evidence.
+
+Recovery never automatically dispatches again. A failed network command cannot
+prove whether GitHub accepted the request, so AbsoluteJS searches only for the
+exact persisted dispatch identity. If GitHub has not exposed that run yet, wait
+and run the same recovery command again. Start a new promotion only after you
+have independently established that the recorded dispatch was not accepted.
+
 ## Inspect and independently audit a promotion
 
 Every command in this section runs from the application root. The promotion
@@ -288,7 +318,9 @@ protected follow-up run for the existing release—not a rebuild:
 bunx absolute mobile ci promote ios \
   --run-id <source-build-run-id> \
   --certification .absolutejs/mobile/certifications/ios/<release-id>/<certification-id> \
-  --channel production
+  --channel production \
+  --watch \
+  --audit
 ```
 
 Use the same shape with `publish android`; add `--play-track production` when

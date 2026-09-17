@@ -32,6 +32,7 @@ export * from './capacitorProject';
 export * from './config';
 export * from './client';
 export * from './ciPromotionAudit';
+export * from './ciPromotionLedger';
 export * from './ciWorkflow';
 export * from './compatibilityDispatcher';
 export * from './materializedBundle';

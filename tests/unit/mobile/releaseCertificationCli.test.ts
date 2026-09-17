@@ -10,10 +10,14 @@ import {
 
 const ROOT = resolve(import.meta.dir, '..', '..', '..');
 
-const runCli = async (cwd: string, args: string[]) => {
+const runCli = async (
+	cwd: string,
+	args: string[],
+	env: Record<string, string | undefined> = process.env
+) => {
 	const subprocess = Bun.spawn(
 		[process.execPath, resolve(ROOT, 'src/cli/index.ts'), ...args],
-		{ cwd, stderr: 'pipe', stdin: 'ignore', stdout: 'pipe' }
+		{ cwd, env, stderr: 'pipe', stdin: 'ignore', stdout: 'pipe' }
 	);
 	const [exitCode, stderr, stdout] = await Promise.all([
 		subprocess.exited,
@@ -164,6 +168,55 @@ describe('mobile certify CLI', () => {
 };\n`
 			)
 		]);
+		const bin = join(root, 'bin');
+		await mkdir(bin);
+		await writeFile(join(bin, 'gh'), '#!/bin/sh\nexit 7\n', {
+			mode: 0o700
+		});
+		const interruptedPromotion = await runCli(
+			root,
+			[
+				'mobile',
+				'ci',
+				'promote',
+				'android',
+				'--run-id',
+				'1234',
+				'--certification',
+				certificationDirectory,
+				'--channel',
+				'production'
+			],
+			{ ...process.env, PATH: `${bin}:${process.env.PATH ?? ''}` }
+		);
+		expect(interruptedPromotion.exitCode).not.toBe(0);
+		expect(interruptedPromotion.stderr).toContain(
+			'Resume without redispatching: absolute mobile ci promote --resume amp_'
+		);
+		const promotions = await runCli(root, [
+			'mobile',
+			'ci',
+			'promotions',
+			'--json'
+		]);
+		expect(promotions.exitCode).toBe(0);
+		const [record] = JSON.parse(promotions.stdout);
+		expect(record).toMatchObject({
+			certificationId: certification.certificationId,
+			phase: 'dispatching',
+			releaseId,
+			sourceRunId: '1234'
+		});
+		const recordSource = await Bun.file(
+			join(
+				root,
+				'.absolutejs/mobile-ci/promotions',
+				record.dispatchId,
+				'operation.json'
+			)
+		).text();
+		expect(recordSource).not.toContain('certification_base64');
+		expect(recordSource).not.toContain('signed-aab-fixture');
 		const gated = await runCli(root, [
 			'mobile',
 			'publish',
@@ -227,5 +280,5 @@ describe('mobile certify CLI', () => {
 		expect(missingOutput.stderr).toContain(
 			'mobile certify --outdir requires a value.'
 		);
-	});
+	}, 15_000);
 });

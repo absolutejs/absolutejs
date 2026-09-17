@@ -2679,6 +2679,19 @@ bunx absolute mobile ci promote ios \
 - [ ] `REMOTE-IOS-PROMOTE-08` Inspect the returned directory for secrets, device
   identifiers, SSH destinations, absolute local paths, application data, and
   tokens. Mark FAIL and stop sharing if any are present.
+- [ ] `REMOTE-IOS-PROMOTE-09` From the application root, run `bunx absolute
+  mobile ci promotions`. Confirm the completed operation names the same
+  `PROMOTION_RUN_ID`, source run, release ID, platform, and local audit
+  directory. Its recovery record is under
+  `.absolutejs/mobile-ci/promotions/<dispatch-id>/operation.json`.
+- [ ] `REMOTE-IOS-PROMOTE-10` Open that `operation.json` and confirm it contains
+  no certification document/base64, signing or store credentials, GitHub token,
+  command stderr/stdout, device identifier, application data, SSH destination,
+  or absolute filesystem path.
+- [ ] `REMOTE-IOS-PROMOTE-11` Copy the printed dispatch ID and run `bunx
+  absolute mobile ci promote --resume <dispatch-id> --json`. Confirm it returns
+  the same GitHub run and does not create another workflow run. Do not delete or
+  edit the operation record before this check.
 
 Return `certification.json` and `certification.md` with the three report
 directories. The certification contains only report SHA-256 digests and bounded

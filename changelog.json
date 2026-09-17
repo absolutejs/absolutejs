@@ -5,6 +5,31 @@
 		{
 			"changes": [
 				{
+					"detail": "AbsoluteJS fsyncs and atomically installs a bounded non-secret promotion operation before contacting GitHub, advances the same identity through exact run discovery, completion and audit, lists local operations, and resumes persisted intent after sleep, disconnect or process failure without issuing another workflow dispatch.",
+					"kind": "added",
+					"summary": "Mobile CI promotions survive local interruption without duplicate dispatch",
+					"symbols": [
+						"ABSOLUTE_MOBILE_CI_PROMOTION_OPERATION_FORMAT",
+						"AbsoluteMobilePromotionOperation",
+						"AbsoluteMobilePromotionOperationPhase",
+						"AdvanceAbsoluteMobilePromotionOperationOptions",
+						"CreateAbsoluteMobilePromotionOperationOptions",
+						"absoluteMobilePromotionOperationPath",
+						"advanceAbsoluteMobilePromotionOperation",
+						"createAbsoluteMobilePromotionOperation",
+						"listAbsoluteMobilePromotionOperations",
+						"parseAbsoluteMobilePromotionOperation",
+						"readAbsoluteMobilePromotionOperation",
+						"relativeAbsoluteMobilePromotionOperationPath"
+					]
+				}
+			],
+			"date": "2026-09-17",
+			"version": "0.20.0-beta.113"
+		},
+		{
+			"changes": [
+				{
 					"detail": "The promotion CLI assigns each protected dispatch a unique non-secret identity, discovers only the GitHub Actions run carrying that identity, returns its run ID and URL, optionally waits for completion, and can chain an independent local audit without racing concurrent promotions; retained format-1 audit context remains readable.",
 					"kind": "added",
 					"summary": "Mobile CI promotions correlate, watch, and audit the exact dispatched workflow run",

@@ -444,6 +444,15 @@ boundary, and `@absolutejs/deploy` can require a trusted server verifier before
 retaining provenance. The follow-up run uploads the certification, bundle,
 verification envelope, and final receipt as a 90-day audit artifact.
 
+Implementation checkpoint (September 17, 2026, crash-resumable promotion): the
+promotion CLI now persists its unique dispatch identity and bounded public
+intent atomically before contacting GitHub. Project-local operations advance
+through dispatch, exact run discovery, completion, and independent audit without
+retaining certification bytes or credentials. `mobile ci promotions` inventories
+those operations, while `mobile ci promote --resume <dispatch-id>` recovers after
+sleep, terminal closure, connectivity failure, or process death without ever
+guessing the latest run or automatically creating a duplicate dispatch.
+
 Implementation checkpoint (August 29, 2026): the planned read-only
 `absolute mobile inspect` command is now implemented. Human and JSON output
 inventory the effective config, project-relative native/bundle paths, runtime

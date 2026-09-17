@@ -6,7 +6,7 @@ import {
 	rm,
 	writeFile
 } from 'node:fs/promises';
-import { createPublicKey, randomUUID } from 'node:crypto';
+import { createHash, createPublicKey, randomUUID } from 'node:crypto';
 import { join, relative, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import type { MobileConfig } from '../../../types/build';
@@ -155,6 +155,14 @@ import {
 	watchAbsoluteMobileCiRun,
 	type AbsoluteMobileCiRunStatus
 } from '../../mobile/ciPromotionAudit';
+import {
+	advanceAbsoluteMobilePromotionOperation,
+	createAbsoluteMobilePromotionOperation,
+	listAbsoluteMobilePromotionOperations,
+	readAbsoluteMobilePromotionOperation,
+	relativeAbsoluteMobilePromotionOperationPath,
+	type AbsoluteMobilePromotionOperation
+} from '../../mobile/ciPromotionLedger';
 import {
 	buildAbsoluteMobileUpdate,
 	verifyAbsoluteMobileUpdateSignature
@@ -981,7 +989,7 @@ type GithubMobilePromotionDispatchResult = {
 };
 
 type AuditDispatchedGithubMobilePromotionOptions = {
-	args: string[];
+	outputDirectory?: string;
 	platform: 'android' | 'ios';
 	projectRoot: string;
 	repository?: string;
@@ -994,7 +1002,7 @@ const auditDispatchedGithubMobilePromotion = async (
 	const startedAt = performance.now();
 	try {
 		const audited = await auditAbsoluteMobileCiPromotion({
-			outputDirectory: valueAfter(options.args, '--outdir'),
+			outputDirectory: options.outputDirectory,
 			projectRoot: options.projectRoot,
 			...(options.repository ? { repository: options.repository } : {}),
 			runId: options.runId
@@ -1018,7 +1026,202 @@ const auditDispatchedGithubMobilePromotion = async (
 	}
 };
 
+const promotionPhaseRank = (phase: AbsoluteMobilePromotionOperation['phase']) =>
+	['dispatching', 'dispatched', 'discovered', 'completed', 'audited'].indexOf(
+		phase
+	);
+
+const promotionRecoveryCommand = (dispatchId: string) =>
+	`absolute mobile ci promote --resume ${dispatchId}`;
+
+const promotionRecoveryError = (error: unknown, dispatchId: string) => {
+	const message = error instanceof Error ? error.message : String(error);
+
+	return new TypeError(
+		`${message}\nPromotion ${dispatchId} is recorded. Resume without redispatching: ${promotionRecoveryCommand(dispatchId)}\nIf immutable audit output already exists, add --outdir with a new project-local directory.`,
+		{ cause: error }
+	);
+};
+
+type CompleteGithubMobilePromotionOptions = {
+	audit: boolean;
+	auditOutputDirectory?: string;
+	json: boolean;
+	operation: AbsoluteMobilePromotionOperation;
+	projectRoot: string;
+	watch: boolean;
+};
+
+type WatchAndPersistGithubMobilePromotionOptions = {
+	operation: AbsoluteMobilePromotionOperation;
+	projectRoot: string;
+	runId: string;
+};
+
+const watchAndPersistGithubMobilePromotion = async (
+	options: WatchAndPersistGithubMobilePromotionOptions
+) => {
+	let status: AbsoluteMobileCiRunStatus;
+	try {
+		status = await watchAbsoluteMobileCiRun({
+			projectRoot: options.projectRoot,
+			...(options.operation.repository
+				? { repository: options.operation.repository }
+				: {}),
+			runId: options.runId
+		});
+	} catch (error) {
+		const inspected = await inspectAbsoluteMobileCiRun({
+			projectRoot: options.projectRoot,
+			...(options.operation.repository
+				? { repository: options.operation.repository }
+				: {}),
+			runId: options.runId
+		}).catch(() => null);
+		if (inspected?.status === 'completed')
+			await advanceAbsoluteMobilePromotionOperation(
+				options.projectRoot,
+				options.operation.dispatchId,
+				{
+					conclusion: inspected.conclusion,
+					githubStatus: inspected.status,
+					phase: 'completed'
+				}
+			);
+		throw error;
+	}
+	const operation = await advanceAbsoluteMobilePromotionOperation(
+		options.projectRoot,
+		options.operation.dispatchId,
+		{
+			conclusion: status.conclusion,
+			githubStatus: status.status,
+			phase: 'completed'
+		}
+	);
+
+	return { operation, status };
+};
+
+const completeGithubMobilePromotion = async (
+	options: CompleteGithubMobilePromotionOptions
+) => {
+	let { operation } = options;
+	if (!operation.runId || !operation.url) {
+		const promotion = await discoverAbsoluteMobilePromotionRun({
+			dispatchId: operation.dispatchId,
+			projectRoot: options.projectRoot,
+			...(operation.repository
+				? { repository: operation.repository }
+				: {}),
+			workflow: operation.workflow
+		});
+		operation = await advanceAbsoluteMobilePromotionOperation(
+			options.projectRoot,
+			operation.dispatchId,
+			{
+				phase: 'discovered',
+				runId: promotion.runId,
+				url: promotion.url
+			}
+		);
+	}
+	if (!operation.runId || !operation.url)
+		throw new TypeError(
+			'Promotion run discovery did not produce an identity.'
+		);
+	const promotionRunId = operation.runId;
+	const promotionUrl = operation.url;
+	if (!options.json) {
+		console.log(
+			`Promotion ${operation.dispatchId} is GitHub run ${promotionRunId}.`
+		);
+		console.log(promotionUrl);
+	}
+	let status: AbsoluteMobileCiRunStatus | null = null;
+	if (
+		options.watch &&
+		promotionPhaseRank(operation.phase) < promotionPhaseRank('completed')
+	) {
+		if (!options.json)
+			console.log(
+				`Watching GitHub run ${promotionRunId} until completion…`
+			);
+		({ operation, status } = await watchAndPersistGithubMobilePromotion({
+			operation,
+			projectRoot: options.projectRoot,
+			runId: promotionRunId
+		}));
+	} else if (options.watch) {
+		status = await inspectAbsoluteMobileCiRun({
+			projectRoot: options.projectRoot,
+			...(operation.repository
+				? { repository: operation.repository }
+				: {}),
+			runId: promotionRunId
+		});
+	}
+	if (options.audit && operation.conclusion !== 'success')
+		throw new TypeError(
+			'Promotion audit requires a successfully completed workflow run.'
+		);
+	let audited: Awaited<
+		ReturnType<typeof auditAbsoluteMobileCiPromotion>
+	> | null = null;
+	if (options.audit && operation.phase !== 'audited') {
+		audited = await auditDispatchedGithubMobilePromotion({
+			outputDirectory:
+				options.auditOutputDirectory ??
+				operation.auditOutputDirectory ??
+				undefined,
+			platform: operation.platform,
+			projectRoot: options.projectRoot,
+			...(operation.repository
+				? { repository: operation.repository }
+				: {}),
+			runId: promotionRunId
+		});
+		operation = await advanceAbsoluteMobilePromotionOperation(
+			options.projectRoot,
+			operation.dispatchId,
+			{
+				auditDirectory: relative(
+					options.projectRoot,
+					audited.directory
+				).replaceAll('\\', '/'),
+				phase: 'audited'
+			}
+		);
+	}
+	const result: GithubMobilePromotionDispatchResult = {
+		auditDirectory: operation.auditDirectory,
+		dispatchId: operation.dispatchId,
+		platform: operation.platform,
+		releaseId: operation.releaseId,
+		runId: promotionRunId,
+		sourceRunId: operation.sourceRunId,
+		status: operation.githubStatus ?? operation.phase,
+		url: promotionUrl
+	};
+	if (options.json) console.log(JSON.stringify(result, null, 2));
+	else {
+		if (status) renderGithubMobileRunStatus(status);
+		if (audited)
+			renderGithubMobilePromotionAudit(audited, options.projectRoot);
+		else if (operation.auditDirectory)
+			console.log(`Audit: ${operation.auditDirectory}`);
+		console.log(
+			`Promotion record: ${relativeAbsoluteMobilePromotionOperationPath(options.projectRoot, operation.dispatchId)}`
+		);
+	}
+
+	return result;
+};
+
 const dispatchGithubMobilePromotion = async (args: string[]) => {
+	const resumeDispatchId = valueAfter(args, '--resume');
+	if (resumeDispatchId)
+		return resumeGithubMobilePromotion(args, resumeDispatchId);
 	const [platform] = args;
 	if (platform !== 'android' && platform !== 'ios')
 		throw new TypeError(
@@ -1070,6 +1273,37 @@ const dispatchGithubMobilePromotion = async (args: string[]) => {
 		'.github/workflows/absolute-mobile.yml';
 	const dispatchId = `amp_${randomUUID().replaceAll('-', '')}`;
 	const repository = valueAfter(args, '--repo');
+	const ref = valueAfter(args, '--ref');
+	const auditRequested = args.includes('--audit');
+	const watchRequested = args.includes('--watch') || auditRequested;
+	const requestedAuditOutputDirectory = valueAfter(args, '--outdir');
+	const auditOutputDirectory = requestedAuditOutputDirectory
+		? relative(
+				projectRoot,
+				resolve(projectRoot, requestedAuditOutputDirectory)
+			).replaceAll('\\', '/')
+		: null;
+	await createAbsoluteMobilePromotionOperation(projectRoot, {
+		auditOutputDirectory,
+		auditRequested,
+		certificationId: certification.certificationId,
+		certificationSha256: createHash('sha256')
+			.update(serializeAbsoluteMobileReleaseCertification(certification))
+			.digest('hex'),
+		channel: channel || null,
+		dispatchId,
+		platform,
+		playTrack: platform === 'android' ? playTrack : null,
+		ref: ref ?? null,
+		releaseId: certification.release.releaseId,
+		repository: repository ?? null,
+		sourceRunId,
+		testflightGroup: platform === 'ios' ? testflightGroup || null : null,
+		testflightSubmitReview:
+			platform === 'ios' && args.includes('--testflight-submit-review'),
+		watchRequested,
+		workflow
+	});
 	const command = [
 		'workflow',
 		'run',
@@ -1095,82 +1329,127 @@ const dispatchGithubMobilePromotion = async (args: string[]) => {
 			`submit_testflight_review=${args.includes('--testflight-submit-review')}`
 		);
 	}
-	const ref = valueAfter(args, '--ref');
 	if (ref) command.push('--ref', ref);
 	if (repository) command.push('--repo', repository);
-	const child = Bun.spawn(['gh', ...command], {
-		cwd: projectRoot,
-		stderr: 'pipe',
-		stdin: 'inherit',
-		stdout: 'pipe'
-	});
-	const [exitCode, stderr] = await Promise.all([
-		child.exited,
-		new Response(child.stderr).text(),
-		new Response(child.stdout).text()
-	]);
-	if (exitCode !== 0)
-		throw new TypeError(
-			`GitHub promotion dispatch exited with status ${exitCode}: ${stderr.trim() || 'unknown GitHub CLI error'}`
+	try {
+		const child = Bun.spawn(['gh', ...command], {
+			cwd: projectRoot,
+			stderr: 'pipe',
+			stdin: 'inherit',
+			stdout: 'pipe'
+		});
+		const [exitCode, stderr] = await Promise.all([
+			child.exited,
+			new Response(child.stderr).text(),
+			new Response(child.stdout).text()
+		]);
+		if (exitCode !== 0)
+			throw new TypeError(
+				`GitHub promotion dispatch exited with status ${exitCode}: ${stderr.trim() || 'unknown GitHub CLI error'}`
+			);
+		const operation = await advanceAbsoluteMobilePromotionOperation(
+			projectRoot,
+			dispatchId,
+			{ phase: 'dispatched' }
 		);
-	const promotion = await discoverAbsoluteMobilePromotionRun({
-		dispatchId,
-		projectRoot,
-		...(repository ? { repository } : {}),
-		workflow
-	});
-	sendTelemetryEvent('mobile:ci-promotion-dispatched', {
-		discovery: 'correlated',
-		platform,
-		provider: 'github-actions',
-		storeTarget:
-			platform === 'android'
-				? playTrack !== 'registry-only'
-				: testflightGroup !== ''
-	});
-	if (!args.includes('--json')) {
-		console.log(
-			`Dispatched protected ${platform} promotion ${promotion.runId} for ${certification.release.releaseId} from workflow run ${sourceRunId}.`
-		);
-		console.log(promotion.url);
-	}
-	const shouldWatch = args.includes('--watch') || args.includes('--audit');
-	if (shouldWatch && !args.includes('--json'))
-		console.log(`Watching GitHub run ${promotion.runId} until completion…`);
-	const status = shouldWatch
-		? await watchAbsoluteMobileCiRun({
-				projectRoot,
-				...(repository ? { repository } : {}),
-				runId: promotion.runId
-			})
-		: null;
-	const audited = args.includes('--audit')
-		? await auditDispatchedGithubMobilePromotion({
-				args,
-				platform,
-				projectRoot,
-				...(repository ? { repository } : {}),
-				runId: promotion.runId
-			})
-		: null;
-	const result: GithubMobilePromotionDispatchResult = {
-		auditDirectory: audited
-			? relative(projectRoot, audited.directory).replaceAll('\\', '/')
-			: null,
-		dispatchId,
-		platform,
-		releaseId: certification.release.releaseId,
-		runId: promotion.runId,
-		sourceRunId,
-		status: status?.status ?? 'dispatched',
-		url: promotion.url
-	};
-	if (args.includes('--json')) console.log(JSON.stringify(result, null, 2));
-	if (args.includes('--json')) return result;
-	if (status) renderGithubMobileRunStatus(status);
-	if (audited) renderGithubMobilePromotionAudit(audited, projectRoot);
+		sendTelemetryEvent('mobile:ci-promotion-dispatched', {
+			discovery: 'correlated',
+			platform,
+			provider: 'github-actions',
+			storeTarget:
+				platform === 'android'
+					? playTrack !== 'registry-only'
+					: testflightGroup !== ''
+		});
 
-	return result;
+		return await completeGithubMobilePromotion({
+			audit: operation.auditRequested,
+			json: args.includes('--json'),
+			operation,
+			projectRoot,
+			watch: operation.watchRequested
+		});
+	} catch (error) {
+		throw promotionRecoveryError(error, dispatchId);
+	}
+};
+
+const resumeGithubMobilePromotion = async (
+	args: string[],
+	dispatchId: string
+) => {
+	const projectRoot = process.cwd();
+	const startedAt = performance.now();
+	let resumedPhase = 'unread';
+	try {
+		const operation = await readAbsoluteMobilePromotionOperation(
+			projectRoot,
+			dispatchId
+		);
+		resumedPhase = operation.phase;
+		const audit = args.includes('--audit') || operation.auditRequested;
+		const watch =
+			args.includes('--watch') || audit || operation.watchRequested;
+		if (!args.includes('--json'))
+			console.log(
+				`Resuming ${operation.platform} promotion ${operation.dispatchId} from ${operation.phase}.`
+			);
+
+		const result = await completeGithubMobilePromotion({
+			audit,
+			auditOutputDirectory: valueAfter(args, '--outdir'),
+			json: args.includes('--json'),
+			operation,
+			projectRoot,
+			watch
+		});
+		sendTelemetryEvent('mobile:ci-promotion-resumed', {
+			durationMs: Math.round(performance.now() - startedAt),
+			phase: resumedPhase,
+			provider: 'github-actions',
+			success: true
+		});
+
+		return result;
+	} catch (error) {
+		sendTelemetryEvent('mobile:ci-promotion-resumed', {
+			durationMs: Math.round(performance.now() - startedAt),
+			phase: resumedPhase,
+			provider: 'github-actions',
+			success: false
+		});
+		throw promotionRecoveryError(error, dispatchId);
+	}
+};
+
+const listGithubMobilePromotions = async (args: string[]) => {
+	const projectRoot = process.cwd();
+	const operations = await listAbsoluteMobilePromotionOperations(projectRoot);
+	if (args.includes('--json')) {
+		console.log(JSON.stringify(operations, null, 2));
+
+		return operations;
+	}
+	if (operations.length === 0) {
+		console.log('No local mobile promotion operations were found.');
+
+		return operations;
+	}
+	operations.forEach((operation) => {
+		console.log(
+			`${operation.dispatchId}  ${operation.platform}  ${operation.phase}  ${operation.releaseId}`
+		);
+		console.log(
+			`  source ${operation.sourceRunId}${operation.runId ? ` → promotion ${operation.runId}` : ''}`
+		);
+		if (operation.url) console.log(`  ${operation.url}`);
+		if (operation.phase !== 'audited')
+			console.log(
+				`  Resume: ${promotionRecoveryCommand(operation.dispatchId)}`
+			);
+	});
+
+	return operations;
 };
 
 const githubMobileRunId = (args: string[]) => {
@@ -5188,6 +5467,8 @@ export const runMobile = async (args: string[]) => {
 	if (command === 'ci') {
 		if (args[1] === 'promote')
 			await dispatchGithubMobilePromotion(args.slice(2));
+		else if (args[1] === 'promotions')
+			await listGithubMobilePromotions(args.slice(2));
 		else if (args[1] === 'status')
 			await inspectGithubMobileRun(args.slice(2));
 		else if (args[1] === 'audit')
@@ -5299,6 +5580,6 @@ export const runMobile = async (args: string[]) => {
 	}
 
 	throw new TypeError(
-		'Usage: absolute mobile <pair mac <name> <user@host> [--port n] [--workspace path] | remotes [inspect [name] [--json] | clean [name] --yes | --json] | unpair mac <name> | init [--no-native] [--force] | sync [ios|android] | inspect [--json] [--require-bundle] | certify <release-dir> [--evidence report-dir]... [--require installed|simulator|device|store] [--outdir dir] [--json] | certify <release-dir> --verify certification-dir [--require installed|simulator|device|store] [--json] | associations [--outdir dir] [--verify] | ci github [server-entry] [--publish] [--registry module] [--secret-env NAME] [--output path] [--force] [--json] | ci promote <android|ios> --run-id id --certification path [--channel name] [--play-track track|--testflight-group group] [--ref branch] [--repo owner/name] [--watch] [--audit] [--outdir path] [--json] | ci status --run-id id [--watch] [--repo owner/name] [--json] | ci audit --run-id id [--source-run-id id] [--repo owner/name] [--outdir path] [--json] | doctor [ios|android|release [ios|android]] [--remote name] [--json|--fix [--yes]] | build <android|ios> [server-entry] [--remote name] [--registered-device-artifact] [--outdir dir] [--web-outdir dir] [--unsigned] | update provision [--storage local|s3] [--registry module] [--force] [--yes] | update signing generate --private-key path [--certificate path] [--public-key path] [--key-id id] [--common-name name] [--validity-years n] | update build [server-entry] --classification bug-fix|content|security --key-id id --signing-key path --within-submitted-purpose [--outdir dir] [--web-outdir dir] | update publish <release-directory> [--rollout fraction] [--registry module] | update promote --release id --rollout fraction [--registry module] | update rollback [--release id] [--registry module] | update status [--registry module] [--json] | update advance [--rollout fraction] [--registry module] [--json] | update pause|resume|cancel|reconcile [--registry module] [--json] | update storage [--retain count] [--min-age-days days] [--registry module] [--json] | update gc [--retain count] [--min-age-days days] [--grace-days days] [--apply] [--registry module] [--json] | publish android [server-entry] [--release release-dir] [--certification certification-dir] [--certification-attestation verification-json] [--registry module] [--channel name] [--play-track track] [--play-status completed|draft|halted|in-progress] [--play-rollout fraction] [--play-name name] [--play-notes language=text] [--play-update-priority 0..5] [--play-hold-review] [--play-cancel-existing-review] [--outdir dir] [--web-outdir dir] [--unsigned] | publish ios [server-entry] [--release release-dir] [--certification certification-dir] [--certification-attestation verification-json] [--remote name] [--registry module] [--channel name] [--testflight-group name-or-id] [--testflight-notes locale=text] [--testflight-submit-review] [--outdir dir] [--web-outdir dir] [--unsigned] | test android [--release release-dir [--yes] | --route path [--wait-for-hmr] [--port n]] [--report [dir]] [--serial id] [--artifacts dir] [--json] [--config path] | test ios [--release release-dir [--remote name] [--device id [--testflight] --yes] | --wait-for-hmr] [--report [dir]] [--udid id] [--artifacts dir] [--json] [--config path]'
+		'Usage: absolute mobile <pair mac <name> <user@host> [--port n] [--workspace path] | remotes [inspect [name] [--json] | clean [name] --yes | --json] | unpair mac <name> | init [--no-native] [--force] | sync [ios|android] | inspect [--json] [--require-bundle] | certify <release-dir> [--evidence report-dir]... [--require installed|simulator|device|store] [--outdir dir] [--json] | certify <release-dir> --verify certification-dir [--require installed|simulator|device|store] [--json] | associations [--outdir dir] [--verify] | ci github [server-entry] [--publish] [--registry module] [--secret-env NAME] [--output path] [--force] [--json] | ci promote <android|ios> --run-id id --certification path [--channel name] [--play-track track|--testflight-group group] [--ref branch] [--repo owner/name] [--watch] [--audit] [--outdir path] [--json] | ci promote --resume dispatch-id [--watch] [--audit] [--outdir path] [--json] | ci promotions [--json] | ci status --run-id id [--watch] [--repo owner/name] [--json] | ci audit --run-id id [--source-run-id id] [--repo owner/name] [--outdir path] [--json] | doctor [ios|android|release [ios|android]] [--remote name] [--json|--fix [--yes]] | build <android|ios> [server-entry] [--remote name] [--registered-device-artifact] [--outdir dir] [--web-outdir dir] [--unsigned] | update provision [--storage local|s3] [--registry module] [--force] [--yes] | update signing generate --private-key path [--certificate path] [--public-key path] [--key-id id] [--common-name name] [--validity-years n] | update build [server-entry] --classification bug-fix|content|security --key-id id --signing-key path --within-submitted-purpose [--outdir dir] [--web-outdir dir] | update publish <release-directory> [--rollout fraction] [--registry module] | update promote --release id --rollout fraction [--registry module] | update rollback [--release id] [--registry module] | update status [--registry module] [--json] | update advance [--rollout fraction] [--registry module] [--json] | update pause|resume|cancel|reconcile [--registry module] [--json] | update storage [--retain count] [--min-age-days days] [--registry module] [--json] | update gc [--retain count] [--min-age-days days] [--grace-days days] [--apply] [--registry module] [--json] | publish android [server-entry] [--release release-dir] [--certification certification-dir] [--certification-attestation verification-json] [--registry module] [--channel name] [--play-track track] [--play-status completed|draft|halted|in-progress] [--play-rollout fraction] [--play-name name] [--play-notes language=text] [--play-update-priority 0..5] [--play-hold-review] [--play-cancel-existing-review] [--outdir dir] [--web-outdir dir] [--unsigned] | publish ios [server-entry] [--release release-dir] [--certification certification-dir] [--certification-attestation verification-json] [--remote name] [--registry module] [--channel name] [--testflight-group name-or-id] [--testflight-notes locale=text] [--testflight-submit-review] [--outdir dir] [--web-outdir dir] [--unsigned] | test android [--release release-dir [--yes] | --route path [--wait-for-hmr] [--port n]] [--report [dir]] [--serial id] [--artifacts dir] [--json] [--config path] | test ios [--release release-dir [--remote name] [--device id [--testflight] --yes] | --wait-for-hmr] [--report [dir]] [--udid id] [--artifacts dir] [--json] [--config path]'
 	);
 };

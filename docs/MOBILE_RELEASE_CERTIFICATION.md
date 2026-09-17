@@ -170,6 +170,12 @@ evidence from a build that Apple has not processed yet; require Simulator or
 registered-device evidence for that transition, then require `store` before a
 later production promotion.
 
+The promotion command records its bounded non-secret operation state before
+contacting GitHub. After sleep, disconnect, or process failure, run `absolute
+mobile ci promotions` and then `absolute mobile ci promote --resume
+<dispatch-id>` from the same application root. Resume performs exact correlation
+and never creates a second workflow dispatch automatically.
+
 Telemetry contains only operation mode, platform, engine, requested policy,
 resulting strength, evidence count, success, and duration. Certification files
 remain local unless the developer or CI workflow uploads them.
