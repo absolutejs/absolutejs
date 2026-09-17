@@ -5,6 +5,16 @@
 		{
 			"changes": [
 				{
+					"kind": "fixed",
+					"summary": "Keep package-owned Vue components and helpers inside separate browser and server output trees, preserving relative imports, cache restoration and hot-reload identities."
+				}
+			],
+			"date": "2026-09-16",
+			"version": "0.20.0-beta.108"
+		},
+		{
+			"changes": [
+				{
 					"detail": "`absolute mobile certify` revalidates immutable Android and iOS releases plus sanitized installed-app reports, binds the exact artifact, embedded runtime, app version, and evidence tier into an atomic content-addressed record, and verifies promotion policy without native tools or credentials. Android requires installed offline proof; iOS preserves the honest Simulator, registered-device, and Apple-processed TestFlight hierarchy.",
 					"kind": "added",
 					"summary": "Mobile releases gain content-addressed installed-app certification",

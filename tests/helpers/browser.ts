@@ -26,25 +26,32 @@ const closeBrowser = async (browser: Browser) => {
 	]);
 };
 
-/* Spin up a headless Chromium against the dev-server URL. The
+/* Use an isolated browser context against the dev-server URL. Set
+ * ABSOLUTE_TEST_BROWSER_CDP to use an existing visible browser, or
+ * ABSOLUTE_TEST_HEADLESS=false to launch a headed browser locally. The
  * returned page is already navigated to `url` and DOMContentLoaded
- * + the `load` event have fired. `close()` shuts the whole browser
- * down — call from the test's `afterEach` so we don't leak Chromium
- * processes across runs. */
+ * + the `load` event have fired. `close()` closes the isolated context,
+ * then closes a local browser or disconnects from the existing CDP browser.
+ * Call it from the test's `afterEach` to release the session. */
 export const openPage = async (url: string, options: OpenPageOptions = {}) => {
 	let lastError: unknown;
 	for (let attempt = 0; attempt < 3; attempt++) {
 		let browser: Browser | undefined;
 		try {
-			browser = await chromium.launch({
-				args: [
-					'--no-sandbox',
-					'--disable-dev-shm-usage',
-					'--disable-gpu'
-				],
-				headless: true,
-				timeout: 20_000
-			});
+			browser = process.env.ABSOLUTE_TEST_BROWSER_CDP
+				? await chromium.connectOverCDP(
+						process.env.ABSOLUTE_TEST_BROWSER_CDP
+					)
+				: await chromium.launch({
+						args: [
+							'--no-sandbox',
+							'--disable-dev-shm-usage',
+							'--disable-gpu'
+						],
+						headless:
+							process.env.ABSOLUTE_TEST_HEADLESS !== 'false',
+						timeout: 20_000
+					});
 			const activeBrowser = browser;
 			const context = await activeBrowser.newContext({
 				viewport: options.viewport ?? { height: 720, width: 1280 }
@@ -63,7 +70,10 @@ export const openPage = async (url: string, options: OpenPageOptions = {}) => {
 			return {
 				browser: activeBrowser,
 				page,
-				close: () => closeBrowser(activeBrowser)
+				close: async () => {
+					await context.close();
+					await closeBrowser(activeBrowser);
+				}
 			};
 		} catch (error) {
 			lastError = error;

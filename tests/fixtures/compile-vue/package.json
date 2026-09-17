@@ -1,6 +1,7 @@
 {
 	"dependencies": {
 		"@absolutejs/absolute": "file:../../..",
+		"@absolutejs/fixture-vue-package-picker": "workspace:*",
 		"elysia": "*",
 		"vue": "*"
 	},

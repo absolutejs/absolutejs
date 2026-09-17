@@ -914,7 +914,14 @@ const runBrowserProbe = async (baseUrl: string) => {
 	const session = await openPage('about:blank');
 	const { page: view } = session;
 	view.on('console', (message) => {
-		if (message.type() === 'error') consoleErrors.push(message.text());
+		if (
+			message.type() === 'error' &&
+			!isImplicitBrowserRequest(message.location().url)
+		)
+			consoleErrors.push({
+				message: message.text(),
+				url: message.location().url
+			});
 	});
 	view.on('requestfailed', (request) => {
 		if (!isImplicitBrowserRequest(request.url()))
@@ -1045,7 +1052,14 @@ const runFrameworkHydrationProbeOnce = async (
 	const session = await openPage('about:blank');
 	const { page: view } = session;
 	view.on('console', (message) => {
-		if (message.type() === 'error') consoleErrors.push(message.text());
+		if (
+			message.type() === 'error' &&
+			!isImplicitBrowserRequest(message.location().url)
+		)
+			consoleErrors.push({
+				message: message.text(),
+				url: message.location().url
+			});
 	});
 	view.on('requestfailed', (request) => {
 		if (!isImplicitBrowserRequest(request.url()))
@@ -1530,6 +1544,15 @@ CMD ["/app/compiled-server"]
 			readyText: 'VUE_CLIENT_READY',
 			styleSelector: '.vue-compile-home',
 			styleValue: 'rgb(131, 74, 169)'
+		});
+		await runFrameworkHydrationProbe(baseUrl, {
+			buttonSelector: '#package-picker-increment',
+			buttonText: 'Package amount 74',
+			heading: 'VUE_COMPILE_HOME',
+			readySelector: '#vue-client-ready',
+			readyText: 'VUE_CLIENT_READY',
+			styleSelector: '#package-picker-increment',
+			styleValue: 'rgb(180, 120, 20)'
 		});
 
 		await stopProcess(proc);

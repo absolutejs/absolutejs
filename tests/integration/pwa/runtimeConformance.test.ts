@@ -119,7 +119,7 @@ const accountFrom = (request: Request) =>
 const launchOnce = () =>
 	chromium.launchPersistentContext(profileDirectory, {
 		args: CHROMIUM_ARGS,
-		headless: true,
+		headless: process.env.ABSOLUTE_TEST_HEADLESS !== 'false',
 		timeout: 20_000,
 		viewport: { height: 720, width: 1280 }
 	});

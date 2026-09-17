@@ -142,7 +142,7 @@ const runUpdateActivationConformance = async () => {
 
 	context = await chromium.launchPersistentContext(profileDirectory, {
 		args: CHROMIUM_ARGS,
-		headless: true,
+		headless: process.env.ABSOLUTE_TEST_HEADLESS !== 'false',
 		viewport: { height: 720, width: 1280 }
 	});
 	const page = context.pages()[0] ?? (await context.newPage());

@@ -32,7 +32,7 @@ import type { ParsedVueSpaRoute } from './parseVueSpaRoutes';
 
 const CACHE_DIR_NAME = 'compile-cache';
 const ABSOLUTE_CACHE_DIR_NAME = '.absolutejs';
-const CACHE_FORMAT_VERSION = 1;
+const CACHE_FORMAT_VERSION = 2;
 const FILE_NAME_HASH_LENGTH = 32;
 
 export type VueCompileCacheResult = {

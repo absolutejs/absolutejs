@@ -1,3 +1,4 @@
+import { vueModuleOutputPath } from './vueModuleOutputPath';
 import { BASE_36_RADIX } from '../constants';
 import { existsSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
@@ -536,11 +537,6 @@ const compileVueFileUncached = async (
 	runSfc: SfcRunner,
 	stylePreprocessors?: StylePreprocessorConfig
 ) => {
-	const relativeFilePath = relative(vueRootDir, sourceFilePath).replace(
-		/\\/g,
-		'/'
-	);
-	const relativeWithoutExtension = relativeFilePath.replace(/\.vue$/, '');
 	const fileBaseName = basename(sourceFilePath, '.vue');
 	const componentId = toKebab(fileBaseName);
 
@@ -702,7 +698,10 @@ const compileVueFileUncached = async (
 			stylePreprocessors
 		),
 		isEntryPoint,
-		relativeWithoutExtension
+		relativeWithoutExtension: vueModuleOutputPath(
+			'',
+			sourceFilePath
+		).replace(/\.js$/, '')
 	});
 	const restored = cacheKey
 		? readVueCompileCacheEntry(sourceFilePath, cacheKey)
@@ -727,13 +726,13 @@ const compileVueFileUncached = async (
 		}
 	}
 
-	const clientOutputPath = join(
+	const clientOutputPath = vueModuleOutputPath(
 		outputDirs.client,
-		`${relativeWithoutExtension}.js`
+		sourceFilePath
 	);
-	const serverOutputPath = join(
+	const serverOutputPath = vueModuleOutputPath(
 		outputDirs.server,
-		`${relativeWithoutExtension}.js`
+		sourceFilePath
 	);
 
 	// Preprocessor `<style lang>` blocks compile here, not on a worker:
@@ -768,8 +767,9 @@ const compileVueFileUncached = async (
 	});
 
 	vueCompileProfile.compiles += 1;
-	const { clientOutput, localCss, serverOutput, typeDepHashes } =
-		await timed('sfcMs', () =>
+	const { clientOutput, localCss, serverOutput, typeDepHashes } = await timed(
+		'sfcMs',
+		() =>
 			runSfc({
 				clientOutputPath,
 				componentId,
@@ -780,7 +780,7 @@ const compileVueFileUncached = async (
 				sourceFilePath,
 				styleSources
 			})
-		);
+	);
 
 	const allCss = [
 		...localCss,
@@ -950,12 +950,7 @@ export const compileVue = async (
 
 			const entryBaseName = basename(entryPath, '.vue');
 			const indexOutputFile = join(indexOutputDir, `${entryBaseName}.js`);
-			const clientOutputFile = join(
-				clientOutputDir,
-				relative(vueRootDir, entryPath)
-					.replace(/\\/g, '/')
-					.replace(/\.vue$/, '.js')
-			);
+			const clientOutputFile = result.clientPath;
 
 			await mkdir(dirname(indexOutputFile), { recursive: true });
 			const vueHmrImports = isDev
@@ -1163,7 +1158,9 @@ export const compileVue = async (
 			paths.map((tsPath) =>
 				file(tsPath)
 					.text()
-					.then((sourceCode) => helperDependencies(tsPath, sourceCode))
+					.then((sourceCode) =>
+						helperDependencies(tsPath, sourceCode)
+					)
 					.catch(() => [])
 			)
 		);
@@ -1191,18 +1188,11 @@ export const compileVue = async (
 	// work, so it fans out across the build worker pool exactly like the
 	// SFC compiles do; `emitTsHelpers` is the same handler either way, so
 	// the emitted bytes do not depend on which thread ran it.
-	const helperFiles = Array.from(allTsHelperPaths).map((tsPath) => {
-		const relativeJsPath = relative(vueRootDir, tsPath).replace(
-			/\.ts$/,
-			'.js'
-		);
-
-		return {
-			clientOutputPath: join(clientOutputDir, relativeJsPath),
-			serverOutputPath: join(serverOutputDir, relativeJsPath),
-			sourcePath: tsPath
-		};
-	});
+	const helperFiles = Array.from(allTsHelperPaths).map((tsPath) => ({
+		clientOutputPath: vueModuleOutputPath(clientOutputDir, tsPath),
+		serverOutputPath: vueModuleOutputPath(serverOutputDir, tsPath),
+		sourcePath: tsPath
+	}));
 	await runHelperEmit(helperFiles);
 
 	vueCompileProfile.stageHelperEmitMs = performance.now() - stageStartedAt;

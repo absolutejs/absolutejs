@@ -1,3 +1,4 @@
+import { vueModuleOutputPath } from '../../../src/build/vueModuleOutputPath';
 import { describe, expect, test } from 'bun:test';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -193,7 +194,7 @@ describe('resolveVueComposableModuleId', () => {
 
 		expect(
 			resolveVueComposableModuleId(
-				'.absolutejs/generated/vue/client/composables/useAuth.js',
+				vueModuleOutputPath(join(generatedVueDir, 'client'), join(vueDir, 'composables/useAuth.ts')),
 				options
 			)
 		).toBe(join(vueDir, 'composables', 'useAuth.ts'));
@@ -201,14 +202,14 @@ describe('resolveVueComposableModuleId', () => {
 		// server wraps) instead of pointing at the generated intermediate.
 		expect(
 			resolveVueComposableModuleId(
-				'.absolutejs/generated/vue/client/composables/useMissing.js',
+				vueModuleOutputPath(join(generatedVueDir, 'client'), join(vueDir, 'composables/useMissing.ts')),
 				options
 			)
 		).toBe(join(vueDir, 'composables', 'useMissing.ts'));
-		// Helpers outside vueDir mirror to a generated sibling directory.
+		// Helpers outside vueDir stay inside the client tree and retain their identity.
 		expect(
 			resolveVueComposableModuleId(
-				'.absolutejs/generated/vue/shared/useShared.js',
+				vueModuleOutputPath(join(generatedVueDir, 'client'), resolve(vueDir, '..', 'shared/useShared.ts')),
 				options
 			)
 		).toBe(resolve(vueDir, '..', 'shared', 'useShared.ts'));

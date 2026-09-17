@@ -1,3 +1,4 @@
+import { vueModuleSourcePath } from './vueModuleOutputPath';
 /** Dev-only Vue composable state tracking for bundled client output.
  *
  *  The first HMR cycle of a Vue page starts from the BUNDLED graph (the
@@ -35,7 +36,7 @@ export type VueComposableModuleIdOptions = {
 	/** Absolute path of the configured Vue directory (`vueDirectory`). */
 	vueDir?: string;
 	/** `<generatedRoot>/vue` — compileVue writes transpiled TS helpers to
-	 *  `<generatedVueDir>/client/<path relative to vueDir>.js`. */
+	 *  a source mirror contained inside `<generatedVueDir>/client/`. */
 	generatedVueDir?: string;
 };
 
@@ -284,8 +285,8 @@ export const isSharedChunkPath = (path: string) =>
 
 /** Map a Bun module-boundary comment path to the module id the dev module
  *  server keys composable state by: the absolute source path. Transpiled TS
- *  helpers under `<generatedVueDir>/client/` map back to their source under
- *  `vueDir`; anything else (node_modules, other frameworks) resolves against
+ *  helpers under `<generatedVueDir>/client/` map back to their original source
+ *  paths; anything else (node_modules, other frameworks) resolves against
  *  the project root and simply never matches a served module. */
 export const resolveVueComposableModuleId = (
 	commentPath: string,
@@ -304,14 +305,12 @@ export const resolveVueComposableModuleId = (
 		return absolutePath;
 	}
 
-	// compileVue mirrors `relative(vueDir, source)` under `<generated>/client`,
-	// so a helper outside vueDir lands as `<generated>/<sibling>/x.js` — the
-	// same relative walk from vueDir recovers its source location.
-	const fromClientDir = relative(
+	const sourcePath = vueModuleSourcePath(
 		resolve(generatedVueDir, 'client'),
 		absolutePath
 	);
-	const stem = resolve(vueDir, fromClientDir).replace(/\.[cm]?js$/, '');
+	if (!sourcePath) return absolutePath;
+	const stem = sourcePath.replace(/\.[cm]?js$/, '');
 	const existing = SOURCE_EXTENSIONS.map(
 		(extension) => `${stem}${extension}`
 	).find((candidate) => existsSync(candidate));

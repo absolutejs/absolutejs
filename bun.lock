@@ -189,6 +189,10 @@
       "name": "compile-asset-package",
       "version": "0.0.0",
     },
+    "tests/fixtures/_packages/vue-package-picker": {
+      "name": "@absolutejs/fixture-vue-package-picker",
+      "version": "0.0.0",
+    },
     "tests/fixtures/capacitor-android-release": {
       "name": "@absolutejs/fixture-capacitor-android-release",
       "version": "0.0.0",
@@ -298,6 +302,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@absolutejs/absolute": "file:../../..",
+        "@absolutejs/fixture-vue-package-picker": "workspace:*",
         "elysia": "*",
         "vue": "*",
       },
@@ -364,6 +369,8 @@
     "@absolutejs/fixture-compile-vue": ["@absolutejs/fixture-compile-vue@workspace:tests/fixtures/compile-vue"],
 
     "@absolutejs/fixture-expo-android-release": ["@absolutejs/fixture-expo-android-release@workspace:tests/fixtures/expo-android-release"],
+
+    "@absolutejs/fixture-vue-package-picker": ["@absolutejs/fixture-vue-package-picker@workspace:tests/fixtures/_packages/vue-package-picker"],
 
     "@absolutejs/handoff": ["@absolutejs/handoff@0.1.0", "", { "dependencies": { "@absolutejs/manifest": "0.7.2", "@sinclair/typebox": "0.34.52" } }, "sha512-P9Wr2oyYBcj7mriCV4h9zRlLGijee/7DW8USVkl/m4ovql7zpITy547jy6j8+HC5v5Ocs+TVcMYmrROEEBupNg=="],
 
@@ -2402,6 +2409,8 @@
     "@absolutejs/fixture-capacitor-android-release/@absolutejs/devices-capacitor": ["@absolutejs/devices-capacitor@0.6.1", "", { "dependencies": { "@capacitor/app": "^8.0.0", "@capacitor/browser": "^8.0.0", "@capacitor/network": "^8.0.0", "@capacitor/preferences": "^8.0.0" }, "peerDependencies": { "@absolutejs/devices": "^0.5.0", "@capacitor/camera": ">=8.1 <9", "@capacitor/clipboard": ">=8 <9", "@capacitor/core": ">=8 <9", "@capacitor/file-viewer": ">=2 <3", "@capacitor/filesystem": ">=8.1 <9", "@capacitor/geolocation": ">=8.2 <9", "@capacitor/haptics": ">=8 <9", "@capacitor/local-notifications": ">=8.2 <8.3", "@capacitor/share": ">=8 <9" }, "optionalPeers": ["@capacitor/camera", "@capacitor/clipboard", "@capacitor/file-viewer", "@capacitor/filesystem", "@capacitor/geolocation", "@capacitor/haptics", "@capacitor/local-notifications", "@capacitor/share"] }, "sha512-h5qEkCcvifg38sZl2w+A3709YdyPlwbRm1NQyXFdaV5WX0Kp9OgG8W3JOB6JdWRBeXkWiujO9rPvriHakD9Dpw=="],
 
     "@absolutejs/fixture-compile-dependency-assets/compile-asset-package": ["compile-asset-package@file:tests/fixtures/_packages/compile-asset-package", {}],
+
+    "@absolutejs/fixture-compile-vue/@absolutejs/absolute": ["@absolutejs/absolute@root:", {}],
 
     "@absolutejs/handoff/@absolutejs/manifest": ["@absolutejs/manifest@0.7.2", "", { "peerDependencies": { "@sinclair/typebox": ">=0.34.0 <0.35.0" }, "bin": { "absolute-manifest": "dist/cli.js" } }, "sha512-NSVzC4yHbH+n+WCNdWYrpbc+3k5rOfO4X85Ku9VCP8teRaa2VEibp29Cyvg9rQARUGaQjGGTz+l+APqM0+odxg=="],
 
