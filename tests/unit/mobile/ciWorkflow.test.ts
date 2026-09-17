@@ -95,6 +95,18 @@ describe('mobile GitHub Actions workflow', () => {
 		expect(result.workflow).toContain('mobile publish android');
 		expect(result.workflow).toContain('mobile build ios');
 		expect(result.workflow).toContain('mobile publish ios');
+		expect(result.workflow).toContain(
+			'mobile test android --release "$RELEASE_DIRECTORY"'
+		);
+		expect(result.workflow).toContain(
+			'mobile certify "$RELEASE_DIRECTORY"'
+		);
+		expect(result.workflow).toContain(
+			'mobile publish android --release "${releases[0]}" --certification'
+		);
+		expect(result.workflow).toContain(
+			'mobile publish ios --release "${releases[0]}" --certification'
+		);
 		expect(result.workflow).toContain('mobile doctor release android');
 		expect(result.workflow).toContain('mobile doctor release ios');
 		expect(result.requiredSecrets).toContain(

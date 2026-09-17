@@ -26,6 +26,16 @@ export type NormalizedAbsoluteMobileConfig = {
 	platforms: MobilePlatform[];
 	productionOrigin: string;
 	pushAndroidGoogleServicesFile: string;
+	releaseCertification: {
+		channels: Record<
+			string,
+			{
+				android?: 'installed';
+				ios?: 'device' | 'simulator' | 'store';
+			}
+		>;
+		googlePlayTracks: Record<string, 'installed'>;
+	};
 	updates?: {
 		bootTimeoutMs: number;
 		channel: string;
@@ -70,6 +80,7 @@ const SCHEME_PATTERN = /^[a-z][a-z0-9+.-]*$/;
 const APPLE_APP_ID_PREFIX_PATTERN = /^[A-Z0-9]{10}$/;
 const CERTIFICATE_FINGERPRINT_PATTERN = /^[0-9A-F]{64}$/;
 const UPDATE_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/u;
+const RELEASE_TARGET_PATTERN = /^[a-z0-9][a-z0-9._-]{0,63}$/u;
 const UPDATE_PUBLIC_KEY_PATTERN = /^[A-Za-z0-9+/]+={0,2}$/u;
 const ENVIRONMENT_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/u;
 const DEFAULT_UPDATE_BOOT_TIMEOUT_MS = 20_000;
@@ -177,6 +188,85 @@ const normalizePlatforms = (
 	}
 
 	return normalized;
+};
+
+const normalizeAndroidCertificationPolicy = (
+	value: false | 'installed' | undefined
+) => {
+	if (value === false || value === undefined) return undefined;
+	if (value !== 'installed')
+		throw new TypeError(
+			'mobile.release.certification channel Android policy must be installed or false.'
+		);
+
+	return value;
+};
+
+const normalizeIosCertificationPolicy = (
+	value: false | 'device' | 'simulator' | 'store' | undefined
+) => {
+	if (value === false || value === undefined) return undefined;
+	if (!['simulator', 'device', 'store'].includes(value))
+		throw new TypeError(
+			'mobile.release.certification channel iOS policy must be simulator, device, store, or false.'
+		);
+
+	return value;
+};
+
+const normalizeReleaseCertification = (
+	config: MobileConfig
+): NormalizedAbsoluteMobileConfig['releaseCertification'] => {
+	const configured = config.release?.certification;
+	if (configured === false) return { channels: {}, googlePlayTracks: {} };
+	const channels: NormalizedAbsoluteMobileConfig['releaseCertification']['channels'] =
+		{
+			production: { android: 'installed', ios: 'store' }
+		};
+	const googlePlayTracks: NormalizedAbsoluteMobileConfig['releaseCertification']['googlePlayTracks'] =
+		{
+			production: 'installed'
+		};
+	for (const [name, policy] of Object.entries(configured?.channels ?? {})) {
+		if (!RELEASE_TARGET_PATTERN.test(name))
+			throw new TypeError(
+				'mobile.release.certification.channels contains an invalid channel.'
+			);
+		const normalized: (typeof channels)[string] = {};
+		const android = normalizeAndroidCertificationPolicy(policy.android);
+		const ios = normalizeIosCertificationPolicy(policy.ios);
+		if (android) normalized.android = android;
+		if (ios) normalized.ios = ios;
+		channels[name] = normalized;
+	}
+	for (const [name, requirement] of Object.entries(
+		configured?.googlePlayTracks ?? {}
+	)) {
+		if (!RELEASE_TARGET_PATTERN.test(name))
+			throw new TypeError(
+				'mobile.release.certification.googlePlayTracks contains an invalid track.'
+			);
+		if (requirement === false) delete googlePlayTracks[name];
+		else if (requirement === 'installed')
+			googlePlayTracks[name] = requirement;
+		else
+			throw new TypeError(
+				'mobile.release.certification Google Play policy must be installed or false.'
+			);
+	}
+
+	return {
+		channels: Object.fromEntries(
+			Object.entries(channels).sort(([left], [right]) =>
+				left.localeCompare(right)
+			)
+		),
+		googlePlayTracks: Object.fromEntries(
+			Object.entries(googlePlayTracks).sort(([left], [right]) =>
+				left.localeCompare(right)
+			)
+		)
+	};
 };
 
 const normalizeHosts = (
@@ -877,6 +967,7 @@ export const normalizeAbsoluteMobileConfig = (
 				'google-services.json',
 			'mobile.pushNotifications.android.googleServicesFile'
 		),
+		releaseCertification: normalizeReleaseCertification(config),
 		...(updates ? { updates } : {}),
 		...(updateServer ? { updateServer } : {})
 	};

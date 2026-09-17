@@ -492,6 +492,38 @@ Signing credentials require a dedicated design:
   unacceptable;
 - separate permission to edit credentials, build, sign, upload and release.
 
+### Certification-aware promotion seam
+
+The framework and `@absolutejs/deploy` now define the provider-neutral boundary
+the PaaS should implement instead of inventing another release contract:
+
+1. A signed AAB or IPA is stored as an immutable release identity.
+2. Acceptance runs produce redacted, format-versioned reports for that exact
+   artifact/runtime/build identity.
+3. `absolute mobile certify` creates a content-addressed certification with an
+   explicit installed, Simulator, device, or store strength.
+4. `absolute mobile publish --release ... --certification ...` verifies policy
+   and exact identity, then sends both objects to the deployment registry.
+5. The registry stores the certification immutably beside the release and binds
+   its receipt into the channel pointer. A certified channel cannot be silently
+   rewritten without certification.
+
+`createNativeReleaseRegistry` exposes `certificationVerifier` and
+`requireTrustedCertification`. The hosted mobile release service should enable
+both. Its verifier should validate the GitHub/OIDC or hosted-runner attestation,
+confirm project and organization ownership, check the source revision and
+runner image policy, and return bounded provenance with `issuer`, `subject`,
+`verifiedAt`, and `verificationId`. `subject` must be the immutable native
+release ID. The registry persists that provenance and returns it in the
+publication receipt; application clients never receive signing or verifier
+credentials.
+
+Keep integrity and identity distinct: the open-source certification proves the
+evidence was not changed and belongs to the artifact; hosted verification proves
+who ran and authorized it. BYO-Mac users can therefore use the same protocol for
+free, while the PaaS adds durable provenance, policy, approvals, retention, and
+store automation without changing application code.
+
 ## Proposed service boundaries
 
 Names are illustrative; the PaaS can fit these responsibilities into its current

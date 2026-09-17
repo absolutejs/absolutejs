@@ -5,6 +5,16 @@
 		{
 			"changes": [
 				{
+					"kind": "added",
+					"summary": "Mobile publication promotes the exact certified AAB or IPA with secure production policies and generated acceptance CI"
+				}
+			],
+			"date": "2026-09-17",
+			"version": "0.20.0-beta.109"
+		},
+		{
+			"changes": [
+				{
 					"kind": "fixed",
 					"summary": "Keep package-owned Vue components and helpers inside separate browser and server output trees, preserving relative imports, cache restoration and hot-reload identities."
 				}

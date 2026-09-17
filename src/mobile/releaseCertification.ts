@@ -9,8 +9,9 @@ import {
 	writeFile
 } from 'node:fs/promises';
 import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import type { AbsoluteAndroidRelease } from './androidReleaseAcceptance';
-import type { AbsoluteIosRelease } from './iosReleaseAcceptance';
+import type { AbsoluteAndroidReleaseMetadata } from './androidRelease';
+import type { NormalizedAbsoluteMobileConfig } from './config';
+import type { AbsoluteIosReleaseMetadata } from './iosRelease';
 
 export const ABSOLUTE_MOBILE_RELEASE_CERTIFICATION_FORMAT = 1 as const;
 
@@ -68,9 +69,9 @@ export type AbsoluteMobileReleaseCertification = {
 	strength: AbsoluteMobileCertificationStrength;
 };
 
-export type AbsoluteMobileCertifiableRelease =
-	| AbsoluteAndroidRelease
-	| AbsoluteIosRelease;
+export type AbsoluteMobileCertifiableRelease = {
+	metadata: AbsoluteAndroidReleaseMetadata | AbsoluteIosReleaseMetadata;
+};
 
 export type CreateAbsoluteMobileReleaseCertificationOptions = {
 	evidencePaths: string[];
@@ -84,6 +85,12 @@ export type AbsoluteMobileReleaseCertificationPaths = {
 	directory: string;
 	jsonPath: string;
 	markdownPath: string;
+};
+
+export type AbsoluteMobileReleaseCertificationTarget = {
+	channel?: string;
+	googlePlayTrack?: string;
+	platform: 'android' | 'ios';
 };
 
 const CERTIFICATION_PREFIX = 'amobile_cert_';
@@ -419,6 +426,31 @@ const satisfiesRequirement = (
 	if (strength === 'installed') return false;
 
 	return STRENGTH_RANK[strength] >= STRENGTH_RANK[requirement];
+};
+
+export const resolveAbsoluteMobileCertificationRequirement = (
+	config: NormalizedAbsoluteMobileConfig,
+	target: AbsoluteMobileReleaseCertificationTarget
+) => {
+	const channelRequirement = target.channel
+		? config.releaseCertification.channels[target.channel]?.[
+				target.platform
+			]
+		: undefined;
+	const playRequirement = target.googlePlayTrack
+		? config.releaseCertification.googlePlayTracks[target.googlePlayTrack]
+		: undefined;
+	const requirements = [channelRequirement, playRequirement].filter(
+		(value): value is AbsoluteMobileCertificationRequirement =>
+			value !== undefined
+	);
+	if (requirements.length === 0) return undefined;
+
+	return requirements.reduce((strongest, candidate) =>
+		STRENGTH_RANK[candidate] > STRENGTH_RANK[strongest]
+			? candidate
+			: strongest
+	);
 };
 
 const validateCertifiedEvidence = (

@@ -29,7 +29,9 @@ The generated workflow has two trust levels:
 2. Manual workflow dispatch can build Android, iOS, or both. Those jobs use the
    protected `absolute-mobile-release` GitHub environment, run the complete
    platform-scoped release doctor, optionally attest the native artifact, and
-   upload the immutable release directory.
+   upload the immutable release directory. Publishing mode also acceptance-tests
+   that exact directory, creates a certification, and republishes the same bytes
+   through the registry/store gate.
 
 Workflow-level concurrency serializes releases for the repository and never
 cancels a running release.
@@ -126,11 +128,21 @@ both.
 
 - Leave **Publish** disabled to produce signed AAB/IPA artifacts only.
 - Enable **Attest** to request GitHub artifact provenance.
-- Enable **Publish** to invoke the configured native release registry.
+- Enable **Publish** to test, certify, and invoke the configured native release
+  registry with the existing immutable artifact.
 - Select `registry-only` to retain Android without Google Play.
 - Select a Play track to use the resumable Play publisher.
 - Enter a TestFlight group to upload iOS. External beta review remains a
   separate explicit checkbox.
+
+Android publishing provisions the managed emulator/toolchain, installs the AAB
+through Bundletool, proves an offline relaunch, and creates `installed`
+certification. iOS publishing runs source-equivalent Simulator release
+acceptance and creates `simulator` certification before the initial TestFlight
+upload. Do not select the production channel for that initial iOS transition
+when it retains the default `store` policy; install the Apple-processed build
+from TestFlight, create `store` certification, then promote the retained IPA in
+a later protected run.
 
 Workflow inputs are passed as quoted Bash-array elements, never evaluated as
 shell source. Each native job reruns the redacted release doctor after building
@@ -159,15 +171,26 @@ uploaded the first candidate; require it when promoting that already-tested
 release onward, not before its initial TestFlight upload.
 
 Commit or transfer the generated `certification.json` with the release records,
-then make the later promotion job fail closed:
+then publish that existing release—not a rebuild—through the fail-closed gate:
 
 ```sh
-bunx absolute mobile certify .absolutejs/mobile/releases/<platform>/<release-id> \
-  --verify .absolutejs/mobile/certifications/<platform>/<release-id>/<certification-id> \
-  --require store \
-  --json
+bunx absolute mobile publish ios \
+  --release .absolutejs/mobile/releases/ios/<release-id> \
+  --certification .absolutejs/mobile/certifications/ios/<release-id>/<certification-id> \
+  --channel production \
+  --registry mobile.release.ts
 ```
 
+Use the same shape with `publish android`; add `--play-track production` when
+shipping through Google Play. AbsoluteJS defaults the `production` channel to
+`installed` Android evidence and `store` iOS evidence, and defaults the Play
+`production` track to `installed`. Customize or explicitly disable targets with
+`mobile.release.certification.channels` and
+`mobile.release.certification.googlePlayTracks`.
+
+Publication re-verifies the certification and complete release identity before
+calling the registry. The registry must return a receipt proving that it
+retained the same certification, release, requirement, and evidence strength.
 Certification creation validates the automated acceptance checks and stores the
 exact report digests. Later verification re-reads the immutable release,
 validates the certification digest and evidence semantics, matches the artifact

@@ -3,6 +3,11 @@ import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { AbsoluteAndroidReleaseMetadata } from './androidRelease';
 import type { AbsoluteIosReleaseMetadata } from './iosRelease';
+import {
+	verifyAbsoluteMobileReleaseCertification,
+	type AbsoluteMobileCertificationRequirement,
+	type AbsoluteMobileReleaseCertification
+} from './releaseCertification';
 
 export type AbsoluteGooglePlayReleaseTarget = {
 	changesNotSentForReview?: boolean;
@@ -30,6 +35,12 @@ export type AbsoluteNativeReleasePublication = {
 		metadata: AbsoluteAndroidReleaseMetadata | AbsoluteIosReleaseMetadata;
 	};
 	reused: boolean;
+	certification?: {
+		certificationId: string;
+		releaseId: string;
+		requirement: AbsoluteMobileCertificationRequirement;
+		strength: AbsoluteMobileReleaseCertification['strength'];
+	};
 	googlePlay?: {
 		receipt: {
 			intent: { track: string };
@@ -75,6 +86,8 @@ export type AbsoluteNativeReleasePublisher = {
 		allowUnsigned?: boolean;
 		appStoreConnect?: AbsoluteAppStoreConnectReleaseTarget;
 		channel?: string;
+		certification?: AbsoluteMobileReleaseCertification;
+		certificationRequirement?: AbsoluteMobileCertificationRequirement;
 		googlePlay?: AbsoluteGooglePlayReleaseTarget;
 		releaseRoot: string;
 		signal?: AbortSignal;
@@ -140,6 +153,8 @@ export const prepareAbsoluteAndroidRelease = async (
 export type PublishAbsoluteAndroidReleaseOptions = {
 	allowUnsigned?: boolean;
 	channel?: string;
+	certification?: AbsoluteMobileReleaseCertification;
+	certificationRequirement?: AbsoluteMobileCertificationRequirement;
 	googlePlay?: AbsoluteGooglePlayReleaseTarget;
 	modulePath: string;
 	projectRoot: string;
@@ -148,6 +163,30 @@ export type PublishAbsoluteAndroidReleaseOptions = {
 		releaseRoot: string;
 	};
 	signal?: AbortSignal;
+};
+
+const requireCertificationReceipt = (
+	publication: AbsoluteNativeReleasePublication,
+	certification: AbsoluteMobileReleaseCertification | undefined,
+	requirement: AbsoluteMobileCertificationRequirement | undefined,
+	releaseId: string
+) => {
+	if (!certification && !requirement) return;
+	if (!certification || !requirement)
+		throw new TypeError(
+			'Native release publication certification contract is incomplete.'
+		);
+	const receipt = publication.certification;
+	if (
+		!receipt ||
+		receipt.certificationId !== certification.certificationId ||
+		receipt.releaseId !== releaseId ||
+		receipt.requirement !== requirement ||
+		receipt.strength !== certification.strength
+	)
+		throw new TypeError(
+			'Native release registry did not retain the required release certification.'
+		);
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -199,12 +238,26 @@ export const loadAbsoluteNativeReleasePublisher = async (
 export const publishAbsoluteAndroidRelease = async (
 	options: PublishAbsoluteAndroidReleaseOptions
 ) => {
+	const certificationRequirement =
+		options.certificationRequirement ?? options.certification?.requirement;
+	if (options.certification)
+		verifyAbsoluteMobileReleaseCertification(
+			options.certification,
+			options.release,
+			certificationRequirement
+		);
+	else if (certificationRequirement)
+		throw new TypeError(
+			`Android release publication requires ${certificationRequirement} certification.`
+		);
 	const publisher = await loadAbsoluteNativeReleasePublisher(
 		options.projectRoot,
 		options.modulePath
 	);
 	const publication = await publisher.publish({
 		allowUnsigned: options.allowUnsigned,
+		certification: options.certification,
+		certificationRequirement,
 		channel: options.channel,
 		googlePlay: options.googlePlay,
 		releaseRoot: options.release.releaseRoot,
@@ -226,6 +279,12 @@ export const publishAbsoluteAndroidRelease = async (
 			'Native release registry returned a different Android release identity.'
 		);
 	}
+	requireCertificationReceipt(
+		publication,
+		options.certification,
+		certificationRequirement,
+		expected.releaseId
+	);
 	if (
 		options.channel !== undefined &&
 		(publication.channel?.channel !== options.channel ||
@@ -264,6 +323,8 @@ export const publishAbsoluteIosRelease = async (options: {
 	allowUnsigned?: boolean;
 	appStoreConnect?: AbsoluteAppStoreConnectReleaseTarget;
 	channel?: string;
+	certification?: AbsoluteMobileReleaseCertification;
+	certificationRequirement?: AbsoluteMobileCertificationRequirement;
 	modulePath: string;
 	projectRoot: string;
 	release: {
@@ -272,6 +333,18 @@ export const publishAbsoluteIosRelease = async (options: {
 	};
 	signal?: AbortSignal;
 }) => {
+	const certificationRequirement =
+		options.certificationRequirement ?? options.certification?.requirement;
+	if (options.certification)
+		verifyAbsoluteMobileReleaseCertification(
+			options.certification,
+			options.release,
+			certificationRequirement
+		);
+	else if (certificationRequirement)
+		throw new TypeError(
+			`iOS release publication requires ${certificationRequirement} certification.`
+		);
 	const publisher = await loadAbsoluteNativeReleasePublisher(
 		options.projectRoot,
 		options.modulePath
@@ -279,6 +352,8 @@ export const publishAbsoluteIosRelease = async (options: {
 	const publication = await publisher.publish({
 		allowUnsigned: options.allowUnsigned,
 		appStoreConnect: options.appStoreConnect,
+		certification: options.certification,
+		certificationRequirement,
 		channel: options.channel,
 		releaseRoot: options.release.releaseRoot,
 		signal: options.signal
@@ -300,6 +375,12 @@ export const publishAbsoluteIosRelease = async (options: {
 			'Native release registry returned a different iOS release identity.'
 		);
 	}
+	requireCertificationReceipt(
+		publication,
+		options.certification,
+		certificationRequirement,
+		expected.releaseId
+	);
 	if (
 		options.channel !== undefined &&
 		(publication.channel?.channel !== options.channel ||

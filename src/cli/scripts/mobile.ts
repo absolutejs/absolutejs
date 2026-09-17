@@ -99,6 +99,7 @@ import {
 import {
 	createAbsoluteMobileReleaseCertification,
 	readAbsoluteMobileReleaseCertification,
+	resolveAbsoluteMobileCertificationRequirement,
 	verifyAbsoluteMobileReleaseCertification,
 	writeAbsoluteMobileReleaseCertification,
 	type AbsoluteMobileCertifiableRelease,
@@ -1323,7 +1324,7 @@ const provisionMobileUpdate = async (args: string[]) => {
 	const modulePath =
 		valueAfter(args, '--registry') ?? mobile.updateServer.registryModule;
 	const packages = [
-		'@absolutejs/deploy@0.25.13',
+		'@absolutejs/deploy@0.26.0',
 		'@absolutejs/blob@0.5.2',
 		...(requestedStorage === 's3'
 			? [
@@ -2157,6 +2158,79 @@ const printAppStoreConnectPublication = (
 	);
 };
 
+const buildAndroidCommand = async (args: string[]) => {
+	const googlePlay = googlePlayTarget(args);
+	if (!googlePlay) return buildAndroid(args);
+	const registryModule = args.includes('--registry')
+		? requireValueAfter(args, '--registry')
+		: 'mobile.release.ts';
+	const { mobile, projectRoot } = await loadMobile(
+		valueAfter(args, '--config')
+	);
+	const publisher = await loadAbsoluteNativeReleasePublisher(
+		projectRoot,
+		registryModule
+	);
+
+	return buildAndroid(args, (buildIdentity) =>
+		prepareAbsoluteAndroidRelease(publisher, {
+			buildIdentity,
+			googlePlay,
+			packageName: mobile.appId
+		})
+	);
+};
+
+const requirePublicationReleaseIdentity = (
+	mobile: NormalizedAbsoluteMobileConfig,
+	release: AbsoluteMobileCertifiableRelease,
+	platform: 'android' | 'ios'
+) => {
+	if (
+		release.metadata.platform !== platform ||
+		release.metadata.appId !== mobile.appId ||
+		release.metadata.engine !== mobile.engine
+	)
+		throw new TypeError(
+			`The existing ${platform} release does not match this application's platform, app ID, or engine.`
+		);
+};
+
+const loadPublicationCertification = async (options: {
+	args: string[];
+	platform: 'android' | 'ios';
+	projectRoot: string;
+	release: AbsoluteMobileCertifiableRelease;
+	requirement?: AbsoluteMobileCertificationRequirement;
+}) => {
+	const requested = valueAfter(options.args, '--certification');
+	if (
+		options.args.includes('--certification') &&
+		(!requested || requested.startsWith('-'))
+	)
+		throw new TypeError(
+			`mobile publish ${options.platform} requires --certification <directory-or-json>.`
+		);
+	if (!requested) {
+		if (options.requirement)
+			throw new TypeError(
+				`mobile publish ${options.platform} requires --certification with ${options.requirement} evidence for this release target.`
+			);
+
+		return undefined;
+	}
+	const loaded = await readAbsoluteMobileReleaseCertification(
+		options.projectRoot,
+		requested
+	);
+
+	return verifyAbsoluteMobileReleaseCertification(
+		loaded.certification,
+		options.release,
+		options.requirement
+	);
+};
+
 const publishAndroid = async (args: string[]) => {
 	const registryModule = args.includes('--registry')
 		? requireValueAfter(args, '--registry')
@@ -2167,6 +2241,12 @@ const publishAndroid = async (args: string[]) => {
 	const configPath = valueAfter(args, '--config');
 	const googlePlay = googlePlayTarget(args);
 	const { mobile, projectRoot } = await loadMobile(configPath);
+	const certificationRequirement =
+		resolveAbsoluteMobileCertificationRequirement(mobile, {
+			channel,
+			googlePlayTrack: googlePlay?.track,
+			platform: 'android'
+		});
 	const startedAt = performance.now();
 	let reused = false;
 	let success = false;
@@ -2175,20 +2255,37 @@ const publishAndroid = async (args: string[]) => {
 			projectRoot,
 			registryModule
 		);
-		const release = await buildAndroid(
+		const requestedRelease = args.includes('--release')
+			? requireValueAfter(args, '--release')
+			: undefined;
+		const release = requestedRelease
+			? await readAbsoluteAndroidRelease(projectRoot, requestedRelease)
+			: await buildAndroid(
+					args,
+					googlePlay
+						? (buildIdentity) =>
+								prepareAbsoluteAndroidRelease(publisher, {
+									buildIdentity,
+									googlePlay,
+									packageName: mobile.appId
+								})
+						: undefined
+				);
+		requirePublicationReleaseIdentity(mobile, release, 'android');
+		const certification = await loadPublicationCertification({
 			args,
-			googlePlay
-				? (buildIdentity) =>
-						prepareAbsoluteAndroidRelease(publisher, {
-							buildIdentity,
-							googlePlay,
-							packageName: mobile.appId
-						})
-				: undefined
-		);
+			platform: 'android',
+			projectRoot,
+			release,
+			...(certificationRequirement
+				? { requirement: certificationRequirement }
+				: {})
+		});
 		const publication = await publishAbsoluteAndroidRelease({
 			allowUnsigned: args.includes('--unsigned'),
 			channel,
+			...(certification ? { certification } : {}),
+			...(certificationRequirement ? { certificationRequirement } : {}),
 			googlePlay,
 			modulePath: registryModule,
 			projectRoot,
@@ -2397,6 +2494,34 @@ const buildIos = async (
 	}
 };
 
+const buildIosCommand = async (args: string[]) => {
+	const appStoreConnect = appStoreConnectTarget(args);
+	if (!appStoreConnect) return buildIos(args);
+	const registryModule = args.includes('--registry')
+		? requireIosValueAfter(args, '--registry')
+		: 'mobile.release.ts';
+	const { mobile, projectRoot } = await loadMobile(
+		valueAfter(args, '--config')
+	);
+	const marketingVersion = mobile.iosVersion;
+	if (!marketingVersion)
+		throw new TypeError(
+			'iOS App Store build allocation requires mobile.ios.version.'
+		);
+	const publisher = await loadAbsoluteNativeReleasePublisher(
+		projectRoot,
+		registryModule
+	);
+
+	return buildIos(args, (buildIdentity) =>
+		prepareAbsoluteIosRelease(publisher, {
+			buildIdentity,
+			bundleId: mobile.appId,
+			marketingVersion
+		})
+	);
+};
+
 const publishIos = async (args: string[]) => {
 	const registryModule = args.includes('--registry')
 		? requireIosValueAfter(args, '--registry')
@@ -2407,6 +2532,11 @@ const publishIos = async (args: string[]) => {
 	const configPath = valueAfter(args, '--config');
 	const appStoreConnect = appStoreConnectTarget(args);
 	const { mobile, projectRoot } = await loadMobile(configPath);
+	const certificationRequirement =
+		resolveAbsoluteMobileCertificationRequirement(mobile, {
+			channel,
+			platform: 'ios'
+		});
 	const startedAt = performance.now();
 	let reused = false;
 	let success = false;
@@ -2415,27 +2545,44 @@ const publishIos = async (args: string[]) => {
 			projectRoot,
 			registryModule
 		);
-		const release = await buildIos(
-			args,
-			appStoreConnect
-				? (buildIdentity) => {
-						if (!mobile.iosVersion)
-							throw new TypeError(
-								'iOS publishing requires mobile.ios.version.'
-							);
+		const requestedRelease = args.includes('--release')
+			? requireIosValueAfter(args, '--release')
+			: undefined;
+		const release = requestedRelease
+			? await readAbsoluteIosRelease(projectRoot, requestedRelease)
+			: await buildIos(
+					args,
+					appStoreConnect
+						? (buildIdentity) => {
+								if (!mobile.iosVersion)
+									throw new TypeError(
+										'iOS publishing requires mobile.ios.version.'
+									);
 
-						return prepareAbsoluteIosRelease(publisher, {
-							buildIdentity,
-							bundleId: mobile.appId,
-							marketingVersion: mobile.iosVersion
-						});
-					}
-				: undefined
-		);
+								return prepareAbsoluteIosRelease(publisher, {
+									buildIdentity,
+									bundleId: mobile.appId,
+									marketingVersion: mobile.iosVersion
+								});
+							}
+						: undefined
+				);
+		requirePublicationReleaseIdentity(mobile, release, 'ios');
+		const certification = await loadPublicationCertification({
+			args,
+			platform: 'ios',
+			projectRoot,
+			release,
+			...(certificationRequirement
+				? { requirement: certificationRequirement }
+				: {})
+		});
 		const publication = await publishAbsoluteIosRelease({
 			allowUnsigned: args.includes('--unsigned'),
 			appStoreConnect,
 			channel,
+			...(certification ? { certification } : {}),
+			...(certificationRequirement ? { certificationRequirement } : {}),
 			modulePath: registryModule,
 			projectRoot,
 			release
@@ -4674,12 +4821,12 @@ export const runMobile = async (args: string[]) => {
 		return;
 	}
 	if (command === 'build' && args[1] === 'android') {
-		await buildAndroid(args.slice(2));
+		await buildAndroidCommand(args.slice(2));
 
 		return;
 	}
 	if (command === 'build' && args[1] === 'ios') {
-		await buildIos(args.slice(2));
+		await buildIosCommand(args.slice(2));
 
 		return;
 	}
@@ -4749,6 +4896,6 @@ export const runMobile = async (args: string[]) => {
 	}
 
 	throw new TypeError(
-		'Usage: absolute mobile <pair mac <name> <user@host> [--port n] [--workspace path] | remotes [inspect [name] [--json] | clean [name] --yes | --json] | unpair mac <name> | init [--no-native] [--force] | sync [ios|android] | inspect [--json] [--require-bundle] | certify <release-dir> [--evidence report-dir]... [--require installed|simulator|device|store] [--outdir dir] [--json] | certify <release-dir> --verify certification-dir [--require installed|simulator|device|store] [--json] | associations [--outdir dir] [--verify] | ci github [server-entry] [--publish] [--registry module] [--secret-env NAME] [--output path] [--force] [--json] | doctor [ios|android|release [ios|android]] [--remote name] [--json|--fix [--yes]] | build <android|ios> [server-entry] [--remote name] [--registered-device-artifact] [--outdir dir] [--web-outdir dir] [--unsigned] | update provision [--storage local|s3] [--registry module] [--force] [--yes] | update signing generate --private-key path [--certificate path] [--public-key path] [--key-id id] [--common-name name] [--validity-years n] | update build [server-entry] --classification bug-fix|content|security --key-id id --signing-key path --within-submitted-purpose [--outdir dir] [--web-outdir dir] | update publish <release-directory> [--rollout fraction] [--registry module] | update promote --release id --rollout fraction [--registry module] | update rollback [--release id] [--registry module] | update status [--registry module] [--json] | update advance [--rollout fraction] [--registry module] [--json] | update pause|resume|cancel|reconcile [--registry module] [--json] | update storage [--retain count] [--min-age-days days] [--registry module] [--json] | update gc [--retain count] [--min-age-days days] [--grace-days days] [--apply] [--registry module] [--json] | publish android [server-entry] [--registry module] [--channel name] [--play-track track] [--play-status completed|draft|halted|in-progress] [--play-rollout fraction] [--play-name name] [--play-notes language=text] [--play-update-priority 0..5] [--play-hold-review] [--play-cancel-existing-review] [--outdir dir] [--web-outdir dir] [--unsigned] | publish ios [server-entry] [--remote name] [--registry module] [--channel name] [--testflight-group name-or-id] [--testflight-notes locale=text] [--testflight-submit-review] [--outdir dir] [--web-outdir dir] [--unsigned] | test android [--release release-dir [--yes] | --route path [--wait-for-hmr] [--port n]] [--report [dir]] [--serial id] [--artifacts dir] [--json] [--config path] | test ios [--release release-dir [--remote name] [--device id [--testflight] --yes] | --wait-for-hmr] [--report [dir]] [--udid id] [--artifacts dir] [--json] [--config path]'
+		'Usage: absolute mobile <pair mac <name> <user@host> [--port n] [--workspace path] | remotes [inspect [name] [--json] | clean [name] --yes | --json] | unpair mac <name> | init [--no-native] [--force] | sync [ios|android] | inspect [--json] [--require-bundle] | certify <release-dir> [--evidence report-dir]... [--require installed|simulator|device|store] [--outdir dir] [--json] | certify <release-dir> --verify certification-dir [--require installed|simulator|device|store] [--json] | associations [--outdir dir] [--verify] | ci github [server-entry] [--publish] [--registry module] [--secret-env NAME] [--output path] [--force] [--json] | doctor [ios|android|release [ios|android]] [--remote name] [--json|--fix [--yes]] | build <android|ios> [server-entry] [--remote name] [--registered-device-artifact] [--outdir dir] [--web-outdir dir] [--unsigned] | update provision [--storage local|s3] [--registry module] [--force] [--yes] | update signing generate --private-key path [--certificate path] [--public-key path] [--key-id id] [--common-name name] [--validity-years n] | update build [server-entry] --classification bug-fix|content|security --key-id id --signing-key path --within-submitted-purpose [--outdir dir] [--web-outdir dir] | update publish <release-directory> [--rollout fraction] [--registry module] | update promote --release id --rollout fraction [--registry module] | update rollback [--release id] [--registry module] | update status [--registry module] [--json] | update advance [--rollout fraction] [--registry module] [--json] | update pause|resume|cancel|reconcile [--registry module] [--json] | update storage [--retain count] [--min-age-days days] [--registry module] [--json] | update gc [--retain count] [--min-age-days days] [--grace-days days] [--apply] [--registry module] [--json] | publish android [server-entry] [--release release-dir] [--certification certification-dir] [--registry module] [--channel name] [--play-track track] [--play-status completed|draft|halted|in-progress] [--play-rollout fraction] [--play-name name] [--play-notes language=text] [--play-update-priority 0..5] [--play-hold-review] [--play-cancel-existing-review] [--outdir dir] [--web-outdir dir] [--unsigned] | publish ios [server-entry] [--release release-dir] [--certification certification-dir] [--remote name] [--registry module] [--channel name] [--testflight-group name-or-id] [--testflight-notes locale=text] [--testflight-submit-review] [--outdir dir] [--web-outdir dir] [--unsigned] | test android [--release release-dir [--yes] | --route path [--wait-for-hmr] [--port n]] [--report [dir]] [--serial id] [--artifacts dir] [--json] [--config path] | test ios [--release release-dir [--remote name] [--device id [--testflight] --yes] | --wait-for-hmr] [--report [dir]] [--udid id] [--artifacts dir] [--json] [--config path]'
 	);
 };

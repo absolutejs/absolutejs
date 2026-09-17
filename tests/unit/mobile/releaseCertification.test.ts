@@ -4,10 +4,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AbsoluteAndroidRelease } from '../../../src/mobile/androidReleaseAcceptance';
 import type { AbsoluteIosRelease } from '../../../src/mobile/iosReleaseAcceptance';
+import { normalizeAbsoluteMobileConfig } from '../../../src/mobile/config';
 import {
 	createAbsoluteMobileReleaseCertification,
 	readAbsoluteMobileReleaseCertification,
 	renderAbsoluteMobileReleaseCertification,
+	resolveAbsoluteMobileCertificationRequirement,
 	verifyAbsoluteMobileReleaseCertification,
 	writeAbsoluteMobileReleaseCertification
 } from '../../../src/mobile/releaseCertification';
@@ -155,6 +157,48 @@ const iosRun = (
 });
 
 describe('mobile release certification', () => {
+	test('resolves the strongest configured promotion policy', () => {
+		const config = normalizeAbsoluteMobileConfig(
+			{
+				appId: 'com.example.mobile',
+				appName: 'Mobile',
+				release: {
+					certification: {
+						channels: { beta: { ios: 'device' } },
+						googlePlayTracks: { beta: 'installed' }
+					}
+				},
+				server: { productionOrigin: 'https://example.com' }
+			},
+			'/workspace'
+		);
+
+		expect(
+			resolveAbsoluteMobileCertificationRequirement(config, {
+				channel: 'production',
+				platform: 'ios'
+			})
+		).toBe('store');
+		expect(
+			resolveAbsoluteMobileCertificationRequirement(config, {
+				channel: 'beta',
+				platform: 'ios'
+			})
+		).toBe('device');
+		expect(
+			resolveAbsoluteMobileCertificationRequirement(config, {
+				googlePlayTrack: 'beta',
+				platform: 'android'
+			})
+		).toBe('installed');
+		expect(
+			resolveAbsoluteMobileCertificationRequirement(config, {
+				channel: 'preview',
+				platform: 'android'
+			})
+		).toBeUndefined();
+	});
+
 	test('certifies, persists, and re-verifies exact Android installed evidence', async () => {
 		const root = await mkdtemp(join(tmpdir(), 'absolute-certification-'));
 		const release = androidRelease(root);

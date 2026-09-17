@@ -284,7 +284,11 @@ The generated workflow keeps signing and provider credentials behind the
 After testing the immutable Android or iOS release, bind its exact artifact and
 runtime identity to the installed, Simulator, device, or store evidence with
 `absolute mobile certify`. The content-addressed result can be checked again in
-CI without credentials or native tooling. See
+CI without credentials or native tooling, then supplied to `mobile publish
+--release ... --certification ...` so publication cannot silently rebuild or
+promote different bytes. Production channels require installed Android and
+store-delivered iOS evidence by default; production Google Play requires
+installed evidence. See
 [mobile release certification](docs/MOBILE_RELEASE_CERTIFICATION.md).
 
 An experimental Expo Router hybrid is also available behind

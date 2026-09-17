@@ -1,9 +1,9 @@
 # AbsoluteJS iOS and TestFlight macOS test runbook
 
 This runbook validates the iOS release path shipped in
-`@absolutejs/absolute@0.20.0-beta.99`,
+`@absolutejs/absolute@0.20.0-beta.109`,
 `@absolutejs/devices-expo@0.0.11`, and
-`@absolutejs/deploy@0.25.13`. It covers a signed local IPA, an internal
+`@absolutejs/deploy@0.26.0`. It covers a signed local IPA, an internal
 TestFlight upload, retry behavior, and installation on an iPhone or iPad.
 
 Use a staging App Store Connect application if possible. Uploading a build
@@ -752,12 +752,12 @@ still requires the developer team setup described below.
 From the root of the AbsoluteJS application:
 
 ```sh
-bun add @absolutejs/absolute@0.20.0-beta.87 \
+bun add @absolutejs/absolute@0.20.0-beta.109 \
   @absolutejs/auth@0.76.3 \
   @absolutejs/dispatch@0.9.0 \
   @absolutejs/sync@2.31.0 \
   @absolutejs/sync-capacitor@0.9.2 \
-  @absolutejs/deploy@0.25.13 \
+  @absolutejs/deploy@0.26.0 \
   @absolutejs/blob@0.5.2 \
   @capacitor/core@8.5.0 \
   @capacitor/app@8.1.1 \
@@ -2640,6 +2640,25 @@ bunx absolute mobile certify "$RELEASE_DIR" \
   field or artifact byte and repeat verification. It must fail rather than
   accepting stale evidence. Restore the untouched release before continuing.
 
+When the release owner authorizes production promotion, run this from that same
+application root with the printed certification directory:
+
+```sh
+bunx absolute mobile publish ios \
+  --release "$RELEASE_DIR" \
+  --certification 'PRINTED_CERTIFICATION_DIRECTORY' \
+  --channel production \
+  --registry mobile.release.ts
+```
+
+- [ ] `REMOTE-IOS-PROMOTE-01` The command does not run Xcode or create another
+  IPA. It reports the same release ID and the registry receipt contains the same
+  certification ID, release ID, `store` requirement, and `store` strength.
+- [ ] `REMOTE-IOS-PROMOTE-02` Repeating the command is idempotent. Omitting the
+  certification, using Simulator/device certification, editing the IPA, or
+  selecting a certification for another release fails before channel
+  promotion.
+
 Return `certification.json` and `certification.md` with the three report
 directories. The certification contains only report SHA-256 digests and bounded
 release/evidence facts; it does not copy device identifiers, report paths, SSH
@@ -3102,7 +3121,7 @@ source change and build a new content-addressed release instead.
 - File Viewer version: 2.0.2
 - Filesystem version: 8.1.3
 - Geolocation version: 8.2.2
-- Deploy version: 0.25.13
+- Deploy version: 0.26.0
 - App bundle ID (non-secret):
 - Marketing version:
 - Allocated build number:

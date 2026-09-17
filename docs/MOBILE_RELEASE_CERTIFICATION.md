@@ -127,21 +127,30 @@ bunx absolute mobile certify \
   --require store
 ```
 
-The command exits nonzero on any mismatch. This makes it the CI and promotion
-primitive:
+The command exits nonzero on any mismatch. `mobile publish` performs this
+verification itself and promotes the existing tested artifact:
 
 ```sh
-set -e
-bunx absolute mobile certify "$RELEASE_DIRECTORY" \
-  --verify "$CERTIFICATION_DIRECTORY" \
-  --require "$REQUIRED_MOBILE_EVIDENCE" \
-  --json > mobile-certification.json
+bunx absolute mobile publish android \
+  --release "$RELEASE_DIRECTORY" \
+  --certification "$CERTIFICATION_DIRECTORY" \
+  --channel production \
+  --play-track production \
+  --registry mobile.release.ts
 ```
+
+This path never rebuilds. It validates the configured channel/store policy,
+the certification content address and semantics, and the full immutable release
+identity. It also requires the registry response to contain a matching retained
+certification receipt. By default, production channels require `installed`
+Android or `store` iOS evidence, and the production Google Play track requires
+`installed` evidence. Applications can configure explicit per-channel and
+per-track policies under `mobile.release.certification`.
 
 Upload `mobile-certification.json`, the immutable certification directory, and
 the release directory as protected CI artifacts. Run this verification step
-immediately before calling the provider-neutral registry promotion or store
-promotion workflow. Initial TestFlight upload cannot require store-delivered
+with the provider-neutral registry receipt and store promotion record. Initial
+TestFlight upload cannot require store-delivered
 evidence from a build that Apple has not processed yet; require Simulator or
 registered-device evidence for that transition, then require `store` before a
 later production promotion.

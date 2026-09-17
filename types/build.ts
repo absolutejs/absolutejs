@@ -117,6 +117,28 @@ type MobileSharedConfig = {
 		/** Deployed AbsoluteJS origin used for page envelopes and API calls. */
 		productionOrigin: string;
 	};
+	/** Native-store and immutable-channel release policy. Production defaults
+	 * require installed Android evidence and store-delivered iOS evidence. */
+	release?: {
+		certification?:
+			| false
+			| {
+					/** Evidence required when an immutable release channel is moved. */
+					channels?: Readonly<
+						Record<
+							string,
+							{
+								android?: false | 'installed';
+								ios?: false | 'device' | 'simulator' | 'store';
+							}
+						>
+					>;
+					/** Evidence required before committing a Google Play track. */
+					googlePlayTracks?: Readonly<
+						Record<string, false | 'installed'>
+					>;
+			  };
+	};
 	/** Shell-owned production error capture for web-rendered and Expo-native routes.
 	 * Events go only to the configured route on the trusted production origin. */
 	observability?: {

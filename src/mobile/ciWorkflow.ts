@@ -284,12 +284,9 @@ const androidJob = (options: PlatformJobOptions) => {
 		: '';
 	const publishCommand = options.includePublishing
 		? `if [[ "$ABSOLUTE_PUBLISH" == "true" ]]; then
-            args=(bunx absolute mobile publish android "$ABSOLUTE_SERVER_ENTRY" --registry "$ABSOLUTE_REGISTRY_MODULE")
-            if [[ -n "$ABSOLUTE_RELEASE_CHANNEL" ]]; then
-              args+=(--channel "$ABSOLUTE_RELEASE_CHANNEL")
-            fi
+            args=(bunx absolute mobile build android "$ABSOLUTE_SERVER_ENTRY")
             if [[ "$ABSOLUTE_PLAY_TRACK" != "registry-only" ]]; then
-              args+=(--play-track "$ABSOLUTE_PLAY_TRACK")
+              args+=(--registry "$ABSOLUTE_REGISTRY_MODULE" --play-track "$ABSOLUTE_PLAY_TRACK")
             fi
           else
             args=(bunx absolute mobile build android "$ABSOLUTE_SERVER_ENTRY")
@@ -305,6 +302,60 @@ const androidJob = (options: PlatformJobOptions) => {
             printf '%s' "$ABSOLUTE_GOOGLE_CREDENTIALS_BASE64" | base64 --decode > "$GOOGLE_APPLICATION_CREDENTIALS"
             chmod 600 "$GOOGLE_APPLICATION_CREDENTIALS"
           fi`
+		: '';
+	const certificationSteps = options.includePublishing
+		? `
+      - name: Install-test and certify exact Android release
+        if: inputs.publish
+        shell: bash
+        run: |
+          args=(bunx absolute mobile doctor android --fix --yes)
+          ${appendConfigArgument}
+          "\${args[@]}"
+          shopt -s nullglob
+          releases=(.absolutejs/mobile/releases/android/*)
+          if [[ "\${#releases[@]}" -ne 1 || ! -d "\${releases[0]}" ]]; then
+            echo "Expected exactly one immutable Android release directory." >&2
+            exit 1
+          fi
+          RELEASE_DIRECTORY="\${releases[0]}"
+          args=(bunx absolute mobile test android --release "$RELEASE_DIRECTORY" --report .absolutejs/mobile-ci/acceptance/android --yes)
+          ${appendConfigArgument}
+          "\${args[@]}"
+          args=(bunx absolute mobile certify "$RELEASE_DIRECTORY" --evidence .absolutejs/mobile-ci/acceptance/android --require installed --outdir .absolutejs/mobile-ci/certifications/android --json)
+          "\${args[@]}" > .absolutejs/mobile-ci/android-certification.json
+      - name: Publish certified Android release
+        if: inputs.publish
+        shell: bash
+        run: |
+          shopt -s nullglob
+          releases=(.absolutejs/mobile/releases/android/*)
+          certifications=(.absolutejs/mobile-ci/certifications/android/*)
+          if [[ "\${#releases[@]}" -ne 1 || "\${#certifications[@]}" -ne 1 || ! -d "\${releases[0]}" || ! -d "\${certifications[0]}" ]]; then
+            echo "Expected exactly one Android release and certification." >&2
+            exit 1
+          fi
+          args=(bunx absolute mobile publish android --release "\${releases[0]}" --certification "\${certifications[0]}" --registry "$ABSOLUTE_REGISTRY_MODULE")
+          if [[ -n "$ABSOLUTE_RELEASE_CHANNEL" ]]; then
+            args+=(--channel "$ABSOLUTE_RELEASE_CHANNEL")
+          fi
+          if [[ "$ABSOLUTE_PLAY_TRACK" != "registry-only" ]]; then
+            args+=(--play-track "$ABSOLUTE_PLAY_TRACK")
+          fi
+          ${appendConfigArgument}
+          "\${args[@]}"
+      - name: Upload Android acceptance and certification
+        if: always() && inputs.publish
+        uses: actions/upload-artifact@v7
+        with:
+          name: absolute-mobile-android-certification
+          path: |
+            .absolutejs/mobile-ci/acceptance/android/
+            .absolutejs/mobile-ci/certifications/android/
+            .absolutejs/mobile-ci/android-certification.json
+          if-no-files-found: error
+          retention-days: 30
+          include-hidden-files: true`
 		: '';
 
 	return `
@@ -344,13 +395,14 @@ ${installSteps}
           done
           printf '%s' "$ABSOLUTE_ANDROID_KEYSTORE_BASE64" | base64 --decode > "\${{ runner.temp }}/absolute-release.jks"
           chmod 600 "\${{ runner.temp }}/absolute-release.jks"${googleSetup}
-      - name: Build or publish Android
+      - name: Build Android
         shell: bash
         run: |
           ${publishCommand}
           ${appendConfigArgument}
           "\${args[@]}"
 ${releaseAuditSteps('android')}
+${certificationSteps}
       - name: Attest Android App Bundle
         if: inputs.attest
         uses: actions/attest@v4
@@ -387,15 +439,9 @@ const iosJob = (options: PlatformJobOptions) => {
 		: '';
 	const publishCommand = options.includePublishing
 		? `if [[ "$ABSOLUTE_PUBLISH" == "true" ]]; then
-            args=(bunx absolute mobile publish ios "$ABSOLUTE_SERVER_ENTRY" --registry "$ABSOLUTE_REGISTRY_MODULE")
-            if [[ -n "$ABSOLUTE_RELEASE_CHANNEL" ]]; then
-              args+=(--channel "$ABSOLUTE_RELEASE_CHANNEL")
-            fi
+            args=(bunx absolute mobile build ios "$ABSOLUTE_SERVER_ENTRY")
             if [[ -n "$ABSOLUTE_TESTFLIGHT_GROUP" ]]; then
-              args+=(--testflight-group "$ABSOLUTE_TESTFLIGHT_GROUP")
-            fi
-            if [[ "$ABSOLUTE_TESTFLIGHT_SUBMIT_REVIEW" == "true" ]]; then
-              args+=(--testflight-submit-review)
+              args+=(--registry "$ABSOLUTE_REGISTRY_MODULE" --testflight-group "$ABSOLUTE_TESTFLIGHT_GROUP")
             fi
           else
             args=(bunx absolute mobile build ios "$ABSOLUTE_SERVER_ENTRY")
@@ -413,6 +459,60 @@ const iosJob = (options: PlatformJobOptions) => {
             printf '%s' "$APP_STORE_CONNECT_PRIVATE_KEY_BASE64" | base64 --decode > "$APP_STORE_CONNECT_PRIVATE_KEY_PATH"
             chmod 600 "$APP_STORE_CONNECT_PRIVATE_KEY_PATH"
           fi`
+		: '';
+	const certificationSteps = options.includePublishing
+		? `
+      - name: Simulator-test and certify exact iOS release
+        if: inputs.publish
+        shell: bash
+        run: |
+          shopt -s nullglob
+          releases=(.absolutejs/mobile/releases/ios/*)
+          if [[ "\${#releases[@]}" -ne 1 || ! -d "\${releases[0]}" ]]; then
+            echo "Expected exactly one immutable iOS release directory." >&2
+            exit 1
+          fi
+          RELEASE_DIRECTORY="\${releases[0]}"
+          args=(bunx absolute mobile test ios --release "$RELEASE_DIRECTORY" --report .absolutejs/mobile-ci/acceptance/ios --yes)
+          ${appendConfigArgument}
+          "\${args[@]}"
+          args=(bunx absolute mobile certify "$RELEASE_DIRECTORY" --evidence .absolutejs/mobile-ci/acceptance/ios --require simulator --outdir .absolutejs/mobile-ci/certifications/ios --json)
+          "\${args[@]}" > .absolutejs/mobile-ci/ios-certification.json
+      - name: Publish certified iOS release
+        if: inputs.publish
+        shell: bash
+        run: |
+          shopt -s nullglob
+          releases=(.absolutejs/mobile/releases/ios/*)
+          certifications=(.absolutejs/mobile-ci/certifications/ios/*)
+          if [[ "\${#releases[@]}" -ne 1 || "\${#certifications[@]}" -ne 1 || ! -d "\${releases[0]}" || ! -d "\${certifications[0]}" ]]; then
+            echo "Expected exactly one iOS release and certification." >&2
+            exit 1
+          fi
+          args=(bunx absolute mobile publish ios --release "\${releases[0]}" --certification "\${certifications[0]}" --registry "$ABSOLUTE_REGISTRY_MODULE")
+          if [[ -n "$ABSOLUTE_RELEASE_CHANNEL" ]]; then
+            args+=(--channel "$ABSOLUTE_RELEASE_CHANNEL")
+          fi
+          if [[ -n "$ABSOLUTE_TESTFLIGHT_GROUP" ]]; then
+            args+=(--testflight-group "$ABSOLUTE_TESTFLIGHT_GROUP")
+          fi
+          if [[ "$ABSOLUTE_TESTFLIGHT_SUBMIT_REVIEW" == "true" ]]; then
+            args+=(--testflight-submit-review)
+          fi
+          ${appendConfigArgument}
+          "\${args[@]}"
+      - name: Upload iOS acceptance and certification
+        if: always() && inputs.publish
+        uses: actions/upload-artifact@v7
+        with:
+          name: absolute-mobile-ios-certification
+          path: |
+            .absolutejs/mobile-ci/acceptance/ios/
+            .absolutejs/mobile-ci/certifications/ios/
+            .absolutejs/mobile-ci/ios-certification.json
+          if-no-files-found: error
+          retention-days: 30
+          include-hidden-files: true`
 		: '';
 
 	return `
@@ -465,13 +565,14 @@ ${installSteps}
           security list-keychain -d user -s "$KEYCHAIN_PATH"
           mkdir -p "$(dirname "$PROFILE_DESTINATION")"
           cp "$PROFILE_PATH" "$PROFILE_DESTINATION"${appStoreDecode}
-      - name: Build or publish iOS
+      - name: Build iOS
         shell: bash
         run: |
           ${publishCommand}
           ${appendConfigArgument}
           "\${args[@]}"
 ${releaseAuditSteps('ios')}
+${certificationSteps}
       - name: Attest iOS IPA
         if: inputs.attest
         uses: actions/attest@v4

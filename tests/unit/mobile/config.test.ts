@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { normalizeAbsoluteMobileConfig } from '../../../src/mobile/config';
+import type { MobileConfig } from '../../../types/build';
 import { createExpoTestCertificate } from '../../helpers/expoCodeSigning';
 
 const temporaryDirectories: string[] = [];
@@ -17,6 +18,54 @@ afterEach(async () => {
 });
 
 describe('mobile config normalization', () => {
+	test('requires exact installed/store evidence for production promotion by default', () => {
+		const base: MobileConfig = {
+			appId: 'com.example.product',
+			appName: 'Product',
+			server: { productionOrigin: 'https://api.example.com' }
+		};
+		const defaults = normalizeAbsoluteMobileConfig(base, '/workspace');
+
+		expect(defaults.releaseCertification).toEqual({
+			channels: {
+				production: { android: 'installed', ios: 'store' }
+			},
+			googlePlayTracks: { production: 'installed' }
+		});
+		expect(
+			normalizeAbsoluteMobileConfig(
+				{
+					...base,
+					release: {
+						certification: {
+							channels: {
+								beta: { android: 'installed', ios: 'device' },
+								production: { android: false, ios: false }
+							},
+							googlePlayTracks: {
+								internal: 'installed',
+								production: false
+							}
+						}
+					}
+				},
+				'/workspace'
+			).releaseCertification
+		).toEqual({
+			channels: {
+				beta: { android: 'installed', ios: 'device' },
+				production: {}
+			},
+			googlePlayTracks: { internal: 'installed' }
+		});
+		expect(
+			normalizeAbsoluteMobileConfig(
+				{ ...base, release: { certification: false } },
+				'/workspace'
+			).releaseCertification
+		).toEqual({ channels: {}, googlePlayTracks: {} });
+	});
+
 	test('pins mobile observability to the trusted production origin', () => {
 		const config = normalizeAbsoluteMobileConfig(
 			{

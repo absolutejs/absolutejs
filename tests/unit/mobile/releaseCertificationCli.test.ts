@@ -131,6 +131,79 @@ describe('mobile certify CLI', () => {
 		);
 		expect(created.stderr).not.toContain(root);
 
+		await Promise.all([
+			writeFile(
+				join(root, 'absolute.config.ts'),
+				`export default ${JSON.stringify({
+					mobile: {
+						appId: 'com.example.certification',
+						appName: 'Certification',
+						server: {
+							productionOrigin: 'https://example.com'
+						}
+					}
+				})};\n`
+			),
+			writeFile(
+				join(root, 'registry.ts'),
+				`export default {
+	async publish(options: Record<string, any>) {
+		await Bun.write('publication.json', JSON.stringify(options));
+		const metadata = await Bun.file(options.releaseRoot + '/release.json').json();
+		return {
+			certification: {
+				certificationId: options.certification.certificationId,
+				releaseId: metadata.releaseId,
+				requirement: options.certificationRequirement,
+				strength: options.certification.strength
+			},
+			channel: { channel: options.channel, releaseId: metadata.releaseId },
+			record: { metadata }, reused: false
+		};
+	}
+};\n`
+			)
+		]);
+		const gated = await runCli(root, [
+			'mobile',
+			'publish',
+			'android',
+			'--release',
+			'release',
+			'--certification',
+			certificationDirectory,
+			'--channel',
+			'production',
+			'--registry',
+			'registry.ts'
+		]);
+		expect(gated.exitCode).toBe(0);
+		expect(gated.stdout).toContain(
+			`Published Android release ${releaseId}`
+		);
+		expect(
+			JSON.parse(await Bun.file(join(root, 'publication.json')).text())
+		).toMatchObject({
+			certification: { certificationId: certification.certificationId },
+			certificationRequirement: 'installed',
+			releaseRoot
+		});
+		const missingCertification = await runCli(root, [
+			'mobile',
+			'publish',
+			'android',
+			'--release',
+			'release',
+			'--channel',
+			'production',
+			'--registry',
+			'registry.ts'
+		]);
+		expect(missingCertification.exitCode).not.toBe(0);
+		expect(missingCertification.stderr).toContain(
+			'requires --certification with installed evidence'
+		);
+
 		const missingRequirement = await runCli(root, [
 			'mobile',
 			'certify',

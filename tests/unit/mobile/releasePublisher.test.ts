@@ -4,10 +4,16 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, test } from 'bun:test';
 import type { AbsoluteAndroidReleaseMetadata } from '../../../src/mobile/androidRelease';
 import type { AbsoluteIosReleaseMetadata } from '../../../src/mobile/iosRelease';
+import { createAbsoluteMobileReleaseCertification } from '../../../src/mobile/releaseCertification';
+import {
+	createAbsoluteNativeTestReport,
+	writeAbsoluteNativeTestReport
+} from '../../../src/mobile/nativeTestReport';
 import {
 	prepareAbsoluteIosRelease,
 	publishAbsoluteAndroidRelease,
-	publishAbsoluteIosRelease
+	publishAbsoluteIosRelease,
+	type PublishAbsoluteAndroidReleaseOptions
 } from '../../../src/mobile/releasePublisher';
 
 const roots: string[] = [];
@@ -42,6 +48,54 @@ const metadata = (sha256 = 'a'.repeat(64)) =>
 		signed: true,
 		type: 'aab'
 	}) satisfies AbsoluteAndroidReleaseMetadata;
+
+const certificationFor = async (
+	projectRoot: string,
+	expected: AbsoluteAndroidReleaseMetadata
+) => {
+	const evidence = join(projectRoot, 'evidence');
+	await writeAbsoluteNativeTestReport(
+		evidence,
+		createAbsoluteNativeTestReport({
+			generatedAt: '2026-09-16T12:00:00.000Z',
+			manualChecks: [],
+			metadata: {
+				absolutejsVersion: '0.20.0-beta.107',
+				bunVersion: '1.4.0',
+				provider: expected.engine
+			},
+			run: {
+				appId: expected.appId,
+				durationMs: 100,
+				hmrConnected: false,
+				platform: 'android',
+				release: {
+					apksBytes: 50,
+					artifactBytes: expected.bytes,
+					artifactSha256: expected.sha256,
+					embeddedOffline: true,
+					engine: expected.engine,
+					installMs: 20,
+					launchMs: 30,
+					relaunchMs: 25,
+					releaseId: expected.releaseId,
+					signed: true
+				},
+				status: 'pass',
+				targetId: 'emulator',
+				targetKind: 'emulator'
+			}
+		})
+	);
+
+	return createAbsoluteMobileReleaseCertification({
+		evidencePaths: [evidence],
+		generatedAt: '2026-09-16T12:00:00.000Z',
+		projectRoot,
+		release: { metadata: expected },
+		requirement: 'installed'
+	});
+};
 
 describe('native release publisher modules', () => {
 	test('prepares and verifies an App Store Connect TestFlight release', async () => {
@@ -141,6 +195,68 @@ describe('native release publisher modules', () => {
 			channel: 'internal',
 			releaseRoot
 		});
+	});
+
+	test('requires a retained certification receipt for a gated publication', async () => {
+		const projectRoot = await temporaryRoot();
+		const expected = metadata();
+		const certification = await certificationFor(projectRoot, expected);
+		await writeFile(
+			join(projectRoot, 'certified.ts'),
+			`export default {
+	async publish(options: Record<string, any>) {
+		return {
+			certification: {
+				certificationId: options.certification.certificationId,
+				releaseId: options.certification.release.releaseId,
+				requirement: options.certificationRequirement,
+				strength: options.certification.strength
+			},
+			record: { metadata: ${JSON.stringify(expected)} },
+			reused: false
+		};
+	}
+};\n`
+		);
+		const release: PublishAbsoluteAndroidReleaseOptions['release'] = {
+			metadata: expected,
+			releaseRoot: join(projectRoot, 'release')
+		};
+		const publication = await publishAbsoluteAndroidRelease({
+			certification,
+			certificationRequirement: 'installed',
+			modulePath: './certified.ts',
+			projectRoot,
+			release
+		});
+
+		expect(publication.certification).toEqual({
+			certificationId: certification.certificationId,
+			releaseId: expected.releaseId,
+			requirement: 'installed',
+			strength: 'installed'
+		});
+		await expect(
+			publishAbsoluteAndroidRelease({
+				certificationRequirement: 'installed',
+				modulePath: './certified.ts',
+				projectRoot,
+				release
+			})
+		).rejects.toThrow('requires installed certification');
+		await writeFile(
+			join(projectRoot, 'drops-certification.ts'),
+			`export default { publish: async () => ({ record: { metadata: ${JSON.stringify(expected)} }, reused: false }) };\n`
+		);
+		await expect(
+			publishAbsoluteAndroidRelease({
+				certification,
+				certificationRequirement: 'installed',
+				modulePath: './drops-certification.ts',
+				projectRoot,
+				release
+			})
+		).rejects.toThrow('did not retain');
 	});
 
 	test('rejects registry modules outside the application project', async () => {
