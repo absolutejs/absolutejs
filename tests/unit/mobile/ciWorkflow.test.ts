@@ -147,6 +147,9 @@ describe('mobile GitHub Actions workflow', () => {
 		expectValidShellSteps(parsed);
 		expect(workflow).toContain('pull_request:');
 		expect(workflow).toContain('workflow_dispatch:');
+		expect(workflow).toContain(
+			"run-name: ${{ inputs.operation == 'promote' && format('AbsoluteJS mobile promotion [{0}]', inputs.dispatch_id)"
+		);
 		expect(workflow).toContain('environment: absolute-mobile-release');
 		expect(workflow).toContain('cancel-in-progress: false');
 		expect(workflow).toContain('bun ci');
@@ -168,6 +171,11 @@ describe('mobile GitHub Actions workflow', () => {
 		expect(workflow).toContain('promotion-receipt.json');
 		expect(workflow).toContain('promotion-context.json');
 		expect(workflow.match(/ABSOLUTE_SOURCE_RUN_ID:/gu)).toHaveLength(3);
+		expect(
+			workflow.match(/ABSOLUTE_PROMOTION_DISPATCH_ID:/gu)
+		).toHaveLength(3);
+		expect(workflow).toContain('dispatch_id:');
+		expect(workflow).toContain('dispatchId, format: 2');
 		expect(workflow).toContain('sourceArtifact: "absolute-mobile-android"');
 		expect(workflow).toContain('"${args[@]}"');
 		expect(workflow).toContain(
@@ -304,7 +312,7 @@ describe('mobile GitHub Actions workflow', () => {
 		expect(stderr).toBe('');
 		expect(result).toMatchObject({
 			changed: true,
-			format: 3,
+			format: 4,
 			path: '.github/workflows/absolute-mobile.yml',
 			platforms: ['android'],
 			publishing: false

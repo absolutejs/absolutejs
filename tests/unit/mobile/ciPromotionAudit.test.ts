@@ -5,7 +5,10 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, test } from 'bun:test';
 import {
 	auditAbsoluteMobileCiPromotion,
+	discoverAbsoluteMobilePromotionRun,
 	parseAbsoluteMobileCiRunStatus,
+	parseAbsoluteMobilePromotionContext,
+	parseAbsoluteMobilePromotionRunList,
 	type AbsoluteMobileCiCommandRunner
 } from '../../../src/mobile/ciPromotionAudit';
 import { createAbsoluteMobileCertificationVerification } from '../../../src/mobile/certificationVerification';
@@ -21,6 +24,7 @@ import {
 const roots: string[] = [];
 const PROMOTION_RUN_ID = '2002';
 const SOURCE_RUN_ID = '1001';
+const DISPATCH_ID = `amp_${'b'.repeat(32)}`;
 
 afterEach(async () => {
 	await Promise.all(
@@ -34,6 +38,7 @@ const githubStatus: () => unknown = () => ({
 	conclusion: 'success',
 	createdAt: '2026-09-17T12:00:00Z',
 	databaseId: Number(PROMOTION_RUN_ID),
+	displayTitle: `AbsoluteJS mobile promotion [${DISPATCH_ID}]`,
 	headBranch: 'main',
 	headSha: 'a'.repeat(40),
 	jobs: [
@@ -165,7 +170,8 @@ const fixture = async () => {
 			join(promotionArtifact, 'promotion-context.json'),
 			`${JSON.stringify(
 				{
-					format: 1,
+					dispatchId: DISPATCH_ID,
+					format: 2,
 					platform: 'android',
 					promotionRunId: PROMOTION_RUN_ID,
 					sourceArtifact: 'absolute-mobile-android',
@@ -261,6 +267,67 @@ describe('mobile CI promotion audit', () => {
 		).toThrow('identity does not match');
 	});
 
+	test('selects only the exact correlated run during concurrent promotions', async () => {
+		const competingDispatchId = `amp_${'c'.repeat(32)}`;
+		const runs: Record<string, unknown>[] = [
+			{
+				databaseId: 3003,
+				displayTitle: `AbsoluteJS mobile promotion [${competingDispatchId}]`,
+				event: 'workflow_dispatch',
+				url: 'https://github.com/absolutejs/example/actions/runs/3003'
+			},
+			{
+				databaseId: Number(PROMOTION_RUN_ID),
+				displayTitle: `AbsoluteJS mobile promotion [${DISPATCH_ID}]`,
+				event: 'workflow_dispatch',
+				url: `https://github.com/absolutejs/example/actions/runs/${PROMOTION_RUN_ID}`
+			}
+		];
+		expect(parseAbsoluteMobilePromotionRunList(runs, DISPATCH_ID)).toEqual({
+			dispatchId: DISPATCH_ID,
+			runId: PROMOTION_RUN_ID,
+			url: `https://github.com/absolutejs/example/actions/runs/${PROMOTION_RUN_ID}`
+		});
+
+		let attempt = 0;
+		const run: AbsoluteMobileCiCommandRunner = async () => {
+			attempt += 1;
+
+			return {
+				exitCode: 0,
+				stderr: '',
+				stdout: JSON.stringify(attempt === 1 ? [] : runs)
+			};
+		};
+		const discovered = await discoverAbsoluteMobilePromotionRun({
+			attempts: 2,
+			dispatchId: DISPATCH_ID,
+			pollIntervalMs: 0,
+			projectRoot: '/project',
+			run,
+			workflow: '.github/workflows/absolute-mobile.yml',
+			sleep: () => Promise.resolve()
+		});
+
+		expect(discovered.runId).toBe(PROMOTION_RUN_ID);
+		expect(attempt).toBe(2);
+		expect(() =>
+			parseAbsoluteMobilePromotionRunList([runs[1], runs[1]], DISPATCH_ID)
+		).toThrow('multiple runs');
+	});
+
+	test('keeps format-1 promotion context readable for retained audits', () => {
+		expect(
+			parseAbsoluteMobilePromotionContext({
+				format: 1,
+				platform: 'android',
+				promotionRunId: PROMOTION_RUN_ID,
+				sourceArtifact: 'absolute-mobile-android',
+				sourceRunId: SOURCE_RUN_ID
+			})
+		).toMatchObject({ dispatchId: null, format: 1 });
+	});
+
 	test('replays build, certification, promotion and local audit without credentials', async () => {
 		const { promotionArtifact, root, sourceArtifact } = await fixture();
 		const commands: string[][] = [];
@@ -279,6 +346,7 @@ describe('mobile CI promotion audit', () => {
 
 		expect(result.audit).toMatchObject({
 			github: {
+				dispatchId: DISPATCH_ID,
 				promotionRunId: PROMOTION_RUN_ID,
 				sourceRunId: SOURCE_RUN_ID
 			},

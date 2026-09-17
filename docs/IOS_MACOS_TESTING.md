@@ -2647,26 +2647,38 @@ original build workflow run ID and returned certification directory:
 bunx absolute mobile ci promote ios \
   --run-id 'ORIGINAL_GITHUB_ACTIONS_RUN_ID' \
   --certification 'PRINTED_CERTIFICATION_DIRECTORY' \
-  --channel production
+  --channel production \
+  --watch \
+  --audit
 ```
 
 - [ ] `REMOTE-IOS-PROMOTE-01` `gh auth status` succeeds for the release owner,
-  the command dispatches `AbsoluteJS Mobile`, and the protected
-  `absolute-mobile-release` environment requests its configured approval.
+  the command prints one numeric promotion run ID and its GitHub URL, and the
+  protected `absolute-mobile-release` environment requests its configured
+  approval. Record that printed ID as `PROMOTION_RUN_ID`.
 - [ ] `REMOTE-IOS-PROMOTE-02` The follow-up job runs on Linux, downloads
   `absolute-mobile-ios` from exactly the recorded source run, and does not run
   Xcode or create another IPA.
 - [ ] `REMOTE-IOS-PROMOTE-03` The job verifies the release and certification,
   creates a portable GitHub OIDC/Sigstore bundle, and the trusted server returns
   provenance whose subject is the same release ID.
-- [ ] `REMOTE-IOS-PROMOTE-04` Download the
-  `absolute-mobile-ios-promotion-<run-id>` audit artifact. Its
-  `promotion-receipt.json` contains the same certification ID, release ID,
-  `store` requirement, and `store` strength.
+- [ ] `REMOTE-IOS-PROMOTE-04` The chained `--watch` exits successfully and its
+  final status names the same `PROMOTION_RUN_ID`; it must not attach to another
+  promotion started at approximately the same time.
 - [ ] `REMOTE-IOS-PROMOTE-05` Repeating the command is idempotent. Omitting the
   certification, using Simulator/device certification, choosing the wrong
   source run, or selecting a certification for another release fails before
   channel promotion.
+- [ ] `REMOTE-IOS-PROMOTE-06` The chained `--audit` prints a project-local audit
+  directory. Open `audit.md` and confirm **VERIFIED**, the original source run,
+  `PROMOTION_RUN_ID`, release ID, certification ID, `store` strength, and
+  `app-store-connect` publication all match this test.
+- [ ] `REMOTE-IOS-PROMOTE-07` Open `audit.json` and confirm its dispatch
+  correlation is non-null and its repository/workflow identity matches the
+  printed GitHub URL. Return the whole audit directory, not only the two reports.
+- [ ] `REMOTE-IOS-PROMOTE-08` Inspect the returned directory for secrets, device
+  identifiers, SSH destinations, absolute local paths, application data, and
+  tokens. Mark FAIL and stop sharing if any are present.
 
 Return `certification.json` and `certification.md` with the three report
 directories. The certification contains only report SHA-256 digests and bounded

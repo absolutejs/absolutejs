@@ -163,20 +163,27 @@ Run this from the application root after `gh auth status` succeeds:
 bunx absolute mobile ci promote ios \
   --run-id 1234567890 \
   --certification .absolutejs/mobile/certifications/ios/<release-id>/<certification-id> \
-  --channel production
+  --channel production \
+  --watch \
+  --audit
 ```
 
 For Android, use `promote android` and optionally add `--play-track
 production`. For iOS TestFlight distribution, add `--testflight-group GROUP`
 and, only when intended, `--testflight-submit-review`. Use `--ref BRANCH` when
-the generated workflow is not on the repository's default branch.
+the generated workflow is not on the repository's default branch. `--watch`
+waits through protected-environment approval and job completion; `--audit`
+implies `--watch`, then downloads and independently verifies the result. Add
+`--json` for one bounded machine-readable final result.
 
 The run ID is the GitHub Actions run that produced the retained
 `absolute-mobile-android` or `absolute-mobile-ios` artifact. Artifacts expire
 after 14 days by default, so promote or preserve them before that boundary. The
 CLI validates that the certification belongs to the configured application and
-platform, sends only its bounded non-secret JSON to GitHub, and dispatches the
-protected workflow. The workflow then:
+platform, creates a unique non-secret dispatch correlation ID, sends only its
+bounded non-secret JSON to GitHub, and discovers the exact resulting run. It
+never selects the latest run by time, so simultaneous promotions cannot be
+confused. The workflow then:
 
 1. downloads the named artifact from that exact source run;
 2. requires exactly one immutable release directory and re-hashes it;
@@ -196,8 +203,9 @@ certification, or run without a channel/store target.
 ## Inspect and independently audit a promotion
 
 Every command in this section runs from the application root. The promotion
-command prints the new GitHub Actions run URL; copy its numeric run ID. Inspect
-the current state without opening the Actions UI:
+command prints the exact correlated GitHub Actions run ID and URL. If promotion
+was dispatched without `--watch`, inspect the current state without opening the
+Actions UI:
 
 ```sh
 bunx absolute mobile ci status --run-id <promotion-run-id>
@@ -235,7 +243,7 @@ Install the same pinned Cosign release used by generated CI (`v3.1.2`) before
 running the audit. The verification path never needs signing or store
 credentials.
 
-New format-3 workflows retain source artifacts for 14 days and promotion audit
+New format-4 workflows retain source artifacts for 14 days and promotion audit
 artifacts for 90 days. Run the audit before the source artifact expires, or
 preserve it under your own retention policy. A promotion created by an older
 workflow does not carry its source-run context; supply it explicitly:

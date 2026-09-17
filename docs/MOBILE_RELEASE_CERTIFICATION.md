@@ -155,13 +155,17 @@ retained artifact and certification through:
 bunx absolute mobile ci promote ios \
   --run-id <source-build-run-id> \
   --certification "$CERTIFICATION_DIRECTORY" \
-  --channel production
+  --channel production \
+  --watch \
+  --audit
 ```
 
 The follow-up workflow downloads the source run artifact and never rebuilds,
 creates and verifies GitHub OIDC/Sigstore provenance for the certification,
 then uploads the final provider-neutral registry receipt and store promotion
-record. Initial TestFlight upload cannot require store-delivered
+record. AbsoluteJS correlates the dispatch to its exact GitHub run, waits for
+the protected job, and writes a sanitized local audit directory. Initial
+TestFlight upload cannot require store-delivered
 evidence from a build that Apple has not processed yet; require Simulator or
 registered-device evidence for that transition, then require `store` before a
 later production promotion.

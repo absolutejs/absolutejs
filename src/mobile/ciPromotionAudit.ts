@@ -22,12 +22,15 @@ import {
 } from './releaseCertification';
 
 export const ABSOLUTE_MOBILE_CI_PROMOTION_AUDIT_FORMAT = 1 as const;
-export const ABSOLUTE_MOBILE_CI_PROMOTION_CONTEXT_FORMAT = 1 as const;
+export const ABSOLUTE_MOBILE_CI_PROMOTION_CONTEXT_FORMAT = 2 as const;
 const MAX_GITHUB_OUTPUT_BYTES = 1_048_576;
 const MAX_AUDIT_JSON_BYTES = 1_048_576;
 const MAX_SEARCH_FILES = 20_000;
 const RUN_ID_PATTERN = /^[1-9][0-9]*$/u;
 const REPOSITORY_PATTERN = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u;
+const DISPATCH_ID_PATTERN = /^amp_[a-f0-9]{32}$/u;
+const PROMOTION_DISCOVERY_ATTEMPTS = 60;
+const PROMOTION_DISCOVERY_INTERVAL_MS = 1_000;
 
 export type AbsoluteMobileCiPlatform = 'android' | 'ios';
 
@@ -48,6 +51,7 @@ export type AbsoluteMobileCiCommandRunner = (
 export type AbsoluteMobileCiRunStatus = {
 	conclusion: string | null;
 	createdAt: string;
+	displayTitle: string;
 	headBranch: string;
 	headSha: string;
 	jobs: readonly {
@@ -64,11 +68,18 @@ export type AbsoluteMobileCiRunStatus = {
 };
 
 export type AbsoluteMobilePromotionContext = {
-	format: typeof ABSOLUTE_MOBILE_CI_PROMOTION_CONTEXT_FORMAT;
+	dispatchId: string | null;
+	format: 1 | typeof ABSOLUTE_MOBILE_CI_PROMOTION_CONTEXT_FORMAT;
 	platform: AbsoluteMobileCiPlatform;
 	promotionRunId: string;
 	sourceArtifact: string;
 	sourceRunId: string;
+};
+
+export type AbsoluteMobilePromotionRun = {
+	dispatchId: string;
+	runId: string;
+	url: string;
 };
 
 export type AbsoluteMobilePromotionAudit = {
@@ -80,6 +91,7 @@ export type AbsoluteMobilePromotionAudit = {
 	format: typeof ABSOLUTE_MOBILE_CI_PROMOTION_AUDIT_FORMAT;
 	github: {
 		conclusion: string;
+		dispatchId: string | null;
 		promotionRunId: string;
 		repository: string | null;
 		sourceRunId: string;
@@ -121,6 +133,17 @@ type AuditOptions = {
 	sourceRunId?: string;
 };
 
+type PromotionDiscoveryOptions = {
+	attempts?: number;
+	dispatchId: string;
+	pollIntervalMs?: number;
+	projectRoot: string;
+	repository?: string;
+	run?: AbsoluteMobileCiCommandRunner;
+	sleep?: (milliseconds: number) => Promise<void>;
+	workflow: string;
+};
+
 const isRecord = (value: unknown): value is Record<string, unknown> =>
 	typeof value === 'object' && value !== null && !Array.isArray(value);
 
@@ -142,6 +165,34 @@ const runId = (value: string, name: string) => {
 
 	return value;
 };
+
+const dispatchId = (value: string) => {
+	if (!DISPATCH_ID_PATTERN.test(value))
+		throw new TypeError('Mobile promotion dispatch ID is invalid.');
+
+	return value;
+};
+
+const promotionRunTitle = (value: string) =>
+	`AbsoluteJS mobile promotion [${dispatchId(value)}]`;
+
+const promotionDiscoveryCommand = (
+	workflow: string,
+	repository: string | undefined
+) => [
+	'gh',
+	'run',
+	'list',
+	'--workflow',
+	workflow,
+	'--event',
+	'workflow_dispatch',
+	'--limit',
+	'50',
+	...repositoryArgs(repository),
+	'--json',
+	'databaseId,displayTitle,event,url'
+];
 
 const repositoryArgs = (repository: string | undefined) => {
 	if (repository === undefined) return [];
@@ -217,6 +268,48 @@ const parseJob = (value: unknown) => {
 	};
 };
 
+export const discoverAbsoluteMobilePromotionRun = async (
+	options: PromotionDiscoveryOptions
+) => {
+	const requestedDispatchId = dispatchId(options.dispatchId);
+	const attempts = options.attempts ?? PROMOTION_DISCOVERY_ATTEMPTS;
+	if (!Number.isSafeInteger(attempts) || attempts < 1 || attempts > 300)
+		throw new TypeError('Mobile promotion discovery attempts are invalid.');
+	const pollIntervalMs =
+		options.pollIntervalMs ?? PROMOTION_DISCOVERY_INTERVAL_MS;
+	if (
+		!Number.isSafeInteger(pollIntervalMs) ||
+		pollIntervalMs < 0 ||
+		pollIntervalMs > 10_000
+	)
+		throw new TypeError('Mobile promotion discovery interval is invalid.');
+	const sleep = options.sleep ?? Bun.sleep;
+	const discover = async (
+		attempt: number
+	): Promise<AbsoluteMobilePromotionRun> => {
+		const result = await requireCommand(
+			options.run ?? defaultRunner,
+			promotionDiscoveryCommand(options.workflow, options.repository),
+			{ cwd: options.projectRoot },
+			'GitHub promotion run discovery'
+		);
+		const discovered = parseAbsoluteMobilePromotionRunList(
+			JSON.parse(result.stdout),
+			requestedDispatchId
+		);
+		if (discovered) return discovered;
+		if (attempt >= attempts)
+			throw new TypeError(
+				`GitHub did not expose promotion dispatch ${requestedDispatchId} within ${attempts} attempts.`
+			);
+		await sleep(pollIntervalMs);
+
+		return discover(attempt + 1);
+	};
+
+	return discover(1);
+};
+
 export const inspectAbsoluteMobileCiRun = async (options: {
 	projectRoot: string;
 	repository?: string;
@@ -233,7 +326,7 @@ export const inspectAbsoluteMobileCiRun = async (options: {
 			requestedRunId,
 			...repositoryArgs(options.repository),
 			'--json',
-			'conclusion,createdAt,databaseId,headBranch,headSha,jobs,startedAt,status,updatedAt,url,workflowName'
+			'conclusion,createdAt,databaseId,displayTitle,headBranch,headSha,jobs,startedAt,status,updatedAt,url,workflowName'
 		],
 		{ cwd: options.projectRoot },
 		'GitHub workflow inspection'
@@ -261,6 +354,10 @@ export const parseAbsoluteMobileCiRunStatus = (
 	return {
 		conclusion: optionalString(value.conclusion, 'GitHub run conclusion'),
 		createdAt: requiredString(value.createdAt, 'GitHub run createdAt'),
+		displayTitle: requiredString(
+			value.displayTitle,
+			'GitHub run displayTitle'
+		),
 		headBranch: requiredString(value.headBranch, 'GitHub run headBranch'),
 		headSha: requiredString(value.headSha, 'GitHub run headSha'),
 		jobs: value.jobs.map(parseJob),
@@ -278,7 +375,8 @@ export const parseAbsoluteMobilePromotionContext = (
 ): AbsoluteMobilePromotionContext => {
 	if (
 		!isRecord(value) ||
-		value.format !== ABSOLUTE_MOBILE_CI_PROMOTION_CONTEXT_FORMAT ||
+		(value.format !== 1 &&
+			value.format !== ABSOLUTE_MOBILE_CI_PROMOTION_CONTEXT_FORMAT) ||
 		(value.platform !== 'android' && value.platform !== 'ios')
 	)
 		throw new TypeError('Mobile promotion context is invalid.');
@@ -291,7 +389,16 @@ export const parseAbsoluteMobilePromotionContext = (
 		throw new TypeError('Mobile promotion source artifact is invalid.');
 
 	return {
-		format: ABSOLUTE_MOBILE_CI_PROMOTION_CONTEXT_FORMAT,
+		dispatchId:
+			value.format === 1
+				? null
+				: dispatchId(
+						requiredString(
+							value.dispatchId,
+							'promotion dispatch ID'
+						)
+					),
+		format: value.format,
 		platform,
 		promotionRunId: runId(
 			requiredString(value.promotionRunId, 'promotion run ID'),
@@ -303,6 +410,42 @@ export const parseAbsoluteMobilePromotionContext = (
 			'source run ID'
 		)
 	};
+};
+
+export const parseAbsoluteMobilePromotionRunList = (
+	value: unknown,
+	requestedDispatchId: string
+) => {
+	if (!Array.isArray(value))
+		throw new TypeError('GitHub workflow run list response is invalid.');
+	const expectedTitle = promotionRunTitle(requestedDispatchId);
+	const matches = value.filter(
+		(candidate) =>
+			isRecord(candidate) && candidate.displayTitle === expectedTitle
+	);
+	if (matches.length === 0) return null;
+	if (matches.length !== 1)
+		throw new TypeError(
+			'GitHub returned multiple runs for one promotion dispatch identity.'
+		);
+	const [match] = matches;
+	if (!isRecord(match) || match.event !== 'workflow_dispatch')
+		throw new TypeError('GitHub promotion run identity is invalid.');
+	const databaseId =
+		typeof match.databaseId === 'number' ||
+		typeof match.databaseId === 'string'
+			? String(match.databaseId)
+			: '';
+	const requestedRunId = runId(databaseId, 'GitHub promotion run ID');
+	const url = requiredString(match.url, 'GitHub promotion run URL');
+	if (!url.endsWith(`/actions/runs/${requestedRunId}`))
+		throw new TypeError('GitHub promotion run URL does not match its ID.');
+
+	return {
+		dispatchId: requestedDispatchId,
+		runId: requestedRunId,
+		url
+	} satisfies AbsoluteMobilePromotionRun;
 };
 
 export const watchAbsoluteMobileCiRun = async (options: {
@@ -521,6 +664,7 @@ const renderAuditMarkdown = (
 - Artifact SHA-256: \`${audit.release.sha256}\`
 - Source workflow run: ${audit.github.sourceRunId}
 - Promotion workflow run: ${audit.github.promotionRunId}
+- Dispatch correlation: ${audit.github.dispatchId ?? 'legacy workflow (not recorded)'}
 - Workflow: ${audit.github.workflowName}
 - GitHub identity: \`${audit.provenance.repository}/${audit.provenance.workflowPath}@${audit.provenance.ref}\`
 - Certification: \`${audit.certification.certificationId}\` (${audit.certification.strength})
@@ -598,6 +742,13 @@ export const auditAbsoluteMobileCiPromotion = async (options: AuditOptions) => {
 			);
 		if (context && context.platform !== platform)
 			throw new TypeError('Promotion context platform does not match.');
+		if (
+			context?.dispatchId &&
+			status.displayTitle !== promotionRunTitle(context.dispatchId)
+		)
+			throw new TypeError(
+				'Promotion dispatch identity does not match the GitHub run.'
+			);
 		const sourceRunId = options.sourceRunId
 			? runId(options.sourceRunId, 'GitHub source run ID')
 			: context?.sourceRunId;
@@ -749,6 +900,7 @@ export const auditAbsoluteMobileCiPromotion = async (options: AuditOptions) => {
 			format: ABSOLUTE_MOBILE_CI_PROMOTION_AUDIT_FORMAT,
 			github: {
 				conclusion: status.conclusion,
+				dispatchId: context?.dispatchId ?? null,
 				promotionRunId,
 				repository: verification.identity.repository,
 				sourceRunId,
