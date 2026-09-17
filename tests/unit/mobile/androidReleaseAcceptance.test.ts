@@ -126,6 +126,12 @@ describe('Android installed release acceptance', () => {
 				stabilityMs: 1,
 				run: async (command) => {
 					commands.push(command);
+					if (command.includes('service'))
+						return {
+							exitCode: 0,
+							stderr: '',
+							stdout: `Service ${command.at(-1)}: found\n`
+						};
 					if (command.includes('build-apks')) {
 						const output = command
 							.find((part) => part.startsWith('--output='))
@@ -167,6 +173,18 @@ describe('Android installed release acceptance', () => {
 				installed: { versionCode: 12 },
 				status: 'pass'
 			});
+			const networkChange = commands.findIndex((command) =>
+				command.includes('svc')
+			);
+			for (const service of ['wifi', 'phone']) {
+				const readyCheck = commands.findIndex(
+					(command) =>
+						command.includes('service') &&
+						command.at(-1) === service
+				);
+				expect(readyCheck).toBeGreaterThanOrEqual(0);
+				expect(readyCheck).toBeLessThan(networkChange);
+			}
 			expect(
 				commands.filter(
 					(command) =>

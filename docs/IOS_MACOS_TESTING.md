@@ -1,7 +1,7 @@
 # AbsoluteJS iOS and TestFlight macOS test runbook
 
 This runbook validates the iOS release path shipped in
-`@absolutejs/absolute@0.20.0-beta.114`,
+`@absolutejs/absolute@0.20.0-beta.115`,
 `@absolutejs/devices-expo@0.0.11`, and
 `@absolutejs/deploy@0.26.0`. It covers a signed local IPA, an internal
 TestFlight upload, retry behavior, and installation on an iPhone or iPad.
@@ -38,6 +38,11 @@ The typed icon and launch-screen acceptance steps are in
 checklist during Track B when a staging application and product artwork were
 supplied. Every command in that checklist runs from the staging application
 root; none runs from `mobile/ios`, an Xcode workspace, or this framework clone.
+
+The maintainers also have a separate Android branding gate, documented in
+`docs/MOBILE_BRANDING.md`, with two installed artwork revisions per engine and
+light/dark screenshot evidence. Its result does **not** mark any `BRAND-IOS-*`
+item complete: please still return the iOS checklist and your observations.
 
 ### Track A — run this first from the AbsoluteJS repository
 

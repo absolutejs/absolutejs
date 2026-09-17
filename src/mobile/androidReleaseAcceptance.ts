@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { waitForAbsoluteAndroidNetworkServices } from './androidServiceReadiness';
 import {
 	access,
 	mkdir,
@@ -494,6 +495,11 @@ export const runAbsoluteAndroidReleaseAcceptance = async (
 		adb(options.adb, options.serial, 'logcat', '-c'),
 		'Android release log isolation'
 	);
+	await waitForAbsoluteAndroidNetworkServices({
+		adb: options.adb,
+		run,
+		serial: options.serial
+	});
 	const [wifi, mobile] = await Promise.all([
 		requireSuccess(
 			run,

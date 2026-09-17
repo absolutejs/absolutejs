@@ -12,23 +12,9 @@ import {
 import { normalizeAbsoluteMobileConfig } from '../../../src/mobile/config';
 import { writeAbsoluteExpoProject } from '../../../src/mobile/expoProject';
 import type { MobileConfig } from '../../../types/build';
+import { brandingPng } from '../../helpers/mobileBranding';
 
 const temporaryDirectories: string[] = [];
-const FIXTURE_ICON = join(
-	process.cwd(),
-	'tests',
-	'fixtures',
-	'capacitor-android-release',
-	'.absolutejs',
-	'mobile',
-	'android',
-	'app',
-	'src',
-	'main',
-	'res',
-	'mipmap-xxxhdpi',
-	'ic_launcher.png'
-);
 
 afterEach(async () => {
 	await Promise.all(
@@ -39,10 +25,7 @@ afterEach(async () => {
 });
 
 const png = async (path: string, size = 1024) => {
-	const output = await new Bun.Image(FIXTURE_ICON)
-		.resize(size, size)
-		.png({ compressionLevel: 9 })
-		.toBuffer();
+	const output = await brandingPng(1, size);
 	await writeFile(path, output);
 };
 

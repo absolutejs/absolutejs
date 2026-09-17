@@ -99,6 +99,59 @@ deterministic write-once path for Capacitor and Expo. A team adopting a manual
 Icon Composer asset owns that native-only override and must revalidate it after
 native regeneration.
 
+## Android installed branding conformance (framework maintainers)
+
+Run from the **AbsoluteJS framework repository root**, not an application or
+generated Android directory:
+
+```sh
+cd /absolute/path/to/absolutejs
+bun install --frozen-lockfile
+bun run test:native:android:branding
+```
+
+This opt-in, long-running gate uses the existing Capacitor and Expo production
+release fixtures, synthetic artwork, the managed Android toolchain, and exactly
+one connected emulator (API 33 or newer). It builds and installs two artwork
+revisions per engine. Do not run other native gates against that emulator at the
+same time. It never selects a physical phone for screenshots.
+
+The automated checks compare decoded packaged AAB image pixels with generated
+native resources, check adaptive/monochrome resources and night-mode splash
+images, require source changes to invalidate `mobile assets --check`, and
+require rebuilt launcher/foreground/splash pixels to change. Each release also
+passes the ordinary installed offline launch/relaunch gate. Test artwork is
+generated under each fixture's ignored `.absolutejs/branding-source` directory;
+no product artwork is required.
+
+Reports are written under each of
+`tests/fixtures/capacitor-android-release/.absolutejs/branding-conformance` and
+`tests/fixtures/expo-android-release/.absolutejs/branding-conformance`:
+
+- `report.json`: pass/fail, source fingerprints, exact release identities,
+  packaged pixel digests, installed acceptance, and screenshot filenames.
+- `revision-1/` and `revision-2/`: light/dark launcher and cold-launch samples.
+- `installed-1/` and `installed-2/`: ordinary installed-release reports.
+
+The harness wakes and unlocks the emulator display and rejects blank launcher
+or launched-shell screenshots. Installed offline acceptance waits for both
+Android network services to register before changing network settings; a
+boot-completed flag alone is insufficient on a cold emulator.
+
+Screenshots are **review evidence, not an automated visual pass**. A launcher
+may not place the app on its home screen, themed icons need launcher support
+and opt-in, and a brief splash can fall between captured frames. Review icon
+masking, themed appearance, and splash visibility manually; the JSON explicitly
+does not claim these were proven. The harness restores the emulator's previous
+night-mode setting even when capture fails. A new run replaces `report.json`
+with `running` before work and records `fail` on errors, so an old pass cannot
+masquerade as the current result.
+
+These release fixtures intentionally use the non-resolving
+`https://release.absolutejs.test` backend. A launched-shell screenshot can show
+the offline page fallback. This gate proves packaged branding and offline
+**shell** startup, not successful loading of server-backed application data.
+
 ## macOS partner acceptance checklist
 
 Perform this section from a supplied staging application's root, not from the

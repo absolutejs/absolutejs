@@ -5,6 +5,21 @@
 		{
 			"changes": [
 				{
+					"kind": "fixed",
+					"summary": "Stabilize the existing UserAgentProvider declaration with an explicit provider type so inferred union ordering cannot cause spurious API changes.",
+					"symbols": ["UserAgentProvider"]
+				},
+				{
+					"kind": "fixed",
+					"summary": "Wait for Android network services before installed offline acceptance; add two-revision Capacitor and Expo branding conformance with packaged-pixel verification and light/dark screenshot evidence."
+				}
+			],
+			"date": "2026-09-17",
+			"version": "0.20.0-beta.115"
+		},
+		{
+			"changes": [
+				{
 					"detail": "A typed mobile.branding contract now projects validated source PNGs into Capacitor and Expo icons, Android adaptive and themed layers, iOS appearance variants, and light/dark launch screens without application-authored native code. The mobile assets command wraps the pinned official Capacitor generator, installs it only as a direct development dependency when needed, previews artwork, records a content-addressed non-secret manifest, resumes platform-specific generation, reports bounded telemetry, and makes configured stale or missing output fail release doctor.",
 					"kind": "added",
 					"summary": "Capacitor and Expo share a first-class native branding pipeline",

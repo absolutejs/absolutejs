@@ -2,6 +2,27 @@
 
 Status: Capacitor Android development/release, all-framework embedded bundles, universal native Auth/Sync, Expo hybrid native Auth/Sync, background Sync, automatic device provisioning, provider-neutral native push registration, signed staged Capacitor updates, end-to-end RSA-signed self-hosted Expo production updates, and provider-neutral Android development plus installed production-AAB conformance are operational; iOS development/release automation plus installed Expo iOS OTA and replacement-upgrade harnesses are shipped and awaiting real macOS/physical-device acceptance
 
+Implementation checkpoint (September 17, 2026, installed Android branding
+conformance): `bun run test:native:android:branding` exercises the public
+Capacitor and Expo production-release paths with two synthetic artwork
+revisions. It compares visible decoded pixels from each immutable AAB against
+generated native resources, checks adaptive/monochrome and night splash assets,
+requires source changes to invalidate the branding manifest, and proves that
+rebuilt launcher/foreground/splash resources change. Every revision installs
+through the existing offline shell launch/relaunch gate and captures light/dark
+launcher and cold-launch screenshots. Reports bind the source fingerprint to
+the exact artifact digest and retain visual review as explicitly unproven.
+The fixtures intentionally have no live backend, so the launched shell may show
+the offline page fallback; this is not a server-backed data acceptance test.
+The real run exposed a cold-emulator readiness race, now fixed by waiting for
+Android Wi-Fi and phone services before changing network settings. Unit artwork
+no longer depends on ignored native build output. Commands, report paths, and
+the independent iOS partner checklist are in `docs/MOBILE_BRANDING.md`.
+The WSL/managed API 36 emulator run passed both engines and both revisions:
+280 assertions, 56 Capacitor and 30 Expo packaged image comparisons per
+revision, and 48 light/dark screenshots. Screenshot appearance review and
+the separate real iOS acceptance remain unproven by this automated gate.
+
 Implementation checkpoint (September 17, 2026, portable native branding): one
 typed `mobile.branding` source now projects icons, Android adaptive/themed
 layers, iOS light/dark/tinted appearances, and light/dark launch artwork into

@@ -13,3 +13,4 @@ example/vue/indexes/
 example/vue/server/
 changelog.json
 CHANGELOG.md
+tests/fixtures/capacitor-android-release/capacitor.config.ts

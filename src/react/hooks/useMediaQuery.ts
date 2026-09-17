@@ -1,10 +1,17 @@
-import { createContext, useContext, useSyncExternalStore } from 'react';
+import {
+	createContext,
+	useContext,
+	useSyncExternalStore,
+	type Provider
+} from 'react';
 import { Breakpoint, Breakpoints } from '../../../types/mediaQuery';
 import { UserAgentType } from '../../../types/userAgentTypes';
 
 const UserAgentContext = createContext<UserAgentType | null>(null);
 
-export const UserAgentProvider = UserAgentContext.Provider;
+// eslint-disable-next-line absolute/no-redundant-type-annotation -- Keep a stable named declaration; inferred union order varies between builds.
+export const UserAgentProvider: Provider<UserAgentType | null> =
+	UserAgentContext.Provider;
 
 const useUserAgentType = () => {
 	const context = useContext(UserAgentContext);

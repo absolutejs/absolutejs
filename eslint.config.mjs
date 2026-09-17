@@ -27,6 +27,7 @@ export default defineConfig([
 			'**/compiled/**',
 			// Generated, cached, and vendored code — not authored by us.
 			'**/.absolutejs/**',
+			'tests/fixtures/capacitor-android-release/capacitor.config.ts',
 			'**/.absolutejs-hmr-*.ts',
 			'**/.cache/**',
 			'**/generated/**',
