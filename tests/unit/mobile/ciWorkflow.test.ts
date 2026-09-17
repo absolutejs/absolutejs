@@ -155,6 +155,17 @@ describe('mobile GitHub Actions workflow', () => {
 		expect(workflow).toContain('mobile doctor release ios --json');
 		expect(workflow).toContain('actions/upload-artifact@v7');
 		expect(workflow).toContain('actions/attest@v4');
+		expect(workflow).toContain('operation:');
+		expect(workflow).toContain('  promote_android:');
+		expect(workflow).toContain('  promote_ios:');
+		expect(workflow).toContain('actions/download-artifact@v8');
+		expect(workflow).toContain('run-id: ${{ inputs.source_run_id }}');
+		expect(workflow).toContain(
+			'sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6'
+		);
+		expect(workflow).toContain('@absolutejs/attest@0.2.0 sign-blobs');
+		expect(workflow).toContain('--certification-attestation');
+		expect(workflow).toContain('promotion-receipt.json');
 		expect(workflow).toContain('"${args[@]}"');
 		expect(workflow).toContain(
 			'RELEASE_BUCKET: ${{ secrets.RELEASE_BUCKET }}'
@@ -290,7 +301,7 @@ describe('mobile GitHub Actions workflow', () => {
 		expect(stderr).toBe('');
 		expect(result).toMatchObject({
 			changed: true,
-			format: 1,
+			format: 2,
 			path: '.github/workflows/absolute-mobile.yml',
 			platforms: ['android'],
 			publishing: false

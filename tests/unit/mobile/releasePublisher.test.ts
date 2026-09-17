@@ -259,6 +259,63 @@ describe('native release publisher modules', () => {
 		).rejects.toThrow('did not retain');
 	});
 
+	test('forwards portable verification and requires trusted provenance', async () => {
+		const projectRoot = await temporaryRoot();
+		const expected = metadata();
+		const certification = await certificationFor(projectRoot, expected);
+		const verification = {
+			bundle: {
+				mediaType: 'application/vnd.dev.sigstore.bundle.v0.3+json'
+			},
+			format: 1,
+			identity: {
+				issuer: 'https://token.actions.githubusercontent.com',
+				ref: 'refs/heads/main',
+				repository: 'absolutejs/example',
+				sha: 'a'.repeat(40),
+				workflowPath: '.github/workflows/absolute-mobile.yml'
+			},
+			kind: 'sigstore-bundle'
+		} as const;
+		const capturePath = join(projectRoot, 'trusted-capture.json');
+		await writeFile(
+			join(projectRoot, 'trusted.ts'),
+			`export default {
+	async publish(options: Record<string, any>) {
+		await Bun.write(${JSON.stringify(capturePath)}, JSON.stringify(options));
+		return {
+			certification: {
+				certificationId: options.certification.certificationId,
+				releaseId: options.certification.release.releaseId,
+				requirement: options.certificationRequirement,
+				strength: options.certification.strength,
+				provenance: { issuer: 'github', subject: options.certification.release.releaseId, verifiedAt: '2026-09-17T12:00:00.000Z', verificationId: 'sigstore-1' }
+			},
+			record: { metadata: ${JSON.stringify(expected)} }, reused: false
+		};
+	}
+};\n`
+		);
+		const publication = await publishAbsoluteAndroidRelease({
+			certification,
+			certificationRequirement: 'installed',
+			certificationVerification: verification,
+			modulePath: './trusted.ts',
+			projectRoot,
+			release: {
+				metadata: expected,
+				releaseRoot: join(projectRoot, 'release')
+			}
+		});
+
+		expect(publication.certification?.provenance?.subject).toBe(
+			expected.releaseId
+		);
+		expect(JSON.parse(await readFile(capturePath, 'utf8'))).toMatchObject({
+			certificationVerification: verification
+		});
+	});
+
 	test('rejects registry modules outside the application project', async () => {
 		const projectRoot = await temporaryRoot();
 		await expect(

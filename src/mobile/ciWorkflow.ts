@@ -3,7 +3,7 @@ import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, extname, relative, resolve, sep } from 'node:path';
 import type { NormalizedAbsoluteMobileConfig } from './config';
 
-export const ABSOLUTE_MOBILE_CI_WORKFLOW_FORMAT = 1 as const;
+export const ABSOLUTE_MOBILE_CI_WORKFLOW_FORMAT = 2 as const;
 
 export type AbsoluteMobileGithubWorkflowOptions = {
 	config: NormalizedAbsoluteMobileConfig;
@@ -232,6 +232,14 @@ const publishingInputs = (
 ) => {
 	if (!includePublishing) return '';
 	const fields = [
+		`      operation:
+        description: Build a release or promote an exact artifact from an earlier run
+        required: true
+        type: choice
+        default: build
+        options:
+          - build
+          - promote`,
 		`      publish:
         description: Publish through mobile.release.ts after the signed build
         required: true
@@ -239,6 +247,14 @@ const publishingInputs = (
         default: false`,
 		`      channel:
         description: Optional AbsoluteJS immutable release channel
+        required: false
+        type: string`,
+		`      source_run_id:
+        description: Source workflow run ID for promotion without rebuilding
+        required: false
+        type: string`,
+		`      certification_base64:
+        description: AbsoluteJS certification supplied by the promotion CLI
         required: false
         type: string`
 	];
@@ -269,8 +285,11 @@ const publishingInputs = (
 	return `\n${fields.join('\n')}`;
 };
 
-const jobCondition = (platform: 'android' | 'ios') =>
-	`github.event_name == 'workflow_dispatch' && (inputs.platform == 'all' || inputs.platform == '${platform}')`;
+const jobCondition = (
+	platform: 'android' | 'ios',
+	includePublishing: boolean
+) =>
+	`github.event_name == 'workflow_dispatch' && ${includePublishing ? "inputs.operation == 'build' && " : ''}(inputs.platform == 'all' || inputs.platform == '${platform}')`;
 
 const androidJob = (options: PlatformJobOptions) => {
 	const custom = customSecretEnvironment(options.customSecrets);
@@ -305,6 +324,11 @@ const androidJob = (options: PlatformJobOptions) => {
 		: '';
 	const certificationSteps = options.includePublishing
 		? `
+      - name: Install pinned Cosign for Android certification
+        if: inputs.publish
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6
+        with:
+          cosign-release: v3.1.2
       - name: Install-test and certify exact Android release
         if: inputs.publish
         shell: bash
@@ -324,6 +348,12 @@ const androidJob = (options: PlatformJobOptions) => {
           "\${args[@]}"
           args=(bunx absolute mobile certify "$RELEASE_DIRECTORY" --evidence .absolutejs/mobile-ci/acceptance/android --require installed --outdir .absolutejs/mobile-ci/certifications/android --json)
           "\${args[@]}" > .absolutejs/mobile-ci/android-certification.json
+          shopt -s nullglob
+          certifications=(.absolutejs/mobile-ci/certifications/android/*)
+          if [[ "\${#certifications[@]}" -ne 1 ]]; then echo "Expected exactly one Android certification." >&2; exit 1; fi
+          CERTIFICATION_PATH="\${certifications[0]}/certification.json"
+          bunx @absolutejs/attest@0.2.0 sign-blobs "$CERTIFICATION_PATH"
+          bunx absolute mobile ci verification --bundle "$CERTIFICATION_PATH.sigstore.json" --out "\${certifications[0]}/verification.json"
       - name: Publish certified Android release
         if: inputs.publish
         shell: bash
@@ -335,7 +365,7 @@ const androidJob = (options: PlatformJobOptions) => {
             echo "Expected exactly one Android release and certification." >&2
             exit 1
           fi
-          args=(bunx absolute mobile publish android --release "\${releases[0]}" --certification "\${certifications[0]}" --registry "$ABSOLUTE_REGISTRY_MODULE")
+          args=(bunx absolute mobile publish android --release "\${releases[0]}" --certification "\${certifications[0]}" --certification-attestation "\${certifications[0]}/verification.json" --registry "$ABSOLUTE_REGISTRY_MODULE")
           if [[ -n "$ABSOLUTE_RELEASE_CHANNEL" ]]; then
             args+=(--channel "$ABSOLUTE_RELEASE_CHANNEL")
           fi
@@ -362,7 +392,7 @@ const androidJob = (options: PlatformJobOptions) => {
   android:
     name: Signed Android release
     needs: validate
-    if: \${{ ${jobCondition('android')} }}
+    if: \${{ ${jobCondition('android', options.includePublishing)} }}
     runs-on: ubuntu-latest
     environment: absolute-mobile-release
     permissions:
@@ -462,6 +492,11 @@ const iosJob = (options: PlatformJobOptions) => {
 		: '';
 	const certificationSteps = options.includePublishing
 		? `
+      - name: Install pinned Cosign for iOS certification
+        if: inputs.publish
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6
+        with:
+          cosign-release: v3.1.2
       - name: Simulator-test and certify exact iOS release
         if: inputs.publish
         shell: bash
@@ -478,6 +513,12 @@ const iosJob = (options: PlatformJobOptions) => {
           "\${args[@]}"
           args=(bunx absolute mobile certify "$RELEASE_DIRECTORY" --evidence .absolutejs/mobile-ci/acceptance/ios --require simulator --outdir .absolutejs/mobile-ci/certifications/ios --json)
           "\${args[@]}" > .absolutejs/mobile-ci/ios-certification.json
+          shopt -s nullglob
+          certifications=(.absolutejs/mobile-ci/certifications/ios/*)
+          if [[ "\${#certifications[@]}" -ne 1 ]]; then echo "Expected exactly one iOS certification." >&2; exit 1; fi
+          CERTIFICATION_PATH="\${certifications[0]}/certification.json"
+          bunx @absolutejs/attest@0.2.0 sign-blobs "$CERTIFICATION_PATH"
+          bunx absolute mobile ci verification --bundle "$CERTIFICATION_PATH.sigstore.json" --out "\${certifications[0]}/verification.json"
       - name: Publish certified iOS release
         if: inputs.publish
         shell: bash
@@ -489,7 +530,7 @@ const iosJob = (options: PlatformJobOptions) => {
             echo "Expected exactly one iOS release and certification." >&2
             exit 1
           fi
-          args=(bunx absolute mobile publish ios --release "\${releases[0]}" --certification "\${certifications[0]}" --registry "$ABSOLUTE_REGISTRY_MODULE")
+          args=(bunx absolute mobile publish ios --release "\${releases[0]}" --certification "\${certifications[0]}" --certification-attestation "\${certifications[0]}/verification.json" --registry "$ABSOLUTE_REGISTRY_MODULE")
           if [[ -n "$ABSOLUTE_RELEASE_CHANNEL" ]]; then
             args+=(--channel "$ABSOLUTE_RELEASE_CHANNEL")
           fi
@@ -519,7 +560,7 @@ const iosJob = (options: PlatformJobOptions) => {
   ios:
     name: Signed iOS release
     needs: validate
-    if: \${{ ${jobCondition('ios')} }}
+    if: \${{ ${jobCondition('ios', options.includePublishing)} }}
     runs-on: macos-latest
     environment: absolute-mobile-release
     permissions:
@@ -595,6 +636,187 @@ ${certificationSteps}
           rm -f "\${{ runner.temp }}/absolute-signing.p12"
           rm -f "\${{ runner.temp }}/absolute.mobileprovision"
           rm -f "\${{ runner.temp }}/AuthKey_AbsoluteJS.p8"`;
+};
+
+const promotionValidationSteps = `      - name: Validate promotion handoff
+        if: github.event_name == 'workflow_dispatch' && inputs.operation == 'promote'
+        shell: bash
+        run: |
+          if [[ "$ABSOLUTE_PROMOTION_PLATFORM" == "all" ]]; then
+            echo "Promotion requires one exact platform." >&2
+            exit 1
+          fi
+          if [[ ! "$ABSOLUTE_SOURCE_RUN_ID" =~ ^[1-9][0-9]*$ ]]; then
+            echo "Promotion requires a numeric source workflow run ID." >&2
+            exit 1
+          fi
+          if [[ -z "$ABSOLUTE_CERTIFICATION_BASE64" ]]; then
+            echo "Promotion requires certification supplied by absolute mobile ci promote." >&2
+            exit 1
+          fi`;
+
+const promotionSharedSteps = (
+	platform: 'android' | 'ios'
+) => `      - name: Restore exact ${platform === 'android' ? 'Android' : 'iOS'} release from source run
+        uses: actions/download-artifact@v8
+        with:
+          name: absolute-mobile-${platform}
+          path: .absolutejs/mobile/releases/${platform}
+          run-id: \${{ inputs.source_run_id }}
+          github-token: \${{ github.token }}
+      - name: Import and verify exact certification
+        shell: bash
+        run: |
+          mkdir -p .absolutejs/mobile-ci/imported-certification
+          printf '%s' "$ABSOLUTE_CERTIFICATION_BASE64" | base64 --decode > .absolutejs/mobile-ci/imported-certification/certification.json
+          shopt -s nullglob
+          releases=(.absolutejs/mobile/releases/${platform}/*)
+          if [[ "\${#releases[@]}" -ne 1 || ! -d "\${releases[0]}" ]]; then
+            echo "Expected exactly one immutable ${platform} release directory from the source run." >&2
+            exit 1
+          fi
+          args=(bunx absolute mobile certify "\${releases[0]}" --verify .absolutejs/mobile-ci/imported-certification/certification.json --json)
+          "\${args[@]}" > .absolutejs/mobile-ci/imported-certification/verified.json
+      - name: Install pinned Cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6
+        with:
+          cosign-release: v3.1.2
+      - name: Sign certification with GitHub OIDC
+        shell: bash
+        run: |
+          bunx @absolutejs/attest@0.2.0 sign-blobs .absolutejs/mobile-ci/imported-certification/certification.json
+          bunx absolute mobile ci verification \
+            --bundle .absolutejs/mobile-ci/imported-certification/certification.json.sigstore.json \
+            --out .absolutejs/mobile-ci/imported-certification/verification.json`;
+
+const androidPromotionJob = (options: PlatformJobOptions) => {
+	const custom = customSecretEnvironment(options.customSecrets);
+
+	return `
+  promote_android:
+    name: Promote exact certified Android release
+    needs: validate
+    if: \${{ github.event_name == 'workflow_dispatch' && inputs.operation == 'promote' && inputs.platform == 'android' }}
+    runs-on: ubuntu-latest
+    environment: absolute-mobile-release
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+    env:
+      ABSOLUTE_CERTIFICATION_BASE64: \${{ inputs.certification_base64 }}
+      ABSOLUTE_RELEASE_CHANNEL: \${{ inputs.channel }}
+      ABSOLUTE_PLAY_TRACK: \${{ inputs.play_track }}
+      ABSOLUTE_GOOGLE_CREDENTIALS_BASE64: \${{ secrets.ABSOLUTE_GOOGLE_CREDENTIALS_BASE64 }}
+      GOOGLE_APPLICATION_CREDENTIALS: \${{ runner.temp }}/absolute-google-credentials.json${custom ? `\n${custom}` : ''}
+${commandEnvironment({ configPath: undefined, registryModule: '', serverEntry: '' })}
+    steps:
+${installSteps}
+${promotionSharedSteps('android')}
+      - name: Publish restored Android release
+        shell: bash
+        run: |
+          if [[ -n "$ABSOLUTE_RELEASE_CHANNEL" || "$ABSOLUTE_PLAY_TRACK" != "registry-only" ]]; then
+            true
+          else
+            echo "Promotion requires a release channel or Google Play track." >&2
+            exit 1
+          fi
+          if [[ "$ABSOLUTE_PLAY_TRACK" != "registry-only" ]]; then
+            if [[ -z "$ABSOLUTE_GOOGLE_CREDENTIALS_BASE64" ]]; then
+              echo "ABSOLUTE_GOOGLE_CREDENTIALS_BASE64 is required for Google Play publication." >&2
+              exit 1
+            fi
+            printf '%s' "$ABSOLUTE_GOOGLE_CREDENTIALS_BASE64" | base64 --decode > "$GOOGLE_APPLICATION_CREDENTIALS"
+            chmod 600 "$GOOGLE_APPLICATION_CREDENTIALS"
+          fi
+          shopt -s nullglob
+          releases=(.absolutejs/mobile/releases/android/*)
+          args=(bunx absolute mobile publish android --release "\${releases[0]}" --certification .absolutejs/mobile-ci/imported-certification/certification.json --certification-attestation .absolutejs/mobile-ci/imported-certification/verification.json --registry "$ABSOLUTE_REGISTRY_MODULE" --json)
+          if [[ -n "$ABSOLUTE_RELEASE_CHANNEL" ]]; then args+=(--channel "$ABSOLUTE_RELEASE_CHANNEL"); fi
+          if [[ "$ABSOLUTE_PLAY_TRACK" != "registry-only" ]]; then args+=(--play-track "$ABSOLUTE_PLAY_TRACK"); fi
+          ${appendConfigArgument}
+          "\${args[@]}" > .absolutejs/mobile-ci/promotion-receipt.json
+      - name: Upload Android promotion audit
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: absolute-mobile-android-promotion-\${{ github.run_id }}
+          path: |
+            .absolutejs/mobile-ci/imported-certification/
+            .absolutejs/mobile-ci/promotion-receipt.json
+          if-no-files-found: error
+          retention-days: 90
+          include-hidden-files: true
+      - name: Remove Google credentials
+        if: always()
+        run: rm -f "\${{ runner.temp }}/absolute-google-credentials.json"`;
+};
+
+const iosPromotionJob = (options: PlatformJobOptions) => {
+	const custom = customSecretEnvironment(options.customSecrets);
+
+	return `
+  promote_ios:
+    name: Promote exact certified iOS release
+    needs: validate
+    if: \${{ github.event_name == 'workflow_dispatch' && inputs.operation == 'promote' && inputs.platform == 'ios' }}
+    runs-on: ubuntu-latest
+    environment: absolute-mobile-release
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+    env:
+      ABSOLUTE_CERTIFICATION_BASE64: \${{ inputs.certification_base64 }}
+      ABSOLUTE_RELEASE_CHANNEL: \${{ inputs.channel }}
+      ABSOLUTE_TESTFLIGHT_GROUP: \${{ inputs.testflight_group }}
+      ABSOLUTE_TESTFLIGHT_SUBMIT_REVIEW: \${{ inputs.submit_testflight_review }}
+      APP_STORE_CONNECT_ISSUER_ID: \${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+      APP_STORE_CONNECT_KEY_ID: \${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+      APP_STORE_CONNECT_PRIVATE_KEY_BASE64: \${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY_BASE64 }}
+      APP_STORE_CONNECT_PRIVATE_KEY_PATH: \${{ runner.temp }}/AuthKey_AbsoluteJS.p8${custom ? `\n${custom}` : ''}
+${commandEnvironment({ configPath: undefined, registryModule: '', serverEntry: '' })}
+    steps:
+${installSteps}
+${promotionSharedSteps('ios')}
+      - name: Publish restored iOS release
+        shell: bash
+        run: |
+          if [[ -z "$ABSOLUTE_RELEASE_CHANNEL" && -z "$ABSOLUTE_TESTFLIGHT_GROUP" ]]; then
+            echo "Promotion requires a release channel or TestFlight group." >&2
+            exit 1
+          fi
+          if [[ -n "$ABSOLUTE_TESTFLIGHT_GROUP" ]]; then
+            required=(APP_STORE_CONNECT_ISSUER_ID APP_STORE_CONNECT_KEY_ID APP_STORE_CONNECT_PRIVATE_KEY_BASE64)
+            for name in "\${required[@]}"; do
+              if [[ -z "\${!name}" ]]; then echo "$name is required for TestFlight publication." >&2; exit 1; fi
+            done
+            printf '%s' "$APP_STORE_CONNECT_PRIVATE_KEY_BASE64" | base64 --decode > "$APP_STORE_CONNECT_PRIVATE_KEY_PATH"
+            chmod 600 "$APP_STORE_CONNECT_PRIVATE_KEY_PATH"
+          fi
+          shopt -s nullglob
+          releases=(.absolutejs/mobile/releases/ios/*)
+          args=(bunx absolute mobile publish ios --release "\${releases[0]}" --certification .absolutejs/mobile-ci/imported-certification/certification.json --certification-attestation .absolutejs/mobile-ci/imported-certification/verification.json --registry "$ABSOLUTE_REGISTRY_MODULE" --json)
+          if [[ -n "$ABSOLUTE_RELEASE_CHANNEL" ]]; then args+=(--channel "$ABSOLUTE_RELEASE_CHANNEL"); fi
+          if [[ -n "$ABSOLUTE_TESTFLIGHT_GROUP" ]]; then args+=(--testflight-group "$ABSOLUTE_TESTFLIGHT_GROUP"); fi
+          if [[ "$ABSOLUTE_TESTFLIGHT_SUBMIT_REVIEW" == "true" ]]; then args+=(--testflight-submit-review); fi
+          ${appendConfigArgument}
+          "\${args[@]}" > .absolutejs/mobile-ci/promotion-receipt.json
+      - name: Upload iOS promotion audit
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: absolute-mobile-ios-promotion-\${{ github.run_id }}
+          path: |
+            .absolutejs/mobile-ci/imported-certification/
+            .absolutejs/mobile-ci/promotion-receipt.json
+          if-no-files-found: error
+          retention-days: 90
+          include-hidden-files: true
+      - name: Remove App Store Connect credentials
+        if: always()
+        run: rm -f "\${{ runner.temp }}/AuthKey_AbsoluteJS.p8"`;
 };
 
 const requiredSecrets = (
@@ -688,10 +910,22 @@ jobs:
     permissions:
       contents: read
     env:
-${environment}
+${environment}${
+		includePublishing
+			? `
+      ABSOLUTE_PROMOTION_PLATFORM: \${{ inputs.platform }}
+      ABSOLUTE_SOURCE_RUN_ID: \${{ inputs.source_run_id }}
+      ABSOLUTE_CERTIFICATION_BASE64: \${{ inputs.certification_base64 }}`
+			: ''
+	}
     steps:
-${installSteps}
-${bundleAuditSteps}${platforms.includes('android') ? androidJob({ customSecrets, includePublishing }) : ''}${platforms.includes('ios') ? iosJob({ customSecrets, includePublishing }) : ''}
+${installSteps}${
+		includePublishing
+			? `
+${promotionValidationSteps}`
+			: ''
+	}
+${bundleAuditSteps}${platforms.includes('android') ? androidJob({ customSecrets, includePublishing }) : ''}${platforms.includes('ios') ? iosJob({ customSecrets, includePublishing }) : ''}${includePublishing && platforms.includes('android') ? androidPromotionJob({ customSecrets, includePublishing }) : ''}${includePublishing && platforms.includes('ios') ? iosPromotionJob({ customSecrets, includePublishing }) : ''}
 `;
 	const replacements = new Map([
 		[

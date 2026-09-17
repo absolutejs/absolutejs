@@ -2632,32 +2632,41 @@ bunx absolute mobile certify "$RELEASE_DIR" \
   `.absolutejs/mobile/certifications/ios/<release-id>/`.
 - [ ] `REMOTE-IOS-CERT-02` Run `absolute mobile certify "$RELEASE_DIR" --verify
   <printed-certification-directory> --require store`; it succeeds before
-  production promotion. Copy the release
-  directory and certification directory to the CI runner and repeat it there;
-  it must produce the same result without needing a Mac, device, signing key, or
-  App Store credential.
+  production promotion. Record the GitHub Actions run ID that originally
+  produced this IPA and return the certification directory to the release
+  owner. The owner must not copy or rebuild the IPA.
 - [ ] `REMOTE-IOS-CERT-03` In a disposable copy, change one release identity
   field or artifact byte and repeat verification. It must fail rather than
   accepting stale evidence. Restore the untouched release before continuing.
 
-When the release owner authorizes production promotion, run this from that same
-application root with the printed certification directory:
+When the release owner authorizes production promotion, the owner runs this
+from the application root (not the AbsoluteJS framework checkout) with the
+original build workflow run ID and returned certification directory:
 
 ```sh
-bunx absolute mobile publish ios \
-  --release "$RELEASE_DIR" \
+bunx absolute mobile ci promote ios \
+  --run-id 'ORIGINAL_GITHUB_ACTIONS_RUN_ID' \
   --certification 'PRINTED_CERTIFICATION_DIRECTORY' \
-  --channel production \
-  --registry mobile.release.ts
+  --channel production
 ```
 
-- [ ] `REMOTE-IOS-PROMOTE-01` The command does not run Xcode or create another
-  IPA. It reports the same release ID and the registry receipt contains the same
-  certification ID, release ID, `store` requirement, and `store` strength.
-- [ ] `REMOTE-IOS-PROMOTE-02` Repeating the command is idempotent. Omitting the
-  certification, using Simulator/device certification, editing the IPA, or
-  selecting a certification for another release fails before channel
-  promotion.
+- [ ] `REMOTE-IOS-PROMOTE-01` `gh auth status` succeeds for the release owner,
+  the command dispatches `AbsoluteJS Mobile`, and the protected
+  `absolute-mobile-release` environment requests its configured approval.
+- [ ] `REMOTE-IOS-PROMOTE-02` The follow-up job runs on Linux, downloads
+  `absolute-mobile-ios` from exactly the recorded source run, and does not run
+  Xcode or create another IPA.
+- [ ] `REMOTE-IOS-PROMOTE-03` The job verifies the release and certification,
+  creates a portable GitHub OIDC/Sigstore bundle, and the trusted server returns
+  provenance whose subject is the same release ID.
+- [ ] `REMOTE-IOS-PROMOTE-04` Download the
+  `absolute-mobile-ios-promotion-<run-id>` audit artifact. Its
+  `promotion-receipt.json` contains the same certification ID, release ID,
+  `store` requirement, and `store` strength.
+- [ ] `REMOTE-IOS-PROMOTE-05` Repeating the command is idempotent. Omitting the
+  certification, using Simulator/device certification, choosing the wrong
+  source run, or selecting a certification for another release fails before
+  channel promotion.
 
 Return `certification.json` and `certification.md` with the three report
 directories. The certification contains only report SHA-256 digests and bounded

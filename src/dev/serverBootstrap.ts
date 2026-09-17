@@ -8,7 +8,10 @@ import {
 	processStartEpochMs
 } from '../utils/bootTimeline';
 import { printImportCostHint } from './importCost/hint';
-import { isStaleAbsoluteServerEntryCopy } from './serverEntryCopies';
+import {
+	isMissingAbsoluteServerEntryCopyError,
+	isStaleAbsoluteServerEntryCopy
+} from './serverEntryCopies';
 
 // The dev bootstrap is the first module the `bun --hot` child evaluates, so
 // this is where the CLI's marks join this process's timeline.
@@ -58,19 +61,23 @@ if (!isHotReevaluation) {
 	}
 }
 
-const bootstrapSequence =
-	(globalThis.__absoluteEntryBootstrapSequence ?? 0) + 1;
-globalThis.__absoluteEntryBootstrapSequence = bootstrapSequence;
-
-const bootstrapCopy = join(
-	entryDir,
-	`${copyPrefix}${process.pid}-bootstrap-${bootstrapSequence}${entryExtension}`
-);
-copyFileSync(entryPath, bootstrapCopy);
-
 const entryCopies = globalThis.__absoluteEntryCopies ?? new Set<string>();
-entryCopies.add(bootstrapCopy);
 globalThis.__absoluteEntryCopies = entryCopies;
+
+const createBootstrapCopy = () => {
+	const sequence = (globalThis.__absoluteEntryBootstrapSequence ?? 0) + 1;
+	globalThis.__absoluteEntryBootstrapSequence = sequence;
+	const path = join(
+		entryDir,
+		`${copyPrefix}${process.pid}-bootstrap-${sequence}${entryExtension}`
+	);
+	copyFileSync(entryPath, path);
+	entryCopies.add(path);
+
+	return path;
+};
+
+let bootstrapCopy = createBootstrapCopy();
 if (!globalThis.__absoluteEntryCleanupRegistered) {
 	globalThis.__absoluteEntryCleanupRegistered = true;
 	process.on('exit', () => {
@@ -195,7 +202,28 @@ if (importCostRecorder !== undefined) {
 // still hot-refresh its framework dependencies, while AbsoluteJS exclusively
 // owns server-entry replacement through unique sibling imports.
 markBoot('server entry import start');
-await import(bootstrapCopy);
+const MAX_BOOTSTRAP_IMPORT_ATTEMPTS = 3;
+const recordBootstrapImportCostEntry = () => {
+	if (importCostRecorder === undefined) return;
+	importCostRecorder.entryModule = bootstrapCopy;
+};
+const importBootstrapCopy = async (attempt = 1): Promise<void> => {
+	try {
+		await import(bootstrapCopy);
+	} catch (error) {
+		if (
+			attempt >= MAX_BOOTSTRAP_IMPORT_ATTEMPTS ||
+			!isMissingAbsoluteServerEntryCopyError(error, bootstrapCopy)
+		) {
+			throw error;
+		}
+		bootstrapCopy = createBootstrapCopy();
+		recordBootstrapImportCostEntry();
+
+		await importBootstrapCopy(attempt + 1);
+	}
+};
+await importBootstrapCopy();
 markBoot('server entry import done');
 
 // Runs only when `ABSOLUTE_DEV_IMPORT_COST=1` preloaded the recorder; with

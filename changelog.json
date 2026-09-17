@@ -5,6 +5,28 @@
 		{
 			"changes": [
 				{
+					"detail": "A protected follow-up GitHub workflow restores a selected prior-run AAB or IPA without rebuilding, re-hashes it, verifies imported installed-app certification, signs the exact certification with GitHub OIDC and pinned Cosign, requires trusted registry provenance, publishes the existing artifact, and retains the final audit receipt.",
+					"kind": "added",
+					"summary": "Mobile CI resumes and promotes exact certified artifacts with portable Sigstore provenance",
+					"symbols": [
+						"ABSOLUTE_MOBILE_CI_WORKFLOW_FORMAT",
+						"ABSOLUTE_MOBILE_CERTIFICATION_VERIFICATION_FORMAT",
+						"AbsoluteMobileCertificationVerification",
+						"createAbsoluteMobileCertificationVerification",
+						"parseAbsoluteMobileCertificationVerification",
+						"readAbsoluteMobileCertificationVerification",
+						"readAbsoluteSigstoreBundle",
+						"serializeAbsoluteMobileReleaseCertification",
+						"writeAbsoluteMobileCertificationVerification"
+					]
+				}
+			],
+			"date": "2026-09-17",
+			"version": "0.20.0-beta.110"
+		},
+		{
+			"changes": [
+				{
 					"kind": "added",
 					"summary": "Mobile publication promotes the exact certified AAB or IPA with secure production policies and generated acceptance CI",
 					"symbols": [

@@ -3,6 +3,7 @@ import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { AbsoluteAndroidReleaseMetadata } from './androidRelease';
 import type { AbsoluteIosReleaseMetadata } from './iosRelease';
+import type { AbsoluteMobileCertificationVerification } from './certificationVerification';
 import {
 	verifyAbsoluteMobileReleaseCertification,
 	type AbsoluteMobileCertificationRequirement,
@@ -40,6 +41,12 @@ export type AbsoluteNativeReleasePublication = {
 		releaseId: string;
 		requirement: AbsoluteMobileCertificationRequirement;
 		strength: AbsoluteMobileReleaseCertification['strength'];
+		provenance?: {
+			issuer: string;
+			subject: string;
+			verifiedAt: string;
+			verificationId: string;
+		};
 	};
 	googlePlay?: {
 		receipt: {
@@ -88,6 +95,7 @@ export type AbsoluteNativeReleasePublisher = {
 		channel?: string;
 		certification?: AbsoluteMobileReleaseCertification;
 		certificationRequirement?: AbsoluteMobileCertificationRequirement;
+		certificationVerification?: AbsoluteMobileCertificationVerification;
 		googlePlay?: AbsoluteGooglePlayReleaseTarget;
 		releaseRoot: string;
 		signal?: AbortSignal;
@@ -155,6 +163,7 @@ export type PublishAbsoluteAndroidReleaseOptions = {
 	channel?: string;
 	certification?: AbsoluteMobileReleaseCertification;
 	certificationRequirement?: AbsoluteMobileCertificationRequirement;
+	certificationVerification?: AbsoluteMobileCertificationVerification;
 	googlePlay?: AbsoluteGooglePlayReleaseTarget;
 	modulePath: string;
 	projectRoot: string;
@@ -169,9 +178,10 @@ const requireCertificationReceipt = (
 	publication: AbsoluteNativeReleasePublication,
 	certification: AbsoluteMobileReleaseCertification | undefined,
 	requirement: AbsoluteMobileCertificationRequirement | undefined,
-	releaseId: string
+	releaseId: string,
+	verification: AbsoluteMobileCertificationVerification | undefined
 ) => {
-	if (!certification && !requirement) return;
+	if (!certification && !requirement && !verification) return;
 	if (!certification || !requirement)
 		throw new TypeError(
 			'Native release publication certification contract is incomplete.'
@@ -186,6 +196,13 @@ const requireCertificationReceipt = (
 	)
 		throw new TypeError(
 			'Native release registry did not retain the required release certification.'
+		);
+	if (
+		verification &&
+		(!receipt.provenance || receipt.provenance.subject !== releaseId)
+	)
+		throw new TypeError(
+			'Native release registry did not retain trusted certification provenance.'
 		);
 };
 
@@ -240,6 +257,10 @@ export const publishAbsoluteAndroidRelease = async (
 ) => {
 	const certificationRequirement =
 		options.certificationRequirement ?? options.certification?.requirement;
+	if (options.certificationVerification && !options.certification)
+		throw new TypeError(
+			'Android certification verification requires certification.'
+		);
 	if (options.certification)
 		verifyAbsoluteMobileReleaseCertification(
 			options.certification,
@@ -258,6 +279,7 @@ export const publishAbsoluteAndroidRelease = async (
 		allowUnsigned: options.allowUnsigned,
 		certification: options.certification,
 		certificationRequirement,
+		certificationVerification: options.certificationVerification,
 		channel: options.channel,
 		googlePlay: options.googlePlay,
 		releaseRoot: options.release.releaseRoot,
@@ -283,7 +305,8 @@ export const publishAbsoluteAndroidRelease = async (
 		publication,
 		options.certification,
 		certificationRequirement,
-		expected.releaseId
+		expected.releaseId,
+		options.certificationVerification
 	);
 	if (
 		options.channel !== undefined &&
@@ -325,6 +348,7 @@ export const publishAbsoluteIosRelease = async (options: {
 	channel?: string;
 	certification?: AbsoluteMobileReleaseCertification;
 	certificationRequirement?: AbsoluteMobileCertificationRequirement;
+	certificationVerification?: AbsoluteMobileCertificationVerification;
 	modulePath: string;
 	projectRoot: string;
 	release: {
@@ -335,6 +359,10 @@ export const publishAbsoluteIosRelease = async (options: {
 }) => {
 	const certificationRequirement =
 		options.certificationRequirement ?? options.certification?.requirement;
+	if (options.certificationVerification && !options.certification)
+		throw new TypeError(
+			'iOS certification verification requires certification.'
+		);
 	if (options.certification)
 		verifyAbsoluteMobileReleaseCertification(
 			options.certification,
@@ -354,6 +382,7 @@ export const publishAbsoluteIosRelease = async (options: {
 		appStoreConnect: options.appStoreConnect,
 		certification: options.certification,
 		certificationRequirement,
+		certificationVerification: options.certificationVerification,
 		channel: options.channel,
 		releaseRoot: options.release.releaseRoot,
 		signal: options.signal
@@ -379,7 +408,8 @@ export const publishAbsoluteIosRelease = async (options: {
 		publication,
 		options.certification,
 		certificationRequirement,
-		expected.releaseId
+		expected.releaseId,
+		options.certificationVerification
 	);
 	if (
 		options.channel !== undefined &&

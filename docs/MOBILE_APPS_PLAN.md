@@ -434,6 +434,16 @@ can sign an otherwise unsigned AAB through AbsoluteJS using `jarsigner` password
 environment references, so ordinary applications need no CI-specific Gradle
 edit. The setup and rotation contract is in [MOBILE_CI.md](./MOBILE_CI.md).
 
+Implementation checkpoint (September 17, 2026, closed-loop promotion): the
+generated publishing workflow can now resume an exact Android or iOS artifact
+from a selected prior GitHub Actions run, import later partner certification,
+re-hash without rebuilding, and promote on Linux. Pinned Cosign and
+`@absolutejs/attest` bind the exact certification bytes to GitHub OIDC; the
+portable bundle and full workflow identity cross the project-local publisher
+boundary, and `@absolutejs/deploy` can require a trusted server verifier before
+retaining provenance. The follow-up run uploads the certification, bundle,
+verification envelope, and final receipt as a 90-day audit artifact.
+
 Implementation checkpoint (August 29, 2026): the planned read-only
 `absolute mobile inspect` command is now implemented. Human and JSON output
 inventory the effective config, project-relative native/bundle paths, runtime

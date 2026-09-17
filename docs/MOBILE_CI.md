@@ -32,6 +32,11 @@ The generated workflow has two trust levels:
    upload the immutable release directory. Publishing mode also acceptance-tests
    that exact directory, creates a certification, and republishes the same bytes
    through the registry/store gate.
+3. A later protected promotion can restore an Android or iOS release artifact
+   from an exact prior workflow run, import stronger partner certification,
+   re-hash the release without rebuilding it, bind the certification to the
+   current GitHub OIDC identity with a portable Sigstore bundle, publish it,
+   and upload the final registry/store receipt.
 
 Workflow-level concurrency serializes releases for the repository and never
 cancels a running release.
@@ -148,6 +153,46 @@ Workflow inputs are passed as quoted Bash-array elements, never evaluated as
 shell source. Each native job reruns the redacted release doctor after building
 and uploads `compliance.json` separately from the binary.
 
+## Resume a tested release without rebuilding
+
+The generated publishing workflow supports a second `promote` operation. The
+recommended interface is the CLI rather than manually pasting workflow inputs.
+Run this from the application root after `gh auth status` succeeds:
+
+```sh
+bunx absolute mobile ci promote ios \
+  --run-id 1234567890 \
+  --certification .absolutejs/mobile/certifications/ios/<release-id>/<certification-id> \
+  --channel production
+```
+
+For Android, use `promote android` and optionally add `--play-track
+production`. For iOS TestFlight distribution, add `--testflight-group GROUP`
+and, only when intended, `--testflight-submit-review`. Use `--ref BRANCH` when
+the generated workflow is not on the repository's default branch.
+
+The run ID is the GitHub Actions run that produced the retained
+`absolute-mobile-android` or `absolute-mobile-ios` artifact. Artifacts expire
+after 14 days by default, so promote or preserve them before that boundary. The
+CLI validates that the certification belongs to the configured application and
+platform, sends only its bounded non-secret JSON to GitHub, and dispatches the
+protected workflow. The workflow then:
+
+1. downloads the named artifact from that exact source run;
+2. requires exactly one immutable release directory and re-hashes it;
+3. verifies the imported certification against that restored release;
+4. signs the exact `certification.json` bytes with short-lived GitHub OIDC via
+   pinned Cosign and immediately verifies the signature;
+5. sends the portable Sigstore bundle and complete workflow identity to the
+   trusted registry verifier;
+6. publishes the existing AAB/IPA without Gradle, Xcode, or a Mac runner; and
+7. uploads `promotion-receipt.json`, the certification, Sigstore bundle, and
+   verification envelope as a 90-day audit artifact.
+
+The protected `absolute-mobile-release` environment still controls approval and
+store credentials. A promotion cannot select `all`, omit the source run or
+certification, or run without a channel/store target.
+
 ## Gate promotion on release certification
 
 Build completion proves that the immutable release was produced correctly; it
@@ -170,15 +215,14 @@ TestFlight-delivered evidence, so it necessarily happens after the workflow has
 uploaded the first candidate; require it when promoting that already-tested
 release onward, not before its initial TestFlight upload.
 
-Commit or transfer the generated `certification.json` with the release records,
-then publish that existing release—not a rebuild—through the fail-closed gate:
+Transfer the generated certification back to the release owner, then dispatch a
+protected follow-up run for the existing release—not a rebuild:
 
 ```sh
-bunx absolute mobile publish ios \
-  --release .absolutejs/mobile/releases/ios/<release-id> \
+bunx absolute mobile ci promote ios \
+  --run-id <source-build-run-id> \
   --certification .absolutejs/mobile/certifications/ios/<release-id>/<certification-id> \
-  --channel production \
-  --registry mobile.release.ts
+  --channel production
 ```
 
 Use the same shape with `publish android`; add `--play-track production` when
@@ -198,11 +242,63 @@ digest and embedded runtime identity, and exits nonzero if the certification,
 release, or requested policy differs. Preserve the original reports beside the
 certification when an auditor must re-run report validation.
 
-The certification digest detects content changes; it is not an identity
-signature. Preserve the GitHub artifact attestation (or equivalent CI
-provenance) around the release, reports, and certification when actor identity
-matters. See [mobile release certification](MOBILE_RELEASE_CERTIFICATION.md) for
-the complete evidence hierarchy and partner handoff.
+The certification digest detects content changes; GitHub OIDC supplies actor
+and workflow identity only after the server verifies its portable Sigstore
+bundle. The generated workflow uses `@absolutejs/attest`, but the application
+registry must opt into trusted verification as shown below.
+
+```ts
+import { createNativeReleaseRegistry } from '@absolutejs/deploy/native-release';
+import {
+  verifyPortableBlobBundle,
+  type CommandRunner
+} from '@absolutejs/attest';
+
+const runner: CommandRunner = async (command) => {
+  const child = Bun.spawn([...command], { stderr: 'pipe', stdout: 'pipe' });
+  const [exitCode, stderr, stdout] = await Promise.all([
+    child.exited,
+    new Response(child.stderr).text(),
+    new Response(child.stdout).text()
+  ]);
+  if (exitCode !== 0) throw new Error(stderr || `Cosign exited ${exitCode}`);
+  return { stderr, stdout };
+};
+
+export default createNativeReleaseRegistry({
+  store,
+  requireTrustedCertification: true,
+  certificationVerifier: async ({ certification, metadata, verification }) => {
+    if (!verification) throw new Error('Portable verification is required');
+    const { identity } = verification;
+    if (
+      identity.repository !== 'YOUR_ORG/YOUR_REPOSITORY' ||
+      identity.workflowPath !== '.github/workflows/absolute-mobile.yml' ||
+      identity.ref !== 'refs/heads/main'
+    ) throw new Error('Untrusted certification workflow identity');
+    const verified = await verifyPortableBlobBundle({
+      artifact: `${JSON.stringify(certification, null, 2)}\n`,
+      bundle: verification.bundle,
+      identity,
+      runner
+    });
+    return {
+      issuer: identity.issuer,
+      subject: metadata.releaseId,
+      verifiedAt: new Date().toISOString(),
+      verificationId: `sigstore:${verified.bundleSha256}`
+    };
+  }
+});
+```
+
+Install `@absolutejs/attest` in the application that owns this registry and
+install pinned Cosign in its trusted server image. The verifier, not the mobile
+client or workflow input, enforces the allowed repository, workflow, and ref;
+Cosign then verifies the issuer, exact workflow identity, full source SHA,
+signature, certificate chain, and transparency evidence. See [mobile release
+certification](MOBILE_RELEASE_CERTIFICATION.md) for the complete evidence
+hierarchy and partner handoff.
 
 ## Rotation, failures, and retries
 

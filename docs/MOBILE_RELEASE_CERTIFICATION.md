@@ -108,9 +108,10 @@ version/build. It contains report digests and bounded evidence facts, never
 report paths, target identifiers, SSH destinations, credentials, application
 data, or page contents.
 
-This is content-addressed integrity and policy evidence, not an identity
-signature. Use CI artifact provenance or your organization's signing system
-when the identity of the certifying runner must also be attested.
+This is content-addressed integrity and policy evidence, not by itself an
+identity signature. The generated publishing workflow signs the exact JSON with
+GitHub OIDC through Sigstore and requires the trusted registry to verify that
+portable bundle before promotion.
 
 ## 3. Verify before promotion
 
@@ -147,10 +148,20 @@ Android or `store` iOS evidence, and the production Google Play track requires
 `installed` evidence. Applications can configure explicit per-channel and
 per-track policies under `mobile.release.certification`.
 
-Upload `mobile-certification.json`, the immutable certification directory, and
-the release directory as protected CI artifacts. Run this verification step
-with the provider-neutral registry receipt and store promotion record. Initial
-TestFlight upload cannot require store-delivered
+For a certification created after the original CI run, dispatch the exact
+retained artifact and certification through:
+
+```sh
+bunx absolute mobile ci promote ios \
+  --run-id <source-build-run-id> \
+  --certification "$CERTIFICATION_DIRECTORY" \
+  --channel production
+```
+
+The follow-up workflow downloads the source run artifact and never rebuilds,
+creates and verifies GitHub OIDC/Sigstore provenance for the certification,
+then uploads the final provider-neutral registry receipt and store promotion
+record. Initial TestFlight upload cannot require store-delivered
 evidence from a build that Apple has not processed yet; require Simulator or
 registered-device evidence for that transition, then require `store` before a
 later production promotion.

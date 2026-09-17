@@ -502,9 +502,13 @@ the PaaS should implement instead of inventing another release contract:
    artifact/runtime/build identity.
 3. `absolute mobile certify` creates a content-addressed certification with an
    explicit installed, Simulator, device, or store strength.
-4. `absolute mobile publish --release ... --certification ...` verifies policy
-   and exact identity, then sends both objects to the deployment registry.
-5. The registry stores the certification immutably beside the release and binds
+4. `absolute mobile ci promote` restores the exact prior-run artifact without a
+   rebuild, verifies policy and exact identity, and binds `certification.json`
+   to the protected GitHub workflow through a portable Sigstore bundle.
+5. `absolute mobile publish --release ... --certification ...
+   --certification-attestation ...` sends the certification, bundle, and full
+   GitHub workflow identity to the trusted deployment registry.
+6. The registry stores the certification immutably beside the release and binds
    its receipt into the channel pointer. A certified channel cannot be silently
    rewritten without certification.
 

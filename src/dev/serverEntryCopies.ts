@@ -9,6 +9,27 @@ export const absoluteServerEntryCopyOwnerPid = (name: string) => {
 	return Number.isSafeInteger(pid) && pid > 0 ? pid : null;
 };
 
+/**
+ * True only when Bun failed to resolve the framework-owned entry snapshot
+ * itself. Imports inside the user's server entry must keep surfacing as real
+ * application errors rather than being hidden behind a bootstrap retry.
+ */
+export const isMissingAbsoluteServerEntryCopyError = (
+	error: unknown,
+	copyPath: string
+) => {
+	if (!(error instanceof Error)) return false;
+	const quotedPath = `'${copyPath}'`;
+	const doubleQuotedPath = `"${copyPath}"`;
+
+	return (
+		(error.message.includes(`Cannot find module ${quotedPath}`) ||
+			error.message.includes(`Cannot find module ${doubleQuotedPath}`)) &&
+		!error.message.includes(`from ${quotedPath}`) &&
+		!error.message.includes(`from ${doubleQuotedPath}`)
+	);
+};
+
 export const isProcessAlive = (pid: number) => {
 	try {
 		process.kill(pid, 0);

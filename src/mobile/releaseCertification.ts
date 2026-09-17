@@ -771,6 +771,10 @@ This certification is local and contains no signing credentials, device identifi
 ${evidence}
 `;
 };
+export const serializeAbsoluteMobileReleaseCertification = (
+	certification: AbsoluteMobileReleaseCertification
+) => `${JSON.stringify(certification, null, 2)}\n`;
+
 export const verifyAbsoluteMobileReleaseCertification = (
 	certification: AbsoluteMobileReleaseCertification,
 	release: AbsoluteMobileCertifiableRelease,
@@ -792,6 +796,7 @@ export const verifyAbsoluteMobileReleaseCertification = (
 
 	return parsed;
 };
+
 export const writeAbsoluteMobileReleaseCertification = async (
 	projectRoot: string,
 	certification: AbsoluteMobileReleaseCertification,
@@ -820,7 +825,7 @@ export const writeAbsoluteMobileReleaseCertification = async (
 		jsonPath: join(destination, 'certification.json'),
 		markdownPath: join(destination, 'certification.md')
 	};
-	const json = `${JSON.stringify(certification, null, 2)}\n`;
+	const json = serializeAbsoluteMobileReleaseCertification(certification);
 	const markdown = renderAbsoluteMobileReleaseCertification(certification);
 	const verifyExisting = async () => {
 		const [existingJson, existingMarkdown] = await Promise.all([
