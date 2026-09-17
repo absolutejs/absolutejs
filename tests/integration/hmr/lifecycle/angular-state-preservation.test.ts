@@ -50,6 +50,12 @@ const startAll = async () => {
 			/\d+/.test(text)
 		);
 		await page.waitForFunction(() => Boolean(window.__ANGULAR_APP__));
+		// Hydration can finish before the browser connects to HMR (notably
+		// across native Chrome/CDP). The separate test socket above only
+		// observes broadcasts; it cannot establish browser readiness.
+		await page.waitForFunction(
+			() => window.__HMR_WS__?.readyState === WebSocket.OPEN
+		);
 	});
 
 	return { client: client, server: server, session: session };
