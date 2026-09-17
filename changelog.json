@@ -6,7 +6,15 @@
 			"changes": [
 				{
 					"kind": "added",
-					"summary": "Mobile publication promotes the exact certified AAB or IPA with secure production policies and generated acceptance CI"
+					"summary": "Mobile publication promotes the exact certified AAB or IPA with secure production policies and generated acceptance CI",
+					"symbols": [
+						"AbsoluteMobileCertifiableRelease",
+						"AbsoluteNativeReleasePublication",
+						"AbsoluteNativeReleasePublisher",
+						"NormalizedAbsoluteMobileConfig",
+						"PublishAbsoluteAndroidReleaseOptions",
+						"publishAbsoluteIosRelease"
+					]
 				}
 			],
 			"date": "2026-09-17",
