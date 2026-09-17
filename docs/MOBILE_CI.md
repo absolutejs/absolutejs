@@ -193,6 +193,64 @@ The protected `absolute-mobile-release` environment still controls approval and
 store credentials. A promotion cannot select `all`, omit the source run or
 certification, or run without a channel/store target.
 
+## Inspect and independently audit a promotion
+
+Every command in this section runs from the application root. The promotion
+command prints the new GitHub Actions run URL; copy its numeric run ID. Inspect
+the current state without opening the Actions UI:
+
+```sh
+bunx absolute mobile ci status --run-id <promotion-run-id>
+```
+
+Wait for completion and return a failing exit status when the workflow fails:
+
+```sh
+bunx absolute mobile ci status --run-id <promotion-run-id> --watch
+```
+
+Use `--json` for automation and `--repo owner/name` when the current checkout
+does not identify the target repository.
+
+After a successful promotion, download and independently replay its retained
+evidence:
+
+```sh
+bunx absolute mobile ci audit --run-id <promotion-run-id>
+```
+
+The audit discovers the source build run recorded by the promotion, downloads
+the exact retained AAB or IPA, re-hashes and validates its immutable release
+metadata, re-verifies the installed-app certification, checks the portable
+Sigstore bundle against its GitHub workflow identity, and binds the publication
+receipt to the same release and certification. This is verification of the
+downloaded bytes; it does not trust the workflow's success badge as proof.
+
+The default output is
+`.absolutejs/mobile-ci/audits/<promotion-run-id>/`. It contains the downloaded
+source release and promotion evidence plus sanitized `audit.json` and
+`audit.md` reports. The command refuses to replace an existing audit directory;
+pass `--outdir relative/path` to choose another project-local destination.
+Install the same pinned Cosign release used by generated CI (`v3.1.2`) before
+running the audit. The verification path never needs signing or store
+credentials.
+
+New format-3 workflows retain source artifacts for 14 days and promotion audit
+artifacts for 90 days. Run the audit before the source artifact expires, or
+preserve it under your own retention policy. A promotion created by an older
+workflow does not carry its source-run context; supply it explicitly:
+
+```sh
+bunx absolute mobile ci audit \
+  --run-id <promotion-run-id> \
+  --source-run-id <source-build-run-id>
+```
+
+For support or compliance review, send `audit.md` or `audit.json`; neither
+contains credentials, device identifiers, local absolute paths, application
+data, nor GitHub tokens. Keep the accompanying evidence directory when the
+reviewer must reproduce the cryptographic checks.
+
 ## Gate promotion on release certification
 
 Build completion proves that the immutable release was produced correctly; it

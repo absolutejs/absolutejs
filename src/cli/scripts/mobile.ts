@@ -149,6 +149,12 @@ import {
 } from '../../mobile/mobileInspect';
 import { writeAbsoluteMobileGithubWorkflow } from '../../mobile/ciWorkflow';
 import {
+	auditAbsoluteMobileCiPromotion,
+	inspectAbsoluteMobileCiRun,
+	watchAbsoluteMobileCiRun,
+	type AbsoluteMobileCiRunStatus
+} from '../../mobile/ciPromotionAudit';
+import {
 	buildAbsoluteMobileUpdate,
 	verifyAbsoluteMobileUpdateSignature
 } from '../../mobile/updateSigning';
@@ -1059,6 +1065,102 @@ const dispatchGithubMobilePromotion = async (args: string[]) => {
 	console.log(
 		`Dispatched protected ${platform} promotion for ${certification.release.releaseId} from workflow run ${runId}.`
 	);
+};
+
+const githubMobileRunId = (args: string[]) => {
+	const value = valueAfter(args, '--run-id');
+	if (!value || !/^[1-9][0-9]*$/u.test(value))
+		throw new TypeError('mobile ci command requires a numeric --run-id.');
+
+	return value;
+};
+
+const renderGithubMobileRunStatus = (status: AbsoluteMobileCiRunStatus) => {
+	console.log(
+		`GitHub run ${status.runId}: ${status.status}${status.conclusion ? ` / ${status.conclusion}` : ''}`
+	);
+	console.log(`Workflow: ${status.workflowName}`);
+	console.log(`Commit: ${status.headSha} (${status.headBranch})`);
+	status.jobs.forEach((job) =>
+		console.log(
+			`  ${job.name}: ${job.status}${job.conclusion ? ` / ${job.conclusion}` : ''}`
+		)
+	);
+	console.log(status.url);
+};
+
+const inspectGithubMobileRun = async (args: string[]) => {
+	const projectRoot = process.cwd();
+	const requestedRunId = githubMobileRunId(args);
+	const repository = valueAfter(args, '--repo');
+	if (args.includes('--watch') && !args.includes('--json'))
+		console.log(`Watching GitHub run ${requestedRunId} until completion…`);
+	const status = args.includes('--watch')
+		? await watchAbsoluteMobileCiRun({
+				projectRoot,
+				...(repository ? { repository } : {}),
+				runId: requestedRunId
+			})
+		: await inspectAbsoluteMobileCiRun({
+				projectRoot,
+				...(repository ? { repository } : {}),
+				runId: requestedRunId
+			});
+	sendTelemetryEvent('mobile:ci-status', {
+		conclusion: status.conclusion ?? 'pending',
+		provider: 'github-actions',
+		status: status.status,
+		watched: args.includes('--watch')
+	});
+	if (args.includes('--json')) console.log(JSON.stringify(status, null, 2));
+	else renderGithubMobileRunStatus(status);
+
+	return status;
+};
+
+const renderGithubMobilePromotionAudit = (
+	result: Awaited<ReturnType<typeof auditAbsoluteMobileCiPromotion>>,
+	projectRoot: string
+) => {
+	console.log(
+		`✓ Verified ${result.audit.platform} promotion ${result.audit.github.promotionRunId} for ${result.audit.release.releaseId}.`
+	);
+	console.log(`Audit: ${relative(projectRoot, result.directory)}`);
+};
+
+const auditGithubMobilePromotion = async (args: string[]) => {
+	const projectRoot = process.cwd();
+	const requestedRunId = githubMobileRunId(args);
+	const repository = valueAfter(args, '--repo');
+	const sourceRunId = valueAfter(args, '--source-run-id');
+	const startedAt = performance.now();
+	try {
+		const result = await auditAbsoluteMobileCiPromotion({
+			outputDirectory: valueAfter(args, '--outdir'),
+			projectRoot,
+			...(repository ? { repository } : {}),
+			runId: requestedRunId,
+			...(sourceRunId ? { sourceRunId } : {})
+		});
+		sendTelemetryEvent('mobile:ci-promotion-audit', {
+			durationMs: Math.round(performance.now() - startedAt),
+			platform: result.audit.platform,
+			provider: 'github-actions',
+			success: true
+		});
+		if (args.includes('--json'))
+			console.log(JSON.stringify(result.audit, null, 2));
+		else renderGithubMobilePromotionAudit(result, projectRoot);
+
+		return result;
+	} catch (error) {
+		sendTelemetryEvent('mobile:ci-promotion-audit', {
+			durationMs: Math.round(performance.now() - startedAt),
+			provider: 'github-actions',
+			success: false
+		});
+		throw error;
+	}
 };
 
 const doctorMark = (status: AbsoluteMobileDoctorCheck['status']) => {
@@ -4980,6 +5082,10 @@ export const runMobile = async (args: string[]) => {
 	if (command === 'ci') {
 		if (args[1] === 'promote')
 			await dispatchGithubMobilePromotion(args.slice(2));
+		else if (args[1] === 'status')
+			await inspectGithubMobileRun(args.slice(2));
+		else if (args[1] === 'audit')
+			await auditGithubMobilePromotion(args.slice(2));
 		else if (args[1] === 'verification')
 			await createGithubCertificationVerification(args.slice(2));
 		else await generateGithubCi(args.slice(1));
@@ -5087,6 +5193,6 @@ export const runMobile = async (args: string[]) => {
 	}
 
 	throw new TypeError(
-		'Usage: absolute mobile <pair mac <name> <user@host> [--port n] [--workspace path] | remotes [inspect [name] [--json] | clean [name] --yes | --json] | unpair mac <name> | init [--no-native] [--force] | sync [ios|android] | inspect [--json] [--require-bundle] | certify <release-dir> [--evidence report-dir]... [--require installed|simulator|device|store] [--outdir dir] [--json] | certify <release-dir> --verify certification-dir [--require installed|simulator|device|store] [--json] | associations [--outdir dir] [--verify] | ci github [server-entry] [--publish] [--registry module] [--secret-env NAME] [--output path] [--force] [--json] | ci promote <android|ios> --run-id id --certification path [--channel name] [--play-track track|--testflight-group group] [--ref branch] | doctor [ios|android|release [ios|android]] [--remote name] [--json|--fix [--yes]] | build <android|ios> [server-entry] [--remote name] [--registered-device-artifact] [--outdir dir] [--web-outdir dir] [--unsigned] | update provision [--storage local|s3] [--registry module] [--force] [--yes] | update signing generate --private-key path [--certificate path] [--public-key path] [--key-id id] [--common-name name] [--validity-years n] | update build [server-entry] --classification bug-fix|content|security --key-id id --signing-key path --within-submitted-purpose [--outdir dir] [--web-outdir dir] | update publish <release-directory> [--rollout fraction] [--registry module] | update promote --release id --rollout fraction [--registry module] | update rollback [--release id] [--registry module] | update status [--registry module] [--json] | update advance [--rollout fraction] [--registry module] [--json] | update pause|resume|cancel|reconcile [--registry module] [--json] | update storage [--retain count] [--min-age-days days] [--registry module] [--json] | update gc [--retain count] [--min-age-days days] [--grace-days days] [--apply] [--registry module] [--json] | publish android [server-entry] [--release release-dir] [--certification certification-dir] [--certification-attestation verification-json] [--registry module] [--channel name] [--play-track track] [--play-status completed|draft|halted|in-progress] [--play-rollout fraction] [--play-name name] [--play-notes language=text] [--play-update-priority 0..5] [--play-hold-review] [--play-cancel-existing-review] [--outdir dir] [--web-outdir dir] [--unsigned] | publish ios [server-entry] [--release release-dir] [--certification certification-dir] [--certification-attestation verification-json] [--remote name] [--registry module] [--channel name] [--testflight-group name-or-id] [--testflight-notes locale=text] [--testflight-submit-review] [--outdir dir] [--web-outdir dir] [--unsigned] | test android [--release release-dir [--yes] | --route path [--wait-for-hmr] [--port n]] [--report [dir]] [--serial id] [--artifacts dir] [--json] [--config path] | test ios [--release release-dir [--remote name] [--device id [--testflight] --yes] | --wait-for-hmr] [--report [dir]] [--udid id] [--artifacts dir] [--json] [--config path]'
+		'Usage: absolute mobile <pair mac <name> <user@host> [--port n] [--workspace path] | remotes [inspect [name] [--json] | clean [name] --yes | --json] | unpair mac <name> | init [--no-native] [--force] | sync [ios|android] | inspect [--json] [--require-bundle] | certify <release-dir> [--evidence report-dir]... [--require installed|simulator|device|store] [--outdir dir] [--json] | certify <release-dir> --verify certification-dir [--require installed|simulator|device|store] [--json] | associations [--outdir dir] [--verify] | ci github [server-entry] [--publish] [--registry module] [--secret-env NAME] [--output path] [--force] [--json] | ci promote <android|ios> --run-id id --certification path [--channel name] [--play-track track|--testflight-group group] [--ref branch] | ci status --run-id id [--watch] [--repo owner/name] [--json] | ci audit --run-id id [--source-run-id id] [--repo owner/name] [--outdir path] [--json] | doctor [ios|android|release [ios|android]] [--remote name] [--json|--fix [--yes]] | build <android|ios> [server-entry] [--remote name] [--registered-device-artifact] [--outdir dir] [--web-outdir dir] [--unsigned] | update provision [--storage local|s3] [--registry module] [--force] [--yes] | update signing generate --private-key path [--certificate path] [--public-key path] [--key-id id] [--common-name name] [--validity-years n] | update build [server-entry] --classification bug-fix|content|security --key-id id --signing-key path --within-submitted-purpose [--outdir dir] [--web-outdir dir] | update publish <release-directory> [--rollout fraction] [--registry module] | update promote --release id --rollout fraction [--registry module] | update rollback [--release id] [--registry module] | update status [--registry module] [--json] | update advance [--rollout fraction] [--registry module] [--json] | update pause|resume|cancel|reconcile [--registry module] [--json] | update storage [--retain count] [--min-age-days days] [--registry module] [--json] | update gc [--retain count] [--min-age-days days] [--grace-days days] [--apply] [--registry module] [--json] | publish android [server-entry] [--release release-dir] [--certification certification-dir] [--certification-attestation verification-json] [--registry module] [--channel name] [--play-track track] [--play-status completed|draft|halted|in-progress] [--play-rollout fraction] [--play-name name] [--play-notes language=text] [--play-update-priority 0..5] [--play-hold-review] [--play-cancel-existing-review] [--outdir dir] [--web-outdir dir] [--unsigned] | publish ios [server-entry] [--release release-dir] [--certification certification-dir] [--certification-attestation verification-json] [--remote name] [--registry module] [--channel name] [--testflight-group name-or-id] [--testflight-notes locale=text] [--testflight-submit-review] [--outdir dir] [--web-outdir dir] [--unsigned] | test android [--release release-dir [--yes] | --route path [--wait-for-hmr] [--port n]] [--report [dir]] [--serial id] [--artifacts dir] [--json] [--config path] | test ios [--release release-dir [--remote name] [--device id [--testflight] --yes] | --wait-for-hmr] [--report [dir]] [--udid id] [--artifacts dir] [--json] [--config path]'
 	);
 };

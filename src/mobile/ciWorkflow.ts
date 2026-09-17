@@ -3,7 +3,7 @@ import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, extname, relative, resolve, sep } from 'node:path';
 import type { NormalizedAbsoluteMobileConfig } from './config';
 
-export const ABSOLUTE_MOBILE_CI_WORKFLOW_FORMAT = 2 as const;
+export const ABSOLUTE_MOBILE_CI_WORKFLOW_FORMAT = 3 as const;
 
 export type AbsoluteMobileGithubWorkflowOptions = {
 	config: NormalizedAbsoluteMobileConfig;
@@ -664,6 +664,10 @@ const promotionSharedSteps = (
           path: .absolutejs/mobile/releases/${platform}
           run-id: \${{ inputs.source_run_id }}
           github-token: \${{ github.token }}
+      - name: Record bounded promotion context
+        shell: bash
+        run: |
+          bun -e 'const sourceRunId = process.env.ABSOLUTE_SOURCE_RUN_ID; const promotionRunId = process.env.GITHUB_RUN_ID; if (!sourceRunId?.match(/^[1-9][0-9]*$/) || !promotionRunId?.match(/^[1-9][0-9]*$/)) throw new Error("Invalid promotion run identity"); await Bun.write(".absolutejs/mobile-ci/promotion-context.json", JSON.stringify({ format: 1, platform: ${JSON.stringify(platform)}, promotionRunId, sourceArtifact: ${JSON.stringify(`absolute-mobile-${platform}`)}, sourceRunId }, null, 2) + "\\n");'
       - name: Import and verify exact certification
         shell: bash
         run: |
@@ -706,6 +710,7 @@ const androidPromotionJob = (options: PlatformJobOptions) => {
     env:
       ABSOLUTE_CERTIFICATION_BASE64: \${{ inputs.certification_base64 }}
       ABSOLUTE_RELEASE_CHANNEL: \${{ inputs.channel }}
+      ABSOLUTE_SOURCE_RUN_ID: \${{ inputs.source_run_id }}
       ABSOLUTE_PLAY_TRACK: \${{ inputs.play_track }}
       ABSOLUTE_GOOGLE_CREDENTIALS_BASE64: \${{ secrets.ABSOLUTE_GOOGLE_CREDENTIALS_BASE64 }}
       GOOGLE_APPLICATION_CREDENTIALS: \${{ runner.temp }}/absolute-google-credentials.json${custom ? `\n${custom}` : ''}
@@ -744,6 +749,7 @@ ${promotionSharedSteps('android')}
           name: absolute-mobile-android-promotion-\${{ github.run_id }}
           path: |
             .absolutejs/mobile-ci/imported-certification/
+            .absolutejs/mobile-ci/promotion-context.json
             .absolutejs/mobile-ci/promotion-receipt.json
           if-no-files-found: error
           retention-days: 90
@@ -770,6 +776,7 @@ const iosPromotionJob = (options: PlatformJobOptions) => {
     env:
       ABSOLUTE_CERTIFICATION_BASE64: \${{ inputs.certification_base64 }}
       ABSOLUTE_RELEASE_CHANNEL: \${{ inputs.channel }}
+      ABSOLUTE_SOURCE_RUN_ID: \${{ inputs.source_run_id }}
       ABSOLUTE_TESTFLIGHT_GROUP: \${{ inputs.testflight_group }}
       ABSOLUTE_TESTFLIGHT_SUBMIT_REVIEW: \${{ inputs.submit_testflight_review }}
       APP_STORE_CONNECT_ISSUER_ID: \${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
@@ -810,6 +817,7 @@ ${promotionSharedSteps('ios')}
           name: absolute-mobile-ios-promotion-\${{ github.run_id }}
           path: |
             .absolutejs/mobile-ci/imported-certification/
+            .absolutejs/mobile-ci/promotion-context.json
             .absolutejs/mobile-ci/promotion-receipt.json
           if-no-files-found: error
           retention-days: 90

@@ -166,6 +166,9 @@ describe('mobile GitHub Actions workflow', () => {
 		expect(workflow).toContain('@absolutejs/attest@0.2.0 sign-blobs');
 		expect(workflow).toContain('--certification-attestation');
 		expect(workflow).toContain('promotion-receipt.json');
+		expect(workflow).toContain('promotion-context.json');
+		expect(workflow.match(/ABSOLUTE_SOURCE_RUN_ID:/gu)).toHaveLength(3);
+		expect(workflow).toContain('sourceArtifact: "absolute-mobile-android"');
 		expect(workflow).toContain('"${args[@]}"');
 		expect(workflow).toContain(
 			'RELEASE_BUCKET: ${{ secrets.RELEASE_BUCKET }}'
@@ -301,7 +304,7 @@ describe('mobile GitHub Actions workflow', () => {
 		expect(stderr).toBe('');
 		expect(result).toMatchObject({
 			changed: true,
-			format: 2,
+			format: 3,
 			path: '.github/workflows/absolute-mobile.yml',
 			platforms: ['android'],
 			publishing: false
