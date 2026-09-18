@@ -1037,6 +1037,52 @@ describe('experimental Expo project', () => {
 		expect(listeners.size).toBe(0);
 	});
 
+	test('resets account runtime without requiring or activating an OTA update', async () => {
+		const { config, root } = await fixture(true, true);
+		await writeAbsoluteExpoProject(config, { projectRoot: root });
+		const source = await readFile(
+			join(
+				config.nativeProjectDirectory,
+				'src/generated/AbsoluteSync.ts'
+			),
+			'utf8'
+		);
+		const handler = source.slice(
+			source.indexOf('absoluteExpoAuth.onPrincipalChange(principal => {'),
+			source.indexOf('export const createAbsoluteExpoSyncBridge')
+		);
+		let listener:
+			| ((principal: { namespace: string } | null) => void)
+			| undefined;
+		const calls: unknown[] = [];
+		runInNewContext(handler, {
+			absoluteExpoAuth: {
+				onPrincipalChange: (callback: typeof listener) => {
+					listener = callback;
+				}
+			},
+			activeNamespace: 'account-a',
+			console: { warn: (...args: unknown[]) => calls.push(args) },
+			started: true,
+			installRuntimeTransport: () => calls.push('transport'),
+			reloadAppAsync: async (reason: string) => {
+				calls.push(reason);
+				throw new Error('synthetic-secret-not-for-logs');
+			}
+		});
+		listener?.({ namespace: 'account-a' });
+		expect(calls).toEqual([]);
+		listener?.(null);
+		await Promise.resolve();
+		expect(calls).toEqual([
+			'transport',
+			'absolutejs-auth-principal-changed',
+			[
+				'AbsoluteJS could not reset the account runtime. Restart the app before continuing.'
+			]
+		]);
+	});
+
 	test('provisions one native-owned Sync store for WebView, native routes, and background work', async () => {
 		const { config, root } = await fixture(true, true);
 		await writeAbsoluteExpoProject(config, { projectRoot: root });
@@ -1066,8 +1112,10 @@ describe('experimental Expo project', () => {
 		expect(syncSource).toContain('removeRuntimeTransport?.()');
 		expect(syncSource).toContain('installRuntimeTransport(principal)');
 		expect(syncSource).toContain(
-			'if (previousNamespace !== undefined) void Updates.reloadAsync()'
+			"if (previousNamespace !== undefined) void reloadAppAsync('absolutejs-auth-principal-changed')"
 		);
+		expect(syncSource).toContain("import { reloadAppAsync } from 'expo'");
+		expect(syncSource).not.toContain("from 'expo-updates'");
 		expect(syncSource).toContain('getAbsoluteExpoSyncSchemaStatus');
 		expect(syncSource).toContain('defineExpoSyncBackgroundTask');
 		expect(syncSource).toContain(

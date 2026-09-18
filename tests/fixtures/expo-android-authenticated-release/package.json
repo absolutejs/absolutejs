@@ -1,0 +1,13 @@
+{
+	"name": "@absolutejs/fixture-expo-android-authenticated-release",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"dependencies": {
+		"@absolutejs/auth": "0.75.0",
+		"@absolutejs/sync": "2.31.0",
+		"elysia": "*",
+		"react": "*",
+		"react-dom": "*"
+	}
+}

@@ -16,7 +16,8 @@ export const buildAndroidProofReleases = async (
 		inspect: inspectAbsoluteMobileToolchain,
 		port: findFreePort
 	},
-	engines: readonly ('capacitor' | 'expo')[] = ['capacitor', 'expo']
+	engines: readonly ('capacitor' | 'expo')[] = ['capacitor', 'expo'],
+	scenario: 'data' | 'authenticated' = 'data'
 ) => {
 	const checks = await dependencies.inspect();
 	const java = checks.find((check) => check.id === 'android.java');
@@ -87,7 +88,10 @@ export const buildAndroidProofReleases = async (
 		console.log(
 			`[release-data] Building ${engine} before emulator startup`
 		);
-		const fixture = join(root, `tests/fixtures/${engine}-android-release`);
+		const fixture = join(
+			root,
+			`tests/fixtures/${engine}-android-${scenario === 'authenticated' ? 'authenticated-' : ''}release`
+		);
 		const evidence = join(output, engine);
 		await mkdir(evidence);
 		const build = await run(

@@ -22,7 +22,7 @@ const fixture = async (failExpo = false) => {
 			commands.push(command);
 			if (command.includes('-genkeypair')) return Buffer.from('');
 			if (!cwd) throw new Error('Missing fixture cwd');
-			const engine = cwd.includes('capacitor-android-release')
+			const engine = cwd.includes('capacitor-android-')
 				? 'capacitor'
 				: 'expo';
 			if (engine === 'expo' && failExpo)
@@ -100,6 +100,22 @@ test('prepares both validated artifacts without invoking emulator or ADB command
 			await readFile(join(output, 'builds-completed.json'), 'utf8')
 		).engines
 	).toEqual(['capacitor', 'expo']);
+});
+
+test('builds separate authenticated fixtures without changing anonymous fixture selection', async () => {
+	const { dependencies, output, root } = await fixture();
+	const { releases } = await buildAndroidProofReleases(
+		root,
+		output,
+		'https://localhost:48443',
+		dependencies,
+		['capacitor', 'expo'],
+		'authenticated'
+	);
+	expect(releases.map((item) => item.fixture)).toEqual([
+		join(root, 'tests/fixtures/capacitor-android-authenticated-release'),
+		join(root, 'tests/fixtures/expo-android-authenticated-release')
+	]);
 });
 
 test('does not declare the build phase complete when the second engine fails', async () => {

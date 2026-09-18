@@ -202,8 +202,32 @@ describe('React <Link>', () => {
 		});
 		expect(prevented).toBe(true);
 		expect(window.location.pathname).toBe('/two');
-		// react-router commits the location change in a transition.
-		await Bun.sleep(20);
+		// React Router commits this in a transition; elapsed time alone is not
+		// evidence that the scheduler has committed, especially on a busy host.
+		await new Promise<void>((resolve, reject) => {
+			const observer = new MutationObserver(() => {
+				if (!target.textContent?.includes('page two')) return;
+				clearTimeout(timeout);
+				observer.disconnect();
+				resolve();
+			});
+			const timeout = setTimeout(() => {
+				observer.disconnect();
+				reject(
+					new Error('React Router did not commit the matched route')
+				);
+			}, 2000);
+			observer.observe(target, {
+				characterData: true,
+				childList: true,
+				subtree: true
+			});
+			if (target.textContent?.includes('page two')) {
+				clearTimeout(timeout);
+				observer.disconnect();
+				resolve();
+			}
+		});
 		expect(target.textContent).toContain('page two');
 	});
 

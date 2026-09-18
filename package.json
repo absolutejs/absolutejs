@@ -468,6 +468,7 @@
 		"test:native:android": "bun run test:native:android:lifecycle && bun run test:native:android:hmr && bun run test:native:android:bundle",
 		"test:native:android:branding": "ABSOLUTE_TEST_ANDROID_BRANDING=1 bun test tests/native/android-branding-conformance.test.ts",
 		"test:native:android:bundle": "ABSOLUTE_TEST_NATIVE_ANDROID=1 bun test tests/native/android-embedded-bundle-conformance.test.ts",
+		"test:native:android:auth-sync": "ABSOLUTE_TEST_ANDROID_AUTHENTICATED_RELEASE=1 bun test tests/native/android-authenticated-release-conformance.test.ts",
 		"test:native:android:data": "ABSOLUTE_TEST_ANDROID_RELEASE_DATA=1 bun test tests/native/android-release-data-conformance.test.ts",
 		"test:native:android:hmr": "ABSOLUTE_TEST_NATIVE_ANDROID=1 bun test tests/native/android-hmr-conformance.test.ts",
 		"test:native:android:lifecycle": "ABSOLUTE_TEST_NATIVE_ANDROID=1 bun test tests/native/android-lifecycle-conformance.test.ts",

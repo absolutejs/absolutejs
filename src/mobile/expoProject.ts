@@ -912,7 +912,7 @@ import {
 	installExpoSyncLifecycle,
 	registerExpoSyncBackgroundTask
 } from '@absolutejs/sync-expo';
-import * as Updates from 'expo-updates';
+import { reloadAppAsync } from 'expo';
 import { absoluteExpoAuth, startAbsoluteExpoAuth } from './AbsoluteAuth';
 
 const BACKGROUND_TASK = ${JSON.stringify(backgroundTask)};
@@ -971,7 +971,9 @@ absoluteExpoAuth.onPrincipalChange(principal => {
 	if (!started || principal?.namespace === activeNamespace) return;
 	const previousNamespace = activeNamespace;
 	installRuntimeTransport(principal);
-	if (previousNamespace !== undefined) void Updates.reloadAsync();
+	if (previousNamespace !== undefined) void reloadAppAsync('absolutejs-auth-principal-changed').catch(() => {
+		console.warn('AbsoluteJS could not reset the account runtime. Restart the app before continuing.');
+	});
 });
 
 export const createAbsoluteExpoSyncBridge = async (

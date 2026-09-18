@@ -193,6 +193,17 @@
       "name": "@absolutejs/fixture-vue-package-picker",
       "version": "0.0.0",
     },
+    "tests/fixtures/capacitor-android-authenticated-release": {
+      "name": "@absolutejs/fixture-capacitor-android-authenticated-release",
+      "version": "0.0.0",
+      "dependencies": {
+        "@absolutejs/auth": "0.75.0",
+        "@absolutejs/sync": "2.31.0",
+        "elysia": "*",
+        "react": "*",
+        "react-dom": "*",
+      },
+    },
     "tests/fixtures/capacitor-android-release": {
       "name": "@absolutejs/fixture-capacitor-android-release",
       "version": "0.0.0",
@@ -310,6 +321,17 @@
         "vue": "*",
       },
     },
+    "tests/fixtures/expo-android-authenticated-release": {
+      "name": "@absolutejs/fixture-expo-android-authenticated-release",
+      "version": "0.0.0",
+      "dependencies": {
+        "@absolutejs/auth": "0.75.0",
+        "@absolutejs/sync": "2.31.0",
+        "elysia": "*",
+        "react": "*",
+        "react-dom": "*",
+      },
+    },
     "tests/fixtures/expo-android-release": {
       "name": "@absolutejs/fixture-expo-android-release",
       "version": "0.0.0",
@@ -353,6 +375,8 @@
 
     "@absolutejs/dispatch": ["@absolutejs/dispatch@0.9.0", "", { "dependencies": { "@absolutejs/manifest": "^0.9.0", "@absolutejs/telemetry": "^0.2.0", "@sinclair/typebox": "^0.34.0" }, "peerDependencies": { "@absolutejs/audit": ">= 0.0.1" }, "optionalPeers": ["@absolutejs/audit"] }, "sha512-8rF1diMvDomvm5f9JIU31LjmFdWF8sUnFANkjT/faqBYyWNkLhm1C/or7bX+q6lWxdKOOv+Cp/x/84Om0meAkw=="],
 
+    "@absolutejs/fixture-capacitor-android-authenticated-release": ["@absolutejs/fixture-capacitor-android-authenticated-release@workspace:tests/fixtures/capacitor-android-authenticated-release"],
+
     "@absolutejs/fixture-capacitor-android-release": ["@absolutejs/fixture-capacitor-android-release@workspace:tests/fixtures/capacitor-android-release"],
 
     "@absolutejs/fixture-compile-angular": ["@absolutejs/fixture-compile-angular@workspace:tests/fixtures/compile-angular"],
@@ -370,6 +394,8 @@
     "@absolutejs/fixture-compile-svelte": ["@absolutejs/fixture-compile-svelte@workspace:tests/fixtures/compile-svelte"],
 
     "@absolutejs/fixture-compile-vue": ["@absolutejs/fixture-compile-vue@workspace:tests/fixtures/compile-vue"],
+
+    "@absolutejs/fixture-expo-android-authenticated-release": ["@absolutejs/fixture-expo-android-authenticated-release@workspace:tests/fixtures/expo-android-authenticated-release"],
 
     "@absolutejs/fixture-expo-android-release": ["@absolutejs/fixture-expo-android-release@workspace:tests/fixtures/expo-android-release"],
 

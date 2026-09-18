@@ -268,6 +268,45 @@ and tarball availability propagated separately; no second publish was needed.
 
 The next installed-release gate must run independently for Capacitor and Expo:
 
+The opt-in harness is now `tests/native/android-authenticated-release-conformance.test.ts`.
+Run it from the **AbsoluteJS repository root** (the directory containing this
+document's `docs/` folder and the framework's `package.json`), not from a generated
+Android directory or your application:
+
+```bash
+bun install
+bun run test:native:android:auth-sync
+```
+
+For a single-engine diagnostic run:
+
+```bash
+ABSOLUTE_TEST_RELEASE_ENGINE=expo bun run test:native:android:auth-sync
+ABSOLUTE_TEST_RELEASE_ENGINE=capacitor bun run test:native:android:auth-sync
+```
+
+These are long, resource-heavy tests requiring the Android toolchain and the
+existing disposable-emulator/local-CA prerequisites described above. They build
+the separate private `tests/fixtures/*-android-authenticated-release` projects;
+the anonymous release fixtures are unchanged. Native dependencies are provisioned
+through the normal mobile build. An occupied test emulator on port 5580 is an
+error, not permission to stop another device. Pause other heavy work first.
+
+The backend uses real AbsoluteJS Auth browser login, PKCE, resource-scoped tokens,
+socket tickets and Sync. Its login form explicitly selects one of two synthetic
+users; it is **test code, not a production login implementation**. Native app code
+uses portable Auth/Sync APIs. Server writes and deduplication receipts share a
+SQLite transaction. A test-only Sync partition leaves Auth reachable during
+account switching, so reconnecting for login cannot conceal an outbox leak.
+
+Each run prints its evidence directory under `.absolutejs/release-data-conformance/`.
+Send only `<run>/<engine>/authenticated-report.json`, which records completed
+phases and the failing phase, if any. A failure before emulator/build setup may
+not create a report. Raw OAuth UI, callback URLs and logcat are deliberately not
+captured after authentication begins. Do not share the whole directory: it
+contains synthetic signing material, an isolated test CA and a server database.
+The harness is implemented but **installed execution is not yet verified**.
+
 - [ ] Sign in as synthetic account A through the system browser and AbsoluteJS
       Auth's actual authorization-code/PKCE and socket-ticket endpoints.
 - [ ] Queue a mutation while disconnected, using the provisioned native SQLite
@@ -297,3 +336,9 @@ regression coverage exercises these transitions and rapid account changes.
 This is not installed-release or SQLite process-death evidence. The checklist
 above remains pending until both engines pass on an installed signed app; the
 previous anonymous release-data reports must not be promoted to that claim.
+
+The account-reset path also uses Expo's `reloadAppAsync` to reload the current
+runtime, rather than `Updates.reloadAsync`. Account isolation must work with OTA
+updates disabled and must not activate a pending update as a side effect of
+sign-out. The update-installation path retains its update-specific reload.
+See [Expo's distinction between app and update reloads](https://docs.expo.dev/versions/latest/sdk/updates/#updatesreloadasyncoptions).
