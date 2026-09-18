@@ -198,7 +198,19 @@
       "version": "0.0.0",
       "dependencies": {
         "@absolutejs/auth": "0.75.0",
+        "@absolutejs/devices": "0.5.0",
+        "@absolutejs/devices-capacitor": "0.6.1",
         "@absolutejs/sync": "2.31.0",
+        "@absolutejs/sync-capacitor": "0.9.1",
+        "@capacitor-community/sqlite": "8.1.1",
+        "@capacitor/android": "8.5.0",
+        "@capacitor/app": "8.1.1",
+        "@capacitor/browser": "8.0.4",
+        "@capacitor/cli": "8.5.0",
+        "@capacitor/core": "8.5.0",
+        "@capacitor/ios": "8.5.0",
+        "@capacitor/network": "8.0.1",
+        "@capacitor/preferences": "8.0.1",
         "elysia": "*",
         "react": "*",
         "react-dom": "*",
@@ -2555,6 +2567,12 @@
 
     "@absolutejs/blob/@absolutejs/manifest": ["@absolutejs/manifest@0.7.2", "", { "peerDependencies": { "@sinclair/typebox": ">=0.34.0 <0.35.0" }, "bin": { "absolute-manifest": "dist/cli.js" } }, "sha512-NSVzC4yHbH+n+WCNdWYrpbc+3k5rOfO4X85Ku9VCP8teRaa2VEibp29Cyvg9rQARUGaQjGGTz+l+APqM0+odxg=="],
 
+    "@absolutejs/fixture-capacitor-android-authenticated-release/@absolutejs/devices": ["@absolutejs/devices@0.5.0", "", {}, "sha512-MHNh389aBEDstechCI17OxHofDgN94JWmJBe5tKv/6F907nZNsifNYaZ0U8k9ol9XAgi0k92VhWY79N05k7Ggw=="],
+
+    "@absolutejs/fixture-capacitor-android-authenticated-release/@absolutejs/devices-capacitor": ["@absolutejs/devices-capacitor@0.6.1", "", { "dependencies": { "@capacitor/app": "^8.0.0", "@capacitor/browser": "^8.0.0", "@capacitor/network": "^8.0.0", "@capacitor/preferences": "^8.0.0" }, "peerDependencies": { "@absolutejs/devices": "^0.5.0", "@capacitor/camera": ">=8.1 <9", "@capacitor/clipboard": ">=8 <9", "@capacitor/core": ">=8 <9", "@capacitor/file-viewer": ">=2 <3", "@capacitor/filesystem": ">=8.1 <9", "@capacitor/geolocation": ">=8.2 <9", "@capacitor/haptics": ">=8 <9", "@capacitor/local-notifications": ">=8.2 <8.3", "@capacitor/share": ">=8 <9" }, "optionalPeers": ["@capacitor/camera", "@capacitor/clipboard", "@capacitor/file-viewer", "@capacitor/filesystem", "@capacitor/geolocation", "@capacitor/haptics", "@capacitor/local-notifications", "@capacitor/share"] }, "sha512-h5qEkCcvifg38sZl2w+A3709YdyPlwbRm1NQyXFdaV5WX0Kp9OgG8W3JOB6JdWRBeXkWiujO9rPvriHakD9Dpw=="],
+
+    "@absolutejs/fixture-capacitor-android-authenticated-release/@absolutejs/sync-capacitor": ["@absolutejs/sync-capacitor@0.9.1", "", { "dependencies": { "@noble/ciphers": "^2.3.0" }, "peerDependencies": { "@absolutejs/devices": ">=0.2.0 <0.4.0", "@absolutejs/devices-capacitor": ">=0.3.1 <0.5.0", "@absolutejs/sync": ">=2.29.0 <3", "@capacitor-community/sqlite": ">=8.1.1 <9", "@capacitor/core": ">=8 <9" } }, "sha512-qZC93WNxcv2fZ9gR7sLklp/vPHL7wN9wRgYfQnqFWIv4f6W6HHTdn+uaoE3Iq6JXZaLo8pXGyB+56zJldrX2BA=="],
+
     "@absolutejs/fixture-capacitor-android-release/@absolutejs/devices": ["@absolutejs/devices@0.5.0", "", {}, "sha512-MHNh389aBEDstechCI17OxHofDgN94JWmJBe5tKv/6F907nZNsifNYaZ0U8k9ol9XAgi0k92VhWY79N05k7Ggw=="],
 
     "@absolutejs/fixture-capacitor-android-release/@absolutejs/devices-capacitor": ["@absolutejs/devices-capacitor@0.6.1", "", { "dependencies": { "@capacitor/app": "^8.0.0", "@capacitor/browser": "^8.0.0", "@capacitor/network": "^8.0.0", "@capacitor/preferences": "^8.0.0" }, "peerDependencies": { "@absolutejs/devices": "^0.5.0", "@capacitor/camera": ">=8.1 <9", "@capacitor/clipboard": ">=8 <9", "@capacitor/core": ">=8 <9", "@capacitor/file-viewer": ">=2 <3", "@capacitor/filesystem": ">=8.1 <9", "@capacitor/geolocation": ">=8.2 <9", "@capacitor/haptics": ">=8 <9", "@capacitor/local-notifications": ">=8.2 <8.3", "@capacitor/share": ">=8 <9" }, "optionalPeers": ["@capacitor/camera", "@capacitor/clipboard", "@capacitor/file-viewer", "@capacitor/filesystem", "@capacitor/geolocation", "@capacitor/haptics", "@capacitor/local-notifications", "@capacitor/share"] }, "sha512-h5qEkCcvifg38sZl2w+A3709YdyPlwbRm1NQyXFdaV5WX0Kp9OgG8W3JOB6JdWRBeXkWiujO9rPvriHakD9Dpw=="],
@@ -2932,6 +2950,10 @@
     "xml2js/sax": ["sax@1.6.0", "", {}, "sha512-6R3J5M4AcbtLUdZmRv2SygeVaM7IhrLXu9BmnOGmmACak8fiUtOsYNWUS4uK7upbmHIBbLBeFeI//477BKLBzA=="],
 
     "xml2js/xmlbuilder": ["xmlbuilder@11.0.1", "", {}, "sha512-fDlsI/kFEx7gLvbecc0/ohLG50fugQp8ryHzMTuW9vSa1GJ0XYWKnhsUx7oie3G98+r56aTQIUB4kht42R3JvA=="],
+
+    "@absolutejs/fixture-capacitor-android-authenticated-release/@absolutejs/sync-capacitor/@absolutejs/devices": ["@absolutejs/devices@0.7.0", "", {}, "sha512-yRMk/Fvyiv/n7btoDmS2YNos3uZ4URxpV6zsJ71bZaFVCR/rqwma1rhonluj15yBMWUhhwWF3jb2avfEZynzWw=="],
+
+    "@absolutejs/fixture-capacitor-android-authenticated-release/@absolutejs/sync-capacitor/@absolutejs/devices-capacitor": ["@absolutejs/devices-capacitor@0.8.0", "", { "dependencies": { "@capacitor/app": "^8.0.0", "@capacitor/browser": "^8.0.0", "@capacitor/network": "^8.0.0", "@capacitor/preferences": "^8.0.0" }, "peerDependencies": { "@absolutejs/devices": "^0.7.0", "@capacitor/camera": ">=8.1 <9", "@capacitor/clipboard": ">=8 <9", "@capacitor/core": ">=8 <9", "@capacitor/file-viewer": ">=2 <3", "@capacitor/filesystem": ">=8.1 <9", "@capacitor/geolocation": ">=8.2 <9", "@capacitor/haptics": ">=8 <9", "@capacitor/keyboard": ">=8 <9", "@capacitor/local-notifications": ">=8.2 <8.3", "@capacitor/push-notifications": ">=8.1 <9", "@capacitor/share": ">=8 <9" }, "optionalPeers": ["@capacitor/camera", "@capacitor/clipboard", "@capacitor/file-viewer", "@capacitor/filesystem", "@capacitor/geolocation", "@capacitor/haptics", "@capacitor/keyboard", "@capacitor/local-notifications", "@capacitor/push-notifications", "@capacitor/share"] }, "sha512-OGwf6eGnmKiYZy9uQ7spRw5MsOmTpRPDJT7Qy6f81UqlmmT7gTSODFezqVVfBOH8+NKlwGQpdpwq8ZSya0e20g=="],
 
     "@absolutejs/pwa/@absolutejs/sync/@absolutejs/telemetry": ["@absolutejs/telemetry@0.3.1", "", { "dependencies": { "@absolutejs/handoff": "0.1.0" }, "peerDependencies": { "drizzle-orm": ">=1.0.0-rc.4 <2" }, "optionalPeers": ["drizzle-orm"] }, "sha512-Apd/FfS1BbDyeMDwoWsSx8ql5MeLjLY7MQn0yAHz1T1wxqpnQgFTdYKbvqcfAJ6/hpQLTHw4EY/QkihwtQuPjQ=="],
 

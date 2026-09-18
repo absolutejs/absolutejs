@@ -288,8 +288,12 @@ ABSOLUTE_TEST_RELEASE_ENGINE=capacitor bun run test:native:android:auth-sync
 These are long, resource-heavy tests requiring the Android toolchain and the
 existing disposable-emulator/local-CA prerequisites described above. They build
 the separate private `tests/fixtures/*-android-authenticated-release` projects;
-the anonymous release fixtures are unchanged. Native dependencies are provisioned
-through the normal mobile build. An occupied test emulator on port 5580 is an
+the anonymous release fixtures are unchanged. The harness provisions dependencies
+with `absolute mobile init --yes` before building, creates the Capacitor Android
+project on its first run, and reuses that generated project on retries. This can
+update the fixture's package manifest and the repository lockfile. Android
+association fingerprints are derived from the run's disposable signing certificate,
+not a production credential or placeholder. An occupied test emulator on port 5580 is an
 error, not permission to stop another device. Pause other heavy work first.
 
 The backend uses real AbsoluteJS Auth browser login, PKCE, resource-scoped tokens,
@@ -306,6 +310,17 @@ not create a report. Raw OAuth UI, callback URLs and logcat are deliberately not
 captured after authentication begins. Do not share the whole directory: it
 contains synthetic signing material, an isolated test CA and a server database.
 The harness is implemented but **installed execution is not yet verified**.
+
+Local attempt on September 18, 2026: the authenticated Capacitor fixture produced
+a signed AAB (`d9e83749f60458a9ddc39a48a1da3b3d514f1a9e948429e9832f479551a1cb04`)
+in run `3fbc6a2b-d6f8-4a77-a238-5af0357c09db`. The reused disposable emulator then
+failed startup readiness with a System UI ANR, before app installation. A separate
+fresh-device run, `2d583649-bbc2-411f-b5d0-9358f108f755`, performed no app build or
+installation and failed the CPU-settling guard. These are infrastructure failures,
+not passing Auth/Sync evidence and not proof of an app defect. The normal emulator
+was restored and its boot completion verified. Expo's authenticated build and both
+engines' installed authenticated checks remain pending. No release was published
+from these attempts.
 
 - [ ] Sign in as synthetic account A through the system browser and AbsoluteJS
       Auth's actual authorization-code/PKCE and socket-ticket endpoints.

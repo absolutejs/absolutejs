@@ -5,6 +5,14 @@ export default defineConfig({
 	mobile: {
 		appId: 'com.absolutejs.capacitorauthproof',
 		appName: 'AbsoluteJS Authenticated Release Proof',
+		deepLinks: {
+			android: {
+				sha256CertificateFingerprints: process.env
+					.ABSOLUTE_TEST_RELEASE_CERTIFICATE_SHA256
+					? [process.env.ABSOLUTE_TEST_RELEASE_CERTIFICATE_SHA256]
+					: []
+			}
+		},
 		engine: 'capacitor',
 		entry: '/',
 		platforms: ['android'],

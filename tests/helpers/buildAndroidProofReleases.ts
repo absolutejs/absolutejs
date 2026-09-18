@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { findFreePort } from '../../src/cli/utils';
@@ -83,6 +84,23 @@ export const buildAndroidProofReleases = async (
 		root,
 		env
 	);
+	const certificate = await dependencies.capture(
+		[
+			keytool,
+			'-exportcert',
+			'-keystore',
+			await toolPath(keystore),
+			'-storepass:env',
+			'ABSOLUTE_ANDROID_KEYSTORE_PASSWORD',
+			'-alias',
+			'synthetic'
+		],
+		root,
+		env
+	);
+	env.ABSOLUTE_TEST_RELEASE_CERTIFICATE_SHA256 = createHash('sha256')
+		.update(certificate)
+		.digest('hex');
 	const releases = [];
 	for (const engine of engines) {
 		console.log(
@@ -94,6 +112,32 @@ export const buildAndroidProofReleases = async (
 		);
 		const evidence = join(output, engine);
 		await mkdir(evidence);
+		const initialization = await run(
+			[
+				process.execPath,
+				join(root, 'src/cli/index.ts'),
+				'mobile',
+				'init',
+				...(engine === 'expo' ||
+				existsSync(
+					join(
+						fixture,
+						scenario === 'authenticated'
+							? 'mobile/android'
+							: '.absolutejs/mobile/android'
+					)
+				)
+					? ['--no-native']
+					: []),
+				'--yes',
+				'--config',
+				'absolute.config.ts'
+			],
+			fixture,
+			env,
+			15 * 60 * 1000
+		);
+		await writeFile(join(evidence, 'initialization.log'), initialization);
 		const build = await run(
 			[
 				process.execPath,

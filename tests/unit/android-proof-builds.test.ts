@@ -20,7 +20,10 @@ const fixture = async (failExpo = false) => {
 	const dependencies: Parameters<typeof buildAndroidProofReleases>[3] = {
 		capture: async (command, cwd) => {
 			commands.push(command);
+			if (command.includes('init')) return Buffer.from('Initialized');
 			if (command.includes('-genkeypair')) return Buffer.from('');
+			if (command.includes('-exportcert'))
+				return Buffer.from('synthetic-certificate');
 			if (!cwd) throw new Error('Missing fixture cwd');
 			const engine = cwd.includes('capacitor-android-')
 				? 'capacitor'
@@ -74,7 +77,7 @@ const fixture = async (failExpo = false) => {
 
 test('prepares both validated artifacts without invoking emulator or ADB commands', async () => {
 	const { commands, dependencies, output, root } = await fixture();
-	const { releases } = await buildAndroidProofReleases(
+	const { env, releases } = await buildAndroidProofReleases(
 		root,
 		output,
 		'https://localhost:48443',
@@ -91,10 +94,23 @@ test('prepares both validated artifacts without invoking emulator or ADB command
 				.digest('hex')
 		);
 	}
-	expect(commands).toHaveLength(3);
+	expect(env.ABSOLUTE_TEST_RELEASE_CERTIFICATE_SHA256).toBe(
+		createHash('sha256').update('synthetic-certificate').digest('hex')
+	);
+	expect(commands).toHaveLength(6);
 	expect(commands[0]?.[0]).toBe('/synthetic/bin/keytool');
-	for (const command of commands.slice(1))
-		expect(command.slice(2, 5)).toEqual(['mobile', 'build', 'android']);
+	expect(commands[1]).toContain('-exportcert');
+	for (const index of [2, 4]) {
+		expect(commands[index]?.slice(2, 4)).toEqual(['mobile', 'init']);
+		expect(commands[index]).toContain('--yes');
+		expect(commands[index + 1]?.slice(2, 5)).toEqual([
+			'mobile',
+			'build',
+			'android'
+		]);
+	}
+	expect(commands[2]).not.toContain('--no-native');
+	expect(commands[4]).toContain('--no-native');
 	expect(
 		JSON.parse(
 			await readFile(join(output, 'builds-completed.json'), 'utf8')
@@ -116,6 +132,31 @@ test('builds separate authenticated fixtures without changing anonymous fixture 
 		join(root, 'tests/fixtures/capacitor-android-authenticated-release'),
 		join(root, 'tests/fixtures/expo-android-authenticated-release')
 	]);
+});
+
+test('does not add the Capacitor platform again when retrying either fixture', async () => {
+	for (const scenario of ['data', 'authenticated'] as const) {
+		const { commands, dependencies, output, root } = await fixture();
+		await mkdir(
+			join(
+				root,
+				`tests/fixtures/capacitor-android-${scenario === 'authenticated' ? 'authenticated-' : ''}release`,
+				scenario === 'authenticated'
+					? 'mobile/android'
+					: '.absolutejs/mobile/android'
+			),
+			{ recursive: true }
+		);
+		await buildAndroidProofReleases(
+			root,
+			output,
+			'https://localhost:48443',
+			dependencies,
+			['capacitor'],
+			scenario
+		);
+		expect(commands[2]).toContain('--no-native');
+	}
 });
 
 test('does not declare the build phase complete when the second engine fails', async () => {

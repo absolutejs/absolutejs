@@ -5,6 +5,14 @@ export default defineConfig({
 	mobile: {
 		appId: 'com.absolutejs.expoauthproof',
 		appName: 'AbsoluteJS Authenticated Release Proof',
+		deepLinks: {
+			android: {
+				sha256CertificateFingerprints: process.env
+					.ABSOLUTE_TEST_RELEASE_CERTIFICATE_SHA256
+					? [process.env.ABSOLUTE_TEST_RELEASE_CERTIFICATE_SHA256]
+					: []
+			}
+		},
 		engine: 'expo',
 		entry: '/',
 		platforms: ['android'],
