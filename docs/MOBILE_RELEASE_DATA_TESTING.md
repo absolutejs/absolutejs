@@ -322,6 +322,13 @@ was restored and its boot completion verified. Expo's authenticated build and bo
 engines' installed authenticated checks remain pending. No release was published
 from these attempts.
 
+Before the next native run, use the corrected dependency provisioning described
+in [MOBILE_NATIVE_DEPENDENCIES.md](MOBILE_NATIVE_DEPENDENCIES.md). The audit found
+stale CLI pins and incompatible Sync adapter peer declarations, plus fixture-local
+copies shadowing the repaired workspace graph. These fixes do not explain or
+resolve Android startup failures that occurred before app installation. The
+framework release remains on hold until installed native checks pass.
+
 - [ ] Sign in as synthetic account A through the system browser and AbsoluteJS
       Auth's actual authorization-code/PKCE and socket-ticket endpoints.
 - [ ] Queue a mutation while disconnected, using the provisioned native SQLite

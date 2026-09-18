@@ -12,6 +12,10 @@ import { createHash } from 'node:crypto';
 import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 import type { NormalizedAbsoluteMobileConfig } from './config';
 import {
+	ABSOLUTE_DEVICES_VERSION,
+	ABSOLUTE_EXPO_DEVICES_VERSION
+} from './nativePackages';
+import {
 	ABSOLUTE_EXPO_AUTH_PACKAGE,
 	ABSOLUTE_EXPO_AUTH_CORE_VERSION,
 	ABSOLUTE_EXPO_AUTH_VERSION,
@@ -209,8 +213,8 @@ const expoPackage = (
 	updates: boolean
 ) => ({
 	dependencies: {
-		'@absolutejs/devices': '0.7.0',
-		'@absolutejs/devices-expo': '0.0.11',
+		'@absolutejs/devices': ABSOLUTE_DEVICES_VERSION,
+		'@absolutejs/devices-expo': ABSOLUTE_EXPO_DEVICES_VERSION,
 		...(auth
 			? {
 					'@absolutejs/auth': ABSOLUTE_EXPO_AUTH_CORE_VERSION,

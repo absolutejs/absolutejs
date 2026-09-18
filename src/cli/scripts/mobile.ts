@@ -11,6 +11,14 @@ import { join, relative, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import type { MobileConfig } from '../../../types/build';
 import { installPackages } from '../add/dependencies';
+import {
+	ABSOLUTE_NATIVE_EXACT_PACKAGES,
+	CAPACITOR_PACKAGE_SPECS,
+	CAPACITOR_SYNC_PACKAGE_SPECS,
+	assertNativePackageVersions,
+	packageNameFromSpec,
+	packagesNeedingExactInstall
+} from '../../mobile/nativePackages';
 import { writeAbsoluteCapacitorConfig } from '../../mobile/capacitorProject';
 import {
 	syncAbsoluteExpoWebAssets,
@@ -272,27 +280,6 @@ const CAPACITOR_PACKAGES = [
 	'@absolutejs/devices-capacitor'
 ];
 
-const CAPACITOR_PACKAGE_SPECS = [
-	'@capacitor/core@8.5.0',
-	'@capacitor/app@8.1.1',
-	'@capacitor/browser@8.0.4',
-	'@capacitor/network@8.0.1',
-	'@capacitor/preferences@8.0.1',
-	'@capacitor/cli@8.5.0',
-	'@capacitor/android@8.5.0',
-	'@capacitor/ios@8.5.0',
-	'@absolutejs/devices@0.5.0',
-	'@absolutejs/devices-capacitor@0.6.1'
-];
-
-const CAPACITOR_SYNC_PACKAGE_SPECS = [
-	'@absolutejs/sync-capacitor@0.9.1',
-	'@capacitor-community/sqlite@8.1.1'
-];
-
-const packageNameFromSpec = (spec: string) =>
-	spec.slice(0, spec.lastIndexOf('@'));
-
 const directProjectPackages = async (projectRoot: string) => {
 	const manifest: unknown = JSON.parse(
 		await readFile(join(projectRoot, 'package.json'), 'utf8')
@@ -308,29 +295,6 @@ const directProjectPackages = async (projectRoot: string) => {
 
 	return names;
 };
-
-const resolvedPackageVersion = async (
-	projectRoot: string,
-	packageName: string
-) => {
-	try {
-		const manifest: unknown = JSON.parse(
-			await readFile(
-				join(projectRoot, 'node_modules', packageName, 'package.json'),
-				'utf8'
-			)
-		);
-
-		return isRecord(manifest) && typeof manifest.version === 'string'
-			? manifest.version
-			: undefined;
-	} catch {
-		return undefined;
-	}
-};
-
-const exactVersionFromSpec = (spec: string) =>
-	spec.slice(spec.lastIndexOf('@') + 1);
 
 const installApprovedPackages = async (
 	projectRoot: string,
@@ -351,27 +315,6 @@ const installApprovedPackages = async (
 		);
 };
 
-const packagesNeedingExactInstall = async (
-	projectRoot: string,
-	specs: string[],
-	installed: ReadonlySet<string>,
-	exactPackages: ReadonlySet<string>
-) =>
-	(
-		await Promise.all(
-			specs.map(async (spec) => {
-				const name = packageNameFromSpec(spec);
-				const needsInstall =
-					!installed.has(name) ||
-					(exactPackages.has(name) &&
-						(await resolvedPackageVersion(projectRoot, name)) !==
-							exactVersionFromSpec(spec));
-
-				return needsInstall ? spec : undefined;
-			})
-		)
-	).filter((spec): spec is string => spec !== undefined);
-
 const ensureCapacitorPackages = async (
 	projectRoot: string,
 	args: string[],
@@ -389,13 +332,18 @@ const ensureCapacitorPackages = async (
 		projectRoot,
 		specs,
 		installed,
-		new Set(['@absolutejs/devices', '@absolutejs/devices-capacitor'])
+		ABSOLUTE_NATIVE_EXACT_PACKAGES
 	);
 	await installApprovedPackages(
 		projectRoot,
 		args,
 		'Capacitor and the AbsoluteJS native adapters are missing or outdated. Install the tested mobile toolchain now?',
 		missing
+	);
+	await assertNativePackageVersions(
+		projectRoot,
+		specs,
+		ABSOLUTE_NATIVE_EXACT_PACKAGES
 	);
 	const capabilityPlan = resolveAbsoluteDeviceCapabilityPlan(projectRoot);
 	const directCapabilityPackages = await directProjectPackages(projectRoot);
@@ -410,6 +358,11 @@ const ensureCapacitorPackages = async (
 		args,
 		`AbsoluteJS detected native device capabilities (${capabilityPlan.capabilities.join(', ')}). Install only their required Capacitor plugins now?`,
 		capabilityPackages
+	);
+	await assertNativePackageVersions(
+		projectRoot,
+		capabilityPlan.requiredPackages,
+		new Set(capabilityPlan.requiredPackages.map(packageNameFromSpec))
 	);
 	if (mobile?.branding) {
 		const installedBrandingPackages =
