@@ -30,6 +30,23 @@ const devices: AbsoluteDeviceCapabilityPlan = {
 };
 
 describe('mobile update runtime fingerprint', () => {
+	test('requires a new Expo native binary for the embedded asset host', () => {
+		const descriptor = createAbsoluteMobileUpdateRuntimeDescriptor({
+			config: { ...config, engine: 'expo' },
+			deviceCapabilities: devices
+		});
+		expect(descriptor.expoEmbeddedAssetsAbi).toBe(1);
+		const { expoEmbeddedAssetsAbi: _, ...old } = descriptor;
+		expect(fingerprintAbsoluteMobileUpdateRuntime(old)).not.toBe(
+			fingerprintAbsoluteMobileUpdateRuntime(descriptor)
+		);
+		expect(
+			createAbsoluteMobileUpdateRuntimeDescriptor({
+				config,
+				deviceCapabilities: devices
+			}).expoEmbeddedAssetsAbi
+		).toBeUndefined();
+	});
 	test('is deterministic and changes across every native/data boundary', () => {
 		const descriptor = createAbsoluteMobileUpdateRuntimeDescriptor({
 			config,

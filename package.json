@@ -468,9 +468,11 @@
 		"test:native:android": "bun run test:native:android:lifecycle && bun run test:native:android:hmr && bun run test:native:android:bundle",
 		"test:native:android:branding": "ABSOLUTE_TEST_ANDROID_BRANDING=1 bun test tests/native/android-branding-conformance.test.ts",
 		"test:native:android:bundle": "ABSOLUTE_TEST_NATIVE_ANDROID=1 bun test tests/native/android-embedded-bundle-conformance.test.ts",
+		"test:native:android:data": "ABSOLUTE_TEST_ANDROID_RELEASE_DATA=1 bun test tests/native/android-release-data-conformance.test.ts",
 		"test:native:android:hmr": "ABSOLUTE_TEST_NATIVE_ANDROID=1 bun test tests/native/android-hmr-conformance.test.ts",
 		"test:native:android:lifecycle": "ABSOLUTE_TEST_NATIVE_ANDROID=1 bun test tests/native/android-lifecycle-conformance.test.ts",
 		"test:native:android:observability": "ABSOLUTE_TEST_NATIVE_ANDROID=1 bun test tests/native/android-embedded-bundle-conformance.test.ts -t 'native process crash'",
+		"test:native:android:readiness": "ABSOLUTE_TEST_ANDROID_RELEASE_READINESS=1 bun test tests/native/android-release-readiness.test.ts",
 		"test:native:android:updates": "ABSOLUTE_TEST_NATIVE_ANDROID=1 bun test tests/native/android-embedded-bundle-conformance.test.ts -t 'signed web updates'",
 		"test:native:android:upgrade": "ABSOLUTE_TEST_NATIVE_ANDROID=1 bun test tests/native/android-embedded-bundle-conformance.test.ts -t 'installed APK upgrade'",
 		"test:native:capacitor:android:release": "ABSOLUTE_TEST_NATIVE_CAPACITOR_ANDROID_RELEASE=1 bun test tests/native/capacitor-android-release-conformance.test.ts",
@@ -538,7 +540,7 @@
 			]
 		}
 	},
-	"version": "0.20.0-beta.115",
+	"version": "0.20.0-beta.116",
 	"workspaces": [
 		"tests/fixtures/*",
 		"tests/fixtures/_packages/*"

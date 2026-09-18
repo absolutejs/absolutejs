@@ -5,9 +5,23 @@
 		{
 			"changes": [
 				{
+					"detail": "Generated TypeScript declaration aliases no longer bypass Expo runtime resolution. Archive identity and per-file checks reject corrupt data and repair stale cached files. The supported Android WebView extension keeps local assets offline and the native bridge origin-scoped without TLS exceptions or dependency patches. Expo runtime fingerprints require a new native binary. Installed Android acceptance now verifies fresh trusted-server props and exactly-once offline Sync reconciliation for both engines; iOS requires the separate partner checks.",
+					"kind": "fixed",
+					"summary": "Fix Expo Android embedded startup with a scoped HTTPS asset host, one runtime asset registry, verified archive extraction, and readiness after rendering.",
+					"symbols": ["AbsoluteMobileUpdateRuntimeDescriptor"]
+				}
+			],
+			"date": "2026-09-18",
+			"version": "0.20.0-beta.116"
+		},
+		{
+			"changes": [
+				{
 					"kind": "fixed",
 					"summary": "Stabilize the existing UserAgentProvider declaration with an explicit provider type so inferred union ordering cannot cause spurious API changes.",
-					"symbols": ["UserAgentProvider"]
+					"symbols": [
+						"UserAgentProvider"
+					]
 				},
 				{
 					"kind": "fixed",

@@ -1,4 +1,5 @@
 import { access, readFile, readdir } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { dirname, extname, join, relative } from 'node:path';
 import type { NormalizedAbsoluteMobileConfig } from './config';
 import { inspectAbsoluteMobileBundle } from './mobileBundleInspection';
@@ -897,10 +898,18 @@ const expoEmbeddedAssetsCheck = async (
 			)
 		);
 		let offset = 0;
-		type ArchiveEntry = { length: number; offset: number; path: string };
+		type ArchiveEntry = {
+			length: number;
+			md5: string;
+			offset: number;
+			path: string;
+		};
 		const entries = sourceFiles.map((path, index) => {
 			const entry: ArchiveEntry = {
 				length: contents[index]?.byteLength ?? 0,
+				md5: createHash('md5')
+					.update(contents[index] ?? Buffer.alloc(0))
+					.digest('hex'),
 				offset,
 				path: path.replaceAll('\\', '/')
 			};
@@ -913,6 +922,10 @@ const expoEmbeddedAssetsCheck = async (
 		);
 		if (
 			!archive.equals(Buffer.concat(contents)) ||
+			!source.includes(
+				`const ARCHIVE_MD5 = ${JSON.stringify(createHash('md5').update(archive).digest('hex'))};`
+			) ||
+			!source.includes(`const ARCHIVE_LENGTH = ${archive.byteLength};`) ||
 			entries.some((entry) => !source.includes(JSON.stringify(entry)))
 		)
 			throw new TypeError(

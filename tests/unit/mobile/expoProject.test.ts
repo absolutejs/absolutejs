@@ -2,13 +2,14 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { generateKeyPairSync } from 'node:crypto';
+import { createHash, generateKeyPairSync } from 'node:crypto';
 import { normalizeAbsoluteMobileConfig } from '../../../src/mobile/config';
 import {
 	syncAbsoluteExpoWebAssets,
 	writeAbsoluteExpoProject
 } from '../../../src/mobile/expoProject';
 import { createExpoTestCertificate } from '../../helpers/expoCodeSigning';
+import { runInNewContext } from 'node:vm';
 
 const temporaryDirectories: string[] = [];
 
@@ -100,6 +101,103 @@ const fixture = async (
 };
 
 describe('experimental Expo project', () => {
+	test('does not report bridge installation as rendered content', async () => {
+		const { config, root } = await fixture();
+		await writeAbsoluteExpoProject(config, { projectRoot: root });
+		const host = await readFile(
+			join(
+				config.nativeProjectDirectory,
+				'src/generated/AbsoluteWebHost.tsx'
+			),
+			'utf8'
+		);
+		const functionSource = host.slice(
+			host.indexOf('const bridgeBootstrap ='),
+			host.indexOf('const bridgeFetch =')
+		);
+		const executable = new Bun.Transpiler({ loader: 'ts' }).transformSync(
+			functionSource
+		);
+		const script = runInNewContext(
+			`${
+				executable
+			}\nbridgeBootstrap("/", { top: 0, bottom: 0, left: 0, right: 0 });`,
+			{ DEV_ORIGIN: undefined }
+		);
+		const boot = () => {
+			const events = new Map<string, () => void>();
+			const messages: Record<string, unknown>[] = [];
+			runInNewContext(script, {
+				document: { addEventListener() {} },
+				TextEncoder,
+				window: {
+					ReactNativeWebView: {
+						postMessage: (value: string) =>
+							messages.push(JSON.parse(value))
+					}
+				},
+				addEventListener: (name: string, listener: () => void) =>
+					events.set(name, listener)
+			});
+
+			return { events, messages };
+		};
+		const healthy = boot();
+		expect(healthy.messages).toEqual([]);
+		healthy.events.get('absolute:shell-rendered')?.();
+		expect(healthy.messages).toEqual([
+			{ event: 'shell-rendered', format: 3, kind: 'event', path: '/' }
+		]);
+		healthy.events.get('error')?.();
+		expect(healthy.messages).toHaveLength(1);
+		const failed = boot();
+		failed.events.get('unhandledrejection')?.();
+		expect(failed.messages).toEqual([
+			{ event: 'startup-failed', format: 3, kind: 'event', path: '/' }
+		]);
+		const messageSource = host.slice(
+			host.indexOf('\tconst onMessage ='),
+			host.indexOf('\n\tif (startupError)')
+		);
+		const indexUri =
+			'https://appassets.androidplatform.net/absolutejs/amexpo_test/index.html?absolutePath=%2F';
+		let readyCount = 0;
+		const receive = runInNewContext(
+			`${new Bun.Transpiler({ loader: 'ts' }).transformSync(messageSource)}\nonMessage;`,
+			{
+				activeWebPath: { current: '/' },
+				BRIDGE_FORMAT: 3,
+				DEV_ORIGIN: undefined,
+				embeddedReadyReported: { current: false },
+				indexUri,
+				MAX_MESSAGE_BYTES: 65536,
+				PRODUCTION_ORIGIN: 'https://api.example.com',
+				TextEncoder,
+				URL,
+				isNativeRoute: () => false,
+				markAbsoluteEmbeddedWebReady: () => {
+					readyCount += 1;
+				}
+			}
+		) as (event: unknown) => Promise<void>;
+		const data = JSON.stringify({
+			event: 'shell-rendered',
+			format: 3,
+			kind: 'event',
+			path: '/'
+		});
+		for (const url of [
+			undefined,
+			'https://api.example.com/',
+			indexUri.replace('amexpo_test', 'amexpo_other'),
+			indexUri.replace('.net/', '.net.evil/')
+		]) {
+			await receive({ nativeEvent: { data, url } });
+		}
+		expect(readyCount).toBe(0);
+		await receive({ nativeEvent: { data, url: indexUri } });
+		expect(readyCount).toBe(1);
+	});
 	test('embeds the configured Expo code-signing root and metadata', async () => {
 		const { config, root } = await fixture(false, false, true, true);
 		await writeAbsoluteExpoProject(config, { projectRoot: root });
@@ -142,6 +240,11 @@ describe('experimental Expo project', () => {
 		const project = config.nativeProjectDirectory;
 		const metro = await readFile(join(project, 'metro.config.js'), 'utf8');
 		expect(metro).toContain('process.env.ABSOLUTE_EXPO_APP_ROOT');
+		expect(metro).not.toContain('resolveRequest');
+		const expoConfig = JSON.parse(
+			await readFile(join(project, 'app.json'), 'utf8')
+		);
+		expect(expoConfig.expo.experiments.tsconfigPaths).toBe(false);
 		const [
 			appConfig,
 			dynamicConfig,
@@ -359,6 +462,11 @@ describe('experimental Expo project', () => {
 		expect(webHost).toContain('globalThis.__absoluteRequestBack?.()');
 		expect(webHost).toContain("message.event === 'back-unhandled'");
 		expect(webHost).toContain('bridgeBootstrap(pathname, safeAreaInsets)');
+		expect(webHost).not.toContain("event: 'ready'");
+		expect(webHost).toContain("message.event === 'shell-rendered'");
+		expect(webHost).toContain('const sourceUrl = event.nativeEvent.url');
+		expect(webHost).toContain("setStartupError('content')");
+		expect(webHost).toContain('absoluteEmbeddedNativeConfig');
 		expect(webHost).toContain("message.method.startsWith('devices.')");
 		expect(webHost).toContain('EXPO_PUBLIC_ABSOLUTE_DEV_ANDROID_ORIGIN');
 		expect(webHost).toContain("'expo-android'");
@@ -522,6 +630,128 @@ describe('experimental Expo project', () => {
 		);
 		expect(source).not.toContain('"method":"POST"');
 		expect(source).not.toContain('must-not-be-embedded');
+
+		const archiveBytes = await readFile(
+			join(result.path, 'bundle.absasset')
+		);
+		const md5 = (bytes: Uint8Array) =>
+			createHash('md5').update(bytes).digest('hex');
+		const executable = new Bun.Transpiler({ loader: 'ts' }).transformSync(
+			source.replace(/^import .*;$/gmu, '').replace(/^export /gmu, '')
+		);
+		const exercise = async (
+			mode:
+				| 'valid'
+				| 'wrong-resource'
+				| 'truncated-archive'
+				| 'corrupt-archive'
+				| 'short-write'
+				| 'stale-cache'
+		) => {
+			const storage = new Map<string, Uint8Array>();
+			let registered = 0;
+			let input: Uint8Array = archiveBytes;
+			if (mode === 'truncated-archive')
+				input = archiveBytes.subarray(0, 4);
+			if (mode === 'corrupt-archive')
+				input = new Uint8Array(archiveBytes.length);
+			storage.set('source', input);
+			class Directory {
+				uri: string;
+				constructor(...parts: (string | Directory)[]) {
+					this.uri = parts
+						.map((part) =>
+							typeof part === 'string' ? part : part.uri
+						)
+						.join('/');
+				}
+				create() {}
+			}
+			class File extends Directory {
+				get exists() {
+					return storage.has(this.uri);
+				}
+				get size() {
+					return storage.get(this.uri)?.byteLength ?? 0;
+				}
+				get md5() {
+					const bytes = storage.get(this.uri);
+
+					return bytes ? md5(bytes) : null;
+				}
+				delete() {
+					storage.delete(this.uri);
+				}
+				async copy(destination: File) {
+					storage.set(destination.uri, await this.bytes());
+				}
+				async bytes() {
+					const bytes = storage.get(this.uri);
+					if (!bytes) throw new Error('Missing mock file');
+
+					return bytes;
+				}
+				write(bytes: Uint8Array) {
+					storage.set(
+						this.uri,
+						mode === 'short-write' ? bytes.slice(0, 1) : bytes
+					);
+				}
+			}
+			if (mode === 'stale-cache')
+				storage.set(
+					`files/absolutejs-web/${result.bundleId}/index.html`,
+					new Uint8Array('<main></main>'.length)
+				);
+			const run = runInNewContext(
+				`${executable}\nmaterializeAbsoluteWebBundle;`,
+				{
+					Asset: {
+						fromModule: () => ({
+							hash: md5(archiveBytes),
+							localUri: 'source',
+							type: mode === 'wrong-resource' ? 'png' : 'absasset'
+						})
+					},
+					Directory,
+					File,
+					Paths: { document: 'files' },
+					registerAbsoluteEmbeddedBundle: () => {
+						registered++;
+
+						return 'registered';
+					},
+					require: () => 1
+				}
+			) as () => Promise<string>;
+			if (mode === 'valid' || mode === 'stale-cache') {
+				expect(await run()).toBe('registered');
+				expect(
+					Buffer.from(
+						storage.get(
+							`files/absolutejs-web/${result.bundleId}/index.html`
+						) ?? new Uint8Array()
+					).toString()
+				).toBe('<main></main>');
+				expect(registered).toBe(1);
+			} else {
+				await expect(run()).rejects.toThrow(
+					mode === 'wrong-resource'
+						? 'assets-identity-failed'
+						: 'assets-integrity-failed'
+				);
+				expect(registered).toBe(0);
+			}
+		};
+		for (const mode of [
+			'valid',
+			'wrong-resource',
+			'truncated-archive',
+			'corrupt-archive',
+			'short-write',
+			'stale-cache'
+		] as const)
+			await exercise(mode);
 	});
 
 	test('provisions detected provider-neutral device capabilities and Expo plugins', async () => {

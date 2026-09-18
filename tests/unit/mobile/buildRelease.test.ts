@@ -414,6 +414,16 @@ describe('automatic mobile compatibility release build', () => {
 			join(resolve('.'), '.absolute-mobile-generations-')
 		);
 		temporaryDirectories.push(project);
+		// Keep repository compiler options, but do not rebuild unrelated tests,
+		// examples, and scripts for each compatibility generation.
+		await writeFile(
+			join(project, 'tsconfig.json'),
+			JSON.stringify({
+				extends: resolve('tsconfig.json'),
+				files: ['server.ts'],
+				include: []
+			})
+		);
 		const releases: BuiltGeneration[] = [];
 		for (let generation = 1; generation <= 4; generation += 1) {
 			releases.push(await buildGeneration(project, generation, releases));

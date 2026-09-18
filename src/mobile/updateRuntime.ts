@@ -22,6 +22,7 @@ export type AbsoluteMobileUpdateRuntimeDescriptor = {
 	deepLinks: { hosts: string[]; scheme?: string };
 	deviceCapabilities: AbsoluteDeviceCapabilityPlan;
 	engine: 'capacitor' | 'expo';
+	expoEmbeddedAssetsAbi?: 1;
 	format: typeof ABSOLUTE_MOBILE_UPDATE_RUNTIME_FORMAT;
 	shellAbi: typeof ABSOLUTE_MOBILE_SHELL_ABI;
 	syncSchema: SyncLocalStoreSchemaBundle | null;
@@ -44,6 +45,9 @@ export const createAbsoluteMobileUpdateRuntimeDescriptor = (options: {
 	},
 	deviceCapabilities: options.deviceCapabilities,
 	engine: options.config.engine,
+	...(options.config.engine === 'expo'
+		? { expoEmbeddedAssetsAbi: 1 as const }
+		: {}),
 	format: ABSOLUTE_MOBILE_UPDATE_RUNTIME_FORMAT,
 	shellAbi: ABSOLUTE_MOBILE_SHELL_ABI,
 	syncSchema: options.syncSchema ?? null,

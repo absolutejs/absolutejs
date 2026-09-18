@@ -1,7 +1,7 @@
 # AbsoluteJS iOS and TestFlight macOS test runbook
 
 This runbook validates the iOS release path shipped in
-`@absolutejs/absolute@0.20.0-beta.115`,
+`@absolutejs/absolute@0.20.0-beta.116`,
 `@absolutejs/devices-expo@0.0.11`, and
 `@absolutejs/deploy@0.26.0`. It covers a signed local IPA, an internal
 TestFlight upload, retry behavior, and installation on an iPhone or iPad.
@@ -11,6 +11,17 @@ creates durable Apple-side records even when the build is only used by internal
 testers.
 
 ## Partner handoff: start here
+
+The independent local Android HTTPS/data/Sync gate is documented in
+[MOBILE_RELEASE_DATA_TESTING.md](MOBILE_RELEASE_DATA_TESTING.md). Its results do
+not replace any iOS checklist row below, and the partner does not need to run
+that Android-only command for this handoff.
+
+Version beta.116 adds verified Expo archive extraction and separates generated
+TypeScript declaration paths from runtime asset resolution. Android's installed
+live-data/offline-Sync gate passed with the new HTTPS asset host; that does not
+validate WKWebView on iOS. Include `EXPO-IOS-EMBEDDED-01` through `04` below in the
+partner report, with the exact package version and working directory used.
 
 There are two different test tracks in this document. Do not mix their working
 directories or commands:
@@ -1275,6 +1286,29 @@ Return the six report rows, command summaries, AAB byte size/hash, and redacted
 doctor output.
 
 #### Expo iOS production-release acceptance
+
+Embedded-content regression checks (do not substitute Android results): the
+Android shell now has a virtual HTTPS asset loader; iOS still uses its separate
+WKWebView file-loading path. Rebuild the native app for the new runtime
+fingerprint—an OTA update alone cannot install the Android asset module.
+
+- [ ] `EXPO-IOS-EMBEDDED-01` From the staging application root, build/install
+  the production app using the commands below. Stop Bun and Metro, disable
+  networking on the test device, then launch and force-close/relaunch it. Record
+  the visible connection fallback and a screenshot; a white screen, permanent
+  `Starting…`, or early bridge log is a failure.
+- [ ] `EXPO-IOS-EMBEDDED-02` Restore networking and launch again against the
+  staging backend. Confirm the ordinary web route renders a value changed on
+  the server **after** the native build. Record the expected/observed synthetic
+  value, route, and screenshot. A native React diagnostic screen is not this test.
+- [ ] `EXPO-IOS-EMBEDDED-03` Navigate to another ordinary route and back. Check
+  its JS, styles, root-relative images, and fonts. Record failures per framework
+  actually configured; do not mark untested frameworks passed.
+- [ ] `EXPO-IOS-EMBEDDED-04` Confirm the embedded-ready log appears only after
+  visible page/fallback rendering. If startup fails, record the visible retry
+  screen and whether retry recovers. Return app/build versions, iOS version,
+  device/simulator model, each checkbox's PASS/FAIL/SKIPPED result, and sanitized
+  screenshots/logs. Do not return auth tokens, cookies, or private staging data.
 
 Run this from the staging application root on macOS—not from
 `.absolutejs/mobile/expo` or an Xcode directory. Keep `mobile.engine: 'expo'`,

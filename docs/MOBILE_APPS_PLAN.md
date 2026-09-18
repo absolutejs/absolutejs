@@ -2,6 +2,55 @@
 
 Status: Capacitor Android development/release, all-framework embedded bundles, universal native Auth/Sync, Expo hybrid native Auth/Sync, background Sync, automatic device provisioning, provider-neutral native push registration, signed staged Capacitor updates, end-to-end RSA-signed self-hosted Expo production updates, and provider-neutral Android development plus installed production-AAB conformance are operational; iOS development/release automation plus installed Expo iOS OTA and replacement-upgrade harnesses are shipped and awaiting real macOS/physical-device acceptance
 
+Acceptance checkpoint (September 18, 2026 UTC, installed Android server data):
+both Capacitor and Expo have passing per-engine reports for signed AAB-derived
+installation, embedded offline launch/relaunch, untrusted-HTTPS rejection, live
+typed props containing a post-build challenge, and one queued offline Sync
+mutation reconciled to exactly one server write and a visible receipt.
+Capacitor evidence: `.absolutejs/release-data-conformance/aabf6b8e-8254-4260-bb00-f4f4c2fc593a/capacitor/report.json`.
+Expo evidence: `.absolutejs/release-data-conformance/419252c1-6ba1-4605-9e1d-3aba59192bce/expo/report.json`.
+The final Expo run was targeted; these are separate per-engine reports, not a
+claim that the earlier combined run passed.
+
+The Expo blank-screen fix addresses three independent problems: unsupported
+file-URL manifest fetching, readiness reported before rendering, and generated
+TypeScript declaration paths creating a second runtime asset registry (which
+returned PNG bytes for the bundle asset). Android now uses a scoped virtual HTTPS
+asset loader through an upstream WebView extension, origin-scoped document-start
+bridge injection, visible failure/retry, and post-render readiness. Expo's supported
+`tsconfigPaths: false` keeps declaration aliases out of Metro resolution; archive
+and per-file checks detect incorrect/truncated/corrupt data before registration.
+The built release contains only one asset registry. An embedded-assets ABI changes
+the Expo runtime fingerprint so these bundles cannot update older native binaries.
+iOS retains its separate loading path and requires the partner's explicit
+`EXPO-IOS-EMBEDDED-*` checks; Android acceptance is not iOS acceptance.
+
+The harness now completes both native builds before emulator startup, waits for
+startup CPU pressure to settle and then checks the real launcher, and waits for
+actual network connectivity after the offline-shell phase. It serves the
+matching **built server.js**, whose generated mobile page identities/contracts
+match the app, rather than raw server.ts. Reports bind the server bundle hash
+as well as the app artifact. The post-build challenge remains runtime data.
+
+`bun run test:native:android:readiness` passed a fresh device's three initial
+and nine additional launcher snapshots after the settling guard. A quiet host
+alone had still reproduced the UIAutomation connection timeout: Android's own
+startup workload remained busy after boot completion. The guard does not
+dismiss ANR dialogs or change Android timeouts. A smaller-display experiment
+was not adopted. The normal emulator was restored after the diagnostics; other
+Codex sessions were not stopped.
+
+Evidence correction: UI Automator can exit zero without writing XML. Every
+capture now requires a newly acknowledged UUID-named file, with bounded
+acquisition retries, command diagnostics, and independent failure screenshots.
+Earlier fixed-path snapshots could be stale and are not reliable current-state
+evidence. Diagnostic capture failures cannot replace the original failure or
+prevent cleanup.
+
+The runbook is `docs/MOBILE_RELEASE_DATA_TESTING.md`. This remains React-fixture,
+in-memory anonymous Sync evidence, not all-framework native rendering, iOS,
+authenticated durability, process-death recovery, or store certification.
+
 Implementation checkpoint (September 17, 2026, installed Android branding
 conformance): `bun run test:native:android:branding` exercises the public
 Capacitor and Expo production-release paths with two synthetic artwork

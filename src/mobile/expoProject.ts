@@ -35,6 +35,7 @@ import {
 	absoluteExpoNativeObservabilityPaths
 } from './expoNativeObservability';
 import { absoluteExpoActivityResultRecoveryFiles } from './expoActivityResultRecovery';
+import { absoluteExpoEmbeddedAssetsFiles } from './expoEmbeddedAssets';
 import {
 	absoluteExpoBrandingConfig,
 	writeAbsoluteExpoBrandingInputs
@@ -65,6 +66,7 @@ type AbsoluteExpoNativeDataManifest = {
 
 type AbsoluteExpoAssetEntry = {
 	length: number;
+	md5: string;
 	offset: number;
 	path: string;
 };
@@ -356,7 +358,9 @@ const expoAppConfig = (
 				package: config.appId,
 				permissions: requirements.androidPermissions
 			},
-			experiments: { typedRoutes: true },
+			// Generated paths below locate type declarations, not runtime modules.
+			// Let Metro/Expo own runtime resolution (including its asset registry).
+			experiments: { tsconfigPaths: false, typedRoutes: true },
 			ios: {
 				...(branding?.ios ?? {}),
 				associatedDomains: config.deepLinkHosts.map(
@@ -387,6 +391,7 @@ const expoAppConfig = (
 				['expo-dev-client', { launchMode: 'most-recent' }],
 				...(branding ? [branding.splashPlugin] : []),
 				'./plugins/withAbsoluteActivityResultRecovery',
+				'./plugins/withAbsoluteEmbeddedAssets',
 				...(auth || config.updates ? ['expo-secure-store'] : []),
 				...(sync
 					? [
@@ -1022,6 +1027,7 @@ import { ActivityIndicator, BackHandler, Platform, Pressable, StyleSheet, Text, 
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView, type WebViewMessageEvent } from 'react-native-webview';
 import { materializeAbsoluteWebBundle } from './webAssets';
+import { absoluteEmbeddedNativeConfig } from './AbsoluteEmbeddedAssets';
 import { markAbsoluteEmbeddedWebPhase, markAbsoluteEmbeddedWebReady } from './AbsoluteActivityResultRecovery';
 import { createExpoDevicesBridgeHost } from '@absolutejs/devices-expo/bridge';
 import { absoluteExpoDevices, beforeAbsoluteExpoDeviceSignOut } from './AbsoluteDevices';
@@ -1141,7 +1147,16 @@ const bridgeBootstrap = (path: string, safeAreaInsets: { bottom: number; left: n
 		event.preventDefault();
 		send({ format: 3, kind: 'event', event: 'navigation', path: url.pathname + url.search + url.hash });
 	}, true);
-	send({ format: 3, kind: 'event', event: 'ready', path: currentPath });
+	let shellRendered = false;
+	addEventListener('absolute:shell-rendered', () => {
+		shellRendered = true;
+		send({ format: 3, kind: 'event', event: 'shell-rendered', path: currentPath });
+	});
+	const startupFailed = () => {
+		if (!shellRendered) send({ format: 3, kind: 'event', event: 'startup-failed', path: currentPath });
+	};
+	addEventListener('error', startupFailed);
+	addEventListener('unhandledrejection', startupFailed);
 })(); true;\`;
 };
 
@@ -1190,11 +1205,18 @@ export function AbsoluteWebHost({ path }: AbsoluteWebHostProps = {}) {
 	const canGoBack = useRef(false);
 	const [runtimeReady, setRuntimeReady] = useState(!AUTH_ENABLED && !SYNC_ENABLED);
 	const [devicesReady, setDevicesReady] = useState(false);
-	const [startupError, setStartupError] = useState<'assets' | 'devices'>();
+	const [startupError, setStartupError] = useState<'assets' | 'devices' | 'content'>();
 	const [startupRevision, setStartupRevision] = useState(0);
 	const activeWebPath = useRef(pathname);
 	const embeddedReadyReported = useRef(false);
 	const webSource = useMemo(() => indexUri ? { uri: indexUri } : undefined, [indexUri]);
+	useEffect(() => {
+		if (!indexUri || DEV_ORIGIN) return;
+		const timeout = setTimeout(() => {
+			if (!embeddedReadyReported.current) setStartupError('content');
+		}, 60000);
+		return () => clearTimeout(timeout);
+	}, [indexUri]);
 
 	useEffect(() => {
 		if (!AUTH_ENABLED && !SYNC_ENABLED) return;
@@ -1238,6 +1260,7 @@ export function AbsoluteWebHost({ path }: AbsoluteWebHostProps = {}) {
 		markAbsoluteEmbeddedWebPhase('assets-start');
 		void materializeAbsoluteWebBundle().then(uri => {
 			markAbsoluteEmbeddedWebPhase('assets-ready');
+			embeddedReadyReported.current = false;
 			setIndexUri(uri + '?absolutePath=' + encodeURIComponent(pathname));
 		}).catch(error => {
 			const phase = error instanceof Error && (error.message === 'assets-root-failed' || error.message === 'assets-directory-failed' || error.message === 'assets-destination-failed' || error.message === 'assets-module-failed' || error.message === 'assets-source-failed' || error.message === 'assets-download-failed' || error.message === 'assets-copy-failed' || error.message === 'assets-read-failed' || error.message === 'assets-write-failed' || error.message === 'assets-finalize-failed')
@@ -1291,15 +1314,23 @@ export function AbsoluteWebHost({ path }: AbsoluteWebHostProps = {}) {
 		try { return new URL(source).origin === origin; } catch { return false; }
 	};
 	const onMessage = async (event: WebViewMessageEvent) => {
+		// Bridge authority belongs only to the currently loaded embedded bundle
+		// (or the explicitly configured development origin), never remote pages.
+		const sourceUrl = event.nativeEvent.url;
+		if (!indexUri || typeof sourceUrl !== 'string' || (DEV_ORIGIN ? !hasOrigin(sourceUrl, DEV_ORIGIN) : !sourceUrl.startsWith(indexUri.slice(0, indexUri.lastIndexOf('/') + 1)))) return;
 		const source = event.nativeEvent.data;
 		if (new TextEncoder().encode(source).byteLength > MAX_MESSAGE_BYTES) return;
 		let message: Record<string, unknown>;
 		try { message = JSON.parse(source); } catch { return; }
 		if (message.format !== BRIDGE_FORMAT || typeof message.path !== 'string' || !message.path.startsWith('/') || message.path.startsWith('//')) return;
-		if (message.kind === 'event' && (message.event === 'navigation' || message.event === 'ready')) {
+		if (message.kind === 'event' && message.event === 'startup-failed') {
+			if (!embeddedReadyReported.current) setStartupError('content');
+			return;
+		}
+		if (message.kind === 'event' && (message.event === 'navigation' || message.event === 'shell-rendered')) {
 			const target = new URL(message.path, PRODUCTION_ORIGIN);
 			if (target.origin !== PRODUCTION_ORIGIN) return;
-			if (message.event === 'ready' && !DEV_ORIGIN && !embeddedReadyReported.current) {
+			if (message.event === 'shell-rendered' && !DEV_ORIGIN && !embeddedReadyReported.current) {
 				embeddedReadyReported.current = true;
 				markAbsoluteEmbeddedWebReady();
 			}
@@ -1361,12 +1392,17 @@ export function AbsoluteWebHost({ path }: AbsoluteWebHostProps = {}) {
 	</View>;
 	if (!webSource || !runtimeReady || !devicesReady) return <View style={styles.loading}><ActivityIndicator /></View>;
 	return <WebView
-		allowFileAccess
-		allowFileAccessFromFileURLs
+		nativeConfig={!DEV_ORIGIN ? absoluteEmbeddedNativeConfig : undefined}
+		allowFileAccess={Platform.OS !== 'android'}
+		allowFileAccessFromFileURLs={Platform.OS !== 'android'}
 		allowUniversalAccessFromFileURLs={false}
+		originWhitelist={DEV_ORIGIN ? [DEV_ORIGIN] : [Platform.OS === 'android' ? 'https://appassets.androidplatform.net' : 'file://*']}
 		allowingReadAccessToURL={webSource.uri.slice(0, webSource.uri.lastIndexOf('/') + 1)}
 		injectedJavaScriptBeforeContentLoaded={bridgeBootstrap(pathname, safeAreaInsets)}
 		onMessage={onMessage}
+		onError={() => setStartupError('content')}
+		onRenderProcessGone={() => setStartupError('content')}
+		onContentProcessDidTerminate={() => setStartupError('content')}
 		onNavigationStateChange={state => {
 			canGoBack.current = state.canGoBack;
 			if (!DEV_ORIGIN || !hasOrigin(state.url, DEV_ORIGIN)) return;
@@ -1374,8 +1410,8 @@ export function AbsoluteWebHost({ path }: AbsoluteWebHostProps = {}) {
 			activeWebPath.current = route.pathname + route.search + route.hash;
 		}}
 		onShouldStartLoadWithRequest={request => {
-			if (request.url.startsWith('file:') || hasOrigin(request.url, PRODUCTION_ORIGIN) || DEV_ORIGIN && hasOrigin(request.url, DEV_ORIGIN)) return true;
-			void Linking.openURL(request.url);
+			if (DEV_ORIGIN ? hasOrigin(request.url, DEV_ORIGIN) : request.url.startsWith(webSource.uri.slice(0, webSource.uri.lastIndexOf('/') + 1))) return true;
+			if (/^https?:/.test(request.url)) void Linking.openURL(request.url);
 			return false;
 		}}
 		ref={webView}
@@ -1847,6 +1883,8 @@ export const writeAbsoluteExpoProject = async (
 		project
 	))
 		files.set(path, source);
+	for (const [path, source] of absoluteExpoEmbeddedAssetsFiles(project))
+		files.set(path, source);
 	if (config.observability) {
 		for (const [path, source] of absoluteExpoNativeObservabilityFiles(
 			project
@@ -1973,14 +2011,18 @@ const assetModuleSource = (
 	assets: AbsoluteExpoAssetEntry[],
 	archiveAsset: string,
 	bundleId: string,
+	archiveMd5: string,
 	manifest: AbsoluteExpoNativeDataManifest
 ) => `${EXPO_GENERATED_HEADER}import { Asset } from 'expo-asset';
 import { Directory, File, Paths } from 'expo-file-system';
 import { copyAsync as copyLegacyAsync } from 'expo-file-system/legacy';
+import { registerAbsoluteEmbeddedBundle } from './AbsoluteEmbeddedAssets';
 
 ${nativeDataManifestTypeSource}
 declare const require: (path: string) => number;
 const BUNDLE_ID = ${JSON.stringify(bundleId)};
+const ARCHIVE_MD5 = ${JSON.stringify(archiveMd5)};
+const ARCHIVE_LENGTH = ${assets.reduce((sum, entry) => sum + entry.length, 0)};
 export const ABSOLUTE_MOBILE_MANIFEST: AbsoluteMobileManifest = ${JSON.stringify(manifest)};
 const ARCHIVE_MODULE = require(${JSON.stringify(archiveAsset)});
 const ASSETS = [
@@ -1996,10 +2038,12 @@ export const materializeAbsoluteWebBundle = async () => {
 	let archive: File;
 	try { archive = new File(root, '.absolutejs-bundle.absasset'); }
 	catch { throw new Error('assets-destination-failed'); }
+	if (archive.exists && (archive.size !== ARCHIVE_LENGTH || archive.md5 !== ARCHIVE_MD5)) archive.delete();
 	if (!archive.exists) {
 		let asset: Asset;
 		try { asset = Asset.fromModule(ARCHIVE_MODULE); }
 		catch { throw new Error('assets-module-failed'); }
+		if (asset.type !== 'absasset' || asset.hash !== ARCHIVE_MD5) throw new Error('assets-identity-failed');
 		try { if (!asset.localUri) asset = await asset.downloadAsync(); }
 		catch { throw new Error('assets-download-failed'); }
 		if (!asset.localUri) throw new Error('assets-download-failed');
@@ -2012,9 +2056,16 @@ export const materializeAbsoluteWebBundle = async () => {
 			catch { throw new Error('assets-copy-failed'); }
 		}
 	}
+	// Checksums detect accidental corruption/registry mismatches, not authenticity;
+	// authenticity comes from the signed application/update containing this table.
+	if (archive.size !== ARCHIVE_LENGTH || archive.md5 !== ARCHIVE_MD5) {
+		archive.delete();
+		throw new Error('assets-integrity-failed');
+	}
 	let contents: Uint8Array;
 	try { contents = await archive.bytes(); }
 	catch { throw new Error('assets-read-failed'); }
+	if (contents.byteLength !== ARCHIVE_LENGTH) throw new Error('assets-integrity-failed');
 	for (const entry of ASSETS) {
 		const parts = entry.path.split('/');
 		const name = parts.pop();
@@ -2028,16 +2079,17 @@ export const materializeAbsoluteWebBundle = async () => {
 		let destination: File;
 		try {
 			destination = new File(directory, name);
-			if (destination.exists && destination.size === entry.length) continue;
+			if (destination.exists && destination.size === entry.length && destination.md5 === entry.md5) continue;
 			if (destination.exists) destination.delete();
 		} catch { throw new Error('assets-destination-failed'); }
 		try { destination.write(contents.slice(entry.offset, entry.offset + entry.length)); }
 		catch { throw new Error('assets-write-failed'); }
+		if (destination.size !== entry.length || destination.md5 !== entry.md5) throw new Error('assets-integrity-failed');
 	}
 	try { archive.delete(); }
 	catch { throw new Error('assets-finalize-failed'); }
 
-	try { return new File(root, 'index.html').uri; }
+	try { return await registerAbsoluteEmbeddedBundle(root.uri, ASSETS.map(entry => entry.path), new File(root, 'index.html').uri); }
 	catch { throw new Error('assets-finalize-failed'); }
 };
 `;
@@ -2085,11 +2137,13 @@ export const syncAbsoluteExpoWebAssets = async (
 	);
 	let assets: AbsoluteExpoAssetEntry[];
 	let archiveAsset: string;
+	let archiveMd5: string;
 	try {
 		let offset = 0;
 		assets = filesWithContents.map(({ contents, file }) => {
 			const entry: AbsoluteExpoAssetEntry = {
 				length: contents.byteLength,
+				md5: createHash('md5').update(contents).digest('hex'),
 				offset,
 				path: relative(config.bundleDirectory, file).replaceAll(
 					'\\',
@@ -2101,10 +2155,11 @@ export const syncAbsoluteExpoWebAssets = async (
 			return entry;
 		});
 		const name = `bundle${EXPO_ASSET_EXTENSION}`;
-		await writeFile(
-			join(staging, name),
-			Buffer.concat(filesWithContents.map(({ contents }) => contents))
+		const archiveContents = Buffer.concat(
+			filesWithContents.map(({ contents }) => contents)
 		);
+		archiveMd5 = createHash('md5').update(archiveContents).digest('hex');
+		await writeFile(join(staging, name), archiveContents);
 		archiveAsset = portableRelative(
 			join(config.nativeProjectDirectory, 'src', 'generated'),
 			join(destination, name)
@@ -2122,7 +2177,13 @@ export const syncAbsoluteExpoWebAssets = async (
 	);
 	await writeManagedFile(
 		generated,
-		assetModuleSource(assets, archiveAsset, bundleId, nativeDataManifest),
+		assetModuleSource(
+			assets,
+			archiveAsset,
+			bundleId,
+			archiveMd5,
+			nativeDataManifest
+		),
 		true
 	);
 

@@ -446,6 +446,27 @@ describe('mobile release doctor', () => {
 		);
 	});
 
+	test('rejects modified Expo archive integrity metadata', async () => {
+		const { config, projectRoot } = await expoFixture();
+		const generated = join(
+			config.nativeProjectDirectory,
+			'src/generated/webAssets.ts'
+		);
+		const source = await readFile(generated, 'utf8');
+		await writeFile(
+			generated,
+			source.replace(
+				/const ARCHIVE_MD5 = "[a-f0-9]+";/u,
+				'const ARCHIVE_MD5 = "invalid";'
+			)
+		);
+		const result = await inspectAbsoluteMobileRelease(config, projectRoot);
+		expect(
+			result.checks.find(({ id }) => id === 'expo.bundle-projection')
+				?.status
+		).toBe('fail');
+	});
+
 	test('rejects a modified Expo embedded asset', async () => {
 		const { config, projectRoot } = await expoFixture();
 		const assetDirectory = join(

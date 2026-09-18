@@ -668,12 +668,23 @@ export const startAbsoluteMobileShell = async (
 	// Capture taps before the first page activation completes. A user may interact
 	// as soon as framework content paints, which can precede its ready promise.
 	reinstallBrowserNavigation();
-	await coordinator.navigate({
+	const initialNavigation = await coordinator.navigate({
 		direction: 'replace',
 		from: activePath,
 		historyMode: 'none',
 		path: activePath
 	});
+	if (
+		initialNavigation.kind === 'failed' &&
+		initialNavigation.phase === 'commit'
+	) {
+		throw new Error('The embedded page could not be activated.');
+	}
+	// The embedded host must not confuse bridge installation with rendered
+	// content. A rendered connection fallback is valid offline-shell evidence;
+	// live-data acceptance separately requires the real page and server proof.
+	await waitForDocumentPaint();
+	dispatchEvent(new Event('absolute:shell-rendered'));
 	await options.installUpdates?.(manifest);
 	await installDeepLinks(manifest, onNavigate, auth?.redirectUri);
 	try {

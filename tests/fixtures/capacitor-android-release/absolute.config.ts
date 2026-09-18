@@ -30,7 +30,11 @@ export default defineConfig({
 		entry: '/',
 		nativeProject: { directory: '.absolutejs/mobile' },
 		platforms: ['android'],
-		server: { productionOrigin: 'https://release.absolutejs.test' }
+		server: {
+			productionOrigin:
+				process.env.ABSOLUTE_TEST_RELEASE_ORIGIN ??
+				'https://release.absolutejs.test'
+		}
 	},
 	reactDirectory: 'react'
 });
