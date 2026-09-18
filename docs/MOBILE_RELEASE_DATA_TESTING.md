@@ -259,3 +259,41 @@ changelog/API verification, and a fresh packed-package compile check passed.
 The integration inventory skipped its two opt-in rows: published-package compile
 was subsequently covered by the fresh local tarball check; durable S3 storage
 was not enabled. The long HMR inventory and iOS acceptance were not rerun.
+
+## Next acceptance: authenticated, persistent outboxes
+
+The `.116` registry artifact has been downloaded and its SHA-1 verified against
+the publish result (`cd161abd66440f542edaf42acff99587b32b7c96`). Registry metadata
+and tarball availability propagated separately; no second publish was needed.
+
+The next installed-release gate must run independently for Capacitor and Expo:
+
+- [ ] Sign in as synthetic account A through the system browser and AbsoluteJS
+      Auth's actual authorization-code/PKCE and socket-ticket endpoints.
+- [ ] Queue a mutation while disconnected, using the provisioned native SQLite
+      store, not an in-memory test transport.
+- [ ] Force-stop and reopen the same installation without clearing its data.
+      An offline connection-fallback screen is acceptable; it is not proof of
+      durable outbox restoration by itself.
+- [ ] Reconnect and observe the original mutation's receipt, an empty outbox,
+      and exactly one server-side effect. A subsequent reconnect must not add
+      another effect.
+- [ ] Change to synthetic account B and verify that neither A's cached rows nor
+      A's queued operations are exposed or executed as B. Return to A and
+      verify its account-scoped data independently.
+- [ ] Record only phase results, synthetic identities, counts, and timings.
+      Do not include authorization codes, bearer/refresh tokens, socket tickets,
+      callback URLs, signing keys, or the entire evidence directory in reports.
+
+Unreleased preparation uncovered a generated Expo bridge lifecycle gap: a bridge created
+before login stayed unauthenticated after login. The replacement implementation
+binds the first login, closes old account resources on sign-out/account changes,
+rejects stale request results and socket tickets, and suppresses old account
+events. A revoked bridge stays unusable even if the user switches back; the
+existing runtime reload must create a new bridge before another account can use
+Sync. This prevents queued messages from an old page acquiring new authority.
+Generated-runtime
+regression coverage exercises these transitions and rapid account changes.
+This is not installed-release or SQLite process-death evidence. The checklist
+above remains pending until both engines pass on an installed signed app; the
+previous anonymous release-data reports must not be promoted to that claim.

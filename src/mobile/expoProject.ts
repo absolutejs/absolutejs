@@ -978,30 +978,89 @@ export const createAbsoluteExpoSyncBridge = async (
 	emit: (event: 'sync.socket' | 'sync.wake', payload: Record<string, unknown>) => void
 ) => {
 	await startAbsoluteExpoSync();
-	const principal = await absoluteExpoAuth.principal();
-	if (!principal) return {
-		close: () => undefined,
-		request: async () => { throw new Error('Expo Sync requires an authenticated principal.'); }
+	const bind = (namespace: string, generation: number) => {
+		const emitCurrent = (event: 'sync.socket' | 'sync.wake', payload: Record<string, unknown>) => {
+			if (!closed && generation === revision) emit(event, payload);
+		};
+		const transactions = createExpoSyncBridgeHost({ createId: expoSyncRandomId, namespace, store });
+		const sockets = createExpoSyncSocketBridgeHost({
+			allowedOrigin: PRODUCTION_ORIGIN,
+			emit: payload => emitCurrent('sync.socket', payload),
+			socketTicket: async audience => {
+				if (closed || generation !== revision) throw new Error('Expo Sync principal changed.');
+				const ticket = await absoluteExpoAuth.socketTicket(audience);
+				if (closed || generation !== revision) throw new Error('Expo Sync principal changed.');
+				return ticket;
+			}
+		});
+		const removeLifecycle = installExpoSyncLifecycle({
+			client: { reconnect: () => emitCurrent('sync.wake', {}) }
+		});
+		return {
+			close: async () => {
+				removeLifecycle();
+				await Promise.all([transactions.close(), sockets.close()]);
+			},
+			request: (method: string, params: Record<string, unknown>) =>
+				method.startsWith('sync.socket.') ? sockets.request(method, params) : transactions.request(method, params)
+		};
 	};
-	const transactions = createExpoSyncBridgeHost({ createId: expoSyncRandomId, namespace: principal.namespace, store });
-	const sockets = createExpoSyncSocketBridgeHost({
-		allowedOrigin: PRODUCTION_ORIGIN,
-		emit: payload => emit('sync.socket', payload),
-		socketTicket: audience => absoluteExpoAuth.socketTicket(audience)
-	});
-	const removeLifecycle = installExpoSyncLifecycle({
-		client: { reconnect: () => emit('sync.wake', {}) }
-	});
+	let closed = false;
+	let revoked = false;
+	let boundNamespace: string | undefined;
+	let revision = 0;
+	let bridge: ReturnType<typeof bind> | undefined;
+	let ready = Promise.resolve();
+	const replace = (principal: Awaited<ReturnType<typeof absoluteExpoAuth.principal>>) => {
+		if (closed) return;
+		// A mounted page may bind its first login, but must never inherit another
+		// account's authority. Account changes require the existing runtime reload.
+		if (boundNamespace !== undefined && principal?.namespace !== boundNamespace) revoked = true;
+		const generation = ++revision;
+		const previous = bridge;
+		bridge = undefined;
+		ready = ready.then(async () => {
+			await previous?.close();
+			if (!closed && !revoked && generation === revision && principal) {
+				boundNamespace = principal.namespace;
+				bridge = bind(principal.namespace, generation);
+			}
+		});
+		// Keep background transitions handled; requests still observe setup failures.
+		void ready.catch(() => undefined);
+	};
+	const stop = absoluteExpoAuth.onPrincipalChange(replace);
+	try {
+		const initialRevision = revision;
+		const principal = await absoluteExpoAuth.principal();
+		if (revision === initialRevision) replace(principal);
+		await ready;
+	} catch (error) {
+		stop();
+		closed = true;
+		await bridge?.close();
+		throw error;
+	}
 
 	return {
 		close: async () => {
-			removeLifecycle();
-			await Promise.all([transactions.close(), sockets.close()]);
+			if (closed) return;
+			closed = true;
+			++revision;
+			stop();
+			const previous = bridge;
+			bridge = undefined;
+			await Promise.all([ready, previous?.close()]);
 		},
-		request: (method: string, params: Record<string, unknown>) =>
-			method.startsWith('sync.socket.')
-				? sockets.request(method, params)
-				: transactions.request(method, params)
+		request: async (method: string, params: Record<string, unknown>) => {
+			const generation = revision;
+			await ready;
+			if (closed || revoked || generation !== revision) throw new Error('Expo Sync principal changed.');
+			if (!bridge) throw new Error('Expo Sync requires an authenticated principal.');
+			const result = await bridge.request(method, params);
+			if (closed || revoked || generation !== revision) throw new Error('Expo Sync principal changed.');
+			return result;
+		}
 	};
 };
 `;
@@ -1231,10 +1290,13 @@ export function AbsoluteWebHost({ path }: AbsoluteWebHostProps = {}) {
 		void ${sync ? 'startAbsoluteExpoSync' : 'startAbsoluteExpoAuth'}().then(async () => {
 			${
 				sync
-					? `syncBridge.current = await createAbsoluteExpoSyncBridge((event, payload) => {
+					? `const bridge = await createAbsoluteExpoSyncBridge((event, payload) => {
+				if (!active) return;
 				const source = JSON.stringify({ event, format: BRIDGE_FORMAT, kind: 'event', path: activeWebPath.current, payload });
 				webView.current?.injectJavaScript(\`globalThis.__absoluteExpoReceive(\${JSON.stringify(source)}); true;\`);
-			});`
+			});
+			if (!active) { await bridge.close(); return; }
+			syncBridge.current = bridge;`
 					: ''
 			}
 			if (active) setRuntimeReady(true);

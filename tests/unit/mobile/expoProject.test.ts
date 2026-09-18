@@ -870,6 +870,173 @@ describe('experimental Expo project', () => {
 		expect(devices).not.toContain('getExpoPushTokenAsync');
 	});
 
+	test('rebinds the generated Sync bridge after login and isolates account transitions', async () => {
+		const { config, root } = await fixture(true, true);
+		await writeAbsoluteExpoProject(config, { projectRoot: root });
+		const source = await readFile(
+			join(
+				config.nativeProjectDirectory,
+				'src/generated/AbsoluteSync.ts'
+			),
+			'utf8'
+		);
+		const executable = new Bun.Transpiler({ loader: 'ts' }).transformSync(
+			source
+				.slice(
+					source.indexOf('export const createAbsoluteExpoSyncBridge')
+				)
+				.replace('export const', 'const')
+		);
+		type Principal = { namespace: string } | undefined;
+		let principal: Principal;
+		let readPrincipal = async () => principal;
+		const listeners = new Set<(value: Principal) => void>();
+		const closed: string[] = [];
+		const emitters: Array<(payload: Record<string, unknown>) => void> = [];
+		const events: unknown[] = [];
+		let releaseRequest: ((value: string) => void) | undefined;
+		let releaseTicket: ((value: string) => void) | undefined;
+		const ticketProviders: Array<() => Promise<string>> = [];
+		const createBridge = runInNewContext(
+			`${executable}\ncreateAbsoluteExpoSyncBridge;`,
+			{
+				absoluteExpoAuth: {
+					onPrincipalChange: (
+						listener: (value: Principal) => void
+					) => {
+						listeners.add(listener);
+
+						return () => listeners.delete(listener);
+					},
+					principal: () => readPrincipal(),
+					socketTicket: () =>
+						new Promise<string>((resolve) => {
+							releaseTicket = resolve;
+						})
+				},
+				PRODUCTION_ORIGIN: 'https://example.test',
+				store: {},
+				createExpoSyncBridgeHost: ({
+					namespace
+				}: {
+					namespace: string;
+				}) => ({
+					close: async () => {
+						closed.push(namespace);
+					},
+					request: async (method: string) =>
+						method === 'sync.pending'
+							? new Promise<string>((resolve) => {
+									releaseRequest = resolve;
+								})
+							: namespace
+				}),
+				createExpoSyncSocketBridgeHost: ({
+					emit,
+					socketTicket
+				}: {
+					emit: (payload: Record<string, unknown>) => void;
+					socketTicket: () => Promise<string>;
+				}) => {
+					emitters.push(emit);
+					ticketProviders.push(socketTicket);
+
+					return {
+						close: async () => undefined,
+						request: async () => undefined
+					};
+				},
+				expoSyncRandomId: () => 'synthetic-id',
+				installExpoSyncLifecycle: () => () => undefined,
+				startAbsoluteExpoSync: async () => undefined
+			}
+		);
+		const change = (value: Principal) => {
+			principal = value;
+			for (const listener of listeners) listener(value);
+		};
+		const bridge = await createBridge((...args: unknown[]) =>
+			events.push(args)
+		);
+		await expect(bridge.request('sync.read', {})).rejects.toThrow(
+			'authenticated principal'
+		);
+		change({ namespace: 'account-a' });
+		expect(await bridge.request('sync.read', {})).toBe('account-a');
+		const pending = bridge.request('sync.pending', {});
+		await Promise.resolve();
+		expect(releaseRequest).toBeDefined();
+		const [ticketProvider] = ticketProviders;
+		if (!ticketProvider)
+			throw new Error('Missing synthetic ticket provider');
+		const ticket = ticketProvider();
+		change({ namespace: 'account-b' });
+		releaseTicket?.('synthetic-delayed-ticket');
+		await expect(ticket).rejects.toThrow('principal changed');
+		emitters[0]?.({ oldAccount: true });
+		releaseRequest?.('private account-a response');
+		await expect(pending).rejects.toThrow('principal changed');
+		await expect(bridge.request('sync.read', {})).rejects.toThrow(
+			'principal changed'
+		);
+		expect(closed).toEqual(['account-a']);
+		expect(events).toEqual([]);
+		change({ namespace: 'account-a' });
+		await expect(bridge.request('sync.read', {})).rejects.toThrow(
+			'principal changed'
+		);
+		await bridge.close();
+		change({ namespace: 'account-b' });
+		const nextBridge = await createBridge((...args: unknown[]) =>
+			events.push(args)
+		);
+		expect(await nextBridge.request('sync.read', {})).toBe('account-b');
+		emitters[1]?.({ currentAccount: true });
+		expect(events).toHaveLength(1);
+		change(undefined);
+		await expect(nextBridge.request('sync.read', {})).rejects.toThrow(
+			'principal changed'
+		);
+		await nextBridge.close();
+		expect(closed).toEqual(['account-a', 'account-b']);
+		const lastBridge = await createBridge(() => undefined);
+		change({ namespace: 'skipped-account' });
+		const superseded = lastBridge.request('sync.read', {});
+		change({ namespace: 'account-a' });
+		await expect(superseded).rejects.toThrow('principal changed');
+		expect(await lastBridge.request('sync.read', {})).toBe('account-a');
+		change({ namespace: 'never-mounted-account' });
+		await lastBridge.close();
+		await lastBridge.close();
+		expect(listeners.size).toBe(0);
+		expect(closed).toEqual(['account-a', 'account-b', 'account-a']);
+		expect(emitters).toHaveLength(3);
+		await expect(bridge.request('sync.read', {})).rejects.toThrow(
+			'principal changed'
+		);
+		const readStarted = Promise.withResolvers<void>();
+		const initialPrincipal = Promise.withResolvers<Principal>();
+		readPrincipal = () => {
+			readStarted.resolve();
+
+			return initialPrincipal.promise;
+		};
+		const starting = createBridge(() => undefined);
+		await readStarted.promise;
+		change({ namespace: 'latest-account' });
+		initialPrincipal.resolve({ namespace: 'stale-startup-account' });
+		const started = await starting;
+		expect(await started.request('sync.read', {})).toBe('latest-account');
+		await started.close();
+		expect(closed).toEqual([
+			'account-a',
+			'account-b',
+			'account-a',
+			'latest-account'
+		]);
+		expect(listeners.size).toBe(0);
+	});
+
 	test('provisions one native-owned Sync store for WebView, native routes, and background work', async () => {
 		const { config, root } = await fixture(true, true);
 		await writeAbsoluteExpoProject(config, { projectRoot: root });
