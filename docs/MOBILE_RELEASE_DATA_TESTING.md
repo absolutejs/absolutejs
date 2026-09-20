@@ -167,6 +167,9 @@ benchmark. Disabling Vulkan is **not** a demonstrated fix; keep defaults and
 readiness gates unchanged. Readiness alone does not satisfy authenticated
 installed-app acceptance or authorize framework publication.
 
+See the [startup investigation](MOBILE_ANDROID_STARTUP_INVESTIGATION.md) for
+the saved-trace analysis, persisted-state confound, and next controlled experiment.
+
 When the failure snapshot contains Android ANR controls, `failure.json` records
 `reason: "android-anr-dialog"`. The test still fails; it does not dismiss the
 dialog or infer that the application passed its TLS check.
