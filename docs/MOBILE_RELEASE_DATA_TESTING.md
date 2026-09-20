@@ -136,6 +136,37 @@ values are `auto`, `software`, `lavapipe`, `swiftshader`, and `swangle` (check
 your installed emulator's `-help-gpu`). Omit it to preserve the AVD default.
 This is a diagnostic override, not a universal recommendation or an acceptance
 result: hardware drivers can have their own compatibility problems.
+To isolate Vulkan while retaining the selected GLES renderer, set
+`ABSOLUTE_TEST_RELEASE_DISABLE_VULKAN=1`. This adds Android's documented
+`-feature -Vulkan` argument only to the disposable emulator; `0` or omission
+preserves the default. The choice is recorded in `emulator-options.json`.
+For example, from the framework repository root:
+
+```sh
+ABSOLUTE_TEST_RELEASE_GPU=host ABSOLUTE_TEST_RELEASE_DISABLE_VULKAN=1 \
+  bun run test:native:android:readiness
+```
+
+Compare one setting at a time with the same owned AVD and resource preconditions.
+Passing without Vulkan is not evidence for Vulkan-dependent applications, and
+this diagnostic does not change normal AVD defaults or weaken readiness checks.
+See [Android's documented Vulkan troubleshooting flag](https://developer.android.com/studio/run/emulator-troubleshooting#cannot-open-webpage-correctly).
+
+Local diagnostic result (2026-09-19, Windows/WHPX, Android emulator 37.1.11,
+API 36 Google APIs, host GPU, 4 cores / 3072 MB): the default-Vulkan run
+passed all 12 readiness snapshots; the subsequent Vulkan-disabled run on the
+same initialized disposable AVD produced a System UI startup ANR before any
+application was installed and failed the CPU-settling gate. Boot times were approximately 43 and 79 seconds,
+respectively. The captured ANR reports a 20-second KeyguardService timeout;
+System UI's main thread was runnable, with about 3.95 seconds of accumulated
+CPU time and 20.04 seconds of accumulated scheduler wait. Those counters are
+cumulative, not a measurement of the timeout interval alone. This supports
+investigating guest CPU scheduling pressure, but does not establish its host-side
+cause. Sequential boots also change guest state, so this is not a controlled
+benchmark. Disabling Vulkan is **not** a demonstrated fix; keep defaults and
+readiness gates unchanged. Readiness alone does not satisfy authenticated
+installed-app acceptance or authorize framework publication.
+
 When the failure snapshot contains Android ANR controls, `failure.json` records
 `reason: "android-anr-dialog"`. The test still fails; it does not dismiss the
 dialog or infer that the application passed its TLS check.

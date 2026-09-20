@@ -20,7 +20,8 @@ export const createLocalHttpsEmulator = async (
 	output: string
 ) => {
 	const graphics = androidTestGraphicsArgs(
-		process.env.ABSOLUTE_TEST_RELEASE_GPU
+		process.env.ABSOLUTE_TEST_RELEASE_GPU,
+		process.env.ABSOLUTE_TEST_RELEASE_DISABLE_VULKAN
 	);
 	await mkdir(output, { mode: 0o700, recursive: true });
 	const checks = await inspectAbsoluteMobileToolchain();
@@ -132,7 +133,11 @@ export const createLocalHttpsEmulator = async (
 				graphics:
 					process.env.ABSOLUTE_TEST_RELEASE_GPU ?? 'avd-default',
 				memoryMb: 3072,
-				serial
+				serial,
+				vulkan:
+					process.env.ABSOLUTE_TEST_RELEASE_DISABLE_VULKAN === '1'
+						? 'disabled'
+						: 'default'
 			},
 			null,
 			2

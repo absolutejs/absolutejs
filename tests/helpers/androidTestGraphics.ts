@@ -1,7 +1,18 @@
 /** Optional installed-emulator override; never change a user's AVD config. */
-export const androidTestGraphicsArgs = (mode: string | undefined) => {
-	if (mode === undefined) return [];
+export const androidTestGraphicsArgs = (
+	mode: string | undefined,
+	disableVulkan?: string
+) => {
 	if (
+		disableVulkan !== undefined &&
+		disableVulkan !== '0' &&
+		disableVulkan !== '1'
+	)
+		throw new Error(
+			'Unsupported ABSOLUTE_TEST_RELEASE_DISABLE_VULKAN value'
+		);
+	if (
+		mode !== undefined &&
 		![
 			'auto',
 			'host',
@@ -13,5 +24,8 @@ export const androidTestGraphicsArgs = (mode: string | undefined) => {
 	)
 		throw new Error('Unsupported ABSOLUTE_TEST_RELEASE_GPU mode');
 
-	return ['-gpu', mode];
+	return [
+		...(mode === undefined ? [] : ['-gpu', mode]),
+		...(disableVulkan === '1' ? ['-feature', '-Vulkan'] : [])
+	];
 };
