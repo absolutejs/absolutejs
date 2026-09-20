@@ -77,17 +77,105 @@ sampler and source-process check were corrected afterward to include headless
 QEMU; the corrected sampler has not been rerun. These limitations do not invalidate
 the captured ANRs, but prevent a host scheduling diagnosis.
 
-The next targeted experiment is an **early-start guest scheduling trace** that
-covers System UI creation, with process/thread attribution and, if supported,
-bounded kernel CPU sampling. The later trace identifies consumers to inspect;
-it does not justify disabling sensors, Google services, or changing affinity.
-Only consider a separately approved Windows scheduling trace if guest evidence
-cannot distinguish guest work from host/hypervisor delays.
+The early-start guest scheduling trace described below now covers System UI
+creation. Neither trace justifies disabling sensors, Google services, or changing
+affinity. Only consider a separately approved Windows scheduling trace if guest
+evidence cannot distinguish guest work from host/hypervisor delays.
 
 After both trials, the disposable emulator was stopped and the normal
 `AbsoluteJS_API_36` emulator was restored with `sys.boot_completed=1` verified.
 Raw artifacts and temporary copies were retained locally for investigation.
 Framework publication remains held; no authenticated native acceptance passed.
+
+## Early-start trace: initialization interval captured
+
+Three additional diagnostic boots used fresh hash-verified copies of the
+preserved source during the approved overnight pause. Preserve all outcomes:
+
+| Observation UUID | Readiness-run UUID | Outcome |
+| --- | --- | --- |
+| `fd0bdf23-fe67-4a58-b6af-2a6ab24ddddf` | `f8adf429-f7a1-4425-85ce-274b50de08ae` | All 12 UI snapshots passed; trace was empty and unusable |
+| `5828751e-b738-468a-9743-97363db1de66` | `0791def6-e1fd-4f00-b186-e8e4eef028be` | CPU-settling failure; circular trace buffer dropped initialization |
+| `c4f13b0f-d90c-4c86-89a8-3619da945d27` | `46fe6d1b-3966-4643-b594-aa7ce02cd867` | CPU-settling failure and System UI ANR; initialization trace retained |
+
+The passing boot confirms intermittency, not a fix. Instrumentation changed
+between these diagnostic attempts; they are not a matched performance comparison.
+
+### Capture corrections
+
+The first attempt accepted a background process launch and successful file
+transfer, but the file had zero bytes. Subsequent attempts established root
+before tracing (avoiding the harness's later ADB root restart), used
+`--background-wait`, and checked the actual tracing session and file contents.
+These changes do not establish which factor caused the original empty file.
+
+The second attempt started successfully but its circular buffer retained only
+guest seconds 162.10–246.51, losing initialization and process identity metadata.
+The final capture periodically wrote buffers to disk every five seconds, with
+a three-minute duration limit and 96 MiB file cap. It selected scheduler and
+process events, `am`/`ss` timing categories, and System UI app markers, plus
+periodic process metadata. Root and tracing changes affected only the disposable
+synthetic guest; no Windows-wide tracing, authenticated data, or uploads occurred.
+
+See [Perfetto's periodic file-writing configuration](https://perfetto.dev/docs/concepts/config)
+and [System UI's app-tagged initialization markers](https://android.googlesource.com/platform/frameworks/base/+/0057e7b993f9/packages/SystemUI/src/com/android/systemui/SystemUIApplication.java).
+
+### Validated failing interval
+
+Final local artifact: `observation/early-startup.pftrace` in the third observation
+directory above (approximately 26.7 MB). SHA-256:
+`db29d86d5d01d20f9d4b691af1cb1788b5acbfa77c287259cff9c893682ff39c`.
+
+The trace spans guest seconds 94.00–273.57. System UI PID 1355 was created at
+163.06 seconds; the complete `StartServices` span begins at 171.406122 and lasts
+24.463235 seconds. Clipping scheduler states to that exact span yields:
+
+| Main-thread state | Seconds |
+| --- | --- |
+| Running on CPU | 2.528187 |
+| Runnable, waiting for CPU (`R` and `R+`) | 15.091983 |
+| Sleeping (`S`) | 6.746572 |
+| Uninterruptible wait (`D`) | 0.096494 |
+
+The states account for the full span within rounding precision. All four guest
+CPUs were non-idle for 23.22–23.72 seconds of the same 24.46-second interval.
+Across their threads, `system_server` consumed 23.88 CPU-seconds, SurfaceFlinger
+13.39, the launcher 10.01, and System UI 5.96. These process totals are multicore
+CPU time, not elapsed durations and not time exclusively blocking System UI.
+
+The longest named startable, `CentralSurfaces`, lasted 4.99 seconds but used
+only 0.28 seconds on the main thread and spent 2.51 seconds runnable.
+`SystemActions` lasted 3.50 seconds, with 0.80 seconds running and 2.34 runnable.
+This supports a shared scheduling bottleneck; wall duration alone would wrongly
+suggest those components performed that much CPU work. Sleeping time remains
+unexplained by these scheduler totals and must not be relabeled as CPU starvation.
+
+No positive data-loss, dropped-event, overwrite, or overrun statistics were
+reported in the analyzed trace. Trace Processor flagged
+`config_write_into_file_no_flush`: the omitted `flush_period_ms` requires loading
+the whole trace into analysis memory. This is not an event-loss diagnosis. The
+local configuration now adds a five-second flush period for future captures;
+the original captured configuration is preserved and has not been retroactively
+changed or rerun.
+
+### Conclusion and next decision
+
+We now have direct interval evidence: roughly 62% of the failing initialization
+was spent runnable but unscheduled, versus roughly 10% actually running. This is
+an Android system-wide responsiveness problem before any AbsoluteJS app install,
+not evidence that AbsoluteJS application initialization took 24 seconds of CPU.
+
+The trace does **not** identify whether guest workload, graphics/driver overhead,
+or host/hypervisor scheduling is the underlying cause. A targeted kernel/host
+profiling step is needed to distinguish them before selecting a remedy. Do not
+disable services, change affinity/power plans, or weaken readiness requirements
+based only on the aggregate rankings. Windows-wide scheduling capture still
+needs separate agreement about unrelated process metadata and local retention.
+
+All three runs were cleaned up; the normal emulator was restored and its boot
+completion verified. The pause window was released. Raw traces, invalid-capture
+sidecars, SQL analysis scripts, and disposable copies remain local. The framework
+release remains held pending authenticated installed-device acceptance.
 
 ## Evidence
 
