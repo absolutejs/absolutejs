@@ -239,6 +239,72 @@ approval. Authenticated Capacitor/Expo acceptance and framework publication rema
 held. The test guest was stopped, and normal emulator identity and
 `sys.boot_completed=1` were verified before releasing the user's CPU pause.
 
+## Read-only clock implementation investigation
+
+Installed package metadata reports emulator **37.1.11**, build **15917651**.
+Google's [release notes](https://developer.android.com/studio/releases/emulator)
+list that version as the latest stable release at this inspection. No verified
+released fix for this particular clock failure was established. Do not recommend
+a speculative upgrade, downgrade, or replacement QEMU executable as a fix.
+
+The clock parameter is not added by AbsoluteJS. Google's
+[kernel-parameter generator](https://android.googlesource.com/platform/external/qemu/+/ae9d18d2b6261179fbd57fffec720a04f7bfb053/android/android-emu/android/main-kernel-parameters.cpp)
+adds `clocksource=pit` for x86/x86_64 in its applicable launcher path. Its adjacent
+`no-kvmclock` workaround is restricted to kernels older than 5.4; do not conflate
+that separate historical workaround with our 6.6 guest. The installed executable
+also contains the `clocksource=pit` string, consistent with the observed command
+line. Removing a preference for PIT would not by itself repair a rejected TSC.
+
+There is a relevant upstream implementation difference:
+
+- [QEMU v10.0.0 WHPX implementation](https://github.com/qemu/qemu/blob/v10.0.0/target/i386/whpx/whpx-all.c)
+  handles TSC separately from routine register synchronization, limits writes to
+  reset/full-state updates, and optionally suspends partition time before setting
+  TSC to reduce inter-vCPU differences.
+- The inspected Android
+  [emu-main-dev implementation](https://android.googlesource.com/platform/external/qemu/+/f0c183f1cc7456ecd6f3607f2f47893768ae4334/target/i386/whpx-all.c)
+  retains TSC in the general register array and writes it on the dirty-vCPU path.
+  The inspected `emu-master-dev` branch does likewise.
+- Installed binary strings identify Google's `emu-37-1-release` build path, but
+  the public refs examined did not expose that exact branch. The binary string
+  scan did not find `WHvSuspendPartitionTime` or the upstream TSC-specific error
+  strings. This supports further investigation, **not a source-to-binary proof**
+  that the installed release lacks every equivalent fix. Import-table absence is
+  also insufficient because WHPX APIs can be loaded dynamically.
+
+### Selected next diagnostic, not a production workaround
+
+Compare one vCPU against the existing four-vCPU configuration using independent
+hash-verified copies, the same image, GPU, RAM, cold-boot policy, and bounded
+instrumentation. Obtain a fresh CPU-pause confirmation before launching; normal
+emulator restoration remains mandatory. Use the emulator's `-cores` option only
+for the synthetic trial. Do not alter host affinity, hypervisor configuration,
+the user's normal AVD, or the product's core-count default.
+
+The purpose is to remove cross-vCPU synchronization from the experiment without
+asserting that an unstable clock is reliable. It also changes scheduler capacity,
+so improved responsiveness alone cannot prove a TSC cause. Record:
+
+1. Actual online CPU count, full guest clock-related boot messages, current and
+   available clocksources early and after startup, and the complete command line.
+2. Whether the TSC rejection disappears or another clock is selected naturally.
+   Preserve all kernel clock-safety checks; never add `tsc=reliable` or disable
+   watchdogs. A one-vCPU guest might still select PIT/HPET or remain unhealthy.
+3. Exact System UI initialization states, timer sample shares, CPU pressure,
+   boot duration, ANRs, and all unchanged readiness checks. Compare sample shares
+   rather than raw counts, since per-CPU sampling produces fewer samples with
+   one CPU. Assess profiling overhead in follow-up unprofiled trials if promising.
+4. At least a repeated baseline/candidate pair before declaring reproducibility.
+   A one-vCPU success does not validate a multicore fix or authorize publication.
+
+If clock failure and timer cost track the multicore configuration, prioritize an
+Android-emulator upstream fix/report or a separately validated supported backend
+candidate. Do not ship a fork or send raw evidence externally without agreeing
+that scope. If one CPU is equally unhealthy, retain that negative result and
+reassess rather than forcing clock selection. No emulator was started or stopped,
+no host setting was changed, and no native acceptance test ran in this read-only
+investigation. Framework publication remains held.
+
 ## Evidence
 
 Both runs used emulator 37.1.11, Windows/WHPX, API 36 Google APIs x86_64,
