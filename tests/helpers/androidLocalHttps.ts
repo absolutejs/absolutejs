@@ -11,6 +11,7 @@ import { inspectAbsoluteMobileToolchain } from '../../src/mobile/emulatorDoctor'
 import { matchesAndroidAvdIdentity } from './androidAvdIdentity';
 import { androidTestGraphicsArgs } from './androidTestGraphics';
 import { androidTestCores } from './androidTestCores';
+import { androidTestTransportConfig } from './androidTestTransport';
 import { requireAndroidUiReadiness } from './androidUiReadiness';
 import { readAndroidUiSnapshot } from './androidUiSnapshot';
 import { saveAndroidDiagnostic } from './androidDiagnostic';
@@ -106,7 +107,10 @@ export const createLocalHttpsEmulator = async (
 	const template =
 		process.env.ABSOLUTE_TEST_RELEASE_AVD_CONFIG ??
 		join(home, '.android/avd/AbsoluteJS_API_36.avd/config.ini');
-	const config = await readFile(template, 'utf8');
+	const config = androidTestTransportConfig(
+		await readFile(template, 'utf8'),
+		process.env.ABSOLUTE_TEST_RELEASE_GL_TRANSPORT
+	);
 	if (
 		!/image.sysdir.1=system-images[\\/]android-36[\\/]google_apis[\\/]x86_64/u.test(
 			config
@@ -132,6 +136,9 @@ export const createLocalHttpsEmulator = async (
 		JSON.stringify(
 			{
 				cores,
+				requestedTransport:
+					process.env.ABSOLUTE_TEST_RELEASE_GL_TRANSPORT ??
+					'avd-default',
 				graphics:
 					process.env.ABSOLUTE_TEST_RELEASE_GPU ?? 'avd-default',
 				memoryMb: 3072,

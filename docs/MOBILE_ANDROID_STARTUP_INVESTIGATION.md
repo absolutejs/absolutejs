@@ -383,6 +383,66 @@ recorded above. The normal emulator was restored and verified booted after each
 trial; only its serial remained after cleanup, and the user was told to resume
 heavy work. No framework package was published; native acceptance remains held.
 
+## Graphics transport follow-up (read-only analysis)
+
+The saved four-vCPU trace resolves the 99 pipe leaf samples during System UI
+initialization into **84 read-path samples and 15 write-path samples**. The main
+owners were graphics composer (53), launcher render thread (20), graphics
+allocator (11), boot animation (7), System UI render thread (5), and
+SurfaceFlinger render engine (3). These are samples of execution, not byte counts,
+syscall counts, or direct measurements of time waiting for the GPU.
+
+The baseline's generated `hardware-qemu.ini` and emulator logs confirm:
+
+- Graphics enabled, with NVIDIA-backed host GLES and Vulkan; the template's
+  `hw.gpu.enabled=no` was overridden by `-gpu host`. Do not diagnose the baseline
+  as software rendering from the template alone.
+- `hw.gltransport=pipe`, also emitted in Android boot properties; HWUI `skiagl`.
+- Vulkan composition and native swapchain were reported disabled. This does not
+  mean Vulkan was globally disabled, and does not justify another Vulkan-off trial.
+
+### Selected candidate: ASG transport, same GPU
+
+The installed emulator's `lib/hardware-properties.ini` lists `asg` as a valid
+`hw.gltransport` value, with shared ring/write-buffer settings. The saved guest
+kernel log confirms `goldfish_address_space.ko` loaded successfully. This is enough
+to select a disposable compatibility experiment, **not to claim end-to-end ASG
+support or improved performance on this image**. General transport background is
+available in Google's [Goldfish pipe documentation](https://android.googlesource.com/platform/external/qemu/+/emu-master-dev/android/docs/ANDROID-QEMU-PIPE.TXT)
+and [hardware property schema](https://android.googlesource.com/platform/prebuilts/android-emulator/+/8f496dcdc9aa1602c7905900d4292b4044bfc449/linux-x86_64/lib/hardware-properties.ini).
+
+Compare explicit `pipe` against `asg`, both with four CPUs, host graphics,
+unchanged Vulkan policy, RAM, image, and cold-boot policy. Use new equivalent
+copies; never reuse either completed trial's modified userdata. Keep buffer sizes,
+flush intervals, host drivers, and CPU affinity unchanged. ASG targets the
+communication path while retaining hardware rendering. Software rendering is a
+separate fallback experiment, not a simultaneous change; Google's
+[renderer guidance](https://developer.android.com/studio/run/emulator-acceleration)
+supports software mode when host rendering has problems, but it also changes where
+rendering executes and could add CPU pressure.
+
+The diagnostic harness now supports `ABSOLUTE_TEST_RELEASE_GL_TRANSPORT=pipe|asg`.
+When omitted, it preserves the original template text. An override changes only
+the disposable AVD's transport property, rejects duplicate properties and invalid
+values, and records the **requested** transport separately from actual runtime
+evidence. It never writes the normal AVD or changes AbsoluteJS product defaults.
+
+Before comparing performance, require generated emulator configuration, boot
+properties, guest runtime evidence, and successful graphics initialization to
+agree with the requested transport. A rewritten configuration, missing device,
+ASG connection failure, or silent fallback invalidates the ASG comparison; retain
+the evidence and do not bypass it. Capture CPU count and clocksource throughout
+both runs. TSC-versus-HPET differences must be reported as a confound, not credited
+to transport. Kernel profiles alone may not prove every graphics client switched;
+inspect initialization logs and client evidence before claiming that.
+
+Acceptance still requires unchanged CPU settling and all UI readiness checks,
+then repeated equivalent trials and unprofiled confirmation if promising. Lower
+pipe sample counts alone are not success: ASG could move cost into userspace or
+another kernel path. Authenticated application tests remain a separate later gate.
+No emulator was launched or stopped during this follow-up; obtain a fresh CPU
+pause before the transport experiment. Framework publication remains held.
+
 ## Evidence
 
 Both runs used emulator 37.1.11, Windows/WHPX, API 36 Google APIs x86_64,
