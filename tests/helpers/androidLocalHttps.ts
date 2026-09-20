@@ -10,6 +10,7 @@ import { homedir, tmpdir } from 'node:os';
 import { inspectAbsoluteMobileToolchain } from '../../src/mobile/emulatorDoctor';
 import { matchesAndroidAvdIdentity } from './androidAvdIdentity';
 import { androidTestGraphicsArgs } from './androidTestGraphics';
+import { androidTestCores } from './androidTestCores';
 import { requireAndroidUiReadiness } from './androidUiReadiness';
 import { readAndroidUiSnapshot } from './androidUiSnapshot';
 import { saveAndroidDiagnostic } from './androidDiagnostic';
@@ -19,6 +20,7 @@ export const createLocalHttpsEmulator = async (
 	root: string,
 	output: string
 ) => {
+	const cores = androidTestCores(process.env.ABSOLUTE_TEST_RELEASE_CORES);
 	const graphics = androidTestGraphicsArgs(
 		process.env.ABSOLUTE_TEST_RELEASE_GPU,
 		process.env.ABSOLUTE_TEST_RELEASE_DISABLE_VULKAN
@@ -129,7 +131,7 @@ export const createLocalHttpsEmulator = async (
 		join(output, 'emulator-options.json'),
 		JSON.stringify(
 			{
-				cores: 4,
+				cores,
 				graphics:
 					process.env.ABSOLUTE_TEST_RELEASE_GPU ?? 'avd-default',
 				memoryMb: 3072,
@@ -182,7 +184,7 @@ export const createLocalHttpsEmulator = async (
 			'-memory',
 			'3072',
 			'-cores',
-			'4',
+			String(cores),
 			...graphics
 		],
 		{

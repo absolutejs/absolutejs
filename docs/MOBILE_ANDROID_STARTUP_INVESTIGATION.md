@@ -305,6 +305,84 @@ reassess rather than forcing clock selection. No emulator was started or stopped
 no host setting was changed, and no native acceptance test ran in this read-only
 investigation. Framework publication remains held.
 
+## Controlled four-versus-one-vCPU result
+
+The approved comparison used two independent hash-verified copies of the same
+stopped synthetic source. Source hashes remained unchanged. Both trials used
+host graphics, default Vulkan, 3072 MiB RAM, cold boot without snapshots, and the
+same 180-second kernel/scheduler capture. Only the requested core count changed;
+guest `online` readings confirmed `0-3` and `0`, respectively. Neither trial
+forced clock selection or disabled clock-safety checks.
+
+| Observation | Four-vCPU baseline | One-vCPU candidate |
+| --- | --- | --- |
+| Selected clock during sampled startup | TSC | TSC |
+| System UI `StartServices` duration | 4.736065 s | 39.287325 s |
+| Main thread running | 1.144655 s | 0.549361 s |
+| Main thread runnable (`R` + `R+`) | 2.544946 s | 23.588997 s |
+| Main thread sleeping | 0.956402 s | 14.955616 s |
+| Main thread uninterruptible wait | 0.090062 s | 0.193350 s |
+| Initialization CPU samples | 928 | 1,925 |
+| `goldfish_pipe_read_write` leaf samples | 99 (10.7%) | 512 (26.6%) |
+| Unchanged readiness result | CPU-settling failure | CPU-settling failure |
+| Final three CPU PSI `some avg10` readings | 23.02, 13.12, 13.31 | 99.53, 99.62, 99.67 |
+
+The baseline approached the threshold but did not achieve the required three
+consecutive readings at or below 20 within the existing deadline. Do not turn its
+two acceptable final readings into a pass or extend the deadline retrospectively.
+The candidate's pressure remained near 100%, and startup ANR evidence was saved.
+These are readiness-only runs; neither installed an AbsoluteJS application.
+
+Both traces cover System UI initialization completely and contain resolved kernel
+frames, with no positive parser-error/data-loss statistics and no sample unwind
+errors. Baseline bounds are guest seconds 73.810494–253.668717, with 35,244 samples;
+candidate bounds are 60.789921–240.647225, with 8,814 samples. The initialization
+spans start at 115.574139 and 125.826626 seconds. Counts differ with CPU count and
+interval duration: use sample shares, not raw counts, for hotspot comparisons.
+
+Local evidence (never uploaded):
+
+- Baseline observation: `5af7e6b9-0849-49d0-86b6-6f40188fa740/observation`;
+  test output: `ce8e4a6c-fdcb-4ba8-bee6-622a0f4c0e9f`;
+  log prefix: `release-data-retry-1789874993524`.
+  Trace SHA-256: `39f2d2dd90dd4c87a249ff3b4f2b1ebbe70184b4ab51e474bf76b74038f3601f`.
+- Candidate observation: `94327723-f211-4f00-8d63-30ed79a336f8/observation`;
+  test output: `68bb77c8-6300-4f38-a4d6-a9f73f0860d2`;
+  log prefix: `release-data-retry-1789875410568`.
+  Trace SHA-256: `87b375f176f5ffea1fdc33b6f90d8ffebe915d98502453ae0aa0271241dae841`.
+
+### Decision
+
+**Reject one vCPU as a workaround; retain the four-vCPU default.** This pair does
+not reproduce a four-versus-one clock fallback: both selected TSC. The earlier
+four-vCPU HPET failure and this four-vCPU TSC boot instead demonstrate intermittent
+clock selection across cold boots. The faster TSC baseline supports continued
+clock investigation but cannot establish an upstream fix or complete causality.
+No repeated pair is warranted to promote this already-failing candidate; repeat
+equivalent baseline/candidate trials when a promising new remedy is identified.
+
+In the one-vCPU initialization interval, 207 of the 512 pipe leaf samples belong
+to SurfaceFlinger's `RenderEngine`, 187 to the launcher's `RenderThread`, and 59
+to the graphics composer service. The remainder includes boot animation,
+allocation, and other rendering-related threads. This identifies where the
+sampled pipe cost occurs; it does not prove a specific GPU driver bug or equate
+kernel samples with host GPU execution time.
+
+Next inspect the existing pipe callstacks and renderer evidence, then choose a
+supported graphics-transport candidate for a four-vCPU comparison. Preserve and
+classify clock selection in every trial so a TSC/HPET difference cannot masquerade
+as a graphics improvement. Do not change Vulkan, host drivers, or affinity based
+on these aggregate counts alone. Keep raw profiling separate from authenticated
+acceptance tests.
+
+The harness now accepts only `ABSOLUTE_TEST_RELEASE_CORES=1` or `4`, defaulting to
+four and recording the requested value in its options artifact. This is test-only
+configuration, not a product default. Focused validation: two unit tests and 12
+assertions passed; framework typechecking passed. Both native tests failed as
+recorded above. The normal emulator was restored and verified booted after each
+trial; only its serial remained after cleanup, and the user was told to resume
+heavy work. No framework package was published; native acceptance remains held.
+
 ## Evidence
 
 Both runs used emulator 37.1.11, Windows/WHPX, API 36 Google APIs x86_64,
