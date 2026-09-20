@@ -1,4 +1,4 @@
-# Android startup investigation — 2026-09-19
+# Android startup investigation — 2026-09-19–20
 
 ## Current conclusion
 
@@ -7,6 +7,13 @@ installed. Captured evidence supports CPU scheduling pressure during System UI
 initialization, but does **not** establish the host-side cause or a reliable fix.
 Keep emulator defaults, ANR rejection, CPU-settling checks, and the framework
 publication hold unchanged. A readiness pass is not authenticated native acceptance.
+
+Latest: the single reversed ASG-then-pipe pair kept TSC in both runs, but both
+failed CPU settling. ASG initialization was 5.35 seconds versus pipe's 9.72,
+within a history where pipe has also initialized in roughly five seconds.
+No repeatable readiness benefit is established. Stop profiled transport retries;
+next isolate diagnostic overhead with a predeclared unprofiled pair, retaining
+all readiness checks and outcomes. See the reversed-pair result below.
 
 The initial analysis used saved evidence only. The subsequent controlled checks
 below ran during an explicitly approved pause window. No host settings changed.
@@ -513,6 +520,76 @@ the synthetic serial was absent after cleanup. No host setting or product defaul
 changed. The user's heavy-work pause remains in effect until they say otherwise;
 do not repeatedly ask them to reconfirm it. Framework publication remains held
 pending authenticated native acceptance.
+
+## Reversed ASG-then-pipe pair (final profiled transport repeat)
+
+Executed September 20 local time, once in the predeclared reversed order. Fresh
+copies were independently hash-verified and the stopped source remained unchanged.
+Both retained four CPUs, host NVIDIA graphics, default Vulkan policy, 3072 MiB RAM,
+no snapshots, and the same profiling/client-observation configuration. All successful
+periodic clock observations in both runs reported **TSC**, removing the prior
+pair's explicit TSC-versus-HPET mismatch without eliminating other variability.
+
+| Observation | ASG first | Pipe second |
+| --- | --- | --- |
+| System UI initialization | 5.354335 s | 9.717821 s |
+| Main thread running | 1.178980 s | 1.514834 s |
+| Main thread runnable | 2.942047 s | 5.645840 s |
+| Main thread sleeping | 1.128286 s | 2.426423 s |
+| Main thread uninterruptible | 0.105022 s | 0.130723 s |
+| Initialization samples | 1,048 | 1,904 |
+| Transport leaf samples | 17 `as_ioctl`, 0 pipe | 187 pipe |
+| Final CPU PSI `some avg10` readings | 78.58, 77.66, 74.42 | 77.14, 72.83, 72.18 |
+| Unchanged readiness outcome | CPU-settling failure | CPU-settling failure |
+
+ASG's saved startup ANR involved the phone service handling a SIM-state broadcast.
+System UI's measured initialization duration is distinct from that service ANR.
+Neither trial installed or authenticated an AbsoluteJS app. Lower sampled pipe
+cost did not translate into a readiness pass. The observed ASG timing advantage
+in this pair is not a stable speedup estimate: earlier TSC/pipe initialization
+durations were 4.74 and 4.96 seconds, and two transport pairs are not a statistical
+characterization of the host, Android background work, or profiling overhead.
+
+Both traces cover the complete initialization span, have resolved kernel frames,
+and report no positive parser-error/data-loss statistics or unwind errors:
+
+- ASG: guest seconds 105.488721–285.304519, 35,220 total samples;
+  initialization starts at 161.772324. Observation
+  `b325b6e5-1e82-4ff5-8f39-422793e65e84/observation`, native output
+  `e4daef57-9fea-40d6-94b5-5e45e8cb80d8`, log prefix
+  `release-data-retry-1789878187433`; trace SHA-256
+  `b49d32457a172d1ec2fe621a691a37e6697844fe8eb5b43691188cee147fe7dc`.
+- Pipe: guest seconds 77.798994–257.636262, 35,231 total samples;
+  initialization starts at 117.565499. Observation
+  `7b785da3-17a0-420b-b6dc-7e920c79f521/observation`, native output
+  `7b84daee-ee57-4ad1-aa7d-54d4ca10ed81`, log prefix
+  `release-data-retry-1789878647278`; trace SHA-256
+  `9308ba8852007c4f4f4659cda87797ce8ad17152f4aff69c95521beac95cc5d0`.
+
+### Decision and next bounded check
+
+Stop profiled transport retries. Retain the current product defaults and release
+hold; this pair establishes neither a reliable transport remedy nor a clock fix.
+The observer itself adds work: Perfetto, periodic process/clock/log collection,
+and loops reading graphics-client file descriptors. Its contribution is currently
+unquantified, not a proven explanation for the failures.
+
+Next use one fixed unprofiled ASG-then-pipe pair from fresh equivalent copies.
+Disable the optional profiler and continuous observation loop only. Keep the
+native harness's CPU-settling threshold, deadline, ANR rejection, and every UI
+readiness check unchanged. Retain ordinary launch logs/options, outcome artifacts,
+and minimal clock/transport verification without a continuous sampler; record
+their timing so verification does not covertly become another startup profiler.
+Preserve both outcomes, including clock-confounded results. Do not increase the
+deadline or retry until green. A pass would justify investigating observer cost,
+not prove it or authorize framework publication; authenticated Capacitor/Expo
+acceptance remains separate. Failure would direct attention back to residual
+Android/host behavior rather than more transport tuning.
+
+The normal emulator was restored and its identity and completed boot verified
+after both runs; the synthetic serial was absent after cleanup. No host setting
+or product default changed. Raw evidence remains local. Heavy work remains paused
+until the user says otherwise; do not ask for repeated confirmations.
 
 ## Evidence
 
