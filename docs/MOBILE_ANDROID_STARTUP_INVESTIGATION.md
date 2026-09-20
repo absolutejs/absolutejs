@@ -443,6 +443,77 @@ another kernel path. Authenticated application tests remain a separate later gat
 No emulator was launched or stopped during this follow-up; obtain a fresh CPU
 pause before the transport experiment. Framework publication remains held.
 
+## Pipe-versus-ASG trial result
+
+The approved pair used fresh, independently hash-verified copies of the stopped
+source; the source remained unchanged. Both had four online CPUs, NVIDIA-backed
+host graphics, default Vulkan policy, 3072 MiB RAM, and no snapshots. The same
+bounded kernel/scheduler profile, clock sampling, and graphics-client observations
+were enabled in both. No application was installed or authenticated.
+
+| Observation | Pipe baseline | ASG candidate |
+| --- | --- | --- |
+| Runtime transport evidence | `pipe` | `asg` |
+| Clocksource during initialization | TSC | HPET |
+| System UI initialization | 4.964106 s | 13.786612 s |
+| Main thread running | 1.164581 s | 2.391069 s |
+| Main thread runnable | 2.619948 s | 8.551100 s |
+| Main thread sleeping | 1.089582 s | 2.769178 s |
+| Main thread uninterruptible | 0.089994 s | 0.075265 s |
+| Initialization samples | 972 | 2,699 |
+| Pipe read/write leaf samples | 112 | 0 |
+| Candidate address-space ioctl leaf samples | — | 47 |
+| Candidate HPET-read leaf samples | — | 1,007 |
+| Final three CPU PSI `some avg10` readings | 37.37, 32.58, 46.91 | 88.60, 88.08, 81.11 |
+| Readiness | CPU-settling failure | CPU-settling failure |
+
+**Performance comparison is clock-confounded, not an ASG regression or win.**
+The candidate fell back to HPET after TSC rejection, whereas the baseline kept
+TSC. HPET reads accounted for 37.3% of candidate initialization samples. Do not
+infer transport causality from elapsed startup times or compare these sample
+counts as equal-duration workloads. Neither trial passed the unchanged readiness
+gate; the candidate also produced startup ANRs.
+
+ASG activation has evidence beyond the requested setting: generated emulator
+configuration and guest boot properties agree, SurfaceFlinger opened address-space
+device handles, and sampled `as_ioctl` execution belongs to its render engine
+(17 samples), the launcher render thread (16), graphics composer (11), boot
+animation (2), and System UI render thread (1). No pipe read/write leaf sample
+occurred in this initialization interval. That supports ASG use in the sampled
+clients, not proof that every operation or every client abandoned pipe transport.
+Pipe handles can remain for other services, and unsampled work is not absent work.
+
+Both traces include the full System UI initialization interval, with resolved
+kernel frames, no positive parser-error/data-loss statistics, and no unwind errors.
+Baseline bounds: guest seconds 69.632376–249.501124, 35,064 samples, initialization
+starts at 115.335815. Candidate bounds: 84.112501–263.969211, 35,246 samples,
+initialization starts at 160.470553.
+
+Local evidence:
+
+- Pipe observation `e4f3b4b5-a020-404d-909f-ae85839ef1b3/observation`;
+  test output `d8da54e1-53ca-4d19-95ac-7b328a2f2e14`;
+  log prefix `release-data-retry-1789876847322`;
+  trace SHA-256 `6543f757a01c229b3e82c44dc62f0ba340751c082b8c161468983bd9ecd839fd`.
+- ASG observation `e87a3da1-44a4-4774-a339-e727c7acc2ba/observation`;
+  test output `8d7a27fb-8339-4947-a550-8575b08c2fae`;
+  log prefix `release-data-retry-1789877273390`;
+  trace SHA-256 `b78474cfeec24b16f60576f6d2457458a52e3b664b4ac7691b8497550a217ae3`.
+
+Retain ASG as an unproven candidate, not a default. The next useful performance
+step is a predeclared repeat pair with reversed order, preserving every outcome
+and classifying clock selection before interpreting timings. If clocks differ
+again, report that result as confounded rather than retrying until green; focus
+on the upstream clock failure before further graphics tuning. A same-clock pair
+still needs unchanged readiness checks and reproducible, unprofiled confirmation
+before any default or release decision. No clock-safety overrides are justified.
+
+The normal emulator was restored and boot completion verified after both runs;
+the synthetic serial was absent after cleanup. No host setting or product default
+changed. The user's heavy-work pause remains in effect until they say otherwise;
+do not repeatedly ask them to reconfirm it. Framework publication remains held
+pending authenticated native acceptance.
+
 ## Evidence
 
 Both runs used emulator 37.1.11, Windows/WHPX, API 36 Google APIs x86_64,
