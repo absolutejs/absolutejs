@@ -61,6 +61,44 @@ runqueue wait alone does not prove Windows placed emulator threads on slow cores
 
 ## Next bounded experiment
 
+### Read-only clone preflight
+
+The selected local source is the stopped `AbsoluteJS_Release_Data_Proof` AVD
+referenced by the failing run above. At inspection, Windows reported only the
+normal `AbsoluteJS_API_36` QEMU process. Recheck process identity immediately
+before copying; this observation is not a persistent guarantee of inactivity.
+
+`qemu-img info --output=json` reports clean (not dirty, not corrupt) headers
+for these three overlays, each with a relative sibling backing filename:
+
+| Overlay | Backing file | Backing format |
+| --- | --- | --- |
+| `userdata-qemu.img.qcow2` | `userdata-qemu.img` | qcow2 |
+| `cache.img.qcow2` | `cache.img` | raw |
+| `encryptionkey.img.qcow2` | `encryptionkey.img` | raw |
+
+Inspection of all three backing files found no further backing dependencies.
+Copy both layers of each pair, never just the overlays. Recheck the backing
+files before copying, and verify each
+copied chain resolves within its destination. Header metadata alone is not
+a full disk-integrity check. Hash source and destination files and verify the
+source stayed unchanged during preparation. Do not use hard links.
+
+The actual userdata virtual size is **6 GiB**, although the harness rewrites
+`disk.dataPartition.size=4G`. Changing that configuration did not establish a
+4 GiB disk for reused state. Keep the real disk size identical across trials
+and include it in evidence; do not resize the source as part of this comparison.
+
+The source also contains approximately 3.1 GiB of snapshots and a remaining
+`multiinstance.lock` file. Lock-file existence alone does not prove a running
+process. Do not remove source locks or snapshots. Prepare cold-boot copies
+without snapshots, locks, or generated launch/hardware path files; preserve
+required guest state and regenerate destination-specific AVD registration.
+At inspection the Windows volume had approximately 66 GiB free; recheck before
+copying. No clone, hash sweep, or startup was performed during this preflight.
+
+### Execution checklist
+
 Coordinate a pause window before running this; do not interrupt other sessions.
 
 1. Preserve the existing evidence. Stop and identity-check only the owned
