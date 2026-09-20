@@ -8,8 +8,86 @@ initialization, but does **not** establish the host-side cause or a reliable fix
 Keep emulator defaults, ANR rejection, CPU-settling checks, and the framework
 publication hold unchanged. A readiness pass is not authenticated native acceptance.
 
-This investigation used saved evidence only; it did not restart an emulator,
-change host settings, or require other work to pause.
+The initial analysis used saved evidence only. The subsequent controlled checks
+below ran during an explicitly approved pause window. No host settings changed.
+
+## Controlled checks and post-failure trace
+
+Executed September 19 local time (September 20 UTC). Both independent cold-boot
+copies were made from the same stopped synthetic source. All copied files were
+SHA-256 verified against the source; all six disk layers were checked for backing
+dependencies; the source was rehashed afterward and remained unchanged. No hard
+links, snapshots, or source lock/launch files were copied. Both trials used host
+graphics, default Vulkan, four guest cores, and 3072 MB RAM. No apps were installed.
+
+| Observation | Trial 1 | Trial 2 |
+| --- | --- | --- |
+| Clone/observation UUID | `9b8bbe04-f5e7-4e0a-8d16-a05ed21cf22d` | `82ef3f1c-fc3d-4f4d-b24d-fa1544a972f3` |
+| Readiness-run UUID | `2baff0a1-17ae-4607-a951-0a50fe9d8b99` | `330eb04a-f1ef-4bc5-9758-9713d911c993` |
+| Boot completion | 194,730 ms | 176,616 ms |
+| Startup outcome before additional tracing | System UI and other system-service ANRs | System UI and other system-service ANRs |
+| Harness outcome | CPU-settling failure | CPU-settling failure (later readings include additional tracing) |
+
+The matched observation period used the same sampler. In Trial 1, samples
+`guest-25.json` through `guest-36.json` observed the same System UI PID (1340)
+over approximately 69 seconds: runtime increased from 0.09 to 7.45 seconds and
+runqueue wait from 0.11 to 45.00 seconds. This is interval evidence of scheduler
+pressure, rather than relying only on a cumulative ANR counter. Its first captured
+System UI ANR was a 20,205 ms SystemUIService execution timeout.
+
+Both trials reproduced startup ANRs **before** a separate 20-second Perfetto
+capture was added to Trial 2. The capture is diagnostic work, not part of the
+matched comparison. Do not compare Trial 2's final CPU samples or total test
+duration as if instrumentation remained identical throughout.
+
+### Post-failure scheduler trace
+
+Local artifact: Trial 2's `observation/post-anr.pftrace` (2,734,544 bytes).
+It was collected with `sched freq idle` on the synthetic guest only, with a
+16 MB buffer and 20-second duration limit. No host-wide trace or upload occurred.
+The trace contains approximately 18.23 seconds of observed scheduling data.
+
+Offline analysis with official Perfetto Trace Processor v58.2 found:
+
+- Guest CPUs 0–3 were non-idle for approximately 17.90, 17.90, 17.79, and 16.40
+  seconds respectively in that observed window.
+- `system_server` accumulated 22.27 CPU-seconds across threads; the sensor HAL
+  5.33, Google keyboard 5.04, persistent Google services 4.70, and `kworker/3:1`
+  4.01. Process CPU time can exceed elapsed time on a multicore guest.
+- System UI's main thread was mostly sleeping by this later capture (14.87
+  seconds), with 2.21 seconds runnable/preempted and 0.30 seconds running.
+  This trace therefore describes continued system load after the ANR, not the
+  exact initialization interval that caused it.
+- No positive error/data-loss-severity statistics were reported, but there were
+  18 ftrace setup notices and two informational tokenizer errors. Do not assume
+  every requested event or frequency source was available.
+
+The binary SHA-256 matched the official download manifest:
+`58042408e6cc861fb1a731c26bb082dc222285561eaa4e12a48a8b2b90dca7b9`.
+See [Perfetto's Android tracing guidance](https://perfetto.dev/docs/learning-more/android)
+and [local command-line analysis](https://perfetto.dev/docs/getting-started/command-line-analysis).
+
+### Limits and next action
+
+Early guest pressure reads were permission-denied until the harness enabled
+root; those are missing data. The host process sampler matched the windowed
+QEMU name, missing `qemu-system-x86_64-headless`; empty process arrays are not
+zero CPU usage. Aggregate/per-core host samples were still collected. The local
+sampler and source-process check were corrected afterward to include headless
+QEMU; the corrected sampler has not been rerun. These limitations do not invalidate
+the captured ANRs, but prevent a host scheduling diagnosis.
+
+The next targeted experiment is an **early-start guest scheduling trace** that
+covers System UI creation, with process/thread attribution and, if supported,
+bounded kernel CPU sampling. The later trace identifies consumers to inspect;
+it does not justify disabling sensors, Google services, or changing affinity.
+Only consider a separately approved Windows scheduling trace if guest evidence
+cannot distinguish guest work from host/hypervisor delays.
+
+After both trials, the disposable emulator was stopped and the normal
+`AbsoluteJS_API_36` emulator was restored with `sys.boot_completed=1` verified.
+Raw artifacts and temporary copies were retained locally for investigation.
+Framework publication remains held; no authenticated native acceptance passed.
 
 ## Evidence
 
