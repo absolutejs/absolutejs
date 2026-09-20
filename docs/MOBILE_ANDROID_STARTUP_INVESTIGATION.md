@@ -177,6 +177,68 @@ completion verified. The pause window was released. Raw traces, invalid-capture
 sidecars, SQL analysis scripts, and disposable copies remain local. The framework
 release remains held pending authenticated installed-device acceptance.
 
+## Kernel-only startup profile: HPET hotspot
+
+The next independent, hash-verified copy reproduced the failure with a bounded
+kernel-only CPU profile. Local observation directory:
+`cc371698-a357-4dbb-ad53-0f25ac2a619b/observation`; test log prefix:
+`release-data-retry-1789873747489`. The source remained unchanged during cloning.
+The readiness test failed its unchanged CPU-settling guard. No application was
+installed, no authenticated data was captured, and no host settings were changed.
+
+Perfetto v49 used `linux.perf`, `SW_CPU_CLOCK`, 49 Hz per guest CPU,
+`kernel_frames: true`, and `user_frames: UNWIND_SKIP`, alongside the earlier
+scheduler/process configuration. Capture duration was 180 seconds, with periodic
+file writes and flushes and a 96 MiB cap. Existing guest permissions sufficed;
+neither perf permissions nor kernel pointer restrictions were weakened.
+These fields are supported by the
+[v49 profiling configuration](https://github.com/google/perfetto/blob/v49.0/protos/perfetto/config/profiling/perf_event_config.proto).
+
+The 28,074,696-byte trace has SHA-256
+`6a67a47b7eb62e9d14375359d7a7d16ec148fde5f9b0efdff58f38f84bc219f2`.
+It contains 35,252 samples with resolved kernel function names and no positive
+parser-error or data-loss statistics. Its guest-time bounds are 84.885367–264.723197
+seconds, covering System UI PID 1357 creation at 155.614682 seconds and its full
+20.833567-second `StartServices` interval beginning at 163.816347 seconds.
+
+During that initialization, the main thread spent 2.615905 seconds running,
+11.272235 runnable, 6.821063 sleeping, and 0.124365 in uninterruptible wait.
+Each guest CPU was non-idle for approximately 20 of the interval's 20.83 seconds.
+Of 4,084 CPU samples in the interval, 3,521 were in kernel mode and 563 in user
+mode. The sampled leaf was `read_hpet` in 1,552 samples (38.0% of all samples);
+1,668 samples included it anywhere in the stack. These are statistical sample
+shares, not exact elapsed CPU-time measurements. The inclusive call paths also
+show frequent `clock_gettime`/monotonic-clock reads. Other leaf hotspots included
+spin-unlock/interrupt restoration, task switching, and `goldfish_pipe_read_write`.
+
+Read-only guest inspection established:
+
+- Current and available clocksource were both `hpet` (no available `tsc`).
+- Boot logs reported TSC adjustment compensation and a cross-CPU synchronization
+  failure, then `Marking TSC unstable due to check_tsc_sync_source failed` and a
+  switch to HPET.
+- The guest command line included `clocksource=pit`; this was observed, not added
+  by this experiment. Its provenance and interaction with the fallback need
+  investigation before changing launch configuration.
+
+This is a concrete timekeeping hotspot and confirmed clock fallback, **not yet
+proof of the upstream cause or a validated fix**. Guest profiling alone cannot
+separate emulated timer/MMIO costs from host descheduling during those operations.
+Do not force `tsc=reliable`, disable clock validation, or assume the rejected
+clock is safe. Linux's
+[virtualized x86 timekeeping documentation](https://docs.kernel.org/virt/kvm/x86/timekeeping.html)
+explains why clock stability and synchronization matter under virtualization.
+
+Next, inspect the installed emulator's WHPX launch/CPU/TSC handling and upstream
+fixes, including the source of `clocksource=pit`. Select a supported candidate
+only after that inspection, then compare independent equivalent baseline and
+candidate copies with identical instrumentation. Verify clock stability as well
+as startup time, CPU pressure, and all readiness checks; a faster boot alone is
+not acceptance. Windows-wide tracing or host changes still need separate scope
+approval. Authenticated Capacitor/Expo acceptance and framework publication remain
+held. The test guest was stopped, and normal emulator identity and
+`sys.boot_completed=1` were verified before releasing the user's CPU pause.
+
 ## Evidence
 
 Both runs used emulator 37.1.11, Windows/WHPX, API 36 Google APIs x86_64,
