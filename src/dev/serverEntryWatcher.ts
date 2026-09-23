@@ -1,3 +1,4 @@
+import { isAbsoluteServerEntryCopyPath } from './serverEntryCopies';
 import { unrefTimer } from '../utils/unrefTimer';
 
 /* Path B (framework-owned backend HMR — see
@@ -75,7 +76,7 @@ export const isAtomicWriteTemp = (filename: string) =>
 	filename.includes('.tmp.') ||
 	filename.endsWith('~') ||
 	filename.startsWith('.#') ||
-	filename.startsWith('.absolutejs-hmr-') ||
+	isAbsoluteServerEntryCopyPath(filename) ||
 	ATOMIC_WRITE_TEMP_PATTERNS.some((pattern) => pattern.test(filename));
 
 const fileHash = (path: string) => {
@@ -324,7 +325,7 @@ export const startServerEntryWatcher = () => {
 		_event: string,
 		filename: string | null
 	) => {
-		if (!filename) return;
+		if (!filename || isAbsoluteServerEntryCopyPath(filename)) return;
 		if (isAtomicWriteTemp(filename)) {
 			recoveryScan(dir);
 

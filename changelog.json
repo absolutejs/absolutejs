@@ -5,10 +5,63 @@
 		{
 			"changes": [
 				{
+					"kind": "fixed",
+					"summary": "Apply the incremental asset rewrite fix to HTMX pages as well as HTML and verify both adapters with real builds"
+				}
+			],
+			"date": "2026-09-23",
+			"version": "0.20.0-beta.120"
+		},
+		{
+			"changes": [
+				{
+					"kind": "fixed",
+					"summary": "Reissue the tested HTML asset and OpenAPI fixes after npm left beta.118 unavailable with a phantom staged-version conflict"
+				}
+			],
+			"date": "2026-09-23",
+			"version": "0.20.0-beta.119"
+		},
+		{
+			"changes": [
+				{
+					"kind": "fixed",
+					"summary": "Preserve compiled HTML asset URLs during unrelated incremental page builds and prevent markup URL matching across adjacent tags; use the compatible fixed OpenAPI package"
+				}
+			],
+			"date": "2026-09-23",
+			"version": "0.20.0-beta.118"
+		},
+		{
+			"changes": [
+				{
+					"detail": "Recursive HMR paths could include a directory before .absolutejs-hmr files, bypass the basename-only filter, and restart the development server repeatedly. Generated snapshots now bypass editor atomic-write recovery in all three watcher paths; ordinary source edits still trigger HMR.",
+					"kind": "fixed",
+					"summary": "Ignore generated server snapshots at every watch depth and avoid treating their creation as an editor save."
+				},
+				{
+					"detail": "Declare the jiti config loader dependency, build nested vendor fixtures inside the test, and reject missing native release arguments before loading application configuration. Normalize existing release-fixture lint issues without weakening checks.",
+					"kind": "fixed",
+					"summary": "Make clean CLI builds and release checks self-contained."
+				},
+				{
+					"detail": "Create only a missing scaffold index so Capacitor completes its initial platform sync, without replacing compiled web assets or manufacturing a release manifest. Existing platform directories are synchronized on retry instead of failing a second add. Native initialization uses the current pinned Devices packages in the freshly built CLI.",
+					"kind": "fixed",
+					"summary": "Initialize native app targets before the first bundle and safely retry existing projects."
+				}
+			],
+			"date": "2026-09-21",
+			"version": "0.20.0-beta.117"
+		},
+		{
+			"changes": [
+				{
 					"detail": "Generated TypeScript declaration aliases no longer bypass Expo runtime resolution. Archive identity and per-file checks reject corrupt data and repair stale cached files. The supported Android WebView extension keeps local assets offline and the native bridge origin-scoped without TLS exceptions or dependency patches. Expo runtime fingerprints require a new native binary. Installed Android acceptance now verifies fresh trusted-server props and exactly-once offline Sync reconciliation for both engines; iOS requires the separate partner checks.",
 					"kind": "fixed",
 					"summary": "Fix Expo Android embedded startup with a scoped HTTPS asset host, one runtime asset registry, verified archive extraction, and readiness after rendering.",
-					"symbols": ["AbsoluteMobileUpdateRuntimeDescriptor"]
+					"symbols": [
+						"AbsoluteMobileUpdateRuntimeDescriptor"
+					]
 				}
 			],
 			"date": "2026-09-18",

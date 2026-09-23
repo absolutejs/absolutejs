@@ -74,14 +74,23 @@ export const updateAssetPaths = async (
 ) => {
 	const htmlFiles = await scanEntryPoints(directory, '*.html');
 	const assetRegex =
-		/((?:<script[^>]+src=|<link[^>]*?rel=["']stylesheet["'][^>]*?href=)["'])(?!\/?(?:.*\/)?htmx\.min\.js)(\/?(?:.*\/)?)([^./"']+)(?:\.[^."'/]+)?(\.(?:js|ts|css))(["'][^>]*>)/g;
+		/((?:<script[^>]+src=|<link[^>]*?rel=["']stylesheet["'][^>]*?href=)["'])(?!\/?(?:[^"'<>]*\/)?htmx\.min\.js)(\/?(?:[^"'<>]*\/)?)([^./"']+)(?:\.[^."'/]+)?(\.(?:js|ts|css))(["'][^>]*>)/g;
 
 	const tasks = htmlFiles.map(async (filePath) => {
 		const original = await readFile(filePath, 'utf8');
 		const updated = original.replace(
 			assetRegex,
 			(match, prefix, dir, name, ext, suffix) =>
-				replaceAssetRef(match, prefix, dir, name, ext, suffix, manifest, filePath)
+				replaceAssetRef(
+					match,
+					prefix,
+					dir,
+					name,
+					ext,
+					suffix,
+					manifest,
+					filePath
+				)
 		);
 		await writeFile(filePath, updated, 'utf8');
 	});

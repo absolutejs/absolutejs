@@ -42,5 +42,5 @@ export const server = new Elysia()
 			requestContext: { initialCount: 0 }
 		})
 	)
-	.onError(logServerError)
+	.error(logServerError)
 	.use(networking);

@@ -136,12 +136,12 @@ export const createLocalHttpsEmulator = async (
 		JSON.stringify(
 			{
 				cores,
-				requestedTransport:
-					process.env.ABSOLUTE_TEST_RELEASE_GL_TRANSPORT ??
-					'avd-default',
 				graphics:
 					process.env.ABSOLUTE_TEST_RELEASE_GPU ?? 'avd-default',
 				memoryMb: 3072,
+				requestedTransport:
+					process.env.ABSOLUTE_TEST_RELEASE_GL_TRANSPORT ??
+					'avd-default',
 				serial,
 				vulkan:
 					process.env.ABSOLUTE_TEST_RELEASE_DISABLE_VULKAN === '1'
