@@ -3209,13 +3209,6 @@ const buildUnlocked = async ({
 			(f) => f.includes('/htmx/') && f.endsWith('.html')
 		);
 
-	// Update asset paths if CSS changed (even if HTML files didn't change)
-	const shouldUpdateHtmxAssetPaths =
-		!isIncremental ||
-		normalizedIncrementalFiles?.some(
-			(f) =>
-				f.includes('/htmx/') && (f.endsWith('.html') || isStylePath(f))
-		);
 
 	// Await the HMR client bundle that was started before the compile phase
 	const hmrClientBundle = hmrClientBundlePromise
@@ -3297,11 +3290,9 @@ const buildUnlocked = async ({
 			copyHtmxVendor(htmxDir, htmxDestDir);
 		}
 
-		// Update asset paths if HTMX files changed OR CSS changed
-		if (shouldUpdateHtmxAssetPaths) {
-			await updateAssetPaths(manifest, outputHtmxPages);
-			await optimizeHtmlImages(outputHtmxPages);
-		}
+		// HTMX pages are also freshly copied on every incremental build.
+		await updateAssetPaths(manifest, outputHtmxPages);
+		await optimizeHtmlImages(outputHtmxPages);
 
 		// Add HTMX pages to manifest (absolute paths for Bun.file())
 		const htmxPageFiles = await scanEntryPoints(outputHtmxPages, '*.html');

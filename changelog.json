@@ -6,6 +6,16 @@
 			"changes": [
 				{
 					"kind": "fixed",
+					"summary": "Apply the incremental asset rewrite fix to HTMX pages as well as HTML and verify both adapters with real builds"
+				}
+			],
+			"date": "2026-09-23",
+			"version": "0.20.0-beta.120"
+		},
+		{
+			"changes": [
+				{
+					"kind": "fixed",
 					"summary": "Reissue the tested HTML asset and OpenAPI fixes after npm left beta.118 unavailable with a phantom staged-version conflict"
 				}
 			],
