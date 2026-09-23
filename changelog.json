@@ -6,6 +6,16 @@
 			"changes": [
 				{
 					"kind": "fixed",
+					"summary": "Reissue the tested HTML asset and OpenAPI fixes after npm left beta.118 unavailable with a phantom staged-version conflict"
+				}
+			],
+			"date": "2026-09-23",
+			"version": "0.20.0-beta.119"
+		},
+		{
+			"changes": [
+				{
+					"kind": "fixed",
 					"summary": "Preserve compiled HTML asset URLs during unrelated incremental page builds and prevent markup URL matching across adjacent tags; use the compatible fixed OpenAPI package"
 				}
 			],
