@@ -1,3 +1,4 @@
+import { isAbsoluteServerEntryCopyPath } from '../../dev/serverEntryCopies';
 import { $, env } from 'bun';
 import { spawn as nodeSpawn, type ChildProcess } from 'node:child_process';
 import {
@@ -2249,7 +2250,7 @@ export const dev = async (
 			filename.includes('.tmp.') ||
 			filename.endsWith('~') ||
 			filename.startsWith('.#') ||
-			filename.startsWith('.absolutejs-hmr-') ||
+			isAbsoluteServerEntryCopyPath(filename) ||
 			/^sed[A-Za-z0-9]{6,}$/.test(filename) ||
 			filename === '4913';
 		// The dev runtime's `serverEntryWatcher` handles the entry's
@@ -2327,7 +2328,8 @@ export const dev = async (
 			serverEntryDir,
 			{ recursive: false },
 			(event, filename) => {
-				if (!filename) return;
+				if (!filename || isAbsoluteServerEntryCopyPath(filename))
+					return;
 				if (isAtomicWriteTemp(filename)) {
 					if (event === 'rename') scheduleAtomicRecovery();
 

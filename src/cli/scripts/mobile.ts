@@ -19,7 +19,10 @@ import {
 	packageNameFromSpec,
 	packagesNeedingExactInstall
 } from '../../mobile/nativePackages';
-import { writeAbsoluteCapacitorConfig } from '../../mobile/capacitorProject';
+import {
+	prepareAbsoluteCapacitorInitialization,
+	writeAbsoluteCapacitorConfig
+} from '../../mobile/capacitorProject';
 import {
 	syncAbsoluteExpoWebAssets,
 	writeAbsoluteExpoProject
@@ -757,7 +760,14 @@ const initialize = async (args: string[]) => {
 		`${generated.changed ? 'Generated' : 'Verified'} ${generated.path}`
 	);
 	if (args.includes('--no-native')) return;
-	await runCapacitorForPlatforms(projectRoot, 'add', mobile.platforms);
+	const platforms = await prepareAbsoluteCapacitorInitialization(mobile);
+	await platforms.reduce(
+		(pending, platform) =>
+			pending.then(() =>
+				runCapacitor(projectRoot, [platform.command, platform.platform])
+			),
+		Promise.resolve()
+	);
 	if (mobile.branding)
 		await generateAbsoluteCapacitorBranding(mobile, projectRoot);
 	await applyAbsoluteNativeDeepLinks(mobile);
@@ -4065,6 +4075,13 @@ const testAndroidRelease = async (
 };
 
 const testAndroid = async (args: string[]) => {
+	if (args.includes('--release')) {
+		const requested = valueAfter(args, '--release');
+		if (!requested || requested.startsWith('--'))
+			throw new TypeError(
+				'mobile test android --release requires a release directory or release.json path.'
+			);
+	}
 	const { mobile, projectRoot } = await loadMobile(
 		valueAfter(args, '--config')
 	);
@@ -5184,6 +5201,13 @@ const testIosRelease = async (
 };
 
 const testIos = async (args: string[]) => {
+	if (args.includes('--release')) {
+		const requested = valueAfter(args, '--release');
+		if (!requested || requested.startsWith('--'))
+			throw new TypeError(
+				'mobile test ios --release requires a release directory or release.json path.'
+			);
+	}
 	const { mobile, projectRoot } = await loadMobile(
 		valueAfter(args, '--config')
 	);

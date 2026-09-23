@@ -26,6 +26,7 @@
 		"@expo/code-signing-certificates": "0.0.6",
 		"@tailwindcss/oxide": "^4.1.0",
 		"exact-mirror": "1.2.4",
+		"jiti": "2.6.1",
 		"typebox": "1.3.16",
 		"web-vitals": "6.0.0",
 		"zustand": "^5.0.12"
@@ -466,9 +467,9 @@
 		"test:integration": "bun run scripts/shardedTests.ts tests/integration",
 		"test:mobile:update:durable": "ABSOLUTE_TEST_MOBILE_UPDATE_DURABLE=1 bun test tests/integration/mobile-update-durable-conformance.test.ts",
 		"test:native:android": "bun run test:native:android:lifecycle && bun run test:native:android:hmr && bun run test:native:android:bundle",
+		"test:native:android:auth-sync": "ABSOLUTE_TEST_ANDROID_AUTHENTICATED_RELEASE=1 bun test tests/native/android-authenticated-release-conformance.test.ts",
 		"test:native:android:branding": "ABSOLUTE_TEST_ANDROID_BRANDING=1 bun test tests/native/android-branding-conformance.test.ts",
 		"test:native:android:bundle": "ABSOLUTE_TEST_NATIVE_ANDROID=1 bun test tests/native/android-embedded-bundle-conformance.test.ts",
-		"test:native:android:auth-sync": "ABSOLUTE_TEST_ANDROID_AUTHENTICATED_RELEASE=1 bun test tests/native/android-authenticated-release-conformance.test.ts",
 		"test:native:android:data": "ABSOLUTE_TEST_ANDROID_RELEASE_DATA=1 bun test tests/native/android-release-data-conformance.test.ts",
 		"test:native:android:hmr": "ABSOLUTE_TEST_NATIVE_ANDROID=1 bun test tests/native/android-hmr-conformance.test.ts",
 		"test:native:android:lifecycle": "ABSOLUTE_TEST_NATIVE_ANDROID=1 bun test tests/native/android-lifecycle-conformance.test.ts",
@@ -541,7 +542,7 @@
 			]
 		}
 	},
-	"version": "0.20.0-beta.116",
+	"version": "0.20.0-beta.117",
 	"workspaces": [
 		"tests/fixtures/*",
 		"tests/fixtures/_packages/*"

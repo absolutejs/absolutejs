@@ -1,3 +1,4 @@
+import { isAbsoluteServerEntryCopyPath } from './serverEntryCopies';
 import { watch } from 'fs';
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'path';
@@ -73,7 +74,7 @@ const shouldSkipFilename = (filename: string, isStylesDir: boolean) =>
 	filename.endsWith('.tmp') ||
 	filename.endsWith('~') ||
 	filename.startsWith('.#') ||
-	filename.startsWith('.absolutejs-hmr-') ||
+	isAbsoluteServerEntryCopyPath(filename) ||
 	ATOMIC_WRITE_TEMP_PATTERNS.some((pattern) => pattern.test(filename));
 
 const setupWatcher = (
@@ -131,7 +132,7 @@ const setupWatcher = (
 		absolutePath,
 		{ recursive: true },
 		(event, filename) => {
-			if (!filename) return;
+			if (!filename || isAbsoluteServerEntryCopyPath(filename)) return;
 			if (shouldSkipFilename(filename, isStylesDir)) {
 				if (event === 'rename') {
 					const eventDir = dirname(

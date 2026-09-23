@@ -1,3 +1,7 @@
+/** Framework snapshots are not user edits, including recursive watch paths. */
+export const isAbsoluteServerEntryCopyPath = (path: string) =>
+	/(?:^|[/\\])\.absolutejs-hmr-/.test(path);
+
 const ENTRY_COPY_OWNER_PATTERN =
 	/^\.absolutejs-hmr-(\d+)-(?:bootstrap-)?\d+\.[^.]+$/;
 
