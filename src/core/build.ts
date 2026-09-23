@@ -3210,12 +3210,6 @@ const buildUnlocked = async ({
 		);
 
 	// Update asset paths if CSS changed (even if HTML files didn't change)
-	const shouldUpdateHtmlAssetPaths =
-		!isIncremental ||
-		normalizedIncrementalFiles?.some(
-			(f) =>
-				f.includes('/html/') && (f.endsWith('.html') || isStylePath(f))
-		);
 	const shouldUpdateHtmxAssetPaths =
 		!isIncremental ||
 		normalizedIncrementalFiles?.some(
@@ -3255,11 +3249,10 @@ const buildUnlocked = async ({
 			recursive: true
 		});
 
-		// Update asset paths if HTML files changed OR CSS changed
-		if (shouldUpdateHtmlAssetPaths) {
-			await updateAssetPaths(manifest, outputHtmlPages);
-			await optimizeHtmlImages(outputHtmlPages);
-		}
+		// Every copy restores source URLs, including unrelated incremental builds.
+		// Always resolve them against the merged manifest before serving the page.
+		await updateAssetPaths(manifest, outputHtmlPages);
+		await optimizeHtmlImages(outputHtmlPages);
 
 		// Add HTML pages to manifest (absolute paths for Bun.file())
 		const htmlPageFiles = await scanEntryPoints(outputHtmlPages, '*.html');
