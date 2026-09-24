@@ -1,8 +1,11 @@
 import {
 	mkdir,
 	mkdtemp,
+	readdir,
 	readFile,
 	realpath,
+	rm,
+	stat,
 	writeFile
 } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
@@ -16,6 +19,48 @@ import { requireAndroidUiReadiness } from './androidUiReadiness';
 import { readAndroidUiSnapshot } from './androidUiSnapshot';
 import { saveAndroidDiagnostic } from './androidDiagnostic';
 import { requireAndroidCpuSettled } from './androidCpuSettling';
+
+const RELEASE_AVD_HOME_PATTERN = /^absolute-release-data-[A-Za-z0-9]+$/u;
+const RELEASE_AVD_KEEP_MARKER = 'AbsoluteJS_Release_Data_Proof.keep';
+const STALE_RELEASE_AVD_MS = 24 * 60 * 60 * 1000;
+
+/** Every run creates a multi-gigabyte isolated AVD in the temporary directory.
+ * Reclaim leftovers from earlier runs (crashes, kills, or runs that predate
+ * cleanup) that are older than a day and were not explicitly kept for reuse. */
+const pruneStaleReleaseAvdHomes = async (
+	temporary: string,
+	current: string
+) => {
+	const cutoff = Date.now() - STALE_RELEASE_AVD_MS;
+	const entries = await readdir(temporary).catch(() => []);
+	await Promise.all(
+		entries
+			.filter((entry) => RELEASE_AVD_HOME_PATTERN.test(entry))
+			.map((entry) => join(temporary, entry))
+			.filter((candidate) => candidate !== current)
+			.map(async (candidate) => {
+				const [info, ini, kept] = await Promise.all([
+					stat(candidate).catch(() => undefined),
+					stat(
+						join(candidate, 'AbsoluteJS_Release_Data_Proof.ini')
+					).catch(() => undefined),
+					stat(join(candidate, RELEASE_AVD_KEEP_MARKER)).catch(
+						() => undefined
+					)
+				]);
+				if (
+					!info?.isDirectory() ||
+					!ini ||
+					kept ||
+					info.mtimeMs > cutoff
+				)
+					return;
+				await rm(candidate, { force: true, recursive: true }).catch(
+					() => undefined
+				);
+			})
+	);
+};
 
 export const createLocalHttpsEmulator = async (
 	root: string,
@@ -61,6 +106,9 @@ export const createLocalHttpsEmulator = async (
 		? await hostPath(await run(['cmd.exe', '/c', 'echo %TEMP%']))
 		: tmpdir();
 	const reuse = process.env.ABSOLUTE_TEST_RELEASE_REUSE_RUN;
+	// Keep the AVD only when a later run reuses it; otherwise remove it on close.
+	const keep =
+		Boolean(reuse) || process.env.ABSOLUTE_TEST_RELEASE_KEEP_AVD === '1';
 	const resolveAvdHome = async () => {
 		if (!reuse) return mkdtemp(join(temporary, 'absolute-release-data-'));
 		const previous = await realpath(resolve(root, reuse));
@@ -101,9 +149,11 @@ export const createLocalHttpsEmulator = async (
 		return candidate;
 	};
 	const avdHome = await resolveAvdHome();
+	await pruneStaleReleaseAvdHomes(temporary, avdHome);
 	const avdName = 'AbsoluteJS_Release_Data_Proof';
 	const avd = join(avdHome, `${avdName}.avd`);
 	await mkdir(avd, { recursive: true });
+	if (keep) await writeFile(join(avdHome, RELEASE_AVD_KEEP_MARKER), '');
 	const template =
 		process.env.ABSOLUTE_TEST_RELEASE_AVD_CONFIG ??
 		join(home, '.android/avd/AbsoluteJS_API_36.avd/config.ini');
@@ -216,6 +266,10 @@ export const createLocalHttpsEmulator = async (
 			else child.kill();
 		}
 		await child.exited;
+		if (!keep)
+			await rm(avdHome, { force: true, recursive: true }).catch(
+				() => undefined
+			);
 	};
 	try {
 		await pollNative(

@@ -140,6 +140,20 @@ const MAX_TCP_PORT = 65_535;
 const PROCESS_CLOSE_TIMEOUT_MS = 2_000;
 const HASH_RADIX = 16;
 const WINDOWS_BUILD_ID_LENGTH = 10;
+const DEFAULT_WINDOWS_BUILD_RETENTION_DAYS = 14;
+const WINDOWS_BUILD_STAMP = '.absolutejs-last-build';
+
+/** Managed Windows mirrors are keyed by project path and each one carries a
+ * full node_modules plus Gradle output, so mirrors that have not built within
+ * the retention window are removed. Override with
+ * ABSOLUTE_EXPO_BUILD_RETENTION_DAYS. */
+const windowsBuildRetentionDays = () => {
+	const configured = Number(process.env.ABSOLUTE_EXPO_BUILD_RETENTION_DAYS);
+
+	return Number.isFinite(configured) && configured > 0
+		? configured
+		: DEFAULT_WINDOWS_BUILD_RETENTION_DAYS;
+};
 
 const allocateAvailableMetroPort = () =>
 	new Promise<number>((resolve, reject) => {
@@ -492,10 +506,16 @@ const encodedWindowsExpoAndroidCommand = (
 		'try { $mutexAcquired = $mutex.WaitOne([TimeSpan]::FromMinutes(30)) } catch [Threading.AbandonedMutexException] { $mutexAcquired = $true }',
 		"if (-not $mutexAcquired) { throw 'Timed out waiting for another AbsoluteJS Expo Android build to release the managed Windows mirror.' }",
 		'New-Item -ItemType Directory -Force -Path $directory | Out-Null',
-		'& robocopy.exe $source $directory /MIR /XD node_modules .expo .git .gradle .cxx .kotlin build /XF bun.lock bun.lockb .absolutejs-preserve-subst.cjs .absolutejs-source-lock.sha256 /NFL /NDL /NJH /NJS /NP',
+		`& robocopy.exe $source $directory /MIR /XD node_modules .expo .git .gradle .cxx .kotlin build /XF bun.lock bun.lockb .absolutejs-preserve-subst.cjs .absolutejs-source-lock.sha256 ${WINDOWS_BUILD_STAMP} /NFL /NDL /NJH /NJS /NP`,
 		'$copyExit = $LASTEXITCODE',
 		'if ($copyExit -ge 8) { exit $copyExit }',
 		'Set-Location $directory',
+		// Stamp this mirror as recently built, then evict sibling mirrors whose
+		// last build (or creation, for mirrors without a stamp) is past retention.
+		`$buildStamp = Join-Path $directory '${WINDOWS_BUILD_STAMP}'`,
+		"Set-Content $buildStamp ([DateTime]::UtcNow.ToString('o')) -NoNewline",
+		`$staleBefore = [DateTime]::UtcNow.AddDays(-${windowsBuildRetentionDays()})`,
+		`Get-ChildItem -LiteralPath (Split-Path -Parent $directory) -Directory -ErrorAction SilentlyContinue | Where-Object { -not [String]::Equals($_.FullName, $directory, [StringComparison]::OrdinalIgnoreCase) -and (Test-Path (Join-Path $_.FullName '.absolutejs-expo-project')) } | ForEach-Object { $stamp = Join-Path $_.FullName '${WINDOWS_BUILD_STAMP}'; $lastBuild = if (Test-Path $stamp) { (Get-Item $stamp).LastWriteTimeUtc } else { $_.LastWriteTimeUtc }; if ($lastBuild -lt $staleBefore) { Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction SilentlyContinue } }`,
 		"$sourceLock = @('bun.lock', 'bun.lockb') | ForEach-Object { Join-Path $source $_ } | Where-Object { Test-Path $_ } | Select-Object -First 1",
 		"$sourceLockHash = if ($sourceLock) { (Get-FileHash $sourceLock -Algorithm SHA256).Hash } else { 'none' }",
 		"$lockMarker = Join-Path $directory '.absolutejs-source-lock.sha256'",
