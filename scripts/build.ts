@@ -208,7 +208,11 @@ const EXTERNALS = [
 	'@absolutejs/pwa/*',
 	'typescript',
 	'debug',
-	'sharp'
+	'sharp',
+	// Optional database drivers `absolute db` loads only for SQL Server
+	// and remote libSQL/Turso; they must resolve from the user's project.
+	'@libsql/client',
+	'mssql'
 ];
 
 /* The config server bundles React (for SSR) so it works even in

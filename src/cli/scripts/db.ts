@@ -1,48 +1,57 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { env, spawn, SQL } from 'bun';
+import { env, spawn } from 'bun';
+import type {
+	DbBackupFile,
+	DbConnection,
+	DbEngine,
+	DbOptions,
+	DbRow,
+	DbTableMeta,
+	DbTarget
+} from '../../../types/db';
 import { UNFOUND_INDEX } from '../../constants';
 import { colors } from '../tuiPrimitives';
+import { detectTarget, readOrmDialect } from './dbEngines/detect';
+import { openConnection } from './dbEngines/open';
+import { dependencyOrder } from './dbEngines/sqlText';
+import { parseJsonText } from './dbEngines/values';
 
-type ColumnMeta = { isJson: boolean; name: string };
-type TableMeta = { columns: ColumnMeta[]; name: string; primaryKey: string[] };
-type ForeignLink = { from: string; to: string };
-type DbRow = Record<string, unknown>;
-type BackupFile = { at: string; tables: Record<string, DbRow[]>; v: number };
-type DbOptions = {
-	exclude: string[];
-	only: string[];
-	out?: string;
-	truncate: boolean;
-	url: string;
-	yes: boolean;
-};
-type NameRow = { table_name: string };
-type ColumnRow = { column_name: string; data_type: string };
-type KeyRow = { col: string };
-type LinkRow = { child: string; parent: string };
+export {
+	chunkRows,
+	conflictClause,
+	dependencyOrder,
+	quoteIdent
+} from './dbEngines/sqlText';
+export { encodeValue } from './dbEngines/values';
 
 const BACKUP_FORMAT_VERSION = 1;
-const RESTORE_CHUNK_ROWS = 500;
-const URL_ENV_KEYS = ['DATABASE_URL', 'POSTGRES_URL', 'DATABASE_URL_UNPOOLED'];
-const JSON_DATA_TYPES = ['json', 'jsonb'];
+/* The first three are the keys `absolute db` has always read; the rest cover
+   the conventional variables of the other supported engines. */
+const URL_ENV_KEYS = [
+	'DATABASE_URL',
+	'POSTGRES_URL',
+	'DATABASE_URL_UNPOOLED',
+	'MYSQL_URL',
+	'TURSO_DATABASE_URL',
+	'LIBSQL_URL',
+	'MSSQL_URL'
+];
+/* Engines whose backups carry JSON documents as text, not parsed values. */
+const TEXT_JSON_ENGINES: DbEngine[] = ['libsql', 'mssql', 'sqlite'];
 const SEED_CANDIDATES = ['db/seed.ts', 'src/db/seed.ts', 'seed.ts'];
 const VALUE_FLAGS = ['--out', '--url', '--only', '--exclude'];
 
 const paint = (text: string, color: string) => `${color}${text}${colors.reset}`;
 
-export const chunkRows = <Item>(items: Item[], size: number) =>
-	Array.from({ length: Math.ceil(items.length / size) }, (_, idx) =>
-		items.slice(idx * size, idx * size + size)
+const findUrl = (explicit: string | undefined) =>
+	explicit ??
+	URL_ENV_KEYS.map((key) => env[key]).find(
+		(value) => typeof value === 'string' && value !== ''
 	);
-export const quoteIdent = (name: string) => `"${name.replace(/"/g, '""')}"`;
 
 const resolveUrl = (explicit: string | undefined) => {
-	const found =
-		explicit ??
-		URL_ENV_KEYS.map((key) => env[key]).find(
-			(value) => typeof value === 'string' && value !== ''
-		);
+	const found = findUrl(explicit);
 	if (found === undefined || found === '')
 		throw new Error(
 			`No database URL found. Set ${URL_ENV_KEYS.join(' or ')}, or pass --url <url>.`
@@ -51,173 +60,52 @@ const resolveUrl = (explicit: string | undefined) => {
 	return found;
 };
 
+const resolveTarget = (url: string) =>
+	detectTarget(url, readOrmDialect(process.cwd()));
+
 const keepTable = (name: string, options: DbOptions) =>
 	(options.only.length === 0 || options.only.includes(name)) &&
 	!options.exclude.includes(name);
 
-const listTables = async (sql: SQL) => {
-	const rows: NameRow[] =
-		await sql`select table_name from information_schema.tables where table_schema = ${'public'} and table_type = ${'BASE TABLE'} order by table_name`;
-
-	return rows.map((row) => row.table_name);
-};
-
-const columnsFor = async (sql: SQL, name: string) => {
-	const rows: ColumnRow[] = await sql.unsafe(
-		`select column_name, data_type from information_schema.columns where table_schema = $1 and table_name = $2 order by ordinal_position`,
-		['public', name]
-	);
-
-	return rows.map((row) => ({
-		isJson: JSON_DATA_TYPES.includes(row.data_type),
-		name: row.column_name
-	}));
-};
-
-const primaryKeyFor = async (sql: SQL, name: string) => {
-	const rows: KeyRow[] = await sql.unsafe(
-		`select a.attname as col from pg_index i join pg_attribute a on a.attrelid = i.indrelid and a.attnum = any(i.indkey) where i.indrelid = $1::regclass and i.indisprimary order by a.attnum`,
-		[`public.${quoteIdent(name)}`]
-	);
-
-	return rows.map((row) => row.col);
-};
-
-const tableMeta = async (sql: SQL, name: string) => {
-	const [columns, primaryKey] = await Promise.all([
-		columnsFor(sql, name),
-		primaryKeyFor(sql, name)
-	]);
-
-	return { columns, name, primaryKey };
-};
-
-const foreignLinks = async (sql: SQL) => {
-	const rows: LinkRow[] = await sql.unsafe(
-		`select tc.table_name as child, ccu.table_name as parent from information_schema.table_constraints tc join information_schema.constraint_column_usage ccu on ccu.constraint_name = tc.constraint_name and ccu.table_schema = tc.table_schema where tc.constraint_type = 'FOREIGN KEY' and tc.table_schema = $1`,
-		['public']
-	);
-
-	return rows.map((row) => ({
-		from: row.child,
-		to: row.parent
-	}));
-};
-
-// Topological sort so parents are restored before the rows that reference them.
-// Self-references and cycle leftovers are appended in their original order.
-export const conflictClause = (meta: TableMeta) => {
-	if (meta.primaryKey.length === 0) return 'on conflict do nothing';
-	const target = meta.primaryKey.map(quoteIdent).join(', ');
-	const updatable = meta.columns
-		.map((col) => col.name)
-		.filter((name) => !meta.primaryKey.includes(name));
-	if (updatable.length === 0) return `on conflict (${target}) do nothing`;
-	const sets = updatable
-		.map((name) => `${quoteIdent(name)} = excluded.${quoteIdent(name)}`)
-		.join(', ');
-
-	return `on conflict (${target}) do update set ${sets}`;
-};
-export const dependencyOrder = (names: string[], links: ForeignLink[]) => {
-	const present = new Set(names);
-	const edges = links.filter(
-		(link) =>
-			present.has(link.from) &&
-			present.has(link.to) &&
-			link.from !== link.to
-	);
-	const indegree = new Map(names.map((name) => [name, 0]));
-	edges.forEach((link) =>
-		indegree.set(link.from, (indegree.get(link.from) ?? 0) + 1)
-	);
-	const ready = names.filter((name) => (indegree.get(name) ?? 0) === 0);
-	const ordered: string[] = [];
-	const release = (parent: string) =>
-		edges
-			.filter((link) => link.to === parent)
-			.forEach((link) => {
-				const next = (indegree.get(link.from) ?? 0) - 1;
-				indegree.set(link.from, next);
-				if (next === 0) ready.push(link.from);
-			});
-	const drain = () => {
-		const head = ready.shift();
-		if (head === undefined) return;
-		ordered.push(head);
-		release(head);
-		drain();
-	};
-	drain();
-	names.forEach((name) => {
-		if (!ordered.includes(name)) ordered.push(name);
-	});
-
-	return ordered;
-};
-export const encodeValue = (col: ColumnMeta, value: unknown) => {
-	if (value === null || value === undefined) return null;
-	if (col.isJson) return JSON.stringify(value);
-
-	return value;
-};
-
-const insertChunk = async (sql: SQL, meta: TableMeta, rows: DbRow[]) => {
-	const colNames = meta.columns.map((col) => col.name);
-	const groups = rows.map((_, rowIdx) => {
-		const base = rowIdx * colNames.length;
-		const slots = [...colNames.keys()].map(
-			(colIdx) => `$${base + colIdx + 1}`
-		);
-
-		return `(${slots.join(', ')})`;
-	});
-	const params = rows.flatMap((row) =>
-		meta.columns.map((col) => encodeValue(col, row[col.name]))
-	);
-	const columnList = colNames.map(quoteIdent).join(', ');
-	const query = `insert into ${quoteIdent(meta.name)} (${columnList}) values ${groups.join(', ')} ${conflictClause(meta)}`;
-	await sql.unsafe(query, params);
-};
-
-const restoreTable = async (
-	sql: SQL,
-	meta: TableMeta | undefined,
-	rows: DbRow[]
+const withConnection = async <Result>(
+	target: DbTarget,
+	work: (conn: DbConnection) => Promise<Result>
 ) => {
-	if (meta === undefined || rows.length === 0) return;
-	await chunkRows(rows, RESTORE_CHUNK_ROWS).reduce(async (prev, part) => {
-		await prev;
-
-		return insertChunk(sql, meta, part);
-	}, Promise.resolve());
+	const conn = await openConnection(target, process.cwd());
+	try {
+		return await work(conn);
+	} finally {
+		await conn.close();
+	}
 };
 
-const truncateAll = async (sql: SQL, names: string[]) => {
-	if (names.length === 0) return;
-	const list = names.map(quoteIdent).join(', ');
-	await sql.unsafe(`truncate ${list} restart identity cascade`);
-};
-
-const runBackup = async (options: DbOptions) => {
-	const sql = new SQL(options.url);
-	const chosen = (await listTables(sql)).filter((name) =>
+const dumpTables = async (conn: DbConnection, options: DbOptions) => {
+	const chosen = (await conn.listTables()).filter((name) =>
 		keepTable(name, options)
 	);
 	const dumps = await Promise.all(
 		chosen.map(async (name) => {
-			const rows = await sql.unsafe(`select * from ${quoteIdent(name)}`);
+			const rows = await conn.readRows(await conn.tableMeta(name));
 
 			return [name, rows] as const;
 		})
 	);
-	await sql.end();
 	const tables: Record<string, DbRow[]> = Object.fromEntries(dumps);
-	const payload: BackupFile = {
-		at: new Date().toISOString(),
-		tables,
-		v: BACKUP_FORMAT_VERSION
-	};
+
+	return { chosen, engine: conn.engine, tables };
+};
+
+const runBackup = async (options: DbOptions) => {
+	const { chosen, engine, tables } = await withConnection(
+		resolveTarget(options.url),
+		(conn) => dumpTables(conn, options)
+	);
+	const stamp = new Date().toISOString();
+	// PostgreSQL backups keep the original shape byte for byte.
+	const payload: DbBackupFile =
+		engine === 'postgres'
+			? { at: stamp, tables, v: BACKUP_FORMAT_VERSION }
+			: { at: stamp, engine, tables, v: BACKUP_FORMAT_VERSION };
 	const dir = options.out ?? join(process.cwd(), 'backups');
 	mkdirSync(dir, { recursive: true });
 	const json = JSON.stringify(payload, (_, value) =>
@@ -231,45 +119,86 @@ const runBackup = async (options: DbOptions) => {
 		0
 	);
 	console.log(paint(`✓ backup → ${file}`, colors.green));
-	console.log(paint(`  ${chosen.length} tables, ${total} rows`, colors.dim));
+	console.log(
+		paint(`  ${engine}: ${chosen.length} tables, ${total} rows`, colors.dim)
+	);
+};
+
+const parseJsonColumns = (meta: DbTableMeta, row: DbRow) => {
+	const parsed: DbRow = { ...row };
+	meta.columns
+		.filter((col) => col.isJson)
+		.forEach((col) => {
+			parsed[col.name] = parseJsonText(row[col.name]);
+		});
+
+	return parsed;
+};
+
+const confirmTruncate = (count: number, options: DbOptions) =>
+	!options.truncate ||
+	options.yes ||
+	prompt(
+		paint(
+			`⚠ TRUNCATE ${count} tables before restore? type "yes": `,
+			colors.yellow
+		)
+	) === 'yes';
+
+const restoreInto = async (
+	conn: DbConnection,
+	payload: DbBackupFile,
+	options: DbOptions
+) => {
+	const names = Object.keys(payload.tables).filter((name) =>
+		keepTable(name, options)
+	);
+	const existing = new Set(await conn.listTables());
+	const missing = names.filter((name) => !existing.has(name));
+	if (missing.length > 0)
+		throw new Error(
+			`The target ${conn.engine} database has no table ${missing.join(', ')}. Create the schema first (e.g. drizzle-kit push / prisma migrate deploy) or pass --exclude ${missing.join(',')}.`
+		);
+	const source = payload.engine ?? 'postgres';
+	if (source !== conn.engine)
+		console.log(
+			paint(
+				`  restoring a ${source} backup into ${conn.engine}; values are re-encoded per column`,
+				colors.dim
+			)
+		);
+	const order = dependencyOrder(names, await conn.foreignLinks());
+	const metas = await Promise.all(order.map((name) => conn.tableMeta(name)));
+	if (!confirmTruncate(order.length, options)) {
+		console.log(paint('aborted', colors.yellow));
+
+		return undefined;
+	}
+	if (options.truncate) await conn.truncate([...order].reverse());
+	const jsonAsText = TEXT_JSON_ENGINES.includes(source);
+	await metas.reduce(async (prev, meta) => {
+		await prev;
+		const rows = payload.tables[meta.name] ?? [];
+
+		return conn.insertRows(
+			meta,
+			jsonAsText ? rows.map((row) => parseJsonColumns(meta, row)) : rows
+		);
+	}, Promise.resolve());
+	await conn.afterRestore(
+		metas.filter((meta) => (payload.tables[meta.name]?.length ?? 0) > 0)
+	);
+
+	return order;
 };
 
 const runRestore = async (file: string, options: DbOptions) => {
 	if (!existsSync(file)) throw new Error(`Backup not found: ${file}`);
-	const payload: BackupFile = JSON.parse(readFileSync(file, 'utf-8'));
-	const names = Object.keys(payload.tables).filter((name) =>
-		keepTable(name, options)
+	const payload: DbBackupFile = JSON.parse(readFileSync(file, 'utf-8'));
+	const order = await withConnection(resolveTarget(options.url), (conn) =>
+		restoreInto(conn, payload, options)
 	);
-	const sql = new SQL(options.url);
-	const order = dependencyOrder(names, await foreignLinks(sql));
-	const metas = await Promise.all(order.map((name) => tableMeta(sql, name)));
-	const metaByName = new Map(metas.map((meta) => [meta.name, meta]));
-	const aborted =
-		options.truncate &&
-		!options.yes &&
-		prompt(
-			paint(
-				`⚠ TRUNCATE ${order.length} tables before restore? type "yes": `,
-				colors.yellow
-			)
-		) !== 'yes';
-	if (aborted) {
-		await sql.end();
-		console.log(paint('aborted', colors.yellow));
-
-		return;
-	}
-	if (options.truncate) await truncateAll(sql, [...order].reverse());
-	await order.reduce(async (prev, name) => {
-		await prev;
-
-		return restoreTable(
-			sql,
-			metaByName.get(name),
-			payload.tables[name] ?? []
-		);
-	}, Promise.resolve());
-	await sql.end();
+	if (order === undefined) return;
 	const total = order.reduce(
 		(sum, name) => sum + (payload.tables[name]?.length ?? 0),
 		0
@@ -282,7 +211,21 @@ const runRestore = async (file: string, options: DbOptions) => {
 	);
 };
 
-const runSeed = async (entry: string | undefined) => {
+/* The seed script owns its own driver, so seeding works on every engine.
+   `--url` is handed to it as DATABASE_URL, and the detected engine family
+   as ABSOLUTE_DB_ENGINE. */
+const seedEnv = (explicitUrl: string | undefined) => {
+	const url = findUrl(explicitUrl);
+	if (url === undefined || url === '') return { ...process.env };
+
+	return {
+		...process.env,
+		ABSOLUTE_DB_ENGINE: resolveTarget(url).family,
+		DATABASE_URL: url
+	};
+};
+
+const runSeed = async (entry: string | undefined, url: string | undefined) => {
 	const target =
 		entry ??
 		SEED_CANDIDATES.find((candidate) =>
@@ -294,6 +237,7 @@ const runSeed = async (entry: string | undefined) => {
 		);
 	console.log(paint(`seeding via ${target}…`, colors.cyan));
 	const proc = spawn(['bun', 'run', target], {
+		env: seedEnv(url),
 		stderr: 'inherit',
 		stdin: 'inherit',
 		stdout: 'inherit'
@@ -338,7 +282,16 @@ const usage = () => {
 		'  restore [file] [--truncate] [--only a,b] [--exclude a,b] [-y]      Idempotent upsert by primary key'
 	);
 	console.error(
-		'  seed    [file]                                                     Run the project’s seed script'
+		'  seed    [file] [--url <url>]                                       Run the project’s seed script'
+	);
+	console.error(
+		'Engines (picked from the URL scheme): PostgreSQL + CockroachDB (postgres://), MySQL, MariaDB + SingleStore (mysql://, mariadb://, singlestore://),'
+	);
+	console.error(
+		'  SQLite + local libSQL files (file:, sqlite:, *.db), remote libSQL/Turso (libsql://, https://; needs @libsql/client),'
+	);
+	console.error(
+		'  SQL Server (sqlserver://, mssql://; needs mssql). MongoDB and Gel are refused.'
 	);
 	process.exit(1);
 };
@@ -359,7 +312,7 @@ export const runDb = async (args: string[]) => {
 		return;
 	}
 	if (sub === 'seed') {
-		await runSeed(positionalArgs(rest)[0]);
+		await runSeed(positionalArgs(rest)[0], flagValue(rest, '--url'));
 
 		return;
 	}

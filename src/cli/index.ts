@@ -172,7 +172,12 @@ if (command === 'dev') {
 		command: `db:${workspaceCommand ?? 'unknown'}`
 	});
 	const { runDb } = await import('./scripts/db');
-	await runDb(args);
+	try {
+		await runDb(args);
+	} catch (error) {
+		console.error(error instanceof Error ? error.message : String(error));
+		process.exitCode = 1;
+	}
 } else if (command === 'logs') {
 	sendTelemetryEvent('cli:command', { command: 'logs' });
 	const { runLogs } = await import('./scripts/logs');
@@ -268,7 +273,7 @@ if (command === 'dev') {
 		'  config [--port n] Open the unified config UI (ESLint, tsconfig, Prettier)'
 	);
 	console.error(
-		'  db <backup|restore|seed> Backup/restore any Postgres DB (ORM-agnostic, upsert by PK) or run the seed script'
+		'  db <backup|restore|seed> Backup/restore (ORM-agnostic JSON, upsert by PK) PostgreSQL, CockroachDB, MySQL, MariaDB, SingleStore, SQLite, libSQL/Turso or SQL Server, or run the seed script'
 	);
 	console.error(
 		'  doctor [--fix] [--json] Diagnose the project (bun, type graph, config, framework dirs, env, port)'
