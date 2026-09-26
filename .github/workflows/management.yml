@@ -1,0 +1,117 @@
+# Added by Nagy Ventures Management. Management starts this workflow to run CI,
+# update a dependency, publish a release, or adopt the changelog tooling. Every
+# change arrives as a pull request; publishing uses this repo's NPM_TOKEN secret.
+name: Management
+on:
+  workflow_dispatch:
+    inputs:
+      task:
+        description: What to do
+        type: choice
+        options: [ci, bump, release, adopt-changelog]
+        required: true
+      directory:
+        description: Package directory (for monorepos)
+        default: "."
+      package:
+        description: Dependency to update (bump)
+        default: ""
+      version:
+        description: Version to update it to (bump)
+        default: ""
+permissions:
+  contents: write
+  pull-requests: write
+concurrency:
+  group: management-${{ inputs.task }}-${{ inputs.directory }}-${{ inputs.package }}
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    env:
+      TASK: ${{ inputs.task }}
+      DIRECTORY: ${{ inputs.directory }}
+      PACKAGE: ${{ inputs.package }}
+      VERSION: ${{ inputs.version }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      - name: Check inputs
+        run: |
+          [[ "$DIRECTORY" =~ ^[A-Za-z0-9._/-]+$ && "$DIRECTORY" != *..* ]] || { echo "Bad directory"; exit 1; }
+          if [[ "$TASK" == bump ]]; then
+            [[ "$PACKAGE" =~ ^(@[a-z0-9._~-]+/)?[a-z0-9._~-]+$ ]] || { echo "Bad package"; exit 1; }
+            [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo "Bad version"; exit 1; }
+          fi
+      - name: Install
+        run: bun install
+      - name: CI
+        if: inputs.task == 'ci'
+        working-directory: ${{ inputs.directory }}
+        run: |
+          # Package checks compare built output, so build first.
+          bun run --if-present build
+          if jq -e '.scripts["check:package"]' package.json >/dev/null; then bun run check:package
+          elif jq -e '.scripts.ci' package.json >/dev/null; then bun run ci
+          else bun run --if-present typecheck && bun run --if-present test; fi
+      - name: Update the dependency
+        if: inputs.task == 'bump'
+        working-directory: ${{ inputs.directory }}
+        run: |
+          # Keep each range's style (^, ~, exact) and move it to the new version.
+          bun -e '
+            const fs = require("fs"); const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
+            let changed = false;
+            for (const field of ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"]) {
+              const range = pkg[field]?.[process.env.PACKAGE];
+              if (!range) continue;
+              const prefix = range.match(/^[\^~]/)?.[0] ?? "";
+              if (/^[\^~]?\d/.test(range)) { pkg[field][process.env.PACKAGE] = prefix + process.env.VERSION; changed = true; }
+            }
+            if (!changed) { console.log("Nothing to update"); process.exit(0); }
+            fs.writeFileSync("package.json", JSON.stringify(pkg, null, "\t") + "\n");
+          '
+          cd "$GITHUB_WORKSPACE" && bun install
+          if git diff --quiet; then echo "Already up to date"; exit 0; fi
+          BRANCH="management/bump-${PACKAGE//[@\/]/-}-$VERSION"
+          git config user.name "Nagy Ventures Management"
+          git config user.email "management@absolutejs.com"
+          git switch -c "$BRANCH"
+          git commit -am "Update $PACKAGE to $VERSION"
+          git push -f origin "$BRANCH"
+          gh pr create --head "$BRANCH" --title "Update $PACKAGE to $VERSION" \
+            --body "Opened by Nagy Ventures Management: $PACKAGE $VERSION is out and this package was behind." || true
+      - name: Publish
+        if: inputs.task == 'release'
+        working-directory: ${{ inputs.directory }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          NAME=$(jq -r .name package.json); CURRENT=$(jq -r .version package.json)
+          if npm view "$NAME@$CURRENT" version >/dev/null 2>&1; then echo "$NAME@$CURRENT is already published"; exit 0; fi
+          [[ -n "$NODE_AUTH_TOKEN" ]] || { echo "Add an NPM_TOKEN secret to this repository"; exit 1; }
+          bun run --if-present build
+          if jq -e '.scripts["check:package"]' package.json >/dev/null; then bun run check:package; fi
+          TAG=latest; [[ "$CURRENT" == *-* ]] && TAG=beta
+          npm publish --access public --tag "$TAG"
+      - name: Adopt the changelog tooling
+        if: inputs.task == 'adopt-changelog'
+        working-directory: ${{ inputs.directory }}
+        run: |
+          bun add -d @absolutejs/changelog
+          bunx absolute-changelog adopt
+          cd "$GITHUB_WORKSPACE"
+          if [[ -z "$(git status --porcelain)" ]]; then echo "Already adopted"; exit 0; fi
+          NAME=$(jq -r .name "$DIRECTORY/package.json")
+          BRANCH="management/changelog-${NAME//[@\/]/-}"
+          git config user.name "Nagy Ventures Management"
+          git config user.email "management@absolutejs.com"
+          git switch -c "$BRANCH"
+          git add -A && git commit -m "Adopt the changelog tooling for $NAME"
+          git push -f origin "$BRANCH"
+          gh pr create --head "$BRANCH" --title "Adopt the changelog tooling for $NAME" \
+            --body "Opened by Nagy Ventures Management: $NAME now ships changelog.json and CHANGELOG.md, and checks them before publishing." || true
