@@ -30,10 +30,13 @@ describe('db encodeValue', () => {
 		expect(encodeValue({ isJson: false, name: 'x' }, undefined)).toBeNull();
 	});
 
-	test('json columns are serialized to text', () => {
-		expect(encodeValue({ isJson: true, name: 'meta' }, { ok: 1 })).toBe(
-			'{"ok":1}'
-		);
+	// Bun SQL JSON-encodes whatever it binds to a json/jsonb parameter, so
+	// the parsed value is passed through; stringifying it first stored a
+	// JSON string scalar instead of the document.
+	test('json columns bind the parsed value', () => {
+		expect(encodeValue({ isJson: true, name: 'meta' }, { ok: 1 })).toEqual({
+			ok: 1
+		});
 	});
 
 	test('scalars pass through untouched', () => {
