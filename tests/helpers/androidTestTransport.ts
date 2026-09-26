@@ -13,5 +13,6 @@ export const androidTestTransportConfig = (
 	const setting = `hw.gltransport=${transport}`;
 	if (matches.length === 1) return config.replace(property, setting);
 	const newline = config.includes('\r\n') ? '\r\n' : '\n';
+
 	return `${config}${config && !config.endsWith('\n') ? newline : ''}${setting}${newline}`;
 };

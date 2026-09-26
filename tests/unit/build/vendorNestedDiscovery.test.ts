@@ -1,5 +1,7 @@
-import { describe, expect, test } from 'bun:test';
-import { resolve } from 'node:path';
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { join, dirname } from 'node:path';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { collectTransitiveImports } from '../../../src/build/buildDepVendor';
 
 /* A dependency that is not hoisted can only be resolved from the package that
@@ -11,10 +13,39 @@ import { collectTransitiveImports } from '../../../src/build/buildDepVendor';
  * The fixture mirrors the real shape that surfaced this:
  *   wrapper (hoisted) → nested (NOT hoisted) → hoisted/deep/subpath.js
  * which was @react-three/postprocessing → n8ao → three/examples/jsm/... */
-const FIXTURE = resolve(
-	import.meta.dir,
-	'../../fixtures/vendor-nested-dep'
-);
+let FIXTURE: string;
+beforeAll(async () => {
+	FIXTURE = await mkdtemp(join(tmpdir(), 'absolute-vendor-nested-'));
+	const files = {
+		'node_modules/wrapper/package.json': JSON.stringify({
+			name: 'wrapper',
+			type: 'module',
+			main: 'index.js'
+		}),
+		'node_modules/wrapper/index.js':
+			"import 'nested'; export const wrapper = 1;",
+		'node_modules/wrapper/node_modules/nested/package.json': JSON.stringify(
+			{ name: 'nested', type: 'module', main: 'index.js' }
+		),
+		'node_modules/wrapper/node_modules/nested/index.js':
+			"import 'hoisted/deep/subpath.js'; export const nested = 1;",
+		'node_modules/hoisted/package.json': JSON.stringify({
+			name: 'hoisted',
+			type: 'module',
+			main: 'index.js'
+		}),
+		'node_modules/hoisted/index.js': 'export const hoisted = 1;',
+		'node_modules/hoisted/deep/subpath.js': 'export const deep = 1;'
+	};
+	for (const [path, content] of Object.entries(files)) {
+		const file = join(FIXTURE, path);
+		await mkdir(dirname(file), { recursive: true });
+		await writeFile(file, content);
+	}
+});
+afterAll(async () => {
+	await rm(FIXTURE, { recursive: true, force: true });
+});
 
 const inFixture = async <T>(body: () => Promise<T>) => {
 	const cwd = process.cwd();
