@@ -52,7 +52,11 @@ jobs:
             [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo "Bad version"; exit 1; }
           fi
       - name: Install
-        run: bun install
+        # Workspaces install from the root; repos of independent packages
+        # (no root package.json) install inside the package's directory.
+        run: |
+          if [[ -f package.json ]]; then bun install
+          else cd "$DIRECTORY" && bun install; fi
       - name: CI
         if: inputs.task == 'ci'
         working-directory: ${{ inputs.directory }}
@@ -79,7 +83,7 @@ jobs:
             if (!changed) { console.log("Nothing to update"); process.exit(0); }
             fs.writeFileSync("package.json", JSON.stringify(pkg, null, "\t") + "\n");
           '
-          cd "$GITHUB_WORKSPACE" && bun install
+          if [[ -f "$GITHUB_WORKSPACE/package.json" ]]; then (cd "$GITHUB_WORKSPACE" && bun install); else bun install; fi
           if git diff --quiet; then echo "Already up to date"; exit 0; fi
           BRANCH="management/bump-${PACKAGE//[@\/]/-}-$VERSION"
           git config user.name "Nagy Ventures Management"
