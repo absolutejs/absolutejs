@@ -1,6 +1,6 @@
 import { $ } from 'bun';
 import { execSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { resolve } from 'node:path';
 import type { DbScripts } from '../../types/cli';
@@ -56,6 +56,71 @@ export const findFreePort = () =>
 		});
 	});
 
+const tryRead = <T>(read: () => T) => {
+	try {
+		return { ok: true as const, value: read() };
+	} catch {
+		return { ok: false as const };
+	}
+};
+
+/** The first reader that succeeds; later readers run only when needed. */
+const firstReadable = <T>(fallback: T, ...readers: (() => T)[]) => {
+	for (const read of readers) {
+		const result = tryRead(read);
+		if (result.ok) return result.value;
+	}
+
+	return fallback;
+};
+
+const processCommand = (pid: number) =>
+	firstReadable(
+		'',
+		() =>
+			readFileSync(`/proc/${pid}/cmdline`, 'utf-8')
+				.split('\0')
+				.join(' ')
+				.trim(),
+		() =>
+			execSync(`ps -o command= -p ${pid}`, {
+				encoding: 'utf-8'
+			}).trim()
+	);
+
+const listedDirectory = (pid: number) => {
+	const listed = execSync(`lsof -a -p ${pid} -d cwd -Fn 2>/dev/null`, {
+		encoding: 'utf-8'
+	});
+	const line = listed.split('\n').find((entry) => entry.startsWith('n'));
+
+	return line ? line.slice(1) : null;
+};
+
+const processDirectory = (pid: number) =>
+	firstReadable<string | null>(
+		null,
+		() => realpathSync(`/proc/${pid}/cwd`),
+		() => listedDirectory(pid)
+	);
+
+const ABSOLUTE_PROCESS =
+	/@absolutejs[\\/+]absolute|serverBootstrap|[\\/]\.absolutejs[\\/]|\babsolute (?:dev|start|compile|preview)\b/;
+
+/**
+ * Whether a process holding the port is a leftover of this project's own
+ * AbsoluteJS server, and so safe to replace. Anything else on the port -- an
+ * unrelated service, or another project's server -- is someone else's and is
+ * left running.
+ */
+export const isOwnStaleProcess = (
+	command: string,
+	directory: string | null,
+	projectDirectory: string
+) =>
+	ABSOLUTE_PROCESS.test(command) &&
+	(directory === projectDirectory || command.includes(projectDirectory));
+
 export const killStaleProcesses = (
 	port: number,
 	logMessage?: (message: string) => void
@@ -72,6 +137,16 @@ export const killStaleProcesses = (
 		return;
 	}
 
+	const report = (message: string) => {
+		if (logMessage) {
+			logMessage(message);
+
+			return;
+		}
+		console.log(
+			`\x1b[2m${formatTimestamp()}\x1b[0m \x1b[33m[cli]\x1b[0m \x1b[33m${message}\x1b[0m`
+		);
+	};
 	const pids = output
 		.split('\n')
 		.map(Number)
@@ -80,16 +155,25 @@ export const killStaleProcesses = (
 		return;
 	}
 
-	pids.forEach(safeKill);
-	const message = `Killed ${pids.length} stale ${pids.length === 1 ? 'process' : 'processes'} on port ${port}.`;
-	if (logMessage) {
-		logMessage(message);
-
-		return;
-	}
-	console.log(
-		`\x1b[2m${formatTimestamp()}\x1b[0m \x1b[33m[cli]\x1b[0m \x1b[33m${message}\x1b[0m`
+	const projectDirectory = realpathSync(process.cwd());
+	const holders = pids.map((pid) => ({
+		command: processCommand(pid),
+		directory: processDirectory(pid),
+		pid
+	}));
+	const own = holders.filter((holder) =>
+		isOwnStaleProcess(holder.command, holder.directory, projectDirectory)
 	);
+	const foreign = holders.filter((holder) => !own.includes(holder));
+	own.forEach((holder) => safeKill(holder.pid));
+	if (own.length > 0)
+		report(
+			`Killed ${own.length} stale ${own.length === 1 ? 'process' : 'processes'} on port ${port}.`
+		);
+	for (const holder of foreign)
+		report(
+			`Port ${port} is in use by another process (pid ${holder.pid}: ${holder.command.slice(0, 120) || 'unknown'}). It was left running; stop it or choose another port.`
+		);
 };
 export const openUrlInBrowser = (
 	url: string,
