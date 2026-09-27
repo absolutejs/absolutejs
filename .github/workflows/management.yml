@@ -1,6 +1,8 @@
 # Added by Nagy Ventures Management. Management starts this workflow to run CI,
 # update a dependency, publish a release, or adopt the changelog tooling. Every
-# change arrives as a pull request; publishing uses this repo's NPM_TOKEN secret.
+# change arrives as a pull request. Publishing uses npm trusted publishing (this
+# workflow is the package's trusted publisher), with the NPM_TOKEN secret as a
+# fallback until every package has been switched over.
 name: Management
 on:
   workflow_dispatch:
@@ -22,6 +24,7 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  id-token: write
 concurrency:
   group: management-${{ inputs.task }}-${{ inputs.directory }}-${{ inputs.package }}
 jobs:
@@ -38,7 +41,8 @@ jobs:
       - uses: oven-sh/setup-bun@v2
       - uses: actions/setup-node@v5
         with:
-          node-version: 22
+          # Trusted publishing needs npm 11.5.1 or newer, which Node 24 ships.
+          node-version: 24
           registry-url: https://registry.npmjs.org
       - name: Check inputs
         run: |
@@ -93,7 +97,6 @@ jobs:
         run: |
           NAME=$(jq -r .name package.json); CURRENT=$(jq -r .version package.json)
           if npm view "$NAME@$CURRENT" version >/dev/null 2>&1; then echo "$NAME@$CURRENT is already published"; exit 0; fi
-          [[ -n "$NODE_AUTH_TOKEN" ]] || { echo "Add an NPM_TOKEN secret to this repository"; exit 1; }
           bun run --if-present build
           if jq -e '.scripts["check:package"]' package.json >/dev/null; then bun run check:package; fi
           TAG=latest; [[ "$CURRENT" == *-* ]] && TAG=beta
