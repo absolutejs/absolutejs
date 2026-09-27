@@ -5,6 +5,27 @@
 		{
 			"changes": [
 				{
+					"detail": "The engine is picked from the URL scheme (with drizzle.config dialect / Prisma provider as a fallback): PostgreSQL and CockroachDB, MySQL, MariaDB and SingleStore, SQLite and local libSQL files, remote libSQL/Turso (optional peer @libsql/client) and SQL Server (optional peer mssql). Dependency order, identifier quoting, upserts and value encoding are per dialect; generated columns are skipped and identity columns are inserted explicitly. MongoDB and Gel are refused with a clear message. `absolute db seed --url` hands the URL and engine to the seed script. PostgreSQL backups keep their exact file shape.",
+					"kind": "added",
+					"summary": "`absolute db backup` and `restore` work on every SQL engine Drizzle and Prisma support, not only PostgreSQL"
+				},
+				{
+					"detail": "json/jsonb values were stringified before binding, and Bun SQL JSON-encodes bound values, so every document was restored as a JSON string scalar. Array columns failed to bind, bytea values are now decoded from their backed-up Buffer JSON, `generated always` identity and generated columns were rejected, and serial/identity sequences were left behind the restored ids so the next insert collided.",
+					"kind": "fixed",
+					"summary": "`absolute db restore` into PostgreSQL keeps JSON documents, arrays, bytea, identity columns and sequences intact"
+				},
+				{
+					"detail": "`absolute start`, `compile`, the config server and `workspace` cleared their port by killing every process listening on it, including unrelated services and other projects' servers (a PostgreSQL, another app, a control plane). They now stop only a leftover AbsoluteJS server started from this project directory, and report anything else on the port as left running.",
+					"kind": "fixed",
+					"summary": "Starting a server no longer kills unrelated processes that hold its port"
+				}
+			],
+			"date": "2026-09-27",
+			"version": "0.20.0-beta.121"
+		},
+		{
+			"changes": [
+				{
 					"kind": "fixed",
 					"summary": "Apply the incremental asset rewrite fix to HTMX pages as well as HTML and verify both adapters with real builds"
 				}
