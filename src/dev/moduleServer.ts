@@ -666,7 +666,7 @@ export const warnIfReactFastRefreshUnsupported = () => {
 		'React edits remount the page instead of keeping component state: ' +
 			'this Bun ignores `reactFastRefresh` on Bun.Transpiler ' +
 			'(https://github.com/oven-sh/bun/issues/32919). Run ' +
-			'`absolute bun-patch install` to use AbsoluteJS\'s patched Bun, ' +
+			"`absolute bun-patch install` to use AbsoluteJS's patched Bun, " +
 			'which has the fix; `absolute dev` then uses it automatically.'
 	);
 };
@@ -1936,7 +1936,6 @@ export const warmCache = async (pathname: string) => {
 	// Trigger the handler — the result is cached by setTransformed
 	await handler(pathname);
 };
-
 
 /* ---------------------------------------------------------------------
  * On-demand page builds — the page-level analogue of `warmCache`.

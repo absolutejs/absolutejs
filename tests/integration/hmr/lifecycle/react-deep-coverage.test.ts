@@ -114,7 +114,7 @@ describe('React deep coverage (SSR)', () => {
 		const first = await editAndFetch(hmr, srv, 'MEMO_7_CB_7', () =>
 			addToApp(
 				'<p>{`MEMO_${tripled}_${label()}`}</p>',
-				"\tconst tripled = useMemo(() => count * 3 + 7, [count]);\n\tconst label = useCallback(() => `CB_${tripled}`, [tripled]);"
+				'\tconst tripled = useMemo(() => count * 3 + 7, [count]);\n\tconst label = useCallback(() => `CB_${tripled}`, [tripled]);'
 			)
 		);
 		expect(first).toContain('MEMO_7_CB_7');
@@ -237,9 +237,7 @@ describe('React deep coverage (SSR)', () => {
 	test('conditional-render edit toggles which branch renders', async () => {
 		const { hmr, srv } = await startAndConnect();
 		const first = await editAndFetch(hmr, srv, 'BRANCH_LOW', () =>
-			addToApp(
-				'{count > 100 ? <p>BRANCH_HIGH</p> : <p>BRANCH_LOW</p>}'
-			)
+			addToApp('{count > 100 ? <p>BRANCH_HIGH</p> : <p>BRANCH_LOW</p>}')
 		);
 		expect(first).toContain('BRANCH_LOW');
 		expect(first).not.toContain('BRANCH_HIGH');
@@ -317,7 +315,7 @@ describe('React deep coverage (SSR)', () => {
 		const util = resolve(REACT_DIR, 'utils/probeFormat.ts');
 		createFile(
 			util,
-			"export const probeFormat = (value: number) => `UTIL_ONE_${value}`;\n"
+			'export const probeFormat = (value: number) => `UTIL_ONE_${value}`;\n'
 		);
 		const first = await editAndFetch(hmr, srv, 'UTIL_ONE_0', () =>
 			mutateFile(APP, (text) =>
@@ -326,7 +324,10 @@ describe('React deep coverage (SSR)', () => {
 						"import { useState } from 'react';",
 						"import { useState } from 'react';\nimport { probeFormat } from '../utils/probeFormat';"
 					)
-					.replace(HEADING, `${HEADING}\n\t\t\t<p>{probeFormat(count)}</p>`)
+					.replace(
+						HEADING,
+						`${HEADING}\n\t\t\t<p>{probeFormat(count)}</p>`
+					)
 			)
 		);
 		expect(first).toContain('UTIL_ONE_0');
@@ -404,7 +405,10 @@ describe('React deep coverage (SSR)', () => {
 		const { hmr, srv } = await startAndConnect();
 		const first = await editAndFetch(hmr, srv, 'IN_PLACE_ONE', () =>
 			mutateFileInPlace(APP, (text) =>
-				text.replace(HEADING, '<h1>AbsoluteJS + React IN_PLACE_ONE</h1>')
+				text.replace(
+					HEADING,
+					'<h1>AbsoluteJS + React IN_PLACE_ONE</h1>'
+				)
 			)
 		);
 		expect(first).toContain('IN_PLACE_ONE');

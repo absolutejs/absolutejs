@@ -2428,10 +2428,7 @@ const resolveComponentTarget = (
  * file: an edit that creates a component and adds it to the page has to
  * re-run the page too, or the page keeps rendering without it. Children
  * come first so the primary URL stays the most specific component. */
-const resolveReactUpdateTargets = (
-	state: HMRState,
-	reactFiles: string[]
-) => {
+const resolveReactUpdateTargets = (state: HMRState, reactFiles: string[]) => {
 	const importable = reactFiles.filter(isImportableModule);
 	const userEdited = importable.filter((file) =>
 		state.lastUserEditedFiles?.has(resolvePath(file))
