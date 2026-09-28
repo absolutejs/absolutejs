@@ -5,7 +5,7 @@
     "": {
       "name": "@absolutejs/absolute",
       "dependencies": {
-        "@absolutejs/auth": ">=0.75.0 <0.77.0",
+        "@absolutejs/auth": ">=0.75.0 <0.97.0",
         "@absolutejs/beacon": ">=0.7.0-beta.4 <0.8.0",
         "@absolutejs/deploy": "0.27.0",
         "@absolutejs/devices": "0.7.0",
@@ -379,7 +379,7 @@
 
     "@absolutejs/absolute": ["@absolutejs/absolute@root:", {}],
 
-    "@absolutejs/auth": ["@absolutejs/auth@0.75.0", "", { "dependencies": { "@absolutejs/linked-providers": "0.0.6", "@absolutejs/manifest": "^0.10.0", "@neondatabase/serverless": "1.0.0", "@opentelemetry/api": "1.9.1", "@simplewebauthn/browser": "13.3.0", "citra": "0.29.13", "typebox": "^1.3.16" }, "peerDependencies": { "@node-saml/node-saml": ">=5.1.0 <6", "@simplewebauthn/server": ">=13.3.2 <14", "drizzle-orm": ">=1.0.0-rc.4 <2", "elysia": "^2.0.0-beta.6", "react": ">=18 <20", "solid-js": ">=1.9.14 <2", "svelte": ">=5.56.7 <6", "vue": ">=3.5.40 <4" }, "optionalPeers": ["@node-saml/node-saml", "@simplewebauthn/server", "react", "solid-js", "svelte", "vue"], "bin": { "absolute-auth": "dist/cli/migrate.js" } }, "sha512-LGYYD0yqf6x2fqKZ7FeqsI2IeB3YWDbcGLSCGkP5IzF9h6qbVQF82ytNCCcZK8TZB7ubP8i8HGslUZFvXAGIZg=="],
+    "@absolutejs/auth": ["@absolutejs/auth@0.96.0", "", { "dependencies": { "@absolutejs/linked-providers": "0.0.6", "@absolutejs/manifest": "^0.10.0", "@neondatabase/serverless": "1.0.0", "@opentelemetry/api": "1.9.1", "@simplewebauthn/browser": "13.3.0", "citra": "0.30.0", "typebox": "^1.3.16" }, "peerDependencies": { "@node-saml/node-saml": ">=5.1.0 <6", "@simplewebauthn/server": ">=13.3.2 <14", "drizzle-orm": ">=1.0.0-rc.4 <2", "elysia": "^2.0.0-beta.6", "react": ">=18 <20", "solid-js": ">=1.9.14 <2", "svelte": ">=5.56.7 <6", "vue": ">=3.5.40 <4" }, "optionalPeers": ["@node-saml/node-saml", "@simplewebauthn/server", "react", "solid-js", "svelte", "vue"], "bin": { "absolute-auth": "dist/cli/migrate.js" } }, "sha512-IN3I/iajE5HfLLUO76DdB6L23/f/lsiHvOKrXQM4VYsU8/Fodts5ZfwzvdinN3WvNVBhfdspahiD/Pkpb9SyUA=="],
 
     "@absolutejs/beacon": ["@absolutejs/beacon@0.7.0-beta.4", "", { "dependencies": { "@absolutejs/manifest": "0.9.0", "@sinclair/typebox": "0.34.52" }, "peerDependencies": { "web-vitals": ">=4" }, "optionalPeers": ["web-vitals"] }, "sha512-Cqog1V8q1vEPtdxvQ9cVMlIux0h3QFTyO6Gwz/LlhxD+NxDSRLEXyW0HvLopeaJRVxFDYRe3g5PW+afYjMqkzw=="],
 
@@ -1481,7 +1481,7 @@
 
     "ci-info": ["ci-info@3.9.0", "", {}, "sha512-NIxF55hv4nSqQswkAeiOi1r83xy8JldOFDTWiug55KBu9Jnblncd2U6ViHmYgHf01TPZS77NJBhBMKdWj9HQMQ=="],
 
-    "citra": ["citra@0.29.13", "", {}, "sha512-i1D6sZYNq1rgBi4E28ec4a6eKaLvKFx2z0VWryqgDgoHeiB6TdcrYful50Z+97Akr8qLchCkZW1pWUmQcLobvw=="],
+    "citra": ["citra@0.30.0", "", {}, "sha512-mktntfsSaTfbVGSot/K8s91OK54cHTo9OF/DWtXvIlbIAkUjMzim/4POAiPSYGl2pWy5vsY/Zt937Zm6TydWmg=="],
 
     "clean-up-path": ["clean-up-path@1.0.0", "", {}, "sha512-PHGlEF0Z6976qQyN6gM7kKH6EH0RdfZcc8V+QhFe36eRxV0SMH5OUBZG7Bxa9YcreNzyNbK63cGiZxdSZgosRw=="],
 
@@ -2699,7 +2699,11 @@
 
     "@absolutejs/blob/@absolutejs/manifest": ["@absolutejs/manifest@0.7.2", "", { "peerDependencies": { "@sinclair/typebox": ">=0.34.0 <0.35.0" }, "bin": { "absolute-manifest": "dist/cli.js" } }, "sha512-NSVzC4yHbH+n+WCNdWYrpbc+3k5rOfO4X85Ku9VCP8teRaa2VEibp29Cyvg9rQARUGaQjGGTz+l+APqM0+odxg=="],
 
+    "@absolutejs/fixture-capacitor-android-authenticated-release/@absolutejs/auth": ["@absolutejs/auth@0.75.0", "", { "dependencies": { "@absolutejs/linked-providers": "0.0.6", "@absolutejs/manifest": "^0.10.0", "@neondatabase/serverless": "1.0.0", "@opentelemetry/api": "1.9.1", "@simplewebauthn/browser": "13.3.0", "citra": "0.29.13", "typebox": "^1.3.16" }, "peerDependencies": { "@node-saml/node-saml": ">=5.1.0 <6", "@simplewebauthn/server": ">=13.3.2 <14", "drizzle-orm": ">=1.0.0-rc.4 <2", "elysia": "^2.0.0-beta.6", "react": ">=18 <20", "solid-js": ">=1.9.14 <2", "svelte": ">=5.56.7 <6", "vue": ">=3.5.40 <4" }, "optionalPeers": ["@node-saml/node-saml", "@simplewebauthn/server", "react", "solid-js", "svelte", "vue"], "bin": { "absolute-auth": "dist/cli/migrate.js" } }, "sha512-LGYYD0yqf6x2fqKZ7FeqsI2IeB3YWDbcGLSCGkP5IzF9h6qbVQF82ytNCCcZK8TZB7ubP8i8HGslUZFvXAGIZg=="],
+
     "@absolutejs/fixture-compile-dependency-assets/compile-asset-package": ["compile-asset-package@file:tests/fixtures/_packages/compile-asset-package", {}],
+
+    "@absolutejs/fixture-expo-android-authenticated-release/@absolutejs/auth": ["@absolutejs/auth@0.75.0", "", { "dependencies": { "@absolutejs/linked-providers": "0.0.6", "@absolutejs/manifest": "^0.10.0", "@neondatabase/serverless": "1.0.0", "@opentelemetry/api": "1.9.1", "@simplewebauthn/browser": "13.3.0", "citra": "0.29.13", "typebox": "^1.3.16" }, "peerDependencies": { "@node-saml/node-saml": ">=5.1.0 <6", "@simplewebauthn/server": ">=13.3.2 <14", "drizzle-orm": ">=1.0.0-rc.4 <2", "elysia": "^2.0.0-beta.6", "react": ">=18 <20", "solid-js": ">=1.9.14 <2", "svelte": ">=5.56.7 <6", "vue": ">=3.5.40 <4" }, "optionalPeers": ["@node-saml/node-saml", "@simplewebauthn/server", "react", "solid-js", "svelte", "vue"], "bin": { "absolute-auth": "dist/cli/migrate.js" } }, "sha512-LGYYD0yqf6x2fqKZ7FeqsI2IeB3YWDbcGLSCGkP5IzF9h6qbVQF82ytNCCcZK8TZB7ubP8i8HGslUZFvXAGIZg=="],
 
     "@absolutejs/handoff/@absolutejs/manifest": ["@absolutejs/manifest@0.7.2", "", { "peerDependencies": { "@sinclair/typebox": ">=0.34.0 <0.35.0" }, "bin": { "absolute-manifest": "dist/cli.js" } }, "sha512-NSVzC4yHbH+n+WCNdWYrpbc+3k5rOfO4X85Ku9VCP8teRaa2VEibp29Cyvg9rQARUGaQjGGTz+l+APqM0+odxg=="],
 
@@ -3090,6 +3094,14 @@
     "xml2js/sax": ["sax@1.6.0", "", {}, "sha512-6R3J5M4AcbtLUdZmRv2SygeVaM7IhrLXu9BmnOGmmACak8fiUtOsYNWUS4uK7upbmHIBbLBeFeI//477BKLBzA=="],
 
     "xml2js/xmlbuilder": ["xmlbuilder@11.0.1", "", {}, "sha512-fDlsI/kFEx7gLvbecc0/ohLG50fugQp8ryHzMTuW9vSa1GJ0XYWKnhsUx7oie3G98+r56aTQIUB4kht42R3JvA=="],
+
+    "@absolutejs/fixture-capacitor-android-authenticated-release/@absolutejs/auth/@absolutejs/manifest": ["@absolutejs/manifest@0.10.0", "", { "peerDependencies": { "typebox": ">=1.3.0 <2" }, "bin": { "absolute-manifest": "dist/cli.js" } }, "sha512-aBzi7PPFfEl51DdJfB2XXT5KHBiLlB0KeNHsU68XnfeqZmjOtFdxlcxYjbGep94sDTCgAbapNLCT+D4azDL5Eg=="],
+
+    "@absolutejs/fixture-capacitor-android-authenticated-release/@absolutejs/auth/citra": ["citra@0.29.13", "", {}, "sha512-i1D6sZYNq1rgBi4E28ec4a6eKaLvKFx2z0VWryqgDgoHeiB6TdcrYful50Z+97Akr8qLchCkZW1pWUmQcLobvw=="],
+
+    "@absolutejs/fixture-expo-android-authenticated-release/@absolutejs/auth/@absolutejs/manifest": ["@absolutejs/manifest@0.10.0", "", { "peerDependencies": { "typebox": ">=1.3.0 <2" }, "bin": { "absolute-manifest": "dist/cli.js" } }, "sha512-aBzi7PPFfEl51DdJfB2XXT5KHBiLlB0KeNHsU68XnfeqZmjOtFdxlcxYjbGep94sDTCgAbapNLCT+D4azDL5Eg=="],
+
+    "@absolutejs/fixture-expo-android-authenticated-release/@absolutejs/auth/citra": ["citra@0.29.13", "", {}, "sha512-i1D6sZYNq1rgBi4E28ec4a6eKaLvKFx2z0VWryqgDgoHeiB6TdcrYful50Z+97Akr8qLchCkZW1pWUmQcLobvw=="],
 
     "@absolutejs/pwa/@absolutejs/sync/@absolutejs/telemetry": ["@absolutejs/telemetry@0.3.1", "", { "dependencies": { "@absolutejs/handoff": "0.1.0" }, "peerDependencies": { "drizzle-orm": ">=1.0.0-rc.4 <2" }, "optionalPeers": ["drizzle-orm"] }, "sha512-Apd/FfS1BbDyeMDwoWsSx8ql5MeLjLY7MQn0yAHz1T1wxqpnQgFTdYKbvqcfAJ6/hpQLTHw4EY/QkihwtQuPjQ=="],
 
