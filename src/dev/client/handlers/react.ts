@@ -6,7 +6,6 @@
 import { hideErrorOverlay } from '../errorOverlay';
 import { detectCurrentFramework } from '../frameworkDetect';
 import { sendAbsoluteHmrTiming } from '../hmrTiming';
-import { swapCSSStylesheet } from '../cssUtils';
 
 const reloadReactPage = () => {
 	const url = new URL(window.location.href);
@@ -31,24 +30,6 @@ export const handleReactUpdate = (message: {
 	const currentFramework = detectCurrentFramework();
 	if (currentFramework !== 'react') return;
 
-	const hasComponentChanges = message.data.hasComponentChanges !== false;
-	const hasCSSChanges = message.data.hasCSSChanges === true;
-	const cssPath =
-		message.data.manifest && message.data.manifest.ReactExampleCSS;
-	if (!hasComponentChanges && hasCSSChanges && cssPath) {
-		const clientStart = performance.now();
-		void reloadReactCSS(cssPath).then((applied) => {
-			sendAbsoluteHmrTiming({
-				clientStart,
-				kind: 'css',
-				outcome: applied ? 'applied' : 'failed',
-				serverMs: message.data.serverDuration,
-				updateId: message.timestamp
-			});
-		});
-
-		return;
-	}
 	// BUN-REACT-REFRESH-LEGACY: the remount/reload fallback for a dev server on
 	// stock Bun, which cannot emit React Fast Refresh registrations. Remove it,
 	// and the fastRefreshSupported message field, once the minimum Bun has the fix.
@@ -198,16 +179,3 @@ const applyRemountImport = (
 			reloadReactPage();
 		});
 };
-
-const reloadReactCSS = (cssPath: string) =>
-	swapCSSStylesheet(cssPath, (href) => {
-		const hrefBase = (href.split('?')[0] ?? '').split('/').pop() ?? '';
-		const cssPathBase =
-			(cssPath.split('?')[0] ?? '').split('/').pop() ?? '';
-
-		return (
-			hrefBase === cssPathBase ||
-			href.includes('react-example') ||
-			cssPathBase.includes(hrefBase)
-		);
-	});

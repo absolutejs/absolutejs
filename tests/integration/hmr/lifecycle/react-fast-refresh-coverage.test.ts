@@ -252,7 +252,9 @@ describe.skipIf(!fastRefresh)('React Fast Refresh deep coverage', () => {
 		const { hmr, page } = await openCounted();
 		expect(await page.textContent('#probe-branch')).toBe('BRANCH_LOW');
 
-		mutateFile(APP, (text) => text.replace('count > 100 ?', 'count >= 0 ?'));
+		mutateFile(APP, (text) =>
+			text.replace('count > 100 ?', 'count >= 0 ?')
+		);
 		await waitForUpdate(hmr, page, '#probe-branch', 'BRANCH_HIGH');
 		await expectCountKept(page);
 	}, 90_000);
@@ -302,7 +304,7 @@ describe.skipIf(!fastRefresh)('React Fast Refresh deep coverage', () => {
 				'\t\t};',
 				'\t}, []);',
 				'',
-				"\treturn <p id=\"probe-effect\">{'EFFECT_ONE'}</p>;",
+				'\treturn <p id="probe-effect">{\'EFFECT_ONE\'}</p>;',
 				'};',
 				''
 			].join('\n')
@@ -334,12 +336,12 @@ describe.skipIf(!fastRefresh)('React Fast Refresh deep coverage', () => {
 				"import { forwardRef, memo } from 'react';",
 				'',
 				'export const ProbeMemo = memo(function ProbeMemo() {',
-				"\treturn <p id=\"probe-memo-component\">{'MEMO_ONE'}</p>;",
+				'\treturn <p id="probe-memo-component">{\'MEMO_ONE\'}</p>;',
 				'});',
 				'',
 				'export const ProbeForward = forwardRef<HTMLParagraphElement>(',
 				'\tfunction ProbeForward(_props, ref) {',
-				"\t\treturn <p id=\"probe-forward\" ref={ref}>{'FORWARD_ONE'}</p>;",
+				'\t\treturn <p id="probe-forward" ref={ref}>{\'FORWARD_ONE\'}</p>;',
 				'\t}',
 				');',
 				''
@@ -437,7 +439,7 @@ describe.skipIf(!fastRefresh)('React Fast Refresh deep coverage', () => {
 
 		createFile(
 			resolve(REACT_DIR, 'components/ProbeNew.tsx'),
-			"export const ProbeNew = () => <aside id=\"probe-new\">{'NEW_COMPONENT_OK'}</aside>;\n"
+			'export const ProbeNew = () => <aside id="probe-new">{\'NEW_COMPONENT_OK\'}</aside>;\n'
 		);
 		mutateFile(PAGE, (text) =>
 			text
@@ -491,9 +493,7 @@ describe.skipIf(!fastRefresh)('React Fast Refresh deep coverage', () => {
 		// Fast Refresh always remounts class components, so their state
 		// resets; the document and sibling function state stay.
 		await waitForUpdate(hmr, page, '#probe-class', 'CLASS_TWO');
-		expect(await page.textContent('#probe-class')).toBe(
-			'CLASS_TWO hits 0'
-		);
+		expect(await page.textContent('#probe-class')).toBe('CLASS_TWO hits 0');
 		await expectCountKept(page);
 	}, 90_000);
 });
@@ -564,6 +564,37 @@ describe('React browser updates', () => {
 		await hmr.waitFor('react-update', UPDATE_TIMEOUT_MS);
 		await colorIs('rgb(4, 5, 6)');
 		await expectAppliedInPlace(page);
+	}, 90_000);
+
+	test("the page's own stylesheet updates in place", async () => {
+		const stylesheet = resolve(
+			PROJECT_ROOT,
+			'example/styles/indexes/react-example.css'
+		);
+		const { hmr, page } = await openCounted();
+		mutateFile(
+			stylesheet,
+			(text) =>
+				`${text}\nbody > main { outline: 3px solid rgb(7, 8, 9); }\n`
+		);
+		await hmr.waitFor('style-update', UPDATE_TIMEOUT_MS);
+		await page.waitForFunction(
+			() => {
+				const main = document.querySelector('body > main');
+
+				return (
+					main !== null &&
+					getComputedStyle(main).outlineColor === 'rgb(7, 8, 9)'
+				);
+			},
+			undefined,
+			{ timeout: UPDATE_TIMEOUT_MS }
+		);
+		// A stylesheet swap never touches React: state and document both stay.
+		expect(await page.textContent(COUNT_BUTTON)).toContain(
+			`count is ${CLICKS}`
+		);
+		expect(await documentKept(page)).toBe(true);
 	}, 90_000);
 
 	test('a child edit keeps the page structure around it', async () => {
