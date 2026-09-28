@@ -1,8 +1,11 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { writeAbsoluteCapacitorConfig } from '../../../src/mobile/capacitorProject';
+import {
+	prepareAbsoluteCapacitorInitialization,
+	writeAbsoluteCapacitorConfig
+} from '../../../src/mobile/capacitorProject';
 import { normalizeAbsoluteMobileConfig } from '../../../src/mobile/config';
 
 const temporaryDirectories: string[] = [];
@@ -46,4 +49,35 @@ describe('Capacitor project config', () => {
 		expect(source).toContain('path: "mobile/ios"');
 		expect(source).not.toContain('server:');
 	});
+});
+
+test('native initialization supports empty bundles and retries without overwriting app assets', async () => {
+	const root = await mkdtemp(join(tmpdir(), 'absolute-native-init-'));
+	temporaryDirectories.push(root);
+	const config = normalizeAbsoluteMobileConfig(
+		{
+			appId: 'com.example.product',
+			appName: 'Product',
+			platforms: ['ios', 'android'],
+			server: { productionOrigin: 'https://api.example.com' }
+		},
+		root
+	);
+	expect(await prepareAbsoluteCapacitorInitialization(config)).toEqual([
+		{ command: 'add', platform: 'ios' },
+		{ command: 'add', platform: 'android' }
+	]);
+	const index = join(config.bundleDirectory, 'index.html');
+	expect(await readFile(index, 'utf8')).toContain(
+		'Build your AbsoluteJS mobile bundle'
+	);
+	await writeFile(index, '<h1>Actual built app</h1>');
+	await mkdir(join(config.nativeProjectDirectory, 'ios'), {
+		recursive: true
+	});
+	expect(await prepareAbsoluteCapacitorInitialization(config)).toEqual([
+		{ command: 'sync', platform: 'ios' },
+		{ command: 'add', platform: 'android' }
+	]);
+	expect(await readFile(index, 'utf8')).toBe('<h1>Actual built app</h1>');
 });

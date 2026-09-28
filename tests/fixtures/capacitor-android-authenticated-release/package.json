@@ -1,8 +1,4 @@
 {
-	"name": "@absolutejs/fixture-capacitor-android-authenticated-release",
-	"version": "0.0.0",
-	"private": true,
-	"type": "module",
 	"dependencies": {
 		"@absolutejs/auth": "0.75.0",
 		"@absolutejs/devices": "0.7.0",
@@ -22,5 +18,9 @@
 		"elysia": "*",
 		"react": "*",
 		"react-dom": "*"
-	}
+	},
+	"name": "@absolutejs/fixture-capacitor-android-authenticated-release",
+	"private": true,
+	"type": "module",
+	"version": "0.0.0"
 }
