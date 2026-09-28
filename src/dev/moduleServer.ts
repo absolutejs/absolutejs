@@ -636,8 +636,12 @@ const probeReactFastRefresh = () => {
 			reactFastRefresh: true
 		};
 		const probe = new Bun.Transpiler(probeOptions);
+		// React Fast Refresh only registers capitalized functions as
+		// components; a lower-case or underscore-prefixed probe gets no
+		// $RefreshReg$ even on a Bun with the fix, which made this probe
+		// report "unsupported" everywhere.
 		const out = probe.transformSync(
-			'export function __AbsoluteRefreshProbe(){return null;}'
+			'export function AbsoluteRefreshProbe(){return null;}'
 		);
 
 		return out.includes('$RefreshReg$');
