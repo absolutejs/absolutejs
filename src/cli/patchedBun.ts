@@ -30,31 +30,31 @@ export const PATCHED_BUN_RELEASE = {
 	repo: 'absolutejs/patched-bun',
 	sha256: {
 		'bun-darwin-aarch64':
-			'f72303ee750c497090b5c047748b4f962ee67e4d84598540c56e86cb0f3bd745',
+			'940d8c7eadb9fb4f39f06b0a086bbb6851d1bf3bc164bd3ba3a6966f8229f53c',
 		'bun-darwin-x64':
-			'd3c98a1f87b86807b8c28b79aafc82f65d35261907aad91b51a7a8db92e76ab8',
+			'847f215cdd147431d025ffec94063467d1e4e80a5e4c311efff4570e04fa06ed',
 		'bun-freebsd-aarch64':
-			'fc780fb8b21e2ec1104d3641d04711d341b418ca691f5a9040b774a13863bd8e',
+			'6d1c6c51cb782a1f9d2f4e2481aa7b856eff05be430094fa3b8fb86adf4067a3',
 		'bun-freebsd-x64':
-			'e963f6f09dc5fbc3c824c55adb24bcaad5e75175f547d16506d3750478d7b3e6',
+			'c5395cd411bf3df75c3943e6ebb7722b5dd369df9a97c622449d36129cc6277a',
 		'bun-linux-aarch64':
-			'0cbc54617dbb5bf8bdc5f203ed5ce2a76bc6fa0626454b42128845041e296a37',
+			'fd5931bf59ff2bbaeab5fa37a1b003a3f10ada6b7fee2d3d8f15e606adad61f9',
 		'bun-linux-aarch64-android':
-			'28d06029e918b2effdea67d85058fc018f69999086b273bb04c5f7a0b9912ea8',
+			'ab560ea72357554c93b4b0390b869ec62769c9b5f676ab196ecb3b0e328d7126',
 		'bun-linux-aarch64-musl':
-			'59910107ed0c54fabe15b95a55b1f942f2211cb46a8f67244dfc6ff749aed6fb',
+			'b9c3f9936f4c7b6b0b749090f70806a1f73ca48d5a9762709ef9a4e9a5b0fed8',
 		'bun-linux-x64':
-			'468ebfe382ea424d8223231316558e33e229f7c4eff3774491adbddb0db22dec',
+			'd36584f9aa71773fada3831ddf01a34c6089988988b900fd968586db099a0567',
 		'bun-linux-x64-android':
-			'56fd9b4e09ddda66e72b82349f11fb638c1bb131ead8dc2106ee428c70043580',
+			'1a9712c77516fc224ed3307e083a12ea6e4f1a2956e920b9590bf12e4f59304e',
 		'bun-linux-x64-musl':
-			'007d34e639c1ba078a2d966fa7832403b61e7966e42e7d44001ce3ab27ad10f5',
+			'061a8bd6afad866f807d93125508c303f16c2dbf000387c91d22dd777c072951',
 		'bun-windows-aarch64':
-			'ebc80000e32a070021eba193f442695c67832990b6651a29ba41674005c9dd96',
+			'91ed75e937b191eaf18bb361040acc24cd363b38f7bdaab5228fadd813f2a9ea',
 		'bun-windows-x64':
-			'7f11e079c17a4b39a4ec432200c8188d984a5aaa43ec00d5a23fe13ea0254025'
+			'f7a7a22349dc7d4df0347da3f3058fe746763e22950bc77f4ae8021dab75a7b3'
 	},
-	tag: 'bun-v1.4.0-absolute.1'
+	tag: 'bun-v1.4.0-absolute.2'
 } as const;
 
 export type PatchedBunAsset = keyof typeof PATCHED_BUN_RELEASE.sha256;
