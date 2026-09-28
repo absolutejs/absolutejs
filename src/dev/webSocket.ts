@@ -55,6 +55,25 @@ const retainHmrUpdate = (
 	if (typeof oldest === 'number') state.hmrUpdates.delete(oldest);
 };
 
+/* Elysia 2 hands every open/message/close event a new wrapper object for the
+ * same connection. Keying `connectedClients`/`clientTargets` by the wrapper
+ * meant a close never removed the client registered on open (it lingered
+ * until a broadcast send threw), and each `ready`/`hmr-timing` message added
+ * another target entry for one socket, so `/hmr-status` reported phantom
+ * clients. Resolve every event's wrapper to the one registered first for the
+ * same underlying socket. */
+const canonicalClients = new WeakMap<object, HMRWebSocket>();
+
+const canonicalClient = (client: HMRWebSocket) => {
+	const { raw } = client;
+	if (!raw) return client;
+	const known = canonicalClients.get(raw);
+	if (known) return known;
+	canonicalClients.set(raw, client);
+
+	return client;
+};
+
 const trySendMessage = (client: HMRWebSocket, messageStr: string) => {
 	try {
 		client.send(messageStr);
@@ -100,7 +119,7 @@ export const handleClientConnect = (
 	client: HMRWebSocket,
 	manifest: Record<string, string>
 ) => {
-	state.connectedClients.add(client);
+	state.connectedClients.add(canonicalClient(client));
 
 	const serverVersions = serializeModuleVersions(state.moduleVersions);
 	client.send(
@@ -155,8 +174,10 @@ export const handleClientDisconnect = (
 	state: HMRState,
 	client: HMRWebSocket
 ) => {
-	state.connectedClients.delete(client);
-	state.clientTargets.delete(client);
+	const known = canonicalClient(client);
+	state.connectedClients.delete(known);
+	state.clientTargets.delete(known);
+	if (client.raw) canonicalClients.delete(client.raw);
 };
 
 const parseJsonSafe = (raw: string) => JSON.parse(raw);
@@ -281,7 +302,7 @@ export const handleHMRMessage = (
 			return;
 		}
 
-		handleParsedMessage(state, client, parsedData);
+		handleParsedMessage(state, canonicalClient(client), parsedData);
 	} catch {
 		/* ignored */
 	}
