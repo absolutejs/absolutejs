@@ -5,6 +5,25 @@
 		{
 			"changes": [
 				{
+					"detail": "AbsoluteJS accepted `@absolutejs/auth` only below 0.77, so a project that added a current auth (0.77 to 0.96) got two copies: its own, plus 0.76.3 nested under AbsoluteJS for the mobile shell. The duplicate also doubled the auth type declarations TypeScript loads. AbsoluteJS now accepts auth up to 0.96. The `@absolutejs/auth/client/mobile` API it uses is byte-identical from 0.76.3 to 0.96.0, in both its declarations and its runtime.",
+					"kind": "fixed",
+					"summary": "Projects on a current `@absolutejs/auth` no longer get a second, older copy"
+				},
+				{
+					"detail": "Elysia 2 hands every open, message and close event of a WebSocket a new wrapper object. The dev server tracked HMR clients by that wrapper, so a closed browser tab was never removed (it stayed until a broadcast send threw) and each `ready` message counted the same tab again under `connectedTargets`, so `/hmr-status` reported clients that were gone and more web targets than open sockets. Clients are now tracked by the underlying socket.",
+					"kind": "fixed",
+					"summary": "`/hmr-status` no longer counts closed or duplicate HMR clients",
+					"symbols": [
+						"HMRWebSocket"
+					]
+				}
+			],
+			"date": "2026-09-28",
+			"version": "0.20.0-beta.124"
+		},
+		{
+			"changes": [
+				{
 					"detail": "Under `bun --hot`, Bun counts unhandled rejections that no listener claims and never resets the count; while it is non-zero Bun parks the process in a loop that still serves requests and delivers file-watch events but never runs timers. The server entry imports React pages, so saving a React component with a syntax error made Bun's hot reload reject, and from then on the HMR debounce never fired: every edit was detected and queued, including the one that fixed the error, and nothing rebuilt until the dev server restarted. An unhandled rejection in app code did the same. The dev server now claims unhandled rejections and prints them as before, so its timers keep running.",
 					"kind": "fixed",
 					"summary": "`absolute dev` keeps rebuilding after a syntax error in a React component or an unhandled rejection"
