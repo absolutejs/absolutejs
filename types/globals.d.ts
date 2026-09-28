@@ -21,6 +21,7 @@ declare global {
 	var __absoluteImportCostReport: (() => Promise<void>) | undefined;
 	var __absoluteEntryBootstrapSequence: number | undefined;
 	var __absoluteEntryCleanupRegistered: boolean | undefined;
+	var __absoluteHotRejectionGuard: boolean | undefined;
 	var __absoluteEntryWatcherStarted: boolean | undefined;
 	/** Pinned React module from initial devBuild — used to detect and bridge
 	 *  duplicate React instances after bun install invalidates the module cache. */
@@ -31,6 +32,15 @@ declare global {
 		| Map<string, { content: string; imports: string[]; mtime: number }>
 		| undefined;
 	var __transformImporters: Map<string, Set<string>> | undefined;
+	/** The dev module server handler and its last transform failure per
+	 *  file. On globalThis so every instance of moduleServer.ts reaches them,
+	 *  including one re-evaluated by a `bun --hot` reload that failed. */
+	var __absoluteModuleServer:
+		| import('../src/dev/moduleServer').ModuleServerHandler
+		| undefined;
+	var __absoluteTransformErrors:
+		| Map<string, import('../src/dev/moduleServer').TransformError>
+		| undefined;
 	/** Virtual `.svelte.css` modules (css:'external' compile output) served by
 	 *  the dev moduleServer. On globalThis so it survives `bun --hot`
 	 *  server re-evaluation alongside the transform cache — cached Svelte
