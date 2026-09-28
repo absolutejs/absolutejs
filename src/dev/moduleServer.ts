@@ -636,8 +636,12 @@ const probeReactFastRefresh = () => {
 			reactFastRefresh: true
 		};
 		const probe = new Bun.Transpiler(probeOptions);
+		// React Fast Refresh only registers capitalized functions as
+		// components; a lower-case or underscore-prefixed probe gets no
+		// $RefreshReg$ even on a Bun with the fix, which made this probe
+		// report "unsupported" everywhere.
 		const out = probe.transformSync(
-			'export function __AbsoluteRefreshProbe(){return null;}'
+			'export function AbsoluteRefreshProbe(){return null;}'
 		);
 
 		return out.includes('$RefreshReg$');
@@ -1767,6 +1771,61 @@ const transformAndCacheVue = async (
 	return jsResponse(content);
 };
 
+export type ModuleServerHandler = (
+	pathname: string
+) => Promise<Response | undefined> | Response | undefined;
+
+export type TransformError = {
+	column?: number;
+	line?: number;
+	lineText?: string;
+	message: string;
+};
+
+// The last transform failure per source file. The HMR pipeline reads it so a
+// syntax error is reported as one, instead of telling the browser to import a
+// module that answers 500 (which the client can only answer with a reload).
+// On globalThis for the same reason as the handler (see setGlobalModuleServer).
+const transformErrors =
+	globalThis.__absoluteTransformErrors ?? new Map<string, TransformError>();
+globalThis.__absoluteTransformErrors = transformErrors;
+
+const readPosition = (value: unknown) => {
+	if (!value || typeof value !== 'object') return undefined;
+	const position: unknown = Reflect.get(value, 'position');
+	if (!position || typeof position !== 'object') return undefined;
+	const line: unknown = Reflect.get(position, 'line');
+	const column: unknown = Reflect.get(position, 'column');
+	const lineText: unknown = Reflect.get(position, 'lineText');
+
+	return {
+		column: typeof column === 'number' ? column : undefined,
+		line: typeof line === 'number' ? line : undefined,
+		lineText: typeof lineText === 'string' ? lineText : undefined
+	};
+};
+
+/* Bun.Transpiler throws an AggregateError("Parse error") whose `errors` are
+ * BuildMessages carrying the real message and position. */
+const describeTransformError = (err: unknown): TransformError => {
+	const [first]: unknown[] =
+		err instanceof AggregateError && Array.isArray(err.errors)
+			? err.errors
+			: [err];
+	const source = first ?? err;
+	const ownMessage: unknown =
+		source && typeof source === 'object'
+			? Reflect.get(source, 'message')
+			: undefined;
+	const message =
+		typeof ownMessage === 'string' ? ownMessage : String(source);
+
+	return { message, ...readPosition(first) };
+};
+
+export const getTransformError = (filePath: string) =>
+	transformErrors.get(resolve(filePath));
+
 // Build a transform-error response for the browser console.
 const transformErrorResponse = (err: unknown) => {
 	const errMsg = err instanceof Error ? err.message : String(err);
@@ -1807,7 +1866,7 @@ export const createModuleServer = (config: ModuleServerConfig) => {
 		const { filePath, ext } = resolveSourcePath(relPath, projectRoot);
 
 		try {
-			return await transformAndCache(
+			const response = await transformAndCache(
 				filePath,
 				ext,
 				projectRoot,
@@ -1815,7 +1874,12 @@ export const createModuleServer = (config: ModuleServerConfig) => {
 				frameworkDirs?.vue,
 				stylePreprocessors
 			);
+			transformErrors.delete(resolve(filePath));
+
+			return response;
 		} catch (err) {
+			transformErrors.set(resolve(filePath), describeTransformError(err));
+
 			return transformErrorResponse(err);
 		}
 	};
@@ -1835,12 +1899,15 @@ const extractImportedFiles = (content: string, projectRoot: string) => {
 	return files;
 };
 
+export const SRC_URL_PREFIX = SRC_PREFIX;
+
 export const invalidateModule = (filePath: string) => {
 	// invalidate() cascades up the import chain — clearing transform
 	// caches for all transitive importers so they get re-transpiled
 	// with fresh ?v= params. Also clear mtime caches for the changed
 	// file so srcUrl() re-reads its mtime from disk.
 	const resolved = resolve(filePath);
+	transformErrors.delete(resolved);
 	invalidate(filePath);
 	if (resolved !== filePath) invalidate(resolved);
 	mtimeCache.delete(filePath);
@@ -1851,27 +1918,25 @@ export const invalidateModule = (filePath: string) => {
 	// the changed file's updated mtime.
 };
 
+/* The handler lives on globalThis, not in module state: a `bun --hot` reload
+ * that fails part-way (a syntax error in a module the server imports) leaves
+ * later dynamic imports of this file resolving to a fresh instance that
+ * `prepare()` never configured. With the handler in module state, every
+ * warmCache from that point on was a silent no-op. */
+export const setGlobalModuleServer = (handler: ModuleServerHandler | null) => {
+	globalThis.__absoluteModuleServer = handler ?? undefined;
+};
+
 // Pre-transpile a /@src/ URL and cache the result so the browser
 // fetch is instant. Called before sending the WebSocket HMR message.
 export const warmCache = async (pathname: string) => {
 	if (!pathname.startsWith(SRC_PREFIX)) return;
-	if (!globalModuleServer) return;
+	const handler = globalThis.__absoluteModuleServer;
+	if (!handler) return;
 	// Trigger the handler — the result is cached by setTransformed
-	await globalModuleServer(pathname);
+	await handler(pathname);
 };
 
-// Store the module server handler globally so warmCache can access it
-let globalModuleServer:
-	| ((
-			pathname: string
-	  ) => Promise<Response | undefined> | Response | undefined)
-	| null = null;
-
-export const SRC_URL_PREFIX = SRC_PREFIX;
-
-export const setGlobalModuleServer = (handler: typeof globalModuleServer) => {
-	globalModuleServer = handler;
-};
 
 /* ---------------------------------------------------------------------
  * On-demand page builds — the page-level analogue of `warmCache`.

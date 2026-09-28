@@ -104,8 +104,10 @@ export const startDevServer = async (options?: DevServerOptions | number) => {
 
 	const httpsEnabled = opts.https === true;
 	const serverBootstrap = resolve(PROJECT_ROOT, 'src/dev/serverBootstrap.ts');
+	// The Bun running the tests runs the dev server too, so `<bun> test`
+	// with AbsoluteJS's patched Bun exercises React Fast Refresh for real.
 	const proc = Bun.spawn(
-		['bun', '--hot', '--no-clear-screen', serverBootstrap],
+		[process.execPath, '--hot', '--no-clear-screen', serverBootstrap],
 		{
 			cwd: PROJECT_ROOT,
 			env: {

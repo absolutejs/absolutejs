@@ -20,7 +20,9 @@ export const handleReactUpdate = (message: {
 		hasCSSChanges?: boolean;
 		hasComponentChanges?: boolean;
 		manifest?: Record<string, string>;
+		moduleUrls?: string[];
 		pageModuleUrl?: string;
+		pageModuleUrls?: Record<string, string>;
 		primarySource?: string;
 		serverDuration?: number;
 	};
@@ -51,11 +53,22 @@ export const handleReactUpdate = (message: {
 	// stock Bun, which cannot emit React Fast Refresh registrations. Remove it,
 	// and the fastRefreshSupported message field, once the minimum Bun has the fix.
 	if (message.data.fastRefreshSupported === false) {
-		const { pageModuleUrl } = message.data;
+		// The remount re-renders the whole page, so it needs this page's
+		// module; a changed child's module would be rendered as the page.
+		const componentKey = window.__REACT_COMPONENT_KEY__;
+		const pageUrls = message.data.pageModuleUrls;
+		if (pageUrls && componentKey && !pageUrls[componentKey]) {
+			// This edit does not reach the page on screen.
+			return;
+		}
+		const remountUrl =
+			pageUrls && componentKey
+				? pageUrls[componentKey]
+				: message.data.pageModuleUrl;
 		const remount = window.__ABS_REACT_REMOUNT__;
-		if (pageModuleUrl && remount) {
+		if (remountUrl && remount) {
 			applyRemountImport(
-				pageModuleUrl,
+				remountUrl,
 				remount,
 				message.data.serverDuration,
 				message.timestamp
@@ -77,10 +90,15 @@ export const handleReactUpdate = (message: {
 	const refreshRuntime = window.$RefreshRuntime$;
 	const { serverDuration } = message.data;
 	const { pageModuleUrl } = message.data;
+	const fallbackUrls = pageModuleUrl ? [pageModuleUrl] : [];
+	const moduleUrls =
+		message.data.moduleUrls && message.data.moduleUrls.length > 0
+			? message.data.moduleUrls
+			: fallbackUrls;
 
-	if (pageModuleUrl && refreshRuntime) {
+	if (moduleUrls.length > 0 && refreshRuntime) {
 		applyRefreshImport(
-			pageModuleUrl,
+			moduleUrls,
 			refreshRuntime,
 			serverDuration,
 			message.timestamp
@@ -119,13 +137,16 @@ const finishUpdate = (
 };
 
 const applyRefreshImport = (
-	moduleUrl: string,
+	moduleUrls: string[],
 	refreshRuntime: { performReactRefresh: () => unknown },
 	serverDuration?: number,
 	updateId?: number
 ) => {
 	const clientStart = performance.now();
-	import(`${moduleUrl}?t=${Date.now()}`)
+	const stamp = Date.now();
+	// Every edited module has to run before the refresh, or a page that
+	// now renders a new child refreshes without it.
+	Promise.all(moduleUrls.map((url) => import(`${url}?t=${stamp}`)))
 		.then(() => {
 			refreshRuntime.performReactRefresh();
 			finishUpdate(clientStart, serverDuration, updateId);

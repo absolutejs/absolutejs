@@ -57,6 +57,38 @@ describe('React HMR', () => {
 		expect(data.sourceFiles).toBeDefined();
 	});
 
+	test('fast path provides pageModuleUrl for the changed module', () => {
+		const updates = client.messages.filter(
+			(m) => m.type === 'react-update'
+		);
+		const [first] = updates;
+		if (!first) throw new Error('no react-update received');
+		const data = first.data as Record<string, unknown>;
+		expect(String(data.pageModuleUrl)).toStartWith('/@src/');
+		expect(String(data.pageModuleUrl)).toContain('ReactExample.tsx');
+		expect(data.moduleUrls).toEqual([data.pageModuleUrl]);
+	});
+
+	test('SSR catches up after an edit', async () => {
+		await server.waitForIdle({ timeoutMs: 30_000 });
+		client.drain();
+		const app = resolve(PROJECT_ROOT, 'example/react/components/App.tsx');
+		mutateFile(app, (c) =>
+			c.replace('AbsoluteJS + React', 'AbsoluteJS + React SSR_CAUGHT_UP')
+		);
+		await client.waitFor('react-update', 30_000);
+
+		// The server entry imports React pages directly, so a fresh request
+		// renders the edit once the entry graph has re-evaluated.
+		const deadline = Date.now() + 20_000;
+		let html = '';
+		while (Date.now() < deadline && !html.includes('SSR_CAUGHT_UP')) {
+			html = await (await fetch(`${server.baseUrl}/react`)).text();
+			if (!html.includes('SSR_CAUGHT_UP')) await Bun.sleep(100);
+		}
+		expect(html).toContain('SSR_CAUGHT_UP');
+	}, 60_000);
+
 	test('subsequent react change also triggers update', async () => {
 		// afterEach restores the prior fixture atomically, which itself schedules
 		// HMR. Wait for that real queue to settle instead of racing a fixed sleep.

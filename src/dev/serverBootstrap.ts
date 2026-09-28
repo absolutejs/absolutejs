@@ -7,6 +7,7 @@ import {
 	markBootAt,
 	processStartEpochMs
 } from '../utils/bootTimeline';
+import { installHotRejectionGuard } from './hotRejectionGuard';
 import { printImportCostHint } from './importCost/hint';
 import {
 	isMissingAbsoluteServerEntryCopyError,
@@ -18,6 +19,10 @@ import {
 adoptParentBootMarks();
 markBootAt('child process start', processStartEpochMs());
 markBoot('bootstrap imports evaluated');
+
+// Before anything can reject: an unclaimed rejection under `bun --hot` stops
+// every timer in this process (see hotRejectionGuard.ts).
+installHotRejectionGuard();
 
 const originalEntry = process.env.ABSOLUTE_SERVER_ENTRY;
 if (!originalEntry) {
