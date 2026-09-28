@@ -209,8 +209,10 @@ type HMRMessage = {
 		line?: number;
 		lineText?: string;
 		manifest?: Record<string, string>;
+		moduleUrls?: string[];
 		moduleVersions?: Record<string, number>;
 		pageModuleUrl?: string;
+		pageModuleUrls?: Record<string, string>;
 		primarySource?: string;
 		scriptUrl?: string;
 		serverDuration?: number;

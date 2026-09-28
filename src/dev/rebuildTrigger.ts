@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, rmSync } from 'node:fs';
+import { existsSync, readdirSync, rmSync, statSync } from 'node:fs';
 import {
 	basename,
 	dirname,
@@ -33,7 +33,10 @@ import { incrementSourceFileVersions, type HMRState } from './clientManager';
 import { getAffectedFiles } from './dependencyGraph';
 import { DEFAULT_DEBOUNCE_MS, REBUILD_BATCH_DELAY_MS } from '../constants';
 import { computeFileHash, hasFileChanged } from './fileHashTracker';
-import { invalidate as invalidateTransformCache } from './transformCache';
+import {
+	findNearestComponent,
+	invalidate as invalidateTransformCache
+} from './transformCache';
 
 // Eagerly resolve the moduleServer import at load time so the first
 // HMR update doesn't pay the dynamic-import cost. By the time this
@@ -2373,16 +2376,102 @@ const getReactModuleUrl = getModuleUrl;
 // and return an /@hmr/ URL that bootstraps the full page remount.
 // (Svelte lacks a component-level HMR runtime like React/Vue.)
 
-const resolveBroadcastTarget = async (primaryFile: string) => {
-	const isComponentFile =
-		primaryFile.endsWith('.tsx') || primaryFile.endsWith('.jsx');
+const isReactComponentPath = (file: string) =>
+	file.endsWith('.tsx') || file.endsWith('.jsx');
 
-	if (isComponentFile) return primaryFile;
+const isReactPagePath = (file: string) =>
+	file.replace(/\\/g, '/').includes('/pages/');
 
-	const { findNearestComponent } = await import('./transformCache');
-	const nearest = findNearestComponent(resolvePath(primaryFile));
+/* The watcher reports directories (a `createFile` into a new folder, a
+ * `mkdir`) and deleted paths alongside real edits. Neither is a module the
+ * browser can import: a directory URL fails to load and the client falls
+ * back to a full reload. */
+const isImportableModule = (file: string) => {
+	try {
+		return statSync(file).isFile();
+	} catch {
+		return false;
+	}
+};
 
-	return nearest ?? primaryFile;
+/* A non-component module (a hook, a utility, a context file) has no
+ * component of its own for React Fast Refresh to swap: re-importing just
+ * that module updates nothing on screen. Target the nearest component that
+ * imports it — from the module server's import graph, or, when the browser
+ * has not fetched that part of the graph yet, from the dependents the
+ * dependency graph already expanded into `reactFiles`. */
+const resolveComponentTarget = (
+	file: string,
+	reactFiles: string[],
+	edited: Set<string>
+) => {
+	if (isReactComponentPath(file)) return file;
+
+	const nearest = findNearestComponent(resolvePath(file));
+	if (nearest && isImportableModule(nearest)) return nearest;
+
+	const dependents = reactFiles.filter(
+		(candidate) =>
+			!edited.has(candidate) &&
+			isReactComponentPath(candidate) &&
+			isImportableModule(candidate)
+	);
+
+	return (
+		dependents.find((candidate) => !isReactPagePath(candidate)) ??
+		dependents[0] ??
+		file
+	);
+};
+
+/* Every module the browser must re-import for this batch. One per edited
+ * file: an edit that creates a component and adds it to the page has to
+ * re-run the page too, or the page keeps rendering without it. Children
+ * come first so the primary URL stays the most specific component. */
+const resolveReactUpdateTargets = (
+	state: HMRState,
+	reactFiles: string[]
+) => {
+	const importable = reactFiles.filter(isImportableModule);
+	const userEdited = importable.filter((file) =>
+		state.lastUserEditedFiles?.has(resolvePath(file))
+	);
+	const editedFiles = userEdited.length > 0 ? userEdited : importable;
+	const edited = new Set(editedFiles);
+	const ordered = [
+		...editedFiles.filter((file) => !isReactPagePath(file)),
+		...editedFiles.filter(isReactPagePath)
+	];
+	const targets = ordered.map((file) =>
+		resolveComponentTarget(file, reactFiles, edited)
+	);
+
+	// The order decides which URL is primary; keep the first occurrence.
+	return { editedFiles, targets: [...new Set(targets)] };
+};
+
+/* Page module URLs keyed by the page's index manifest key
+ * (`ReactExampleIndex`), for every page the batch affects. The stock-Bun
+ * remount fallback re-renders the whole page, so it must import the page
+ * module, not whichever child changed. */
+const resolveAffectedPageModules = async (reactFiles: string[]) => {
+	const pages = reactFiles.filter(
+		(file) =>
+			isReactPagePath(file) &&
+			isReactComponentPath(file) &&
+			isImportableModule(file)
+	);
+	const entries = await Promise.all(
+		pages.map(
+			async (page) =>
+				[
+					`${basename(page).replace(/\.[jt]sx$/, '')}Index`,
+					await getReactModuleUrl(page)
+				] as const
+		)
+	);
+
+	return Object.fromEntries(entries);
 };
 
 const handleReactModuleServerPath = async (
@@ -2395,12 +2484,19 @@ const handleReactModuleServerPath = async (
 		hmrState: HMRState;
 	}) => void
 ) => {
-	const primaryFile =
-		reactFiles.find(
-			(file) => !file.replace(/\\/g, '/').includes('/pages/')
-		) ?? reactFiles[0];
+	// Invalidate changed files + direct importers in transform cache
+	const { invalidateModule } = await getModuleServer();
+	for (const file of reactFiles) {
+		invalidateModule(file);
+	}
 
-	if (!primaryFile) {
+	const { editedFiles, targets } = resolveReactUpdateTargets(
+		state,
+		reactFiles
+	);
+	const [primaryTarget] = targets;
+
+	if (!primaryTarget) {
 		onRebuildComplete({
 			hmrState: state,
 			manifest: state.manifest
@@ -2409,14 +2505,46 @@ const handleReactModuleServerPath = async (
 		return state.manifest;
 	}
 
-	// Invalidate changed files + direct importers in transform cache
-	const { invalidateModule } = await getModuleServer();
-	for (const file of reactFiles) {
-		invalidateModule(file);
-	}
+	const moduleUrls = await Promise.all(targets.map(getReactModuleUrl));
+	// Transform the edited files too (a target may import them), so a syntax
+	// error anywhere in the batch is caught here rather than in the browser.
+	await Promise.all(
+		editedFiles
+			.filter((file) => !targets.includes(file))
+			.map(getReactModuleUrl)
+	);
+	const { getTransformError } = await getModuleServer();
+	const failed = [...new Set([...editedFiles, ...targets])]
+		.map((file) => ({ error: getTransformError(file), file }))
+		.find((entry) => entry.error !== undefined);
+	if (failed?.error) {
+		// The browser keeps the running page; the overlay names the error,
+		// and the save that fixes it arrives as a normal react-update.
+		broadcastToClients(state, {
+			data: {
+				affectedFrameworks: ['react'],
+				column: failed.error.column,
+				error: failed.error.message,
+				file: failed.file,
+				framework: 'react',
+				line: failed.error.line,
+				lineText: failed.error.lineText
+			},
+			message: 'React module failed to compile',
+			type: 'rebuild-error'
+		});
+		onRebuildComplete({ hmrState: state, manifest: state.manifest });
 
-	const broadcastTarget = await resolveBroadcastTarget(primaryFile);
-	const pageModuleUrl = await getReactModuleUrl(broadcastTarget);
+		return state.manifest;
+	}
+	const pageModuleUrls = fastRefreshSupported
+		? undefined
+		: await resolveAffectedPageModules(reactFiles);
+	const [pageModuleUrl] = moduleUrls;
+	const primaryFile =
+		reactFiles.find(
+			(file) => isImportableModule(file) && !isReactPagePath(file)
+		) ?? primaryTarget;
 
 	if (pageModuleUrl) {
 		const serverDuration = Date.now() - startTime;
@@ -2433,7 +2561,9 @@ const handleReactModuleServerPath = async (
 				hasComponentChanges: true,
 				hasCSSChanges: false,
 				manifest: state.manifest,
+				moduleUrls,
 				pageModuleUrl,
+				pageModuleUrls,
 				primarySource: primaryFile,
 				serverDuration,
 				sourceFiles: reactFiles
