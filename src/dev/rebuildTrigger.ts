@@ -2464,10 +2464,12 @@ const handleReactFastPath = async (
 	// browser re-imports the single module and React Fast Refresh
 	// swaps the component in place. There is no Bun.build() fallback
 	// here — a full re-bundle on each edit is far too slow for HMR,
-	// and the per-file path is correct on patched Bun (PR #28312).
-	// On stock Bun, reactFastRefresh is silently ignored and the client
-	// remounts the changed module; moduleServer logs a one-shot warning in that
-	// case.
+	// and the per-file path is correct on a Bun with the reactFastRefresh fix
+	// (oven-sh/bun#32919; AbsoluteJS's patched Bun has it).
+	// BUN-REACT-REFRESH-LEGACY: on stock Bun, reactFastRefresh is silently
+	// ignored and the client remounts the changed module; moduleServer logs a
+	// one-shot warning in that case. Drop the warning and the
+	// fastRefreshSupported flag once the minimum Bun has the fix.
 	const reactFiles = filesToRebuild.filter(
 		(file) => detectFramework(file, state.resolvedPaths) === 'react'
 	);
@@ -3709,6 +3711,7 @@ const handleReactHMR = async (
 	const [primarySource] = sourceFiles;
 
 	try {
+		// BUN-REACT-REFRESH-LEGACY: stock-Bun support check, as above.
 		const {
 			isReactFastRefreshSupported,
 			warnIfReactFastRefreshUnsupported
