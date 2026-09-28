@@ -71,6 +71,10 @@ if (command === 'dev') {
 		iosDevice,
 		mobile: !args.includes('--no-mobile')
 	});
+} else if (command === 'bun-patch') {
+	// BUN-REACT-REFRESH-LEGACY: manages AbsoluteJS's patched Bun (./patchedBun.ts).
+	const { bunPatch } = await import('./patchedBun');
+	await bunPatch(args);
 } else if (command === 'start') {
 	sendTelemetryEvent('cli:command', { command });
 	const outdir = parseNamedArg('--outdir');
@@ -329,6 +333,9 @@ if (command === 'dev') {
 	console.error('  typecheck     Run type checkers for all frameworks');
 	console.error(
 		'  migrate       Report what moving this project to AbsoluteJS involves'
+	);
+	console.error(
+		'  bun-patch [status|install|remove|reset] Bun with the React Fast Refresh fix (oven-sh/bun#32919)'
 	);
 	console.error('  telemetry     Manage anonymous telemetry');
 	console.error(

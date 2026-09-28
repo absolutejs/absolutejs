@@ -1,93 +1,52 @@
-# Bun — `reactFastRefresh` ignored by `Bun.Transpiler`
+# Bun: `reactFastRefresh` ignored by `Bun.Transpiler`
 
-**Tracking:** [oven-sh/bun#28312](https://github.com/oven-sh/bun/pull/28312)
-**Status:** Open PR (not yet merged). The fix is implemented and
-verified locally — applying the patch turns React Fast Refresh on for
-AbsoluteJS's HMR pipeline. Until the PR lands, **this is the single
-biggest thing blocking React HMR from working in AbsoluteJS** on
-stock Bun: edits to a React component fall back to a full reload
-instead of a state-preserving swap.
+**Tracking:** [oven-sh/bun#32919](https://github.com/oven-sh/bun/issues/32919) (open). The fix was
+written in [oven-sh/bun#32951](https://github.com/oven-sh/bun/pull/32951) and closed unmerged as
+stale; the earlier [#28312](https://github.com/oven-sh/bun/pull/28312) targeted files Bun has since
+rewritten.
+**Our answer:** AbsoluteJS publishes Bun with just that fix,
+[absolutejs/patched-bun](https://github.com/absolutejs/patched-bun), for every platform Bun ships.
 
 ## What's wrong upstream
 
-`new Bun.Transpiler({ reactFastRefresh: true })` silently ignores the
-option on stock Bun. The transpiler emits the JSX/TS output without
-injecting the `$RefreshReg$` / `$RefreshSig$` calls that React's
-`react-refresh/runtime` needs to associate component instances with
-their source modules. With no per-component registrations, swapping
-a transpiled module at runtime cannot trigger a refresh — the runtime
-has nothing registered against the new module's component identities,
-so it can't reconcile state.
+`new Bun.Transpiler({ reactFastRefresh: true })` silently ignores the option on stock Bun. The
+transpiler emits JSX/TS without the `$RefreshReg$` / `$RefreshSig$` calls that
+`react-refresh/runtime` needs to tie component instances to their modules, so swapping a module at
+runtime cannot refresh in place. `Bun.build()` honors the option; only the per-file transpiler, which
+`absolute dev` uses for HMR (`transformReactFile` in `src/dev/moduleServer.ts`), does not.
 
-(`Bun.build` accepts the same option and the patched transpiler is
-shared by both code paths, so once the PR merges both the initial
-bundle and the dev module-server transpile pick it up.)
+## How AbsoluteJS handles it
 
-## How it bit AbsoluteJS
+- **`absolute dev` offers the patched build** on stock Bun in React projects: Install now / Ask me
+  later (asks again after a day) / Don't ask again. It installs to
+  `~/.absolutejs/bun/<release>/<platform>/`, checked against the release's pinned SHA-256, and only
+  the dev server uses it; the user's `bun` on PATH is never touched. CI and non-interactive runs get
+  one line instead of a prompt. `ABSOLUTE_PATCHED_BUN=0` always uses PATH's bun.
+- **`absolute bun-patch [status|install|remove|reset]`** manages it by hand.
+- **On stock Bun** React edits fall back to a targeted page remount, and `moduleServer.ts` warns once
+  on the first React edit, pointing at `absolute bun-patch install`.
+- **PAAS** images install the patched build, so Studio workspaces always refresh in place.
 
-React HMR in AbsoluteJS uses a per-file transpile via `Bun.Transpiler`
-in `src/dev/moduleServer.ts` (`transformReactFile`). Without
-`$RefreshReg$` / `$RefreshSig$` injection, the per-file path serves
-new module bytes on save but no component re-registers, so the
-`react-refresh` runtime cannot perform a preserving update — the page
-falls back to a full reload. Symptom: editing a React component while
-`bun run dev` is up causes a flash and component state is lost,
-instead of the in-place swap users expect.
+The import rewrite in `transformReactFile` (dropping the transpiler's per-module
+`react-refresh/runtime` import and binding the aliased `$RefreshReg$_xxxx` / `$RefreshSig$_xxxx`
+names to the shared `window` globals) is **not** a workaround: it is the correct long-term shape
+and stays after the fix ships. Without it each module would get its own runtime instance and no
+registration would match.
 
-## What we did on our side
+## When a Bun release ships the fix
 
-- The transpiler is configured with `reactFastRefresh: true`, and
-  `transformReactFile` already strips the
-  `import { ... } from 'react-refresh/runtime'` that the patched
-  transpiler generates (otherwise it would create a fresh runtime
-  per module, distinct from the one the bundled index loaded), and
-  rewrites the aliased `$RefreshReg$_xxxxxxxx` /
-  `$RefreshSig$_xxxxxxxx` names to the shared
-  `window.$RefreshReg$` / `window.$RefreshSig$` globals. This is the
-  correct long-term shape — keep it after the PR merges.
-- `moduleServer.ts` runs a probe at load time
-  (`probeReactFastRefresh`): it constructs a transpiler with the
-  option, transpiles a tiny component, and checks the output for
-  `$RefreshReg$`. On the first React file transform, if the probe
-  showed unsupported, a one-shot warning fires pointing at this PR
-  and asking the user to leave a 👍 on it.
-- Removed the dead "rebundle the affected react entries via
-  `Bun.build()`" fallback in `src/dev/rebuildTrigger.ts`
-  (`bundleReactClient`, `collectReactEntries`,
-  `resolveReactEntryForFile`, `resolveReactEntriesFromDeps`,
-  `resolveReactEntryForPageFile`). That branch also passed
-  `reactFastRefresh: true` to `Bun.build`, so on stock Bun it would
-  silently produce non-refreshable output and on patched Bun the
-  per-file module-server path is strictly faster anyway. The
-  remaining `handleReactFastPath` always routes through
-  `handleReactModuleServerPath`.
+Every temporary piece is marked `BUN-REACT-REFRESH-LEGACY`; `grep -rn BUN-REACT-REFRESH-LEGACY src`
+finds them all:
 
-## What to do when Bun merges PR #28312
-
-1. **Bump the minimum Bun version** in `package.json` (`engines.bun`)
-   to the first release that contains the merged PR. This guarantees
-   the warning never fires for users on a supported Bun.
-2. **Remove the probe + one-shot warning** in `moduleServer.ts`:
-   `probeReactFastRefresh`, `reactFastRefreshSupported`,
-   `reactFastRefreshWarningEmitted`,
-   `warnIfReactFastRefreshUnsupported`, and the call site at the top
-   of `transformReactFile`.
-3. **Drop the local type intersection** if Bun publishes
-   `reactFastRefresh` in `TranspilerOptions`. Today the option exists
-   on `Bun.build`'s `BuildOptions` typings (see
-   `node_modules/bun-types/bun.d.ts`) but **not** on
-   `TranspilerOptions`, which is why `moduleServer.ts` declares
-   `ReactTranspilerOptions` locally.
-4. **Keep** the import-rewrite + global-rebind block inside
-   `transformReactFile`. That code compensates for the patched
-   transpiler's per-module `react-refresh/runtime` import and is the
-   correct long-term shape — removing it would re-introduce the
-   "two runtime instances, no registrations get matched" failure.
-5. **Verify HMR end-to-end** with the example app: start `bun run
-   dev`, edit a `useState` component, confirm state survives the
-   edit (no reload, value persists). The warning should not appear
-   in the dev server log.
-
-Until then, AbsoluteJS users running stock Bun see the one-shot
-warning the first time a React file is transpiled in dev mode, and
-React edits trigger a full reload.
+1. Raise `engines.bun` in `package.json` to the first release with the fix.
+2. Delete `src/cli/patchedBun.ts`, the `bun-patch` command in `src/cli/index.ts`, and the runtime
+   selection in `src/cli/scripts/dev.ts` (the dev server goes back to spawning `bun`).
+3. In `src/dev/moduleServer.ts`, delete the probe, `isReactFastRefreshSupported`,
+   `warnIfReactFastRefreshUnsupported`, and the local `ReactTranspilerOptions` type once Bun's
+   typings declare `reactFastRefresh`.
+4. In `src/dev/rebuildTrigger.ts`, drop the two support checks and the `fastRefreshSupported`
+   argument; in `src/dev/client/handlers/react.ts` and `src/dev/client/hmrClient.ts`, drop the
+   remount fallback and the `fastRefreshSupported` message field.
+5. Stop releasing absolutejs/patched-bun and switch PAAS images back to Bun's official release.
+6. Verify end to end: `bun run dev` on the example app, edit a `useState` component, and confirm the
+   state survives with no reload and no warning.

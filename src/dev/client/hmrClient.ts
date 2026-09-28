@@ -199,6 +199,7 @@ type HMRMessage = {
 		affectedFrameworks?: string[];
 		column?: number;
 		error?: string;
+		// BUN-REACT-REFRESH-LEGACY: false only on stock Bun (see handlers/react.ts).
 		fastRefreshSupported?: boolean;
 		file?: string;
 		framework?: string;

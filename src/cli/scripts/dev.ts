@@ -33,6 +33,7 @@ import { formatTimestamp } from '../../utils/startupBanner';
 import { bootTimelineChildEnv, markBoot } from '../../utils/bootTimeline';
 import { unrefTimer } from '../../utils/unrefTimer';
 import { createInteractiveHandler } from '../interactive';
+import { resolveDevBunExecutable } from '../patchedBun';
 import { sendTelemetryEvent } from '../telemetryEvent';
 import {
 	acquireBuildDirectoryLock,
@@ -507,6 +508,11 @@ export const dev = async (
 		  }
 		| undefined;
 	markBoot('dev command entered');
+	// BUN-REACT-REFRESH-LEGACY: runs the dev server on AbsoluteJS's patched Bun
+	// when it is installed (offering it once otherwise), because stock Bun
+	// ignores reactFastRefresh on Bun.Transpiler. Remove with ../patchedBun.ts.
+	const bunExecutable = await resolveDevBunExecutable();
+	markBoot('dev bun runtime selected');
 	let prescanConfig: BuildConfig | undefined;
 	try {
 		const config = await loadConfig(configPath);
@@ -2031,7 +2037,7 @@ export const dev = async (
 		const prescanForSpawn = prescan;
 		prescan = null;
 		const proc = nodeSpawn(
-			'bun',
+			bunExecutable,
 			[
 				'--hot',
 				'--no-clear-screen',

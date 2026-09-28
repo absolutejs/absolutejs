@@ -47,6 +47,9 @@ export const handleReactUpdate = (message: {
 
 		return;
 	}
+	// BUN-REACT-REFRESH-LEGACY: the remount/reload fallback for a dev server on
+	// stock Bun, which cannot emit React Fast Refresh registrations. Remove it,
+	// and the fastRefreshSupported message field, once the minimum Bun has the fix.
 	if (message.data.fastRefreshSupported === false) {
 		const { pageModuleUrl } = message.data;
 		const remount = window.__ABS_REACT_REMOUNT__;

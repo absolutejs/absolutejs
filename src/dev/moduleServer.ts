@@ -598,15 +598,16 @@ const addJsxImport = (code: string) => {
 	return `${imports.join('\n')}\n${code}`;
 };
 
-// reactFastRefresh on Bun.Transpiler is provided by oven-sh/bun#28312
-// (still open as of this writing). On stock Bun the option is silently
-// ignored — the transpiler runs but emits no $RefreshReg$/$RefreshSig$
+// On stock Bun, reactFastRefresh on Bun.Transpiler is silently ignored
+// (oven-sh/bun#32919): the transpiler emits no $RefreshReg$/$RefreshSig$
 // calls, so the react-refresh runtime has no per-component registrations
-// and HMR cannot perform a state-preserving update. See
+// and HMR cannot perform a state-preserving update. AbsoluteJS's patched
+// Bun (`absolute bun-patch install`) carries the fix. See
 // docs/REACT_TRANSPILER_BUG.md for the full picture.
 //
-// reactFastRefresh isn't in the upstream Bun.Transpiler typings yet, so
-// we intersect the option type locally.
+// BUN-REACT-REFRESH-LEGACY: reactFastRefresh isn't in Bun's published
+// Bun.Transpiler typings, so the option type is intersected locally. Use
+// Bun's own type once it declares the option.
 type ReactTranspilerOptions = ConstructorParameters<
 	typeof Bun.Transpiler
 >[0] & {
@@ -621,6 +622,9 @@ const reactTranspilerOptions: ReactTranspilerOptions = {
 };
 const reactTranspiler = new Bun.Transpiler(reactTranspilerOptions);
 
+// BUN-REACT-REFRESH-LEGACY: the probe, isReactFastRefreshSupported and
+// warnIfReactFastRefreshUnsupported exist only for stock Bun. Delete them (and
+// the stock-Bun fallback in rebuildTrigger.ts) once the minimum Bun has the fix.
 // Probe at load time whether the running Bun honors reactFastRefresh on
 // Bun.Transpiler. We transpile a tiny component and look for the
 // register call that the transform must emit. If absent, the option is
@@ -655,13 +659,11 @@ export const warnIfReactFastRefreshUnsupported = () => {
 	if (reactFastRefreshSupported || reactFastRefreshWarningEmitted) return;
 	reactFastRefreshWarningEmitted = true;
 	logWarn(
-		'React HMR is blocked: this Bun build ignores ' +
-			'`reactFastRefresh` on Bun.Transpiler, so component state ' +
-			'cannot be preserved across edits. Tracking ' +
-			'https://github.com/oven-sh/bun/pull/28312 — if it still has ' +
-			'not merged, leave a 👍 on the PR so the Bun team knows it ' +
-			'is blocking you. Until then, React edits trigger a targeted ' +
-			'page remount instead of a state-preserving fast refresh.'
+		'React edits remount the page instead of keeping component state: ' +
+			'this Bun ignores `reactFastRefresh` on Bun.Transpiler ' +
+			'(https://github.com/oven-sh/bun/issues/32919). Run ' +
+			'`absolute bun-patch install` to use AbsoluteJS\'s patched Bun, ' +
+			'which has the fix; `absolute dev` then uses it automatically.'
 	);
 };
 
