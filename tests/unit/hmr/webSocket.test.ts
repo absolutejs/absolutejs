@@ -406,3 +406,42 @@ describe('handleHMRMessage', () => {
 		expect(logged).toBe(false);
 	});
 });
+
+describe('Elysia per-event socket wrappers', () => {
+	// Elysia 2 builds a new wrapper for every open/message/close event of
+	// the same connection; only `raw` (Bun's ServerWebSocket) is stable.
+	const makeWrapperFor = (raw: object) =>
+		({ ...makeMockClient(), raw }) as unknown as HMRWebSocket;
+
+	test('close removes the client registered on open', () => {
+		const state = createHMRState(makeConfig());
+		const raw: object = {};
+		handleClientConnect(state, makeWrapperFor(raw), {});
+		handleHMRMessage(
+			state,
+			makeWrapperFor(raw),
+			JSON.stringify({ target: 'web', type: 'ready' })
+		);
+		expect(state.connectedClients.size).toBe(1);
+		expect(state.clientTargets.size).toBe(1);
+
+		handleClientDisconnect(state, makeWrapperFor(raw));
+		expect(state.connectedClients.size).toBe(0);
+		expect(state.clientTargets.size).toBe(0);
+	});
+
+	test('repeated messages count one connection once', () => {
+		const state = createHMRState(makeConfig());
+		const raw: object = {};
+		handleClientConnect(state, makeWrapperFor(raw), {});
+		for (const type of ['ready', 'ready']) {
+			handleHMRMessage(
+				state,
+				makeWrapperFor(raw),
+				JSON.stringify({ target: 'web', type })
+			);
+		}
+		expect(state.connectedClients.size).toBe(1);
+		expect(state.clientTargets.size).toBe(1);
+	});
+});

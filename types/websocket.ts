@@ -7,4 +7,8 @@ export type HMRWebSocket = {
 	send(data: string): void;
 	close(code?: number, reason?: string): void;
 	readyState: number;
+	/* The underlying Bun ServerWebSocket. Elysia 2 builds a fresh wrapper
+	   for every open/message/close event, so the wrapper is not a stable
+	   identity for a connection; `raw` is. */
+	raw?: object;
 };
