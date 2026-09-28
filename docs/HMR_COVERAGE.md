@@ -7,16 +7,6 @@ behavior has been verified by hand against the dev runtime).
 
 ## Frameworks not yet covered
 
-- **React** — explicitly skipped. React HMR doesn't work
-  end-to-end because [oven-sh/bun#28312](https://github.com/oven-sh/bun/pull/28312)
-  (the `reactFastRefresh` option on `Bun.Transpiler`) hasn't
-  merged. Without per-component `$RefreshReg$` / `$RefreshSig$`
-  injection, React module swaps fall back to a full reload
-  instead of a state-preserving refresh — so any "HMR works"
-  claim against React in this repo would be testing the wrong
-  path. **Once #28312 ships and we wire it through
-  `moduleServer.ts`'s React transpile, re-run every row of this
-  matrix against React for parity.** See `docs/REACT_TRANSPILER_BUG.md`.
 - **Ember** — Phase 1 shipped (`docs/EMBER_PLAN.md`); HMR layering is
   a later phase. **Once Ember reaches feature parity with the
   other adapters, re-run every row of this matrix against Ember.**
@@ -180,6 +170,66 @@ Pre-compile AST scan resolves the user's `angular.providers` binding to its sour
 | Template edit re-emits a fresh bundle; SSR reflects new bytes | [`lifecycle/angular-vendor-ssr.test.ts`](tests/integration/hmr/lifecycle/angular-vendor-ssr.test.ts) "editing a component template" |
 | `__ABSOLUTE_PAGE_USES_LEGACY_ANIMATIONS__` set when page imports `@angular/animations` | [`lifecycle/angular-vendor-ssr.test.ts`](tests/integration/hmr/lifecycle/angular-vendor-ssr.test.ts) "legacy animations flag" |
 | SSR HTML imports the page index bundle URL from the manifest | [`lifecycle/angular-vendor-ssr.test.ts`](tests/integration/hmr/lifecycle/angular-vendor-ssr.test.ts) "SSR HTML imports the page index" |
+
+---
+
+## React
+
+React Fast Refresh needs a Bun whose `Bun.Transpiler` honours
+`reactFastRefresh` ([oven-sh/bun#32919](https://github.com/oven-sh/bun/issues/32919)).
+Rows marked **FR** run only on such a Bun — AbsoluteJS's patched Bun
+(`absolute bun-patch install`) — and skip on stock Bun
+(`BUN-REACT-REFRESH-LEGACY`). Run them with the patched binary so the
+dev server the tests spawn uses it too:
+
+```sh
+~/.absolutejs/bun/<release>/<platform>/bun test --max-concurrency 1 tests/integration/hmr/lifecycle/react-fast-refresh-coverage.test.ts
+```
+
+Every other row runs on any Bun; on stock Bun a browser edit applies by
+remounting the page from its module instead of Fast Refresh.
+
+### Baseline HMR
+
+| Scenario | Test |
+|---|---|
+| Page change broadcasts `react-update` | [`frameworks/react-hmr.test.ts`](tests/integration/hmr/frameworks/react-hmr.test.ts) ("page component change triggers react-update") |
+| Update message contains framework metadata | [`frameworks/react-hmr.test.ts`](tests/integration/hmr/frameworks/react-hmr.test.ts) |
+| Child component change triggers update | [`frameworks/react-hmr.test.ts`](tests/integration/hmr/frameworks/react-hmr.test.ts) + [`components/component-hmr.test.ts`](tests/integration/hmr/components/component-hmr.test.ts) |
+| Fast path provides `pageModuleUrl` (a `/@src/` module URL) | [`frameworks/react-hmr.test.ts`](tests/integration/hmr/frameworks/react-hmr.test.ts) ("fast path provides pageModuleUrl") |
+| SSR catches up after an edit (a fresh request renders it) | [`frameworks/react-hmr.test.ts`](tests/integration/hmr/frameworks/react-hmr.test.ts) ("SSR catches up after an edit") |
+| A fresh page load after an edit hydrates the edited page | [`lifecycle/react-fast-refresh-coverage.test.ts`](tests/integration/hmr/lifecycle/react-fast-refresh-coverage.test.ts) ("a fresh load after an edit hydrates") |
+| A child edit keeps the page around it (stock-Bun remount renders the page, not the child) | [`lifecycle/react-fast-refresh-coverage.test.ts`](tests/integration/hmr/lifecycle/react-fast-refresh-coverage.test.ts) ("a child edit keeps the page structure") |
+| CSS imported by a React component propagates in place | [`lifecycle/react-fast-refresh-coverage.test.ts`](tests/integration/hmr/lifecycle/react-fast-refresh-coverage.test.ts) ("CSS imported by a React component") |
+| **FR** `useState` survives a component edit, no reload | [`lifecycle/react-state-preservation.test.ts`](tests/integration/hmr/lifecycle/react-state-preservation.test.ts) |
+| **FR** A changed hook signature resets that component, no reload | [`lifecycle/react-state-preservation.test.ts`](tests/integration/hmr/lifecycle/react-state-preservation.test.ts) |
+| **FR** A page edit keeps a child's state | [`lifecycle/react-state-preservation.test.ts`](tests/integration/hmr/lifecycle/react-state-preservation.test.ts) |
+| In-place writes to the same file each rebuild | [`lifecycle/react-deep-coverage.test.ts`](tests/integration/hmr/lifecycle/react-deep-coverage.test.ts) ("in-place writes") |
+| A syntax error is reported and later edits still rebuild (SSR) | [`lifecycle/react-deep-coverage.test.ts`](tests/integration/hmr/lifecycle/react-deep-coverage.test.ts) ("a syntax error is reported") |
+
+### React deep coverage (hooks, context, composition, error recovery)
+
+| Scenario | Test |
+|---|---|
+| `useState` initial value change reaches SSR | [`lifecycle/react-deep-coverage.test.ts`](tests/integration/hmr/lifecycle/react-deep-coverage.test.ts) |
+| `useMemo` / `useCallback` body change reaches SSR, twice in a row | [`lifecycle/react-deep-coverage.test.ts`](tests/integration/hmr/lifecycle/react-deep-coverage.test.ts) |
+| **FR** `useMemo` / `useCallback` body change applies in the browser (dependency lists ignored) | [`lifecycle/react-fast-refresh-coverage.test.ts`](tests/integration/hmr/lifecycle/react-fast-refresh-coverage.test.ts) |
+| Context provider value change reaches the consumer in SSR | [`lifecycle/react-deep-coverage.test.ts`](tests/integration/hmr/lifecycle/react-deep-coverage.test.ts) |
+| **FR** Context provider value change reaches the consumer in the browser | [`lifecycle/react-fast-refresh-coverage.test.ts`](tests/integration/hmr/lifecycle/react-fast-refresh-coverage.test.ts) |
+| Custom hook body change propagates through its importing component (SSR) | [`lifecycle/react-deep-coverage.test.ts`](tests/integration/hmr/lifecycle/react-deep-coverage.test.ts) |
+| **FR** Custom hook body change keeps the component's state (signature unchanged) | [`lifecycle/react-fast-refresh-coverage.test.ts`](tests/integration/hmr/lifecycle/react-fast-refresh-coverage.test.ts) |
+| New prop on a child consumed by the parent | [`lifecycle/react-deep-coverage.test.ts`](tests/integration/hmr/lifecycle/react-deep-coverage.test.ts) |
+| Conditional-render edit toggles the branch | [`lifecycle/react-deep-coverage.test.ts`](tests/integration/hmr/lifecycle/react-deep-coverage.test.ts) + **FR** [`lifecycle/react-fast-refresh-coverage.test.ts`](tests/integration/hmr/lifecycle/react-fast-refresh-coverage.test.ts) |
+| List rendering renders every item (and an edit reaches each) | [`lifecycle/react-deep-coverage.test.ts`](tests/integration/hmr/lifecycle/react-deep-coverage.test.ts) + **FR** [`lifecycle/react-fast-refresh-coverage.test.ts`](tests/integration/hmr/lifecycle/react-fast-refresh-coverage.test.ts) |
+| **FR** `useEffect` cleanup runs and the effect re-runs after a refresh | [`lifecycle/react-fast-refresh-coverage.test.ts`](tests/integration/hmr/lifecycle/react-fast-refresh-coverage.test.ts) |
+| `React.memo` and `forwardRef` component edits reach SSR | [`lifecycle/react-deep-coverage.test.ts`](tests/integration/hmr/lifecycle/react-deep-coverage.test.ts) |
+| **FR** `React.memo` and `forwardRef` components refresh in place | [`lifecycle/react-fast-refresh-coverage.test.ts`](tests/integration/hmr/lifecycle/react-fast-refresh-coverage.test.ts) |
+| **FR** A render error shows the error overlay; the fix recovers without a reload | [`lifecycle/react-fast-refresh-coverage.test.ts`](tests/integration/hmr/lifecycle/react-fast-refresh-coverage.test.ts) |
+| **FR** A syntax error shows the overlay; the fix recovers without a reload | [`lifecycle/react-fast-refresh-coverage.test.ts`](tests/integration/hmr/lifecycle/react-fast-refresh-coverage.test.ts) |
+| Editing a non-component module (utility) propagates to its importers | [`lifecycle/react-deep-coverage.test.ts`](tests/integration/hmr/lifecycle/react-deep-coverage.test.ts) + **FR** [`lifecycle/react-fast-refresh-coverage.test.ts`](tests/integration/hmr/lifecycle/react-fast-refresh-coverage.test.ts) |
+| A new component file imported by the page renders | [`lifecycle/react-deep-coverage.test.ts`](tests/integration/hmr/lifecycle/react-deep-coverage.test.ts) + **FR** [`lifecycle/react-fast-refresh-coverage.test.ts`](tests/integration/hmr/lifecycle/react-fast-refresh-coverage.test.ts) |
+| A class component edit reaches SSR | [`lifecycle/react-deep-coverage.test.ts`](tests/integration/hmr/lifecycle/react-deep-coverage.test.ts) |
+| **FR** A class component edit applies (remounted: its state resets, document kept) | [`lifecycle/react-fast-refresh-coverage.test.ts`](tests/integration/hmr/lifecycle/react-fast-refresh-coverage.test.ts) |
 
 ---
 

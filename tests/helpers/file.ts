@@ -70,6 +70,21 @@ export const mutateFile = (
 
 	return { original, transformed };
 };
+/* Like `mutateFile`, but writes over the existing inode instead of renaming a
+ * temp file into place — the way many editors and agents save. The watcher
+ * sees a `change` event rather than a `rename`. */
+export const mutateFileInPlace = (
+	filePath: string,
+	transform: (content: string) => string
+) => {
+	const resolved = resolve(filePath);
+	const original = readFileSync(resolved, 'utf-8');
+	backups.push({ content: original, kind: 'mutated', path: resolved });
+	const transformed = transform(original);
+	writeFileSync(resolved, transformed, 'utf-8');
+
+	return { original, transformed };
+};
 export const renameFile = (fromPath: string, toPath: string) => {
 	const fromResolved = resolve(fromPath);
 	const toResolved = resolve(toPath);
