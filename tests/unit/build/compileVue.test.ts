@@ -12,6 +12,54 @@ const writeTempFile = async (path: string, content: string) => {
 };
 
 describe('compileVue', () => {
+	test('copies helpers that are only re-exported (export { } from, export * from)', async () => {
+		const root = await mkdtemp(join(tmpdir(), 'absolutejs-compile-vue-'));
+		const pagePath = join(root, 'SignalsPage.vue');
+
+		try {
+			await Promise.all([
+				writeTempFile(
+					pagePath,
+					`<script setup lang="ts">
+import { level, shout } from './utils/signals';
+const label = shout(level(2));
+</script>
+
+<template><p>{{ label }}</p></template>`
+				),
+				writeTempFile(
+					join(root, 'utils', 'signals.ts'),
+					"export { level } from './level';\nexport * from './shout';\n"
+				),
+				writeTempFile(
+					join(root, 'utils', 'level.ts'),
+					'export const level = (value: number) => `level ${value}`;\n'
+				),
+				writeTempFile(
+					join(root, 'utils', 'shout.ts'),
+					'export const shout = (text: string) => text.toUpperCase();\n'
+				)
+			]);
+
+			const { vueClientPaths, vueServerPaths } = await compileVue(
+				[pagePath],
+				root,
+				false
+			);
+			for (const paths of [vueClientPaths, vueServerPaths]) {
+				const entry = paths.find((path) => path.endsWith('SignalsPage.js'));
+				expect(entry).toBeDefined();
+				if (!entry) continue;
+				for (const helper of ['signals.js', 'level.js', 'shout.js'])
+					expect(
+						await Bun.file(join(entry, '..', 'utils', helper)).exists()
+					).toBe(true);
+			}
+		} finally {
+			await rm(root, { force: true, recursive: true });
+		}
+	});
+
 	test('compiles Vue components referenced only by literal dynamic imports', async () => {
 		const root = await mkdtemp(join(tmpdir(), 'absolutejs-compile-vue-'));
 		const pagePath = join(root, 'LazyPage.vue');
