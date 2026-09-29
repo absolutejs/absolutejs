@@ -179,24 +179,33 @@ export const generateVueHmrId = (sourceFilePath: string, vueRootDir: string) =>
 		.replace(/\\/g, '/')
 		.replace(/\.vue$/, '');
 
-const extractImports = (sourceCode: string) => {
-	const staticImports = Array.from(
-		sourceCode.matchAll(/import\s+[\s\S]+?['"]([^'"]+)['"]/g)
-	);
-	const dynamicImports = Array.from(
-		sourceCode.matchAll(/\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)/g)
-	);
+const importScanner = new Bun.Transpiler({ loader: 'ts' });
 
-	return Array.from(
-		new Set(
-			[...staticImports, ...dynamicImports]
-				.map((match) => match[1])
-				.filter(
-					(importPath): importPath is string =>
-						importPath !== undefined
-				)
-		)
-	);
+/* Fallback for source the scanner cannot parse. It must also see re-exports:
+ * a regex that only matched `import` missed `export { x } from './y'`, so a
+ * helper reached only through a re-export was never copied into the generated
+ * tree, and every page above it failed with "Could not resolve". */
+const IMPORT_PATTERNS = [
+	/import\s+[\s\S]+?['"]([^'"]+)['"]/g,
+	/\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)/g,
+	/\bexport\s+(?:type\s+)?(?:\*(?:\s+as\s+[\w$]+)?|\{[^}]*\})\s*from\s*['"]([^'"]+)['"]/g
+];
+
+const matchImports = (sourceCode: string) =>
+	IMPORT_PATTERNS.flatMap((pattern) =>
+		Array.from(sourceCode.matchAll(pattern), (match) => match[1])
+	).filter((importPath): importPath is string => importPath !== undefined);
+
+/** Every module a script depends on: imports, dynamic imports and re-exports. */
+const extractImports = (sourceCode: string) => {
+	let found: string[];
+	try {
+		found = importScanner.scanImports(sourceCode).map(({ path }) => path);
+	} catch {
+		found = matchImports(sourceCode);
+	}
+
+	return Array.from(new Set(found));
 };
 
 // Resolve a relative .ts helper import to an actual file path. Mirrors
