@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "The Vue build copies every `.ts` helper a page reaches into its generated tree, but it found them with a regex that only matched `import … from`. A helper reached only through a re-export (`export { x } from './y'` or `export * from './y'`) was never copied, so the build failed with `Could not resolve: \"./y\"` and every page above it answered 500 in dev. Dependencies are now read with Bun's import scanner, which sees imports, dynamic imports and all three re-export forms; a regex that also covers re-exports is the fallback for source that does not parse.",
+					"kind": "fixed",
+					"summary": "Vue pages that reach a helper through a re-export build again"
+				}
+			],
+			"date": "2026-09-29",
+			"version": "0.20.0-beta.125"
+		},
+		{
+			"changes": [
+				{
 					"detail": "AbsoluteJS accepted `@absolutejs/auth` only below 0.77, so a project that added a current auth (0.77 to 0.96) got two copies: its own, plus 0.76.3 nested under AbsoluteJS for the mobile shell. The duplicate also doubled the auth type declarations TypeScript loads. AbsoluteJS now accepts auth up to 0.96. The `@absolutejs/auth/client/mobile` API it uses is byte-identical from 0.76.3 to 0.96.0, in both its declarations and its runtime.",
 					"kind": "fixed",
 					"summary": "Projects on a current `@absolutejs/auth` no longer get a second, older copy"
