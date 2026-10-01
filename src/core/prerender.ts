@@ -357,6 +357,8 @@ export const prerenderWithServer = async (
 			...env,
 			ABSOLUTE_HOST: 'localhost',
 			ABSOLUTE_PORT: String(port),
+			// Never let an inherited value opt this short-lived child into live work.
+			ABSOLUTE_PRERENDER: '1',
 			HOST: 'localhost',
 			PORT: String(port)
 		},

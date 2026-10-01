@@ -435,3 +435,22 @@ Pull requests and issues are welcome! Whether it’s a new plugin, framework han
 ## License
 
 **Business Source License 1.1 (BSL-1.1)** – see [`LICENSE`](./LICENSE) for details.
+
+## Background work during prerendering
+
+Builds can start a temporary application server to render pages. This process
+inherits application configuration and is stopped once rendering finishes; it
+must not start billing, queues, scheduled emails, or other durable workers.
+Absolute sets `ABSOLUTE_PRERENDER=1` on this child, overriding inherited values.
+Use the runtime helper before starting background work:
+
+```ts
+import { isPrerendering } from '@absolutejs/absolute';
+
+if (!isPrerendering()) {
+	startBackgroundWorkers();
+}
+```
+
+This is a lifecycle signal, not a sandbox: unguarded application side effects
+can still run. Do not set this flag in the deployed server's environment.
