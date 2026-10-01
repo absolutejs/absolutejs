@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "The production server bundle (`absolute prepare`, `absolute start`, `absolute compile`) resolves every import up front, including a dependency's guarded dynamic import of an optional peer. An app using `@absolutejs/auth` without its optional `@node-saml/node-saml` failed with `Could not resolve: \"@node-saml/node-saml\"` and `Server bundle failed`, so it could never start in production. Optional peers of the app's direct dependencies that are not installed are now left external: the import fails only if that feature is used.",
+					"kind": "fixed",
+					"summary": "Apps that skip a dependency's optional peer bundle for production again"
+				}
+			],
+			"date": "2026-10-01",
+			"version": "0.20.0-beta.126"
+		},
+		{
+			"changes": [
+				{
 					"detail": "The Vue build copies every `.ts` helper a page reaches into its generated tree, but it found them with a regex that only matched `import … from`. A helper reached only through a re-export (`export { x } from './y'` or `export * from './y'`) was never copied, so the build failed with `Could not resolve: \"./y\"` and every page above it answered 500 in dev. Dependencies are now read with Bun's import scanner, which sees imports, dynamic imports and all three re-export forms; a regex that also covers re-exports is the fallback for source that does not parse.",
 					"kind": "fixed",
 					"summary": "Vue pages that reach a helper through a re-export build again"
