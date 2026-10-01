@@ -1,3 +1,5 @@
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import type { BuildConfig } from '../../types/build';
 
 const FRAMEWORK_EXTERNALS = [
@@ -40,7 +42,62 @@ const collectUserServerExternals = (buildConfig: BuildConfig) => {
 	return [...override, ...fromDefault];
 };
 
-export const resolveServerBundleExternals = (buildConfig: BuildConfig) => [
+type PackageManifest = {
+	dependencies?: Record<string, string>;
+	peerDependenciesMeta?: Record<string, { optional?: boolean }>;
+};
+
+const readManifest = (file: string) => {
+	if (!existsSync(file)) return undefined;
+	try {
+		const manifest: PackageManifest = JSON.parse(
+			readFileSync(file, 'utf-8')
+		);
+
+		return manifest;
+	} catch {
+		return undefined;
+	}
+};
+
+const isInstalled = (specifier: string, projectRoot: string) =>
+	existsSync(join(projectRoot, 'node_modules', specifier, 'package.json'));
+
+// A dependency's optional peer that the app did not install is a feature
+// the app does not use (e.g. @absolutejs/auth's SAML provider and
+// @node-saml/node-saml). The package reaches it with a guarded dynamic
+// import, but the production bundler resolves every import up front and
+// failed the whole server bundle on the missing module. Left external, the
+// import fails only if that feature is ever used, which is what optional
+// means.
+export const collectMissingOptionalPeers = (projectRoot: string) => {
+	const app = readManifest(join(projectRoot, 'package.json'));
+	const optionalPeers = Object.keys(app?.dependencies ?? {}).flatMap(
+		(dependency) =>
+			Object.entries(
+				readManifest(
+					join(
+						projectRoot,
+						'node_modules',
+						dependency,
+						'package.json'
+					)
+				)?.peerDependenciesMeta ?? {}
+			)
+				.filter(([, meta]) => meta.optional === true)
+				.map(([peer]) => peer)
+	);
+	const missing = new Set(
+		optionalPeers.filter((peer) => !isInstalled(peer, projectRoot))
+	);
+
+	return [...missing].flatMap((peer) => [peer, `${peer}/*`]);
+};
+
+export const resolveServerBundleExternals = (
+	buildConfig: BuildConfig,
+	projectRoot = process.cwd()
+) => [
 	...FRAMEWORK_EXTERNALS.filter((specifier) => {
 		if (
 			buildConfig.reactDirectory &&
@@ -64,5 +121,6 @@ export const resolveServerBundleExternals = (buildConfig: BuildConfig) => [
 
 		return true;
 	}),
-	...collectUserServerExternals(buildConfig)
+	...collectUserServerExternals(buildConfig),
+	...collectMissingOptionalPeers(projectRoot)
 ];
