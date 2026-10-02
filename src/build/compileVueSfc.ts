@@ -16,6 +16,7 @@ import type {
 	VueSfcCompileOutput
 } from '../../types/workerPool';
 import { buildIslandMetadataExports } from '../islands/sourceMetadata';
+import { isFile } from '../utils/isFile';
 import { loadVueCompiler } from '../utils/vueCompiler';
 import { buildLineRemap, remapGeneratedLines } from './chainInlineSourcemaps';
 import { isStylePath } from './stylePreprocessor';
@@ -44,7 +45,7 @@ const inlineCssImports = (
 
 	return cssContent.replace(importRegex, (match, _quote, relPath) => {
 		const importedPath = resolve(dirname(cssFilePath), relPath);
-		if (!existsSync(importedPath)) return match;
+		if (!isFile(importedPath)) return match;
 		const importedContent = readFileSync(importedPath, 'utf-8');
 
 		return inlineCssImports(importedContent, importedPath, visited);
@@ -194,10 +195,10 @@ export const compileVueSfc = async ({
 	const compiledScript = hasScript
 		? compiler.compileScript(descriptor, {
 				fs: {
-					fileExists: existsSync,
+					fileExists: isFile,
 					realpath: realpathSync,
 					readFile: (file) => {
-						if (!existsSync(file)) return undefined;
+						if (!isFile(file)) return undefined;
 						const content = readFileSync(file, 'utf-8');
 						// Anything read here shapes the output (imported
 						// prop/emit types), so the cache re-verifies it.

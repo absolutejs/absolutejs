@@ -5,7 +5,7 @@
     "": {
       "name": "@absolutejs/absolute",
       "dependencies": {
-        "@absolutejs/auth": ">=0.75.0 <0.97.0",
+        "@absolutejs/auth": ">=0.75.0 <0.98.0",
         "@absolutejs/beacon": ">=0.7.0-beta.4 <0.8.0",
         "@absolutejs/deploy": "0.27.0",
         "@absolutejs/devices": "0.7.0",

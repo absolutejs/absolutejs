@@ -1,8 +1,9 @@
-import { existsSync, readFileSync, realpathSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import { dirname, join, relative, resolve } from 'node:path';
 import { Transpiler } from 'bun';
 import { BASE_36_RADIX } from '../constants';
+import { isFile } from '../utils/isFile';
 import { loadVueCompiler } from '../utils/vueCompiler';
 
 const ISLAND_COMPONENT_ID_LENGTH = 8;
@@ -102,10 +103,10 @@ export const compileVueServerModule = async (sourcePath: string) => {
 	const compiledScript = hasScript
 		? compiler.compileScript(descriptor, {
 				fs: {
-					fileExists: existsSync,
+					fileExists: isFile,
 					realpath: realpathSync,
 					readFile: (file) =>
-						existsSync(file)
+						isFile(file)
 							? readFileSync(file, 'utf-8')
 							: undefined
 				},

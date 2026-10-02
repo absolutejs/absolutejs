@@ -12,6 +12,39 @@ const writeTempFile = async (path: string, content: string) => {
 };
 
 describe('compileVue', () => {
+	test('resolves prop types re-exported from a directory index', async () => {
+		const root = await mkdtemp(join(tmpdir(), 'absolutejs-compile-vue-'));
+		const pagePath = join(root, 'StatusPage.vue');
+
+		try {
+			await Promise.all([
+				writeTempFile(
+					pagePath,
+					`<script setup lang="ts">
+import type { Status } from './types';
+defineProps<{ status: Status }>();
+</script>
+
+<template><p>{{ status }}</p></template>`
+				),
+				// Like a package's index.d.ts: `export * from './status'`
+				// names a directory, which resolves to its index file.
+				writeTempFile(join(root, 'types.ts'), "export * from './status';\n"),
+				writeTempFile(
+					join(root, 'status', 'index.ts'),
+					"export type Status = 'on' | 'off';\n"
+				)
+			]);
+
+			const { vueClientPaths } = await compileVue([pagePath], root, false);
+			expect(
+				vueClientPaths.some((path) => path.endsWith('StatusPage.js'))
+			).toBe(true);
+		} finally {
+			await rm(root, { force: true, recursive: true });
+		}
+	});
+
 	test('copies helpers that are only re-exported (export { } from, export * from)', async () => {
 		const root = await mkdtemp(join(tmpdir(), 'absolutejs-compile-vue-'));
 		const pagePath = join(root, 'SignalsPage.vue');

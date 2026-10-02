@@ -4,6 +4,7 @@ import { basename, dirname, extname, join, resolve, relative } from 'node:path';
 import { resolvePackageImport } from '../build/resolvePackageImport';
 import { addAutoRouterSetupApp } from '../build/vueAutoRouterTransform';
 import { buildIslandMetadataExports } from '../islands/sourceMetadata';
+import { isFile } from '../utils/isFile';
 import { toKebab } from '../utils/stringModifiers';
 import { loadVueCompiler } from '../utils/vueCompiler';
 import {
@@ -1158,10 +1159,10 @@ const transformVueFile = async (
 	const compiledScript = hasScript
 		? vueCompiler.compileScript(descriptor, {
 				fs: {
-					fileExists: existsSync,
+					fileExists: isFile,
 					realpath: realpathSync,
 					readFile: (file) =>
-						existsSync(file)
+						isFile(file)
 							? readFileSync(file, 'utf-8')
 							: undefined
 				},
