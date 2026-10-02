@@ -106,9 +106,7 @@ export const compileVueServerModule = async (sourcePath: string) => {
 					fileExists: isFile,
 					realpath: realpathSync,
 					readFile: (file) =>
-						isFile(file)
-							? readFileSync(file, 'utf-8')
-							: undefined
+						isFile(file) ? readFileSync(file, 'utf-8') : undefined
 				},
 				id: componentId,
 				inlineTemplate: false
