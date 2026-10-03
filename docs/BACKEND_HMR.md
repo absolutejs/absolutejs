@@ -92,5 +92,12 @@ code that started it.
   created it (an object built by an old factory). Statements that built it
   re-run when the factory's content changes, so this only shows for values
   created at request time.
+- Sockets and connection pools are not closed for you: when the statement
+  that created a pool re-runs, close the old one with `onHotDispose` (or give
+  it `Symbol.asyncDispose`). Statements that only *use* the pool keep it.
+- A timer a library starts on a shared object (a pool's idle timeout set
+  while a query runs) belongs to whichever statement made that call. If that
+  statement re-runs, the timer is cleared, so that timeout simply never
+  fires.
 - Requires TypeScript (an optional peer) to analyse modules. Without it, edits
   to server code restart the server.
