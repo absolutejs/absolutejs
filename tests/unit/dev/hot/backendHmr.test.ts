@@ -231,6 +231,11 @@ describe('backend HMR', () => {
 		);
 	});
 
+	test('the server entry is left to its own watcher', async () => {
+		const outcome = await applyServerChange(entry, entry);
+		expect(outcome.status).toBe('entry');
+	});
+
 	test('the same source twice is applied once', async () => {
 		const outcome = await applyServerChange(path('handler.ts'), entry);
 		expect(outcome.status).toBe('unchanged');

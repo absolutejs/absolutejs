@@ -14,6 +14,7 @@ import { moduleRecord, nextTag, rollback, setCurrent } from './runtime';
 export type ServerChangeOutcome =
 	| { status: 'applied'; modules: string[]; entry: boolean; ms: number }
 	| { status: 'failed'; error: unknown }
+	| { status: 'entry' }
 	| { status: 'unchanged' }
 	| { status: 'unmanaged' };
 
@@ -133,7 +134,9 @@ const apply = async (
 ): Promise<ServerChangeOutcome> => {
 	const path = realPath(changedPath);
 	const entry = realPath(entryPath);
-	if (path === entry || !moduleRecord(path) || !isHotManaged(path))
+	// The server entry has its own watcher, which re-runs it in place.
+	if (path === entry) return { status: 'entry' };
+	if (!moduleRecord(path) || !isHotManaged(path))
 		return { status: 'unmanaged' };
 	const source = readFileSync(path, 'utf-8');
 	// Watchers report the same save more than once (atomic renames, the

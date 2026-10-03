@@ -33,6 +33,11 @@ const expectOldAppServing = async (baseUrl: string) => {
 	expect((await oldVue.text()).length).toBeGreaterThan(200);
 };
 
+const restartLines = () =>
+	(server?.outputLines ?? []).filter((line) =>
+		line.includes('[abs:restart]')
+	);
+
 const connect = async (env?: Record<string, string>) => {
 	server = await startDevServer(env ? { env } : undefined);
 	client = await connectHMR(server.port);
@@ -61,17 +66,13 @@ describe('server.ts top-level throw', () => {
 			{ timeoutMs: 20_000 }
 		);
 		await expectOldAppServing(baseUrl);
-		expect(
-			server?.outputLines.some((line) => line.includes('[abs:restart]'))
-		).toBe(false);
+		expect(restartLines()).toEqual([]);
 
 		// The fix applies in place, without a restart either.
 		restoreAllFiles();
 		await client?.waitFor('server-entry-reloaded', 20_000);
 		await expectOldAppServing(baseUrl);
-		expect(
-			server?.outputLines.some((line) => line.includes('[abs:restart]'))
-		).toBe(false);
+		expect(restartLines()).toEqual([]);
 	}, 60_000);
 
 	test('with backend HMR off, it emits [abs:restart] and the OLD app keeps serving', async () => {
