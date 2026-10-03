@@ -64,7 +64,15 @@ describe('CSS HMR completion', () => {
 		expect(replacement).toBeInstanceOf(HTMLLinkElement);
 		replacement?.dispatchEvent(new Event('load'));
 		expect(await pending).toBe(true);
-		expect(original.isConnected).toBe(false);
+		// The original node stays (a framework may own it) and takes the
+		// new stylesheet; the copy goes once the original has loaded it.
+		expect(original.isConnected).toBe(true);
+		expect(original.getAttribute('href')).toContain('example.new.css');
+		original.dispatchEvent(new Event('load'));
+		expect(replacement?.isConnected).toBe(false);
+		expect(document.querySelectorAll('link[rel="stylesheet"]').length).toBe(
+			1
+		);
 	});
 
 	test('preserves the old stylesheet when replacement loading fails', async () => {
@@ -95,7 +103,10 @@ describe('CSS HMR completion', () => {
 		expect(retry?.getAttribute('href')).toContain('retry=');
 		retry?.dispatchEvent(new Event('load'));
 		expect(await pending).toBe(true);
-		expect(original.isConnected).toBe(false);
+		expect(original.isConnected).toBe(true);
+		expect(original.getAttribute('href')).toContain('retry=');
+		original.dispatchEvent(new Event('load'));
+		expect(retry?.isConnected).toBe(false);
 	});
 
 	test('does not refetch unrelated cross-origin stylesheets', async () => {
