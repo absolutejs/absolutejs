@@ -114,7 +114,9 @@ const spreadChanges = (plan: StatementPlan[], changed: boolean[]) => {
 		.map((entry, index) => ({ entry, index }))
 		.filter(
 			({ entry, index }) =>
-				!changed[index] && !entry.cell && dependsOnChange(plan, changed, entry)
+				!changed[index] &&
+				!entry.cell &&
+				dependsOnChange(plan, changed, entry)
 		);
 	if (newly.length === 0) return;
 	for (const { index } of newly) changed[index] = true;
@@ -277,21 +279,18 @@ const stopReplaced = async (
 	replaced: Map<string, Slot>
 ) => {
 	const owners = statementOwners(record.path, replaced.keys());
-		const counts = await disposeResources(
-			(owner, generation) =>
-				owners.has(owner) && generation < pending.generation
-		);
-		await Promise.all(
-			[...replaced.values()].map((slot) =>
-				disposeValue(slot.value).catch((error: unknown) =>
-					console.error(
-						`[hmr] disposing a replaced value failed:`,
-						error
-					)
-				)
+	const counts = await disposeResources(
+		(owner, generation) =>
+			owners.has(owner) && generation < pending.generation
+	);
+	await Promise.all(
+		[...replaced.values()].map((slot) =>
+			disposeValue(slot.value).catch((error: unknown) =>
+				console.error(`[hmr] disposing a replaced value failed:`, error)
 			)
-		);
-		if (record.generation > 1) logDisposed(record.path, counts);
+		)
+	);
+	if (record.generation > 1) logDisposed(record.path, counts);
 };
 
 const commit = (record: ModuleRecord, pending: Pending) => {
