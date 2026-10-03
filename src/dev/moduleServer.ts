@@ -1980,6 +1980,7 @@ export const createDevPageWarmer = () => {
 				name: entry.name
 			};
 		},
+		lastError: () => getDevResult()?.hmrState.lazyPages?.lastError,
 		lookup: (key) => getDevResult()?.manifest[key],
 		warm: (key) => warmPage(key)
 	};

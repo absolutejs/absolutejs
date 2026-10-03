@@ -1,3 +1,4 @@
+import { changeNeedsRestart } from './restartScope';
 import { existsSync, readdirSync, rmSync, statSync } from 'node:fs';
 import {
 	basename,
@@ -892,15 +893,15 @@ export const queueFileChange = async (
 			// Anything `detectFramework` couldn't classify is by
 			// definition not handled by any HMR pipeline (no
 			// framework dir, no recognized frontend extension). If
-			// it has no angular dependents either, it's a config /
-			// tooling file — `.env`, `tsconfig.json`,
-			// `tailwind.config.ts`, `package.json`, custom
-			// orchestration scripts, etc. — whose values were read
-			// once at process startup and frozen. Emit the
-			// `[abs:restart]` marker; the parent CLI consumes it
-			// and restarts the bun child so the new values take
-			// effect. Framework-agnostic — covers every project,
-			// no hardcoded filename list.
+			// it has no angular dependents either, it's server code or a
+			// config / tooling file — `.env`, `tsconfig.json`,
+			// `package.json`, etc. — read once at process startup.
+			// When the running server actually depends on it
+			// (`changeNeedsRestart`: docs, tests and modules this
+			// process never loaded don't), emit the `[abs:restart]`
+			// marker; the parent CLI consumes it and restarts the bun
+			// child so the new values take effect.
+			if (!changeNeedsRestart(resolvePath(filePath))) return;
 			console.log(`[abs:restart] ${resolvePath(filePath)}`);
 
 			return;

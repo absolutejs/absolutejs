@@ -1,4 +1,18 @@
-export const ssrErrorPage = (framework: string, error: unknown) => {
+type ErrorPageInput = {
+	framework: string;
+	kind: string;
+	message: string;
+	hint: string;
+	script?: string;
+};
+
+const errorPageHtml = ({
+	framework,
+	hint,
+	kind,
+	message,
+	script = ''
+}: ErrorPageInput) => {
 	const frameworkColors: Record<string, string> = {
 		angular: '#dd0031',
 		html: '#e34c26',
@@ -10,7 +24,6 @@ export const ssrErrorPage = (framework: string, error: unknown) => {
 
 	const accent = frameworkColors[framework] ?? '#94a3b8';
 	const label = framework.charAt(0).toUpperCase() + framework.slice(1);
-	const message = error instanceof Error ? error.message : String(error);
 
 	return `<!DOCTYPE html>
 <html>
@@ -39,14 +52,43 @@ body{min-height:100vh;background:linear-gradient(135deg,rgba(15,23,42,0.98) 0%,r
 <span class="brand">AbsoluteJS</span>
 <span class="badge">${label}</span>
 </div>
-<span class="kind">Server Render Error</span>
+<span class="kind">${kind}</span>
 </div>
 <div class="content">
 <div class="label">What went wrong</div>
 <pre class="message">${message.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre>
-<div class="hint">A component threw during server-side rendering. Check the terminal for the full stack trace.</div>
+<div class="hint">${hint}</div>
 </div>
 </div>
+${script}
 </body>
 </html>`;
 };
+
+// Dev build-error pages reload themselves: once the HMR socket reports a
+// finished rebuild or an update (or comes back after a server restart), the
+// fix is in, so asking for the page again shows it.
+const RELOAD_ON_REBUILD = `<script>(()=>{const url=(location.protocol==='https:'?'wss://':'ws://')+location.host+'/hmr';let seen=false;const connect=()=>{const socket=new WebSocket(url);socket.onopen=()=>{if(seen)location.reload();seen=true;};socket.onmessage=(event)=>{try{const message=JSON.parse(event.data);const type=message&&typeof message.type==='string'?message.type:'';if(type==='rebuild-complete'||type==='server-entry-reloaded'||type.endsWith('-update'))location.reload();}catch{}};socket.onclose=()=>setTimeout(connect,500);};connect();})();</script>`;
+
+/** Dev only: the page a request gets when its page failed to build, with
+ *  the build's own error and a page that reloads itself once fixed. */
+export const buildErrorPage = (
+	framework: string,
+	pageName: string,
+	error: string | undefined
+) =>
+	errorPageHtml({
+		framework,
+		hint: 'Fix the file and save. This page reloads by itself when the build succeeds.',
+		kind: 'Build Error',
+		message: `${pageName || 'This page'} could not be built.\n\n${error ?? 'The dev-server terminal has the build output.'}`,
+		script: RELOAD_ON_REBUILD
+	});
+
+export const ssrErrorPage = (framework: string, error: unknown) =>
+	errorPageHtml({
+		framework,
+		hint: 'A component threw during server-side rendering. Check the terminal for the full stack trace.',
+		kind: 'Server Render Error',
+		message: error instanceof Error ? error.message : String(error)
+	});

@@ -7,6 +7,7 @@ import { renderSpaNotFound } from '../utils/spaRouteManifest';
 import { injectIslandPageContextStream } from '../core/islandPageContext';
 import { getCurrentRouteRegistrationCallsite } from '../core/devRouteRegistrationCallsite';
 import {
+	devBuildErrorResponse,
 	getCurrentAbsoluteRequest,
 	resolveDeferredPageAssets,
 	withDeferredStylesheets
@@ -176,6 +177,8 @@ export const handleVuePageRequest = async <Component extends VueComponent>(
 		(clientMode === 'auto' && input.indexPath === '')
 			? await resolveDeferredPageAssets()
 			: null;
+	const buildFailure = devBuildErrorResponse('vue', deferredAssets);
+	if (buildFailure) return buildFailure;
 	const resolvedPagePath =
 		deferredAssets && input.pagePath === ''
 			? deferredAssets.lookup(deferredAssets.name)

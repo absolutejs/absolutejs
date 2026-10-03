@@ -4,6 +4,7 @@ import { compileSvelteServerModule } from '../core/svelteServerModule';
 import { injectIslandPageContextStream } from '../core/islandPageContext';
 import { getCurrentRouteRegistrationCallsite } from '../core/devRouteRegistrationCallsite';
 import {
+	devBuildErrorResponse,
 	getCurrentAbsoluteRequest,
 	resolveDeferredPageAssets,
 	withDeferredStylesheets
@@ -155,6 +156,8 @@ export const handleSveltePageRequest = async <
 		input.pagePath === '' || input.indexPath === ''
 			? await resolveDeferredPageAssets()
 			: null;
+	const buildFailure = devBuildErrorResponse('svelte', deferredAssets);
+	if (buildFailure) return buildFailure;
 	const resolvedIndexPath =
 		deferredAssets && input.indexPath === ''
 			? deferredAssets.lookup(`${deferredAssets.name}Index`)

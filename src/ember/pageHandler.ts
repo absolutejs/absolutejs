@@ -1,6 +1,7 @@
 import { pathToFileURL } from 'node:url';
 import { withPageCacheHeaders } from '../core/pageResponseCache';
 import {
+	devBuildErrorResponse,
 	getCurrentAbsoluteRequest,
 	resolveDeferredPageAssets,
 	withDeferredStylesheets
@@ -143,6 +144,8 @@ export const handleEmberPageRequest = async (input: EmberPageRequestInput) => {
 	// through to the manifest error so the overlay shows the real cause.
 	const deferredAssets =
 		input.pagePath === '' ? await resolveDeferredPageAssets() : null;
+	const buildFailure = devBuildErrorResponse('ember', deferredAssets);
+	if (buildFailure) return buildFailure;
 	const pagePath =
 		deferredAssets && input.pagePath === ''
 			? deferredAssets.lookup(deferredAssets.name)

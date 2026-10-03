@@ -586,15 +586,12 @@ const createBuildErrorRecoveryPlugin = () =>
 					`the user likely has a build-time error. Save a fix to trigger ` +
 					`a recovery rebuild.`
 			);
-			const { ssrErrorPage } = await import('../utils/ssrErrorPage');
-			const html = ssrErrorPage(
+			const { buildErrorPage } = await import('../utils/ssrErrorPage');
+			const { getDevPageWarmer } = await import('./requestContext');
+			const html = buildErrorPage(
 				framework,
-				new Error(
-					`Build artifact "${missingAsset}" missing from manifest.\n\n` +
-						'This usually means a build-time error in a source file. ' +
-						'Check the dev-server terminal for the underlying error, ' +
-						'fix the file, and save to trigger a recovery rebuild.'
-				)
+				missingAsset,
+				getDevPageWarmer()?.lastError?.()
 			);
 
 			return new Response(html, {

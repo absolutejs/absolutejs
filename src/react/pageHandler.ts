@@ -2,6 +2,7 @@ import type { ComponentType as ReactComponent } from 'react';
 import { injectIslandPageContextStream } from '../core/islandPageContext';
 import { getCurrentRouteRegistrationCallsite } from '../core/devRouteRegistrationCallsite';
 import {
+	devBuildErrorResponse,
 	getCurrentAbsoluteRequest,
 	resolveDeferredPageAssets
 } from '../core/requestContext';
@@ -102,6 +103,8 @@ export const handleReactPageRequest = async <
 	// the real cause.
 	const deferredAssets =
 		input.index === '' ? await resolveDeferredPageAssets() : null;
+	const buildFailure = devBuildErrorResponse('react', deferredAssets);
+	if (buildFailure) return buildFailure;
 	const resolvedIndex =
 		deferredAssets && input.index === ''
 			? deferredAssets.lookup(`${deferredAssets.name}Index`)

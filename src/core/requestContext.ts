@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { Elysia } from 'elysia';
+import { buildErrorPage } from '../utils/ssrErrorPage';
 
 type AbsoluteRequestStore = {
 	request: Request;
@@ -79,6 +80,8 @@ export type DevPageWarmer = {
 	warm: (key: string) => Promise<DevPageWarmStatus>;
 	/** Current manifest value for a key, after a warm. */
 	lookup: (key: string) => string | undefined;
+	/** The error the last failed page build reported, if any. */
+	lastError?: () => string | undefined;
 };
 
 export type DeferredPageAssets = {
@@ -88,6 +91,8 @@ export type DeferredPageAssets = {
 	 *  then yields `''` for every key, so the handler falls through to its
 	 *  manifest error — now with the real page name in it. */
 	failed: boolean;
+	/** What the failed build reported (`undefined` when it built). */
+	error: string | undefined;
 	/** Manifest value for a key after the build (`''` when still absent). */
 	lookup: (key: string) => string;
 	/** Stylesheet hrefs for the CSS keys that went missing during this
@@ -109,33 +114,36 @@ const isDevPageWarmer = (value: unknown): value is DevPageWarmer =>
 	'lookup' in value &&
 	typeof value.lookup === 'function';
 
+export const devBuildErrorResponse = (
+	framework: string,
+	assets: DeferredPageAssets | null
+) => {
+	if (!assets?.failed) return null;
+
+	return new Response(buildErrorPage(framework, assets.name, assets.error), {
+		headers: {
+			'cache-control': 'no-store',
+			'content-type': 'text/html; charset=utf-8'
+		},
+		status: 500
+	});
+};
 export const getDevPageWarmer = () => {
 	const value = Reflect.get(globalThis, PAGE_WARMER_KEY);
 
 	return isDevPageWarmer(value) ? value : undefined;
 };
-
 export const getMissingAssets = () => {
 	const missing = getRequestStorage()?.getStore()?.missingAssets;
 
 	return missing ? [...missing] : [];
 };
-
-/** Called by `asset()` when a key is missing in dev. */
 export const recordMissingAsset = (name: string) => {
 	const store = getRequestStorage()?.getStore();
 	if (!store) return;
 	store.missingAssets ??= [];
 	store.missingAssets.push(name);
 };
-
-/** Handler miss path. When a page asset came back `''` from `asset()`,
- *  build the page those keys belong to and return accessors for the
- *  fresh manifest values. Returns `null` when the keys are not a deferred
- *  page's (production, `--eager`, no recorded misses, unknown key) and a
- *  `failed` result when the build did not produce the page; either way
- *  the caller falls through to its existing "not found in manifest"
- *  error. */
 export const resolveDeferredPageAssets = async () => {
 	const warmer = getDevPageWarmer();
 	if (!warmer) return null;
@@ -158,6 +166,7 @@ export const resolveDeferredPageAssets = async () => {
 			.filter((href) => href.length > 0 && href.startsWith('/'));
 	const assets: DeferredPageAssets = {
 		cssHrefs,
+		error: failed ? warmer.lastError?.() : undefined,
 		failed,
 		lookup,
 		name: described.name
@@ -165,13 +174,9 @@ export const resolveDeferredPageAssets = async () => {
 
 	return assets;
 };
-
 export const setDevPageWarmer = (warmer: DevPageWarmer | undefined) => {
 	Reflect.set(globalThis, PAGE_WARMER_KEY, warmer);
 };
-
-/** Append `<link rel="stylesheet">` tags for the deferred page's CSS to a
- *  `<head>…</head>` string (or head fragment). No-op without hrefs. */
 export const withDeferredStylesheets = (
 	head: string,
 	assets: DeferredPageAssets | null

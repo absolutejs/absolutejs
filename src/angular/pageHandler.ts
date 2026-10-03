@@ -20,6 +20,7 @@ import { renderSpaNotFound } from '../utils/spaRouteManifest';
 import { lowerAngularServerIslands } from './lowerServerIslands';
 import { getCurrentRouteRegistrationCallsite } from '../core/devRouteRegistrationCallsite';
 import {
+	devBuildErrorResponse,
 	getCurrentAbsoluteRequest,
 	resolveDeferredPageAssets,
 	withDeferredStylesheets
@@ -372,6 +373,8 @@ export const handleAngularPageRequest = async <Page = unknown>(
 		input.pagePath === '' || input.indexPath === ''
 			? await resolveDeferredPageAssets()
 			: null;
+	const buildFailure = devBuildErrorResponse('angular', deferredAssets);
+	if (buildFailure) return buildFailure;
 	const deferredPagePath =
 		deferredAssets && input.pagePath === ''
 			? deferredAssets.lookup(deferredAssets.name)

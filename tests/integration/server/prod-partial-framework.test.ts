@@ -176,7 +176,7 @@ const greeting = 'hello from vue-only';
 		expect(status).toBe(200);
 		expect(html).toContain('VueOnlyHomePage');
 		expect(html).toContain('hello from vue-only');
-		expect(html).not.toMatch(/Server Render Error/);
+		expect(html).not.toMatch(/Server Render Error|Build Error/);
 	}, 180_000);
 
 	test('Svelte-only — build succeeds, page renders', async () => {
@@ -237,7 +237,7 @@ const greeting = 'hello from vue-only';
 		expect(status).toBe(200);
 		expect(html).toContain('SvelteOnlyHomePage');
 		expect(html).toContain('hello from svelte-only');
-		expect(html).not.toMatch(/Server Render Error/);
+		expect(html).not.toMatch(/Server Render Error|Build Error/);
 	}, 180_000);
 
 	test('HTML-only — static page builds + serves', async () => {

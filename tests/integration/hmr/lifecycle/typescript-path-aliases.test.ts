@@ -77,7 +77,7 @@ describe('TypeScript tsconfig.json paths/baseUrl alias resolution', () => {
 			// SSR rendered normally — composable resolved via alias.
 			expect(baseline).toContain('count is 0');
 			// Sanity: no SSR error page.
-			expect(baseline).not.toMatch(/Server Render Error/);
+			expect(baseline).not.toMatch(/Server Render Error|Build Error/);
 		},
 		{ retry: 2, timeout: 60_000 }
 	);
@@ -145,7 +145,7 @@ describe('TypeScript tsconfig.json paths/baseUrl alias resolution', () => {
 		const body = await res.text();
 
 		expect(res.status).toBe(200);
-		expect(body).not.toMatch(/Server Render Error/);
+		expect(body).not.toMatch(/Server Render Error|Build Error/);
 		expect(body).toContain('app-counter');
 		expect(body).toContain('count is');
 		// The NG0203 / two-instance failure mode logs to stderr
