@@ -48,16 +48,12 @@ type TrackedServer = {
 	server: ReturnType<typeof Bun.serve>;
 };
 
-type HotResourceState = {
+export type HotResourceState = {
 	installed: boolean;
 	context: AsyncLocalStorage<HotContext>;
 	resources: Set<Resource>;
 	servers: Set<TrackedServer>;
 };
-
-declare global {
-	var __absoluteHotResources: HotResourceState | undefined;
-}
 
 const state: HotResourceState = (globalThis.__absoluteHotResources ??= {
 	context: new AsyncLocalStorage<HotContext>(),

@@ -401,15 +401,11 @@ export const setAnalysis = (
 	record.source = source;
 };
 
-type AbsoluteHot = {
+export type AbsoluteHot = {
 	begin: typeof begin;
 	facade: typeof facade;
 	forward: typeof forward;
 };
-
-declare global {
-	var __absoluteHot: AbsoluteHot | undefined;
-}
 
 /** Expose the runtime to rewritten modules. Dev only. */
 export const installHotRuntime = () => {

@@ -24,12 +24,6 @@ type Advanced =
 type Pending = { module: string; changed: Set<string> };
 type Propagation = { modules: string[]; entryAffected: boolean; steps: number };
 
-declare global {
-	var __absoluteReloadEntry:
-		| ((cause: string) => Promise<boolean>)
-		| undefined;
-}
-
 const MAX_PROPAGATION_STEPS = 500;
 
 const realPath = (path: string) => {

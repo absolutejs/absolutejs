@@ -9,10 +9,6 @@ import { installHotModulePlugin } from './plugin';
  * imported. `ABSOLUTE_BACKEND_HMR=0` turns it off; edits to server code
  * then restart the server, as they did before. */
 
-declare global {
-	var __absoluteBackendHmr: boolean | undefined;
-}
-
 const configuredDirectories = async (configPath: string) => {
 	try {
 		const config = await loadConfig(configPath);

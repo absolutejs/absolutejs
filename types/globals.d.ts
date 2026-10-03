@@ -1,4 +1,15 @@
 declare global {
+	/* Backend HMR (docs/BACKEND_HMR.md): shared by the dev bootstrap, the
+	 * hot runtime, rewritten app modules and the networking plugin. */
+	var __absoluteBackendHmr: boolean | undefined;
+	var __absoluteHot: import('../src/dev/hot/runtime').AbsoluteHot | undefined;
+	var __absoluteHotResources:
+		| import('../src/dev/hotResources').HotResourceState
+		| undefined;
+	var __absoluteLiveApp: object | undefined;
+	var __absoluteReloadEntry:
+		| ((cause: string) => Promise<boolean>)
+		| undefined;
 	/* Server-side globals (Bun --hot reload state) */
 	var __hmrServerStartup: boolean | undefined;
 	var __hmrBuildDuration: number | undefined;

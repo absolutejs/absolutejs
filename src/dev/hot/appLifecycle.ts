@@ -75,10 +75,6 @@ const tearDown = async (previous: object) => {
 	);
 };
 
-declare global {
-	var __absoluteLiveApp: object | undefined;
-}
-
 /** The app that just started serving through `listen()`. */
 export const adoptListeningApp = (app: object) => {
 	globalThis.__absoluteLiveApp = app;
