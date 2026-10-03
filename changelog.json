@@ -5,6 +5,22 @@
 		{
 			"changes": [
 				{
+					"detail": "AbsoluteJS accepted `@absolutejs/auth` only below 0.97, so a project on auth 0.97 got a second, older copy nested under AbsoluteJS. It now accepts auth up to 0.97. Between 0.96.0 and 0.97.0 the `@absolutejs/auth/client/mobile` declarations are byte-identical, and its runtime differs only in bundler helpers and local variable names.",
+					"kind": "fixed",
+					"summary": "Projects on `@absolutejs/auth` 0.97 no longer get a second, older copy"
+				},
+				{
+					"detail": "Vue resolves an imported prop or emit type by probing the import path as written before trying `<path>.ts` and `<path>/index.ts`. AbsoluteJS answered that probe with `existsSync`, which is true for a directory, so Vue read the directory and the page failed to build with `EISDIR: illegal operation on a directory, read`. In development the page then answered `Asset \"<Page>\" not found in manifest`. Any type reached through `export * from './folder'` triggered it, which includes `@absolutejs/auth` 0.97's declarations. Type resolution and CSS `@import` inlining now accept only regular files.",
+					"kind": "fixed",
+					"summary": "Vue pages whose prop types come through a directory index build again instead of failing with EISDIR"
+				}
+			],
+			"date": "2026-10-03",
+			"version": "0.20.0-beta.127"
+		},
+		{
+			"changes": [
+				{
 					"detail": "The production server bundle (`absolute prepare`, `absolute start`, `absolute compile`) resolves every import up front, including a dependency's guarded dynamic import of an optional peer. An app using `@absolutejs/auth` without its optional `@node-saml/node-saml` failed with `Could not resolve: \"@node-saml/node-saml\"` and `Server bundle failed`, so it could never start in production. Optional peers of the app's direct dependencies that are not installed are now left external: the import fails only if that feature is used.",
 					"kind": "fixed",
 					"summary": "Apps that skip a dependency's optional peer bundle for production again"
