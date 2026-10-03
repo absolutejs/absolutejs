@@ -1,6 +1,6 @@
 import { describe, expect, test, afterEach } from 'bun:test';
 import { resolve } from 'node:path';
-import { mutateFile, restoreAllFiles } from '../../../helpers/file';
+import { createFile, mutateFile, restoreAllFiles } from '../../../helpers/file';
 import { getAvailablePort } from '../../../helpers/ports';
 import { waitForServer } from '../../../helpers/http';
 
@@ -13,7 +13,10 @@ const cliEntry = resolve(PROJECT_ROOT, 'src/cli/index.ts');
 // A harmless root-level file in the server-entry dir. Editing it trips the
 // parent CLI's project-root watcher → `scheduleServerRestart` → a real child
 // respawn, without corrupting config/build (so the replacement boots cleanly).
-const restartTrigger = resolve(PROJECT_ROOT, 'example/vueImporter.ts');
+// A config-like file beside the entry: the parent CLI restarts for those.
+// (Code modules there are updated in place by the server process.)
+const codeBesideEntry = resolve(PROJECT_ROOT, 'example/vueImporter.ts');
+const restartTrigger = resolve(PROJECT_ROOT, 'example/restart-trigger.json');
 
 let proc: ReturnType<typeof Bun.spawn> | undefined;
 
@@ -147,13 +150,21 @@ describe('parent CLI restart rebinds the original port (no zombie / no drift)', 
 		// Boot.
 		await waitForServer(`http://localhost:${port}/hmr-status`);
 
-		// Trigger a parent-CLI restart by editing a root-level file the
-		// project-root watcher tracks (a no-op trailing comment keeps the
-		// module valid so the replacement child boots normally).
+		// A code module beside the entry is the server process's to update
+		// in place: the CLI must not restart for it.
 		mutateFile(
-			restartTrigger,
-			(c) => `${c}\n// restart-port-stability test trigger\n`
+			codeBesideEntry,
+			(c) => `${c}\n// restart-port-stability: no restart\n`
 		);
+		// Long enough for the CLI's watcher debounce and a restart to show.
+		await Bun.sleep(2_000);
+		expect(
+			outputLines.filter((line) => /restarting|Restarting/.test(line))
+		).toEqual([]);
+
+		// Trigger a parent-CLI restart by adding a config file beside the
+		// entry, which the entry-directory watcher restarts for.
+		createFile(restartTrigger, '{ "trigger": "restart-port-stability" }\n');
 
 		await waitForLine(/Server restarted\./, 40_000);
 
