@@ -9,12 +9,13 @@ import { installHotModulePlugin } from './plugin';
  * imported. `ABSOLUTE_BACKEND_HMR=0` turns it off; edits to server code
  * then restart the server, as they did before. */
 
+/** Directories whose files reach the server only through a build. React's
+ *  are not among them: the server imports React pages directly for SSR. */
 const configuredDirectories = async (configPath: string) => {
 	try {
 		const config = await loadConfig(configPath);
 
 		return [
-			config.reactDirectory,
 			config.svelteDirectory,
 			config.vueDirectory,
 			config.angularDirectory,

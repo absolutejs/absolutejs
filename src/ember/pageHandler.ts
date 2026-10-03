@@ -1,4 +1,3 @@
-import { pathToFileURL } from 'node:url';
 import { withPageCacheHeaders } from '../core/pageResponseCache';
 import {
 	devBuildErrorResponse,
@@ -87,10 +86,10 @@ let emberCacheBuster = 0;
 
 const buildRuntimeModuleSpecifier = (modulePath: string) => {
 	if (emberCacheBuster === 0) return modulePath;
-	const moduleUrl = new URL(pathToFileURL(modulePath).href);
-	moduleUrl.searchParams.set('t', String(emberCacheBuster));
 
-	return moduleUrl.href;
+	// A plain path: Bun ignores the query of a `file:` URL, so a URL would
+	// return the module it already loaded.
+	return `${modulePath}?t=${emberCacheBuster}`;
 };
 
 /* Bumps `emberCacheBuster` so the next dynamic-import of the page

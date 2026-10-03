@@ -1,7 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { lstat, mkdir, readlink, symlink } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
 import type { EnvironmentProviders, Provider, Type } from '@angular/core';
 import { BASE_36_RADIX, RANDOM_ID_END_INDEX } from '../constants';
 import { injectIslandPageContext } from '../core/islandPageContext';
@@ -331,10 +330,9 @@ const buildRuntimeModuleSpecifier = (
 		return modulePath;
 	}
 
-	const moduleUrl = new URL(pathToFileURL(modulePath).href);
-	moduleUrl.searchParams.set('t', cacheBuster);
-
-	return moduleUrl.href;
+	// A plain path: Bun ignores the query of a `file:` URL, so a URL would
+	// return the module it already loaded.
+	return `${modulePath}?t=${encodeURIComponent(cacheBuster)}`;
 };
 
 const withHtmlContentType = (responseInit: ResponseInit = {}) => {

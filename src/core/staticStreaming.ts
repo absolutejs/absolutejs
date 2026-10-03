@@ -1,6 +1,5 @@
 import { statSync } from 'node:fs';
 import { extname } from 'node:path';
-import { pathToFileURL } from 'node:url';
 import type {
 	StreamingSlot,
 	StreamingSlotPatchPayload
@@ -200,11 +199,10 @@ const loadStaticStreamingModule = async (pagePath: string) => {
 		}
 
 		const version = statSync(candidate).mtimeMs;
-		const moduleUrl = new URL(pathToFileURL(candidate).href);
-		moduleUrl.searchParams.set('t', String(version));
-
+		// A plain path: Bun ignores the query of a `file:` URL, so a URL would
+		// return the module it already loaded.
 		const moduleExports: StaticStreamingModuleExports = await import(
-			moduleUrl.href
+			`${candidate}?t=${version}`
 		);
 		const definitions = resolveStaticStreamingDefinitions(moduleExports);
 		if (!definitions) {

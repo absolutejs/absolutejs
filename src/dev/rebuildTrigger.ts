@@ -827,6 +827,14 @@ export const queueFileChange = async (
 	if (publicDir && (await handleStaticMirror(publicDir, ''))) return;
 	if (assetsDir && (await handleStaticMirror(assetsDir, 'assets'))) return;
 
+	// React pages and components are imported by the server for SSR, not
+	// through a build. Update the server's copy in place while the client
+	// gets its React update, so the next request renders the edit.
+	if (framework === 'react' && globalThis.__absoluteBackendHmr === true)
+		void applyBackendEdit(resolvePath(filePath)).catch((error: unknown) =>
+			console.error('[hmr] server update for a React file failed:', error)
+		);
+
 	// Shared files (workers, utils, etc.) that don't belong to any
 	// framework just need their transform cache invalidated — no
 	// per-framework rebuild for the file itself. BUT we still need

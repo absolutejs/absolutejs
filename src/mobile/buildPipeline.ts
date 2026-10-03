@@ -1,6 +1,5 @@
 import { readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
 import type { Elysia } from 'elysia';
 import type { MobileConfig } from '../../types/build';
 import { buildAbsoluteMobileCompatibilityRelease } from './buildRelease';
@@ -78,7 +77,8 @@ const requireRelease = <T>(releases: Map<string, T>, releaseId: string) => {
 
 const loadServerApp = async (producerPath: string) => {
 	const loaded: ServerModule = await import(
-		`${pathToFileURL(producerPath).href}?absolute-mobile-capture=${crypto.randomUUID()}`
+		// A plain path: Bun ignores the query of a `file:` URL.
+		`${producerPath}?absolute-mobile-capture=${crypto.randomUUID()}`
 	);
 	const candidates = [loaded.server, loaded.app, loaded.default];
 	const app = candidates.find(isElysiaApp);

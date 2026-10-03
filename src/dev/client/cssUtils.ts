@@ -148,6 +148,23 @@ const findManifestHref = (
 	return null;
 };
 
+/** Move the loaded stylesheet back onto the original `<link>` and drop the
+ *  clone. The original stays in the document: a framework that rendered it
+ *  (React hoists page `<link>`s into `<head>`) still owns that node and
+ *  removes it itself on its next unmount, which fails if it is gone. The new
+ *  href is already cached, so the original re-applies it without a flash. */
+const adoptHref = (
+	original: HTMLLinkElement,
+	replacement: HTMLLinkElement,
+	href: string
+) => {
+	const dropReplacement = () => replacement.remove();
+	original.addEventListener('load', dropReplacement, { once: true });
+	original.addEventListener('error', dropReplacement, { once: true });
+	original.href = href;
+	setTimeout(dropReplacement, CSS_MAX_PARSE_TIMEOUT_MS);
+};
+
 const replaceStylesheetLink = (
 	existingLink: HTMLLinkElement,
 	newHref: string,
@@ -162,7 +179,7 @@ const replaceStylesheetLink = (
 	const finish = (applied: boolean) => {
 		if (settled) return;
 		settled = true;
-		if (applied) existingLink.remove();
+		if (applied) adoptHref(existingLink, replacement, newHref);
 		else replacement.remove();
 		resolve(applied);
 	};
