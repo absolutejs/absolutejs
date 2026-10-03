@@ -5,6 +5,22 @@
 		{
 			"changes": [
 				{
+					"detail": "When a page failed its on-demand build in development, the handler threw `Asset \"<Page>\" not found in manifest.` and left the response to whichever error handler answered first. An app with its own `onError` (most real apps) showed its generic error page, so the actual cause — a missing import, a syntax error — was only in the terminal. Page handlers for Vue, React, Svelte, Angular and Ember now return a Build Error page themselves, with the build's own error message, and the page reloads by itself once a rebuild lands or the dev server comes back. AbsoluteJS's fallback error page for missing assets shows the same build error.",
+					"kind": "fixed",
+					"summary": "A page that fails to build in development shows the real build error and reloads itself once fixed"
+				},
+				{
+					"detail": "Any changed file no HMR pipeline handled restarted the dev server, including documentation and test files the server never runs. Each restart dropped every open page for seconds and rebuilt them from nothing. Now documents (`.md`, `.txt`, …) and test files never restart it; code modules restart it only when the running server process has loaded them (a module nothing has imported yet loads fresh on first use); config such as `.env`, `package.json` and `tsconfig.json` still does.",
+					"kind": "fixed",
+					"summary": "Editing docs, tests or code the server never loaded no longer restarts the dev server"
+				}
+			],
+			"date": "2026-10-03",
+			"version": "0.20.0-beta.128"
+		},
+		{
+			"changes": [
+				{
 					"detail": "AbsoluteJS accepted `@absolutejs/auth` only below 0.97, so a project on auth 0.97 got a second, older copy nested under AbsoluteJS. It now accepts auth up to 0.97. Between 0.96.0 and 0.97.0 the `@absolutejs/auth/client/mobile` declarations are byte-identical, and its runtime differs only in bundler helpers and local variable names.",
 					"kind": "fixed",
 					"summary": "Projects on `@absolutejs/auth` 0.97 no longer get a second, older copy"
