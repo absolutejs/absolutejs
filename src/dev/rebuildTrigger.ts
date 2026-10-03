@@ -857,9 +857,13 @@ export const queueFileChange = async (
 		// would silently re-run with the pre-edit value. Only a full
 		// bundle rebuild gets fresh module references into
 		// `__abs_deps`.
-		const { angularDir } = state.resolvedPaths;
+		// Frontend components of any framework that import the file get the
+		// same treatment: queue them so their framework's HMR re-imports the
+		// changed helper. Without this, a shared helper outside every
+		// framework directory only reached Angular components.
+		let hasFrontendDependent = false;
 		let hasAngularDependent = false;
-		if (angularDir && state.dependencyGraph) {
+		if (state.dependencyGraph) {
 			try {
 				const { addFileToGraph } = await import('./dependencyGraph');
 				addFileToGraph(state.dependencyGraph, resolvePath(filePath));
@@ -874,14 +878,21 @@ export const queueFileChange = async (
 						dependent,
 						state.resolvedPaths
 					);
-					if (dependentFramework !== 'angular') continue;
-					hasAngularDependent = true;
-					if (!state.fileChangeQueue.has('angular')) {
-						state.fileChangeQueue.set('angular', []);
+					if (
+						dependentFramework === 'unknown' ||
+						dependentFramework === 'ignored'
+					)
+						continue;
+					hasFrontendDependent = true;
+					if (dependentFramework === 'angular')
+						hasAngularDependent = true;
+					if (!state.fileChangeQueue.has(dependentFramework)) {
+						state.fileChangeQueue.set(dependentFramework, []);
 					}
-					const angularQueue = state.fileChangeQueue.get('angular');
-					if (angularQueue && !angularQueue.includes(dependent)) {
-						angularQueue.push(dependent);
+					const frameworkQueue =
+						state.fileChangeQueue.get(dependentFramework);
+					if (frameworkQueue && !frameworkQueue.includes(dependent)) {
+						frameworkQueue.push(dependent);
 					}
 				}
 			} catch {
@@ -889,63 +900,64 @@ export const queueFileChange = async (
 			}
 		}
 
-		if (!hasAngularDependent) {
-			// Anything `detectFramework` couldn't classify is by
-			// definition not handled by any HMR pipeline (no
-			// framework dir, no recognized frontend extension). If
-			// it has no angular dependents either, it's server code or a
-			// config / tooling file — `.env`, `tsconfig.json`,
-			// `package.json`, etc. — read once at process startup.
-			// When the running server actually depends on it
-			// (`changeNeedsRestart`: docs, tests and modules this
-			// process never loaded don't), emit the `[abs:restart]`
-			// marker; the parent CLI consumes it and restarts the bun
-			// child so the new values take effect.
-			if (!changeNeedsRestart(resolvePath(filePath))) return;
+		// Server code: apply the edit to the running server in place (backend
+		// HMR). Only a file the hot runtime does not manage falls back to a
+		// restart, and only when the running server depends on it.
+		const backend = await applyBackendEdit(resolvePath(filePath));
+		state.fileHashes.set(resolvePath(filePath), currentHash);
+		if (
+			backend === 'unmanaged' &&
+			changeNeedsRestart(resolvePath(filePath))
+		) {
 			console.log(`[abs:restart] ${resolvePath(filePath)}`);
 
 			return;
 		}
 
-		// Drop the dev module server's cached transform for the
-		// helper's generated-angular twin. `compileAngularFileJIT`
-		// emits a per-page copy under
-		// `.absolutejs/generated/angular/<absPathOfHelper>.js` so
-		// SSR + CSR can serve the helper from a single rooted URL.
-		// `invalidateTransformCache(resolvePath(filePath))` drops the
-		// source-side cache, but the dev module server keys its
-		// transform cache by the URL form
-		// (`/@src/.absolutejs/generated/angular/<absPathOfHelper>.js`),
-		// which is a different cache entry. Without this, the next
-		// `bootstrapApplication` re-imports the helper from the
-		// stale URL and gets the pre-edit body — defeating the
-		// rebootstrap.
-		try {
-			const { getFrameworkGeneratedDir } = await import(
-				'../utils/generatedDir'
-			);
-			const { invalidateModule: invalidateModuleServer } = await import(
-				'./moduleServer'
-			);
-			const generatedAngularRoot = getFrameworkGeneratedDir('angular');
-			const sourceAbs = resolvePath(filePath).replace(/\\/g, '/');
-			const generatedTwin = `${generatedAngularRoot.replace(/\\/g, '/')}${sourceAbs.replace(/\.ts$/, '.js')}`;
-			invalidateModuleServer(generatedTwin);
-		} catch {
-			// Best-effort.
-		}
+		if (!hasFrontendDependent) return;
+		// Queued components fall through to the regular rebuild scheduling
+		// path below. Angular also needs its generated twins invalidated.
+		if (hasAngularDependent) {
+			// Drop the dev module server's cached transform for the
+			// helper's generated-angular twin. `compileAngularFileJIT`
+			// emits a per-page copy under
+			// `.absolutejs/generated/angular/<absPathOfHelper>.js` so
+			// SSR + CSR can serve the helper from a single rooted URL.
+			// `invalidateTransformCache(resolvePath(filePath))` drops the
+			// source-side cache, but the dev module server keys its
+			// transform cache by the URL form
+			// (`/@src/.absolutejs/generated/angular/<absPathOfHelper>.js`),
+			// which is a different cache entry. Without this, the next
+			// `bootstrapApplication` re-imports the helper from the
+			// stale URL and gets the pre-edit body — defeating the
+			// rebootstrap.
+			try {
+				const { getFrameworkGeneratedDir } = await import(
+					'../utils/generatedDir'
+				);
+				const { invalidateModule: invalidateModuleServer } =
+					await import('./moduleServer');
+				const generatedAngularRoot =
+					getFrameworkGeneratedDir('angular');
+				const sourceAbs = resolvePath(filePath).replace(/\\/g, '/');
+				const generatedTwin = `${generatedAngularRoot.replace(/\\/g, '/')}${sourceAbs.replace(/\.ts$/, '.js')}`;
+				invalidateModuleServer(generatedTwin);
+			} catch {
+				// Best-effort.
+			}
 
-		// Mark the unknown helper file under the 'unknown' framework
-		// queue too, so `state.lastUserEditedFiles` includes it and
-		// the dispatcher's `decideAngularTier` path can recognize a
-		// non-decorated edit and force Tier 1b. Falls through to
-		// rebuild scheduling.
-		if (!state.fileChangeQueue.has('unknown')) {
-			state.fileChangeQueue.set('unknown', []);
-		}
-		const unknownQueue = state.fileChangeQueue.get('unknown');
-		if (unknownQueue && !unknownQueue.includes(filePath)) {
-			unknownQueue.push(filePath);
+			// Mark the unknown helper file under the 'unknown' framework
+			// queue too, so `state.lastUserEditedFiles` includes it and
+			// the dispatcher's `decideAngularTier` path can recognize a
+			// non-decorated edit and force Tier 1b. Falls through to
+			// rebuild scheduling.
+			if (!state.fileChangeQueue.has('unknown')) {
+				state.fileChangeQueue.set('unknown', []);
+			}
+			const unknownQueue = state.fileChangeQueue.get('unknown');
+			if (unknownQueue && !unknownQueue.includes(filePath)) {
+				unknownQueue.push(filePath);
+			}
 		}
 	}
 
@@ -5617,4 +5629,15 @@ export const triggerRebuild = async (
 		state.isRebuilding = false;
 		drainPendingQueue(state, config, onRebuildComplete);
 	}
+};
+
+/** Apply an edit to server code through the hot runtime. `unmanaged` when
+ *  backend HMR is off or the file is not a module it serves. */
+const applyBackendEdit = async (filePath: string) => {
+	if (globalThis.__absoluteBackendHmr !== true) return 'unmanaged';
+	const entry = process.env.ABSOLUTE_SERVER_ENTRY ?? Bun.main;
+	const { applyServerChange } = await import('./hot/reload');
+	const outcome = await applyServerChange(filePath, entry);
+
+	return outcome.status;
 };

@@ -2039,7 +2039,6 @@ export const dev = async (
 		const proc = nodeSpawn(
 			bunExecutable,
 			[
-				'--hot',
 				'--no-clear-screen',
 				...(heapSnapshotEnabled ? ['--preload', heapPreloadPath] : []),
 				// Off by default. With the flag on, this preload registers the

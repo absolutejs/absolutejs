@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { runUntracked } from '../dev/hotResources';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { basename, join, relative, resolve as resolvePath } from 'node:path';
 import { Elysia, NotFound } from 'elysia';
@@ -880,7 +881,9 @@ export const prepare = async (configOrPath?: string) => {
 	// Publish this run so a prebuild that only gets its turn on the event
 	// loop now (the user's entry finished importing first) joins it instead
 	// of starting a second build.
-	const promise = runPrepare(configOrPath);
+	// Framework infrastructure (watchers, locks, signal handlers) belongs to
+	// no top-level statement of the app, even when one calls prepare().
+	const promise = runUntracked(() => runPrepare(configOrPath));
 	globalThis.__absoluteDevPrepare = { claimed: true, key, promise };
 
 	return promise;

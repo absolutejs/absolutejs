@@ -164,19 +164,27 @@ export const startServerEntryWatcher = () => {
 		throw failure;
 	};
 
-	const triggerEntryReload = async (cause: string) => {
+	// `force`: re-run the entry although its own source is unchanged — an
+	// import it used while evaluating changed (backend HMR). Resolves to
+	// whether the entry evaluated.
+	const triggerEntryReload = async (
+		cause: string,
+		force = false
+	): Promise<boolean> => {
 		const nextHash = fileHash(entryPath);
-		if (!nextHash || nextHash === acceptedEntryHash) return;
+		if (!nextHash || (!force && nextHash === acceptedEntryHash))
+			return true;
 		if (entryReloadInFlight) {
 			pendingEntryCause = cause;
 
-			return;
+			return true;
 		}
 		entryReloadInFlight = true;
 		acceptedEntryHash = nextHash;
+		let evaluated = true;
 
 		try {
-			console.log(`[hmr] reloading server entry (${cause})`);
+			if (!force) console.log(`[hmr] reloading server entry (${cause})`);
 			await importFreshEntry();
 			// On success, the new module's `networking` plugin call
 			// has already swapped the running Bun.serve's fetch
@@ -193,12 +201,19 @@ export const startServerEntryWatcher = () => {
 				});
 			}
 		} catch (err) {
+			evaluated = false;
 			console.error(
 				`[hmr] entry re-evaluation failed: ${
 					err instanceof Error ? err.message : String(err)
 				}`
 			);
-			console.log(`[abs:restart] ${entryPath}`);
+			if (globalThis.__absoluteBackendHmr) {
+				// The hot runtime rolled back what the failed version
+				// started; the previous app keeps serving until the next
+				// save, so a broken edit never costs a restart.
+				const { rollback } = await import('./hot/runtime');
+				await rollback(entryPath);
+			} else console.log(`[abs:restart] ${entryPath}`);
 		} finally {
 			entryReloadInFlight = false;
 			if (pendingEntryCause) {
@@ -207,7 +222,11 @@ export const startServerEntryWatcher = () => {
 				void triggerEntryReload(pendingCause);
 			}
 		}
+
+		return evaluated;
 	};
+	globalThis.__absoluteReloadEntry = (cause) =>
+		triggerEntryReload(cause, true);
 
 	const triggerConfigChange = async (cause: string) => {
 		const now = Date.now();

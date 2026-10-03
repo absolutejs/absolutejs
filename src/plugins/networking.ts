@@ -11,6 +11,8 @@ import {
 	MILLISECONDS_IN_A_SECOND
 } from '../constants';
 import { runDeferredBootTasks } from '../dev/bootLifecycle';
+import { adoptListeningApp, swapApp } from '../dev/hot/appLifecycle';
+import { runUntracked, wrapServeOptions } from '../dev/hotResources';
 import { loadDevCert } from '../dev/devCert';
 import {
 	parentOwnsDevPort,
@@ -173,7 +175,7 @@ export const networking = <A extends AnyElysia>(app: A) => {
 		// hot reload (the symptom that read as "voice doesn't work in dev").
 		// Pointing `app.server` at the persisted socket restores upgrades.
 		app.server = liveServer;
-		liveServer.reload({
+		const reloadOptions: Parameters<typeof liveServer.reload>[0] = {
 			routes: {},
 			websocket: {
 				idleTimeout: DEFAULT_WEBSOCKET_IDLE_TIMEOUT_SECONDS,
@@ -181,8 +183,22 @@ export const networking = <A extends AnyElysia>(app: A) => {
 				...buildGlobalWSHandler()
 			},
 			fetch: (request: Request) => app.fetch(request)
-		});
-		runDeferredBootTasks();
+		};
+		// Backend HMR: requests and WebSocket events run as request work
+		// (never stopped by a hot update), and the swap runs Elysia's
+		// cleanup/setup hooks as a stop + listen would.
+		const backendHmr = globalThis.__absoluteBackendHmr === true;
+		liveServer.reload(
+			backendHmr ? wrapServeOptions(reloadOptions) : reloadOptions
+		);
+		if (backendHmr)
+			void swapApp(app).catch((error: unknown) =>
+				console.error(
+					'[hmr] Elysia lifecycle during hot swap failed:',
+					error
+				)
+			);
+		runUntracked(() => runDeferredBootTasks());
 
 		return app;
 	}
@@ -202,7 +218,13 @@ export const networking = <A extends AnyElysia>(app: A) => {
 	const parentHandoff = parentOwnsDevPort();
 
 	markBoot('listen() called');
-	const listened = app.listen(
+	// The framework's own server and what listening starts (the entry
+	// watcher, signal handlers, boot tasks): never owned by the top-level
+	// statement that called `networking()`, so re-running that statement in
+	// a hot update swaps handlers instead of stopping any of it.
+	const listen = (...listenArgs: Parameters<typeof app.listen>) =>
+		runUntracked(() => app.listen(...listenArgs));
+	const listened = listen(
 		{
 			hostname: host,
 			idleTimeout: httpIdleTimeout,
@@ -223,7 +245,7 @@ export const networking = <A extends AnyElysia>(app: A) => {
 			selfRegisterInstance();
 			// The port is serving real traffic now — flush boot work that
 			// was deferred off the critical path (module prewarm, etc.).
-			runDeferredBootTasks();
+			runUntracked(() => runDeferredBootTasks());
 
 			if (visibility === 'internal' || managedByWorkspace) {
 				return;
@@ -271,15 +293,16 @@ export const networking = <A extends AnyElysia>(app: A) => {
 	// the reload-aware branch above and never reach this point.
 	if (app.server) {
 		globalThis.__absoluteBunServer = app.server;
+		adoptListeningApp(app);
 		// Path B: start the entry-file watcher now that the server is
 		// bound. The watcher triggers cache-busted dynamic re-imports
 		// on entry edits, which hit the reload-aware branch instead of
 		// re-binding. Only runs in dev mode (compiled runtime returned
 		// early at the top).
 		if (env.NODE_ENV === 'development') {
-			void import('../dev/serverEntryWatcher')
+			void runUntracked(() => import('../dev/serverEntryWatcher'))
 				.then(({ startServerEntryWatcher }) =>
-					startServerEntryWatcher()
+					runUntracked(() => startServerEntryWatcher())
 				)
 				.catch((err) => {
 					/* dev-only feature; never break the server */

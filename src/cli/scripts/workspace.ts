@@ -799,7 +799,6 @@ const resolveService = (
 
 		const command = [
 			process.execPath,
-			'--hot',
 			'--no-clear-screen',
 			serverBootstrap
 		];

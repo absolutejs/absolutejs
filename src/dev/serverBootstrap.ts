@@ -203,6 +203,15 @@ if (importCostRecorder !== undefined) {
 	importCostRecorder.rootModule = import.meta.path;
 }
 
+// Backend HMR: serve the app's server modules through the hot runtime so an
+// edit re-runs only what changed (docs/BACKEND_HMR.md). Installed before the
+// entry's first import, which is what it transforms.
+if (!isHotReevaluation && process.env.NODE_ENV === 'development') {
+	const { startBackendHmr } = await import('./hot/install');
+	await startBackendHmr(entryPath);
+	markBoot('backend hmr ready');
+}
+
 // Keep the user's original entry out of Bun's --hot module graph. Bun can
 // still hot-refresh its framework dependencies, while AbsoluteJS exclusively
 // owns server-entry replacement through unique sibling imports.

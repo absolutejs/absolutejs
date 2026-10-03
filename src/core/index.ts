@@ -6,3 +6,4 @@ export * from './requestContext';
 export * from './renderIslandMarkup';
 export * from './responseEnhancers';
 export * from './wrapPageHandlerWithStreamingSlots';
+export { onHotDispose } from '../dev/hotResources';
