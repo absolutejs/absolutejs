@@ -127,6 +127,10 @@ export const startServerEntryWatcher = () => {
 	let entryReloadTimer: ReturnType<typeof setTimeout> | null = null;
 	let configReloadTimer: ReturnType<typeof setTimeout> | null = null;
 	let acceptedEntryHash = fileHash(entryPath);
+	// A config event whose bytes match what this process started with is
+	// not a change (the atomic-rename recovery scan reports any recently
+	// touched file, such as a config freshly copied or checked out).
+	let acceptedConfigHash = fileHash(configPath);
 	let entryReloadInFlight = false;
 	let pendingEntryCause: string | null = null;
 	let siblingSequence = 0;
@@ -233,6 +237,9 @@ export const startServerEntryWatcher = () => {
 		const last = recentlyHandled.get(`config:${cause}`) ?? 0;
 		if (now - last < 100) return;
 		recentlyHandled.set(`config:${cause}`, now);
+		const nextConfigHash = fileHash(configPath);
+		if (nextConfigHash && nextConfigHash === acceptedConfigHash) return;
+		acceptedConfigHash = nextConfigHash;
 
 		try {
 			const diff = await applyConfigChanges();

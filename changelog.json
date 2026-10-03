@@ -36,6 +36,11 @@
 					"detail": "Since 0.20.0-beta.128, editing a module shared by server and frontend code (a formatter, a constants file) could update the server but leave pages of other frameworks importing it on the old code until the next page edit. Frontend dependents of every framework are now rebuilt when a shared module changes.",
 					"kind": "fixed",
 					"summary": "Editing a module shared by server and pages rebuilds every page that imports it"
+				},
+				{
+					"detail": "Editors and tools that save by writing a temporary file and renaming it make the dev server rescan the folder for recently touched files. A freshly checked-out or copied `absolute.config.ts` counted as changed even when its contents were the same, and the server restarted. It restarted once from the entry watcher and once more from the rebuild watcher. The config is now handled only by the entry watcher, and only when its contents differ from what the server started with.",
+					"kind": "fixed",
+					"summary": "Saving a file next to an unchanged `absolute.config.ts` no longer restarts the dev server"
 				}
 			],
 			"date": "2026-10-03",

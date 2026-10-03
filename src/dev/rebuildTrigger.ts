@@ -908,6 +908,15 @@ export const queueFileChange = async (
 			}
 		}
 
+		// The AbsoluteJS config belongs to the server entry watcher, which
+		// compares it with what this process started with and applies or
+		// restarts for it.
+		if (isAbsoluteConfig(resolvePath(filePath))) {
+			state.fileHashes.set(resolvePath(filePath), currentHash);
+
+			return;
+		}
+
 		// Server code: apply the edit to the running server in place (backend
 		// HMR). Only a file the hot runtime does not manage falls back to a
 		// restart, and only when the running server depends on it.
@@ -5638,6 +5647,10 @@ export const triggerRebuild = async (
 		drainPendingQueue(state, config, onRebuildComplete);
 	}
 };
+
+const isAbsoluteConfig = (filePath: string) =>
+	filePath ===
+	resolvePath(process.env.ABSOLUTE_CONFIG ?? 'absolute.config.ts');
 
 /** Apply an edit to server code through the hot runtime. `unmanaged` when
  *  backend HMR is off or the file is not a module it serves. */

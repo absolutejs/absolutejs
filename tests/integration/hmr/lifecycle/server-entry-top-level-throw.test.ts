@@ -1,4 +1,5 @@
 import { describe, expect, test, afterEach } from 'bun:test';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { startDevServer, type DevServer } from '../../../helpers/devServer';
 import { connectHMR, type HMRClient } from '../../../helpers/ws';
@@ -20,6 +21,7 @@ afterEach(async () => {
 });
 
 const serverEntry = resolve(PROJECT_ROOT, 'example/server.ts');
+const CONFIG = resolve(PROJECT_ROOT, 'example/absolute.config.ts');
 
 const injectThrow = () =>
 	mutateFile(serverEntry, (text) =>
@@ -60,6 +62,10 @@ const connect = async (env?: Record<string, string>) => {
 describe('server.ts top-level throw', () => {
 	test('with backend HMR, the failed version is rolled back and the OLD app keeps serving', async () => {
 		const { baseUrl } = await connect();
+		// Same bytes, fresh ctime (as after a checkout): the atomic-save
+		// recovery scan sees the config as recently touched, which alone
+		// must not count as a config change.
+		writeFileSync(CONFIG, readFileSync(CONFIG));
 		injectThrow();
 		await server?.waitForOutput(
 			/entry re-evaluation failed: TOP_LEVEL_BOOT_THROW/,
