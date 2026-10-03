@@ -29,6 +29,10 @@ type HotPluginOptions = {
 
 type Analysis = HotModuleAnalysis | HotModuleRejection;
 type InstalledOptions = HotPluginOptions & { cacheDir: string };
+export type HotPluginState = {
+	installed: InstalledOptions | undefined;
+	analyses: Map<string, { source: string; analysis: Analysis }>;
+};
 
 const HOT_QUERY = /^absolute-hot=(\d+)$/;
 const SOURCE = /\.(?:[cm]?[jt]sx?)$/;
@@ -65,11 +69,17 @@ const loadTypescript = async () => {
 	return typescript;
 };
 
-let state: InstalledOptions | undefined;
-const analyses = new Map<string, { source: string; analysis: Analysis }>();
+// On globalThis, like the runtime's records: every bundle that asks whether
+// a file is managed must see the one installed plugin.
+const shared = (globalThis.__absoluteHotPlugin ??= {
+	analyses: new Map(),
+	installed: undefined
+});
+const { analyses } = shared;
 
 /** Whether the hot runtime manages `path` (an absolute file path). */
 export const isHotManaged = (path: string) => {
+	const state = shared.installed;
 	if (!state) return false;
 	const file = realPath(path);
 	if (!SOURCE.test(file)) return false;
@@ -105,6 +115,7 @@ const cachePath = (cacheDir: string, key: string) =>
 	join(cacheDir, `${key}.json`);
 
 const readCached = (key: string) => {
+	const state = shared.installed;
 	if (!state) return undefined;
 	try {
 		const cached: unknown = JSON.parse(
@@ -118,6 +129,7 @@ const readCached = (key: string) => {
 };
 
 const writeCached = (key: string, analysis: Analysis) => {
+	const state = shared.installed;
 	if (!state) return;
 	try {
 		writeFileSync(cachePath(state.cacheDir, key), JSON.stringify(analysis));
@@ -202,7 +214,7 @@ export const installHotModulePlugin = async (options: HotPluginOptions) => {
 		excludedDirs: options.excludedDirs.map((dir) => realPath(resolve(dir))),
 		root
 	};
-	state = installed;
+	shared.installed = installed;
 	installHotRuntime();
 	const { entryPath } = installed;
 	Bun.plugin({

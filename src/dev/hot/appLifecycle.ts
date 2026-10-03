@@ -7,9 +7,12 @@
  * setup hooks registered), then the new app's `setup` — exactly as a stop
  * followed by a listen would, minus closing the port. */
 
-type Hook = (app: unknown) => unknown;
+export type Hook = (app: unknown) => unknown;
 
-const cleanupsRegisteredDuringSetup = new WeakMap<object, Hook[]>();
+// On globalThis: the app that listened and the app that replaces it can be
+// handled by different bundles' copies of this module.
+const cleanupsRegisteredDuringSetup = (globalThis.__absoluteHotSetupCleanups ??=
+	new WeakMap<object, Hook[]>());
 
 const hooksOf = (app: object, kind: 'cleanup' | 'setup') => {
 	const ext: unknown = Reflect.get(app, '~ext');

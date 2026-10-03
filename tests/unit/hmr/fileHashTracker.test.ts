@@ -4,7 +4,8 @@ import { writeFileSync, unlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import {
 	computeFileHash,
-	hasFileChanged
+	hasFileChanged,
+	predatesProcess
 } from '../../../src/dev/fileHashTracker';
 
 describe('computeFileHash', () => {
@@ -61,5 +62,30 @@ describe('hasFileChanged', () => {
 	test('normalizes paths with backslashes', () => {
 		const hashes = new Map<string, number>([['/some/file.ts', 12345]]);
 		expect(hasFileChanged('\\some\\file.ts', 12345, hashes)).toBe(false);
+	});
+});
+
+describe('predatesProcess', () => {
+	test('an unhashed file last written before the process started', () => {
+		const tmpFile = resolve(tmpdir(), `predates-${Date.now()}.txt`);
+		writeFileSync(tmpFile, 'loaded at boot');
+		const writtenAt = Bun.file(tmpFile).lastModified;
+		expect(predatesProcess(tmpFile, new Map(), writtenAt + 1)).toBe(true);
+		expect(predatesProcess(tmpFile, new Map(), writtenAt - 1)).toBe(false);
+		unlinkSync(tmpFile);
+	});
+
+	test('a file already hashed is never a baseline', () => {
+		const tmpFile = resolve(tmpdir(), `predates-hashed-${Date.now()}.txt`);
+		writeFileSync(tmpFile, 'seen');
+		const hashes = new Map([[tmpFile.replace(/\\/g, '/'), 1]]);
+		expect(predatesProcess(tmpFile, hashes, Date.now() + 1000)).toBe(false);
+		unlinkSync(tmpFile);
+	});
+
+	test('a missing file is not a baseline', () => {
+		expect(predatesProcess('/no/such/file.ts', new Map(), Date.now())).toBe(
+			false
+		);
 	});
 });

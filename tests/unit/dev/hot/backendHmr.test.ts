@@ -254,6 +254,38 @@ describe('backend HMR', () => {
 		expect(barrel.label).toBe(1);
 	});
 
+	test('a second copy of the runtime, as in another bundle, applies edits', async () => {
+		// The published package bundles the bootstrap and the rebuild trigger
+		// separately, each with its own copy of these modules.
+		const hotDir = join(import.meta.dir, '../../../../src/dev/hot');
+		const copyOf = async (name: string, exported: string) => {
+			const loaded: unknown = await import(`${hotDir}/${name}?bundle=2`);
+			const value: unknown =
+				typeof loaded === 'object' && loaded !== null
+					? Reflect.get(loaded, exported)
+					: undefined;
+			if (typeof value !== 'function')
+				throw new Error(`${name} has no ${exported}`);
+
+			return (...args: unknown[]) => {
+				const result: unknown = Reflect.apply(value, undefined, args);
+
+				return result;
+			};
+		};
+		const isHotManagedCopy = await copyOf('plugin.ts', 'isHotManaged');
+		const applyCopy = await copyOf('reload.ts', 'applyServerChange');
+		expect(isHotManagedCopy(path('handler.ts'))).toBe(true);
+		const source = await Bun.file(path('handler.ts')).text();
+		write('handler.ts', source.replace('`v2:', '`v3:'));
+		expect(await applyCopy(path('handler.ts'), entry)).toMatchObject({
+			status: 'applied'
+		});
+		expect(call('value')).toBe('v3:1');
+		write('handler.ts', source);
+		await applyServerChange(path('handler.ts'), entry);
+	});
+
 	test('a new export is importable by a later edit', async () => {
 		await edit(
 			'handler.ts',

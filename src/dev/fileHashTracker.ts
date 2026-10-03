@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 import { UNFOUND_INDEX } from '../constants';
 import { normalizePath } from '../utils/normalizePath';
 
@@ -33,4 +33,21 @@ export const hasFileChanged = (
 	}
 
 	return previousHash !== currentHash;
+};
+
+/* Whether a file the watcher has not hashed yet is just what this process
+   loaded: last written before the process started. Watch-event bursts and
+   the atomic-save recovery scan (every file touched in the last minute,
+   e.g. by a checkout) report such files although nobody edited them. */
+export const predatesProcess = (
+	filePath: string,
+	previousHashes: Map<string, number>,
+	processStart = performance.timeOrigin
+) => {
+	if (previousHashes.has(normalizePath(filePath))) return false;
+	try {
+		return statSync(filePath).mtimeMs < processStart;
+	} catch {
+		return false;
+	}
 };

@@ -188,8 +188,17 @@ export const startServerEntryWatcher = () => {
 		let evaluated = true;
 
 		try {
-			if (!force) console.log(`[hmr] reloading server entry (${cause})`);
+			const reportsUpdate =
+				!force && globalThis.__absoluteBackendHmr === true;
+			const startedAt = performance.now();
+			if (!force && !reportsUpdate)
+				console.log(`[hmr] reloading server entry (${cause})`);
 			await importFreshEntry();
+			// A forced re-run is part of a module update, which reports itself.
+			if (reportsUpdate) {
+				const { reportEntryUpdate } = await import('./hot/reload');
+				reportEntryUpdate(entryPath, performance.now() - startedAt);
+			}
 			// On success, the new module's `networking` plugin call
 			// has already swapped the running Bun.serve's fetch
 			// handler via `app.server.reload({ fetch, routes: {} })`.

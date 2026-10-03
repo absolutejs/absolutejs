@@ -98,6 +98,57 @@ const importNextVersion = async (path: string) => {
 
 const display = (path: string) => relative(process.cwd(), path) || path;
 
+const SLOW_UPDATE_MS = 500;
+const SLOWEST_SHOWN = 3;
+
+/** `v:routes` → `routes`; an unnamed statement reads as its position. */
+const statementLabel = (id: string) => {
+	const name = id.slice(id.indexOf(':') + 1);
+
+	return /^\d+$/.test(name) ? `statement #${name}` : name;
+};
+
+/** The statements that took longest in the modules an update re-ran, so a
+ *  slow update says where its time went. */
+const slowestStatements = (modules: string[]) =>
+	modules
+		.flatMap((module) =>
+			[...(moduleRecord(module)?.lastTimings ?? [])].map(
+				([id, duration]) => ({
+					duration,
+					label: `${display(module)} ${statementLabel(id)}`
+				})
+			)
+		)
+		.sort((left, right) => right.duration - left.duration)
+		.slice(0, SLOWEST_SHOWN)
+		.map(({ label, duration }) => `${label} ${Math.round(duration)}ms`);
+
+const SHOWN_STATEMENTS = 5;
+
+/** Log an in-place re-run of the server entry: how long it took and which
+ *  of its statements re-ran (the rest kept their values). */
+export const reportEntryUpdate = (entryPath: string, elapsed: number) => {
+	const entry = realPath(entryPath);
+	const reran = [...(moduleRecord(entry)?.lastTimings.keys() ?? [])].map(
+		statementLabel
+	);
+	const shown = reran.slice(0, SHOWN_STATEMENTS).join(', ');
+	const more =
+		reran.length > SHOWN_STATEMENTS
+			? ` and ${reran.length - SHOWN_STATEMENTS} more`
+			: '';
+	console.log(
+		`[hmr] server: ${display(entry)} updated in ${Math.round(elapsed)}ms${
+			reran.length > 0 ? ` (re-ran: ${shown}${more})` : ''
+		}`
+	);
+	if (elapsed >= SLOW_UPDATE_MS)
+		console.log(
+			`[hmr] server: slowest statements: ${slowestStatements([entry]).join(', ')}`
+		);
+};
+
 /** Re-evaluate `path` as its next version and make it current. Returns the
  *  exports whose content changed, or the error that rolled it back. */
 const advance = async (path: string): Promise<Advanced> => {
@@ -183,6 +234,13 @@ const apply = async (
 				: ''
 		}`
 	);
+	if (elapsed >= SLOW_UPDATE_MS)
+		console.log(
+			`[hmr] server: slowest statements: ${slowestStatements([
+				...modules,
+				...(entryAffected ? [entry] : [])
+			]).join(', ')}`
+		);
 
 	return { entry: entryAffected, modules, ms: elapsed, status: 'applied' };
 };
@@ -241,12 +299,13 @@ const reportFailure = (path: string, error: unknown) => {
 	console.error(error);
 };
 
-let chain: Promise<unknown> = Promise.resolve();
+// One queue for every bundle that applies edits (see `records` in runtime).
 
 /** Apply an edit to a server module. Edits apply one at a time. */
 export const applyServerChange = (path: string, entryPath: string) => {
-	const result = chain.then(() => apply(path, entryPath));
-	chain = result.catch(() => undefined);
+	const previous = globalThis.__absoluteHotApplyChain ?? Promise.resolve();
+	const result = previous.then(() => apply(path, entryPath));
+	globalThis.__absoluteHotApplyChain = result.catch(() => undefined);
 
 	return result;
 };

@@ -7,6 +7,16 @@ declare global {
 		| import('../src/dev/hotResources').HotResourceState
 		| undefined;
 	var __absoluteLiveApp: object | undefined;
+	var __absoluteHotRecords:
+		| Map<string, import('../src/dev/hot/runtime').ModuleRecord>
+		| undefined;
+	var __absoluteHotPlugin:
+		| import('../src/dev/hot/plugin').HotPluginState
+		| undefined;
+	var __absoluteHotApplyChain: Promise<unknown> | undefined;
+	var __absoluteHotSetupCleanups:
+		| WeakMap<object, import('../src/dev/hot/appLifecycle').Hook[]>
+		| undefined;
 	var __absoluteReloadEntry:
 		| ((cause: string) => Promise<boolean>)
 		| undefined;

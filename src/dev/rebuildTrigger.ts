@@ -33,7 +33,11 @@ import {
 import { incrementSourceFileVersions, type HMRState } from './clientManager';
 import { getAffectedFiles } from './dependencyGraph';
 import { DEFAULT_DEBOUNCE_MS, REBUILD_BATCH_DELAY_MS } from '../constants';
-import { computeFileHash, hasFileChanged } from './fileHashTracker';
+import {
+	computeFileHash,
+	hasFileChanged,
+	predatesProcess
+} from './fileHashTracker';
 import {
 	findNearestComponent,
 	invalidate as invalidateTransformCache
@@ -72,6 +76,7 @@ import { clearSiblingCssCache } from '../utils/inlinePageCss';
 import { detectFramework } from './pathUtils';
 import { resolveOwningComponents as resolveOwningComponentsSync } from './angular/resolveOwningComponents';
 import { toKebab, toPascal } from '../utils/stringModifiers';
+import { normalizePath } from '../utils/normalizePath';
 import type { ResolvedBuildPaths } from './configResolver';
 import { broadcastToClients } from './webSocket';
 import {
@@ -763,6 +768,11 @@ export const queueFileChange = async (
 	}
 
 	const currentHash = computeFileHash(filePath);
+	if (predatesProcess(filePath, state.fileHashes)) {
+		state.fileHashes.set(normalizePath(filePath), currentHash);
+
+		return;
+	}
 
 	if (!hasFileChanged(filePath, currentHash, state.fileHashes)) {
 		return;

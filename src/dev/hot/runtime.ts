@@ -1,3 +1,4 @@
+import { relative } from 'node:path';
 import {
 	disposeResources,
 	runOwned,
@@ -32,9 +33,11 @@ type Pending = {
 	keys: Map<string, string>;
 	/** Exports whose declaring statement re-runs in this version. */
 	changedExports: Set<string>;
+	/** How long each re-run statement took, in milliseconds. */
+	timings: Map<string, number>;
 };
 
-type ModuleRecord = {
+export type ModuleRecord = {
 	path: string;
 	generation: number;
 	slots: Map<string, Slot>;
@@ -49,6 +52,8 @@ type ModuleRecord = {
 	revisions: Map<string, number>;
 	/** Exports the latest committed version re-ran. */
 	lastChanged: Set<string>;
+	/** How long each statement re-run by the last version took (ms). */
+	lastTimings: Map<string, number>;
 	analysis?: HotModuleAnalysis;
 	/** Source the latest loaded version was built from. */
 	source?: string;
@@ -62,7 +67,13 @@ type Facade = {
 	watch: (name: string, update: (value: unknown) => void) => void;
 };
 
-const records = new Map<string, ModuleRecord>();
+// On globalThis: the bootstrap, the rebuild trigger and the networking
+// plugin can each be built into a different bundle with its own copy of this
+// module, and all of them must see the same modules.
+const records = (globalThis.__absoluteHotRecords ??= new Map<
+	string,
+	ModuleRecord
+>());
 
 const recordFor = (path: string) => {
 	const existing = records.get(path);
@@ -72,6 +83,7 @@ const recordFor = (path: string) => {
 		generation: 0,
 		keys: new Map(),
 		lastChanged: new Set(),
+		lastTimings: new Map(),
 		meta: {},
 		path,
 		revisions: new Map(),
@@ -172,12 +184,28 @@ const begin = (path: string, meta: ExportMeta, plan: StatementPlan[]) => {
 		reran: new Set(),
 		seen: new Set(),
 		slots: new Map(),
+		timings: new Map(),
 		...decideReruns(record, plan, meta)
 	};
 	record.pending = pending;
 	const { generation } = pending;
-	const owned = <Result>(id: string, work: () => Result) =>
-		runOwned(ownerOf(path, id), generation, work);
+	const owned = <Result>(id: string, work: () => Result) => {
+		const startedAt = performance.now();
+		const result = runOwned(ownerOf(path, id), generation, work);
+		pending.timings.set(id, performance.now() - startedAt);
+
+		return result;
+	};
+	const ownedAsync = async <Result>(
+		id: string,
+		work: () => Promise<Result>
+	) => {
+		const startedAt = performance.now();
+		const result = await runOwned(ownerOf(path, id), generation, work);
+		pending.timings.set(id, performance.now() - startedAt);
+
+		return result;
+	};
 	/** The previous slot when the statement is kept, else `undefined`. */
 	const kept = (id: string) => {
 		pending.seen.add(id);
@@ -208,7 +236,7 @@ const begin = (path: string, meta: ExportMeta, plan: StatementPlan[]) => {
 		},
 		ca: async (name: string, id: string, init: () => Promise<unknown>) => {
 			if (kept(id) && name in record.cells) return;
-			record.cells[name] = await owned(id, init);
+			record.cells[name] = await ownedAsync(id, init);
 			store(id, undefined);
 		},
 		end: () => commit(record, pending),
@@ -223,7 +251,7 @@ const begin = (path: string, meta: ExportMeta, plan: StatementPlan[]) => {
 			const previous = kept(id);
 			if (previous) return previous.value;
 
-			return store(id, await owned(id, factory));
+			return store(id, await ownedAsync(id, factory));
 		},
 		/** A statement run for its effect, only when it re-runs. */
 		r: (id: string, effect: () => unknown) => {
@@ -233,7 +261,7 @@ const begin = (path: string, meta: ExportMeta, plan: StatementPlan[]) => {
 		},
 		ra: async (id: string, effect: () => Promise<unknown>) => {
 			if (kept(id)) return;
-			await owned(id, effect);
+			await ownedAsync(id, effect);
 			store(id, undefined);
 		}
 	};
@@ -268,7 +296,7 @@ const logDisposed = (path: string, counts: DisposedCounts) => {
 	);
 	if (parts.length > 0)
 		console.log(
-			`[hmr] stopped ${parts.join(', ')} started by replaced code in ${path}`
+			`[hmr] stopped ${parts.join(', ')} started by replaced code in ${relative(process.cwd(), path) || path}`
 		);
 };
 
@@ -304,6 +332,7 @@ const commit = (record: ModuleRecord, pending: Pending) => {
 	record.meta = pending.meta;
 	record.keys = pending.keys;
 	record.lastChanged = pending.changedExports;
+	record.lastTimings = pending.timings;
 	for (const name of pending.changedExports)
 		record.revisions.set(name, (record.revisions.get(name) ?? 0) + 1);
 	if (replaced.size === 0) return;

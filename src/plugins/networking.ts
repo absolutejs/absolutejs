@@ -151,11 +151,9 @@ export const networking = <A extends AnyElysia>(app: A) => {
 		// Elysia 2 removed the public app.store getter. The dev HMR plugin
 		// restores the composed request-context store on the first request
 		// through the newly imported app instead.
-		try {
-			app.compile();
-		} catch {
-			/* compile is best-effort; some Elysia configs skip it */
-		}
+		// No `app.compile()`: it compiles every route up front, which for a
+		// large app is seconds per edit. The new app builds its router on
+		// the first request and compiles each route when it is first hit.
 		// Elysia compiles routes into Bun.serve's `routes` static map
 		// at .listen() time for performance. `Bun.serve.reload({fetch})`
 		// only swaps the fetch fallback — the OLD static `routes` map

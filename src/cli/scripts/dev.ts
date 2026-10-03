@@ -1,4 +1,5 @@
 import { isAbsoluteServerEntryCopyPath } from '../../dev/serverEntryCopies';
+import { changeNeedsRestart } from '../../dev/restartScope';
 import { $, env } from 'bun';
 import { spawn as nodeSpawn, type ChildProcess } from 'node:child_process';
 import {
@@ -2287,6 +2288,13 @@ export const dev = async (
 			if (filename === serverEntryBasename) return;
 			if (filename === configBasename) return;
 			if (ROOT_RESTART_DENY.has(filename)) return;
+			// Code modules next to the entry belong to the server process: it
+			// updates them in place, or prints the restart marker for one it
+			// cannot. Documents and tests never need a restart.
+			if (
+				!changeNeedsRestart(join(serverEntryDir, filename), () => false)
+			)
+				return;
 			const now = Date.now();
 			const last = recentlyHandled.get(filename) ?? 0;
 			if (now - last < 100) return;
