@@ -241,6 +241,19 @@ describe('backend HMR', () => {
 		expect(outcome.status).toBe('unchanged');
 	});
 
+	test('a barrel re-exporting with inline `type` specifiers loads', async () => {
+		write(
+			'types.ts',
+			'export type Label = string;\nexport const label = 1;\n'
+		);
+		write(
+			'barrel.ts',
+			"export { label, type Label } from './types';\nexport type { Label as Name } from './types';\n"
+		);
+		const barrel = await import(path('barrel.ts'));
+		expect(barrel.label).toBe(1);
+	});
+
 	test('a new export is importable by a later edit', async () => {
 		await edit(
 			'handler.ts',

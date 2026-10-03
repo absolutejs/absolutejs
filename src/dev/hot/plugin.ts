@@ -31,7 +31,6 @@ type Analysis = HotModuleAnalysis | HotModuleRejection;
 type InstalledOptions = HotPluginOptions & { cacheDir: string };
 
 const HOT_QUERY = /^absolute-hot=(\d+)$/;
-const JS_LOADER: Loader = 'js';
 const SOURCE = /\.(?:[cm]?[jt]sx?)$/;
 const TEST_FILE = /(?:\.(?:spec|test)\.[cm]?[jt]sx?$)|(?:[\\/]__tests__[\\/])/;
 const GENERATED =
@@ -174,7 +173,9 @@ const loadFacade = async (path: string) => {
 			`${path}?absolute-hot=${currentTag(path)}`,
 			analysis
 		),
-		loader: JS_LOADER
+		// The module's own loader: re-exports are copied as written, and
+		// may carry TypeScript (`export { x, type T } from`).
+		loader: loaderFor(path)
 	};
 };
 
