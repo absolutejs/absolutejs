@@ -4,6 +4,11 @@
 written in [oven-sh/bun#32951](https://github.com/oven-sh/bun/pull/32951) and closed unmerged as
 stale; the earlier [#28312](https://github.com/oven-sh/bun/pull/28312) targeted files Bun has since
 rewritten.
+**Re-checked 2026-10-05:** still broken on Bun 1.4.2 (no `$RefreshReg$` in the transpiler's output).
+Related open work that could land it: [#42010](https://github.com/oven-sh/bun/pull/42010) (one React
+Fast Refresh contract for `.jsx` and `.tsx`, adds `reactFastRefresh.importSource`) and
+[#40179](https://github.com/oven-sh/bun/issues/40179) (a `bun --hot` flag running the transform).
+The patch's source hunks apply cleanly to 1.4.2; only its test hunk needs fresh context.
 **Our answer:** AbsoluteJS publishes Bun with just that fix,
 [absolutejs/patched-bun](https://github.com/absolutejs/patched-bun), for every platform Bun ships.
 

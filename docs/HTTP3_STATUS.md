@@ -5,6 +5,20 @@
 > readiness would be a mistake. This doc tracks the h3 path independently so
 > the h2 effort can move at its own pace.
 
+## Status (re-checked 2026-10-05 on Bun 1.4.2)
+
+Unchanged in substance: Bun 1.4.1 and 1.4.2 did not add WebSocket upgrades on
+the HTTP/3 listener, and HTTP/3 is still marked experimental. The two missing
+pieces are now one tracked issue,
+[oven-sh/bun#44165](https://github.com/oven-sh/bun/issues/44165)
+("Bun.serve: WebSockets over HTTP/3 (RFC 9220)", open, filed 2026-09-28).
+
+HTTP/3 is also less urgent now: Bun 1.4.1 shipped HTTP/2 in `Bun.serve`, which
+removes the connection bottleneck (see
+[HTTP2_STATUS.md](./HTTP2_STATUS.md)). And as with HTTP/2, the HMR socket
+does not need to ride HTTP/3: browsers open WebSockets over TCP when the
+server does not offer RFC 9220.
+
 ## Goal
 
 Serve dev module fetches and (eventually) production traffic over HTTP/3 +
@@ -68,16 +82,17 @@ hop, lossy wifi) the per-stream HoL elimination is real but incremental.
 ## Blockers before AbsoluteJS can adopt h3 for HMR
 
 ### 1. WS upgrade on Bun.serve h3 listener
-**Status:** Missing in 1.3.14. **Tracking:** none filed yet — search
-`oven-sh/bun` issues for "WebSocket http3 upgrade" before opening.
+**Status:** Still missing in 1.4.2. **Tracking:**
+[oven-sh/bun#44165](https://github.com/oven-sh/bun/issues/44165).
 
 `server.upgrade()` returns `false` on the h3 path. Without WS-over-h3 there's
 no single-multiplexed-connection HMR — we'd need a parallel h1.1/h2 listener
 just for the WS, which defeats the whole point.
 
 ### 2. RFC 9220 (WebSockets over HTTP/3) implementation
-**Status:** Not implemented in Bun. **Tracking:** no issue filed as of
-2026-05-13.
+**Status:** Not implemented in Bun 1.4.2. **Tracking:**
+[oven-sh/bun#44165](https://github.com/oven-sh/bun/issues/44165) (the same
+issue as #1).
 
 RFC 9220 specifies Extended CONNECT over HTTP/3 — the h3 equivalent of RFC
 8441 (h2's Extended CONNECT). Browsers (Chrome, Firefox) support it. Bun needs

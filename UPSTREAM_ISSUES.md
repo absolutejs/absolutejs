@@ -7,125 +7,30 @@ code, but we track them here with the symptom, root cause, a workaround, and the
 upstream issue to watch. Remove an entry once the upstream fix ships and we've
 bumped past it.
 
----
+## Current status
 
-## 1. Elysia `status("<reason-phrase>")` emits a malformed 204 (Content-Length mismatch)
+Last full re-check: **2026-10-05**, on **Bun 1.4.2** and **Elysia
+2.0.0-beta.21**. Every entry was re-run against those versions, not judged by
+its issue's state. Upstream closes issues that are not fixed (as a duplicate,
+"unable to reproduce", or "fixed" for a narrower case), so **only a passing
+repro retires an entry**.
 
-- **Dependency:** Elysia (`elysia`)
-- **Status:** tracked upstream (fix PR open)
-  - Issue **#1277** — "Using Cloudflare workers and returning a 204 returns a body
-    which is unacceptable by Cloudflare and causes a 500" (closed):
-    https://github.com/elysiajs/elysia/issues/1277
-  - PR **#1833** (the fix) — "fix: empty-body status codes send body when using
-    string status names" (open):
-    https://github.com/elysiajs/elysia/pull/1833
+| # | Problem | Upstream | Fixed? |
+| --- | --- | --- | --- |
+| 3 | `@playwright/mcp` orphans Chrome trees | playwright#41013 closed (dismissed), #43098 open | No |
+| 4 | Svelte HMR drops `$state` | svelte#17995 (ours) open | No |
+| 5 | Tailwind v4 at-rule warnings | bun#12878 open | No (1.4.2) |
+| 6 | `String.raw` escapes non-ASCII on `target: "bun"` | bun#8745 open | No (1.4.2) |
+| 7 | `Bun.Transpiler` ignores `reactFastRefresh` | bun#32919 (ours) open | No (1.4.2) |
 
-**Symptom.** A handler that returns `status("No Content")` produces an HTTP 204
-with `Content-Length: 10` but **zero body bytes**. Over HTTP/1.1 this is
-tolerated (curl, local dev), so it passes locally — but a **strict HTTP/2 proxy
-(Cloudflare, which fronts DigitalOcean App Platform) rejects the framing
-mismatch and returns a fast `504`** (~0.2s, not a hang). Every bodyless-status
-endpoint breaks in production: login session cookie, logout, and all
-delete/archive routes.
+Resolved entries are kept at the end so the fix is on record.
 
-**Root cause.** Passing the reason-phrase **name** to `status()` makes Elysia put
-the string (`"No Content"`, length 10) in the response body **and** set
-`Content-Length: 10`. The 204 then strips the body, leaving the now-wrong
-`Content-Length`. `304 Not Modified` would have the same problem.
+### Needs action upstream
 
-**Workaround.** Use the **numeric** code: `status(204)` (and `status(304)`).
-Verified via Bun + Elysia serialization tests to emit a clean `Content-Length: 0`
-while preserving `Set-Cookie`. `set.status = 204; return;` and
-`return new Response(null, { status: 204 })` are also clean.
-
-```ts
-// ❌ malformed 204 — 504s behind Cloudflare/HTTP-2
-return status("No Content");
-// ✅ clean 204
-return status(204);
-```
-
-**Why local never catches it.** `curl`/HTTP-1.1 tolerates a `Content-Length` vs
-body-length mismatch; only HTTP/2 proxies enforce it. Test through the real
-deployed edge, not just localhost.
-
-**Detection.** From inside the container (or any HTTP/1.1 client):
-`fetch(url).then(r => r.headers.get("content-length"))` on a 204 route — if it's
-nonzero with an empty body, you have this bug.
-
----
-
-## 2. Bun has no reliable Happy-Eyeballs / IPv4 fallback (hangs on no-IPv6-egress hosts)
-
-- **Dependency:** Bun (`bun`)
-- **Status:** open upstream
-  - **#25619** — DNS resolution prefers global IPv6 → timeout (our exact case):
-    https://github.com/oven-sh/bun/issues/25619
-  - **#29695** — `dns.lookup(..., {hints: ADDRCONFIG})` returns IPv6 inside
-    `Bun.serve` but IPv4 in a plain Bun process:
-    https://github.com/oven-sh/bun/issues/29695
-  - **#9658** — Implement Happy Eyeballs for sockets and fetch (closed, but
-    incomplete for `node:net`/`node:https`):
-    https://github.com/oven-sh/bun/issues/9658
-  - **#28596** — `net.createConnection` doesn't use Happy Eyeballs → postgres.js
-    / ioredis hang on dual-stack (closed):
-    https://github.com/oven-sh/bun/issues/28596
-  - #10731 — "2 step plan to fix most DNS-related issues in Bun" (closed):
-    https://github.com/oven-sh/bun/issues/10731
-
-**Symptom.** On a host with **no outbound IPv6 egress** (DigitalOcean App
-Platform silently blackholes IPv6 — DO docs: _"App Platform apps do not support
-connecting to IPv6 services… ETIMEDOUT"_), any call to a **dual-stack host** that
-publishes AAAA records (e.g. every `*.googleapis.com`) **hangs ~25s × retries ≈
-138s → gateway 504**. IPv4-only hosts (OpenAI, Deepgram) are unaffected, which
-makes it look like "only Google is broken."
-
-**Root cause.** Bun connects to whichever address DNS returns first
-(`verbatim`/IPv6-preferred) and does **not** fall back to IPv4 — Happy Eyeballs
-is missing/incomplete in `node:net` and `node:https`. Node.js has had
-`autoSelectFamily` (Happy Eyeballs) **on by default since Node 20**, so the whole
-Node ecosystem is immune — this only bites Bun. **Not** related to
-`absolute compile`: a plain `bun run` hangs identically.
-
-**Things that do NOT fix it** (all verified hanging under a silent IPv6
-blackhole): `dns.setDefaultResultOrder("ipv4first")` (Bun ignores it for
-connect), `https.globalAgent.options.lookup`, and a library's own agent option
-(e.g. firebase-admin `httpAgent` — its OAuth path bypasses it).
-
-**Workaround.** Force IPv4 at connect time with an explicit `lookup` on the
-`node:https` request/agent (138s → ~190ms):
-
-```ts
-import { lookup as dnsLookup } from "node:dns";
-const forceIPv4 = ((hostname, options, cb) =>
-  dnsLookup(hostname, { ...options, family: 4 }, cb)) as import("node:net").LookupFunction;
-
-https.request(url, { lookup: forceIPv4, /* … */ });
-// or: new https.Agent({ lookup: forceIPv4 })  — for libraries that accept an agent
-//     AND route their connections through it.
-```
-
-For our own `fetch` calls this is moot — but third-party SDKs built on
-`node:https` (firebase-admin, googleapis, aws-sdk v2, ioredis, postgres.js) will
-hang. Prefer libraries that use Bun's `fetch`, or inject a forced-IPv4 agent.
-
-**Reproduce locally** (a true silent blackhole; docker's default v6 gateway
-rejects too fast and hides it):
-
-```bash
-docker network create --ipv6 --subnet 2001:db8:1::/64 v6bh
-docker run --rm --network v6bh --cap-add=NET_ADMIN oven/bun:latest bash -c '
-  apt-get update -qq && apt-get install -y -qq iproute2 iptables >/dev/null
-  ip -6 route add default dev eth0
-  ip6tables -A OUTPUT -p tcp -j DROP   # silent blackhole = DO behavior
-  bun -e "await fetch(\"https://oauth2.googleapis.com/\")"   # hangs
-'
-```
-
-**Detection.** A request to a `*.googleapis.com` (or any AAAA-having) host hangs
-~25–138s on DO but works locally; IPv4-only hosts work everywhere. Confirm with
-`getent ahostsv6 <host>` (has AAAA?) and `curl -6 <host>` from the box (does v6
-egress work?).
+- **#6:** comment on bun#8745. It is still broken on 1.4.2, it breaks SSR
+  hydration, and both fix PRs (#33867, #33868) were closed unmerged.
+- **#7:** ask on bun#32919 for the closed fix (#32951) to be reopened or
+  folded into #42010, with the 1.4.2 probe in #7 below.
 
 ---
 
@@ -133,21 +38,20 @@ egress work?).
 
 - **Dependency:** `@playwright/mcp` (Microsoft) — source actually lives in
   `playwright-core` at `packages/playwright-core/src/tools/mcp/watchdog.ts`
-- **Status:** bug filed on `microsoft/playwright`; original PR was dismissed
-  - **microsoft/playwright#41013** (the bug report with deterministic repro,
-    filed on the right repo since the code lives in `playwright-core`):
-    https://github.com/microsoft/playwright/issues/41013
-  - microsoft/playwright#41009 — proposed fix; closed by maintainer
-    ("Looks like agentic slop") without technical review:
-    https://github.com/microsoft/playwright/pull/41009
-  - **microsoft/playwright-mcp#1634** (companion issue on the wrapper repo,
-    same analysis): https://github.com/microsoft/playwright-mcp/issues/1634
-  - microsoft/playwright-mcp#1568 — same bug, correct root cause analysis,
-    closed by maintainer as "no repro":
-    https://github.com/microsoft/playwright-mcp/issues/1568
-  - microsoft/playwright-mcp#1512 — sister bug (orphan MCP servers via
-    `npm exec`), closed as no repro:
-    https://github.com/microsoft/playwright-mcp/issues/1512
+- **Status:** still applies; upstream dismissed it (re-checked 2026-10-05)
+  - **microsoft/playwright#41013** (our report, deterministic repro) — **closed
+    2026-06-08** by the maintainer as "the problem seems to be on the client
+    end": https://github.com/microsoft/playwright/issues/41013
+  - microsoft/playwright#41089 — "fix(mcp): close browser when host dies
+    without a signal" — **closed unmerged** with it:
+    https://github.com/microsoft/playwright/pull/41089
+  - microsoft/playwright#41017 — maintainer investigation "cannot reproduce
+    orphan Chrome trees" — closed
+  - **microsoft/playwright#43098** — **open**, related: on stdin EOF the stdio
+    server force-kills its own browser 1 ms after start (the shutdown path is
+    still being reworked): https://github.com/microsoft/playwright/issues/43098
+  - Earlier: microsoft/playwright#41009 (closed), microsoft/playwright-mcp#1634,
+    #1568, #1512 (closed, "no repro")
 
 **Symptom.** Doesn't bite **deployed** AbsoluteJS apps — bites the **dev
 environment** any time an AI agent (Claude Code, Cursor, etc.) uses the
@@ -189,17 +93,15 @@ overhead; a persistent 1GB+ `node` is usually the TS server, but multiple
 this bug.
 
 ---
-
 ## 4. Svelte 5's `$.hmr()` does not preserve `$state` across HMR component swaps
 
 - **Dependency:** Svelte (`svelte`)
-- **Status:** our fix PR is open upstream
+- **Status:** our fix PR is still open upstream (re-checked 2026-10-05)
   - **sveltejs/svelte#17995** (our PR) — "feat: preserve $state across HMR
-    component swaps": https://github.com/sveltejs/svelte/pull/17995
+    component swaps" — **open**, last activity 2026-07-24:
+    https://github.com/sveltejs/svelte/pull/17995
   - sveltejs/svelte#14434 — the long-standing feature request it fixes:
     https://github.com/sveltejs/svelte/issues/14434
-- **Surfaced in AbsoluteJS as:**
-  [absolutejs/absolutejs#41](https://github.com/absolutejs/absolutejs/issues/41)
 
 **Symptom.** Dev-only. On a surgical Svelte HMR update (`$.hmr_accept`), any
 reactive state that lives where the swap can't reach — composables
@@ -245,15 +147,16 @@ the page `<script>`, count must survive — now via the runtime, with no remount
 log/behavior).
 
 ---
-
 ## 5. Bun's native CSS parser doesn't understand Tailwind v4 at-rules
 
 - **Dependency:** Bun (`bun`)
-- **Status:** open upstream
+- **Status:** open upstream; **still reproduces on Bun 1.4.2** (re-checked
+  2026-10-05 — `@theme`, `@tailwind` and `@utility` each still warn)
   - **oven-sh/bun#12878** — "Bun Bundler: Tailwind CSS" (umbrella, open since
     July 2024): https://github.com/oven-sh/bun/issues/12878
-- **Surfaced in AbsoluteJS as:**
-  [absolutejs/absolutejs#37](https://github.com/absolutejs/absolutejs/issues/37)
+  - Related, open: oven-sh/bun#42909 and #43143 — other valid CSS constructs
+    the parser still rejects or mishandles. They show the parser is being
+    extended rule by rule; nothing there targets Tailwind's directives.
 
 **Symptom.** When a TS/TSX file `import`s a Tailwind v4 entry CSS (e.g.
 `import "./index.css"` where `index.css` contains `@theme {…}` / `@tailwind …`),
@@ -306,13 +209,19 @@ const r = await Bun.build({
 ```
 
 ---
-
 ## 6. Bun escapes non-ASCII text inside `String.raw` tagged templates
 
 - **Dependency:** Bun (`bun`)
-- **Status:** confirmed bug, open upstream
-  - **oven-sh/bun#16763** — "Transpiler not respecting String.raw that
-    containing emoji": https://github.com/oven-sh/bun/issues/16763
+- **Status:** open upstream; **still reproduces on Bun 1.4.2** (re-checked
+  2026-10-05 — `target: "bun"` escapes, `target: "browser"` keeps the literal)
+  - **oven-sh/bun#8745** — "raw tagged template literals show escapes for non
+    ascii text" — **open, the canonical issue now**:
+    https://github.com/oven-sh/bun/issues/8745
+  - oven-sh/bun#16763 — our original link — **closed 2026-08-13 as a duplicate
+    of #8745**: https://github.com/oven-sh/bun/issues/16763
+  - oven-sh/bun#33867 ("Preserve non-ASCII source text in
+    TemplateStringsArray.raw") and #33868 ("transpiler: preserve non-ASCII
+    source text at runtime") — the two fix PRs — **both closed unmerged**
 
 **Symptom.** A production SSR build can render different text from its browser
 bundle when application source contains a non-ASCII character inside
@@ -338,7 +247,63 @@ plugin is installed on framework SSR, production server, and compiled-server
 build passes. `tests/unit/build/bunStringRawUnicodePlugin.test.ts` locks the
 runtime behavior against Bun's `target: "bun"` transpiler.
 
-**Remove when:** Bun ships a fix for #16763 and AbsoluteJS's minimum Bun version
+**Remove when:** Bun ships a fix for #8745 and AbsoluteJS's minimum Bun version
 includes it. First invert or remove the direct Bun regression assertion, then
 remove `bunStringRawUnicodePlugin.ts` and every
 `createBunStringRawUnicodePlugin()` registration in the same change.
+
+---
+
+## 7. `new Bun.Transpiler({ reactFastRefresh: true })` ignores the option
+
+- **Dependency:** Bun (`bun`)
+- **Status:** open upstream; **still reproduces on Bun 1.4.2** (re-checked
+  2026-10-05 — no `$RefreshReg$` / `$RefreshSig$` in the output)
+  - **oven-sh/bun#32919** (ours) — **open**:
+    https://github.com/oven-sh/bun/issues/32919
+  - oven-sh/bun#32951 — the fix — **closed unmerged** as stale.
+  - Related, open: oven-sh/bun#42010 — "bundler: one React Fast Refresh
+    contract for .jsx and .tsx, add reactFastRefresh.importSource" (an unmerged
+    PR touching the same option), and #40179 — "Add a bun --hot flag that runs
+    the React Fast Refresh transform". Either could land the transpiler path
+    as a side effect; re-run the probe when they move.
+
+**Symptom, root cause and workaround** are in
+[docs/REACT_TRANSPILER_BUG.md](./docs/REACT_TRANSPILER_BUG.md). In short:
+React edits in `absolute dev` lose component state on stock Bun, so AbsoluteJS
+offers [absolutejs/patched-bun](https://github.com/absolutejs/patched-bun)
+(Bun plus the backported fix). Its source hunks apply cleanly to Bun 1.4.2;
+only the patch's own test hunk needs fresh context.
+
+**Probe** (prints `false` while the bug exists):
+
+```ts
+const out = new Bun.Transpiler({ loader: "tsx", reactFastRefresh: true } as never)
+  .transformSync("export function C() { const [n] = useState(0); return <b>{n}</b>; }");
+console.log(out.includes("$RefreshReg$"));
+```
+
+---
+
+## Resolved
+
+### Elysia `status("No Content")` sent a malformed 204 (was #1)
+
+Elysia 1.x put the reason phrase in the body and set `Content-Length: 10` on
+a 204, which strict HTTP/2 proxies (Cloudflare) answer with a 504.
+**Not present in Elysia 2:** on the wire, 2.0.0-beta.6 and 2.0.0-beta.21 both
+send `HTTP/1.1 204 No Content` with no `Content-Length` for `status("No
+Content")` (checked 2026-10-05 with a raw socket, since `fetch` hides the
+header). elysiajs/elysia#1833 is still open against 1.x and no longer matters
+to AbsoluteJS. Numeric `status(204)` remains the clearer spelling.
+
+### Bun had no IPv4 fallback on hosts without IPv6 egress (was #2)
+
+Dual-stack hosts (every `*.googleapis.com`) hung ~25–138 s on DigitalOcean
+App Platform, which silently drops IPv6. **Fixed in Bun 1.4.0** by
+oven-sh/bun#36295 ("dns: fix RFC 8305 address-family interleave so
+blackholed IPv6 doesn't…", merged 2026-07-29, commit `6c04f4b`), which closed
+oven-sh/bun#25619 and #29695. The commit is in 1.4.0, 1.4.1 and 1.4.2. Any
+app on Bun ≥ 1.4.0 can drop a forced-IPv4 `lookup`; none remain in the
+AbsoluteJS repositories. The docker blackhole repro no longer reproduces even
+on Bun 1.3.14, so verify by version, not by that repro.
