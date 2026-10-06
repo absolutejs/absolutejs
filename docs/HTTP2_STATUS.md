@@ -1,88 +1,78 @@
 # HTTP/2 Dev Server — Status & Roadmap
 
 ## Goal
-Serve dev module fetches over HTTP/2 multiplexed connections when configured to eliminate the
-HTTP/1.1 6-connection bottleneck on import-heavy pages.
 
-## What's Built & Ready
+Serve dev module fetches over one multiplexed HTTP/2 connection when HTTPS is
+on, removing HTTP/1.1's 6-connections-per-origin bottleneck on import-heavy
+pages.
 
-### HTTPS / TLS (shipping)
-- `dev: { https: true }` config option
-- `src/dev/devCert.ts` — mkcert + self-signed cert generation
-- `src/plugins/networking.ts` — Bun.serve with TLS when HTTPS enabled
-- `src/cli/scripts/dev.ts` — passes `ABSOLUTE_HTTPS=true` to server process
+## Status (re-checked 2026-10-05 on Bun 1.4.2)
 
-### HTTP/2 Plumbing (waiting on Bun)
-- `src/core/prepare.ts` — exposes `globalThis.__http2Config` when `dev.https` is enabled
-- `src/plugins/hmr.ts` — skips Elysia `.ws('/hmr')` when `__http2Config` is set (h2 mode uses RFC 8441 WebSocket instead)
-- `types/globals.d.ts` — `__http2Config` type declaration
-- `types/build.ts` — `dev.https` config type
+**Unblocked.** Bun 1.4.1 added HTTP/2 to `Bun.serve()`
+([oven-sh/bun#40137](https://github.com/oven-sh/bun/issues/40137), which
+closed our blocker [#14672](https://github.com/oven-sh/bun/issues/14672)).
+It is opt-in:
 
-## What's Blocking
+```ts
+Bun.serve({ tls: { cert, key }, http2: true, fetch, websocket });
+```
 
-### Bun Issue #14672 — HTTP/2 for Bun.serve()
-**Critical blocker.** `Bun.serve()` only speaks HTTP/1.1. Using `node:http2`
-as a JS-level bridge works but the per-request overhead through `app.fetch()`
-negates the multiplexing gain at scale. HTTP/2 needs to happen at the native
-Bun.serve level.
+With TLS, a client that offers `h2` through ALPN gets HTTP/2 and everyone else
+gets HTTP/1.1, on the same port. `http1: false` refuses HTTP/1.x entirely.
 
-**Track:** https://github.com/oven-sh/bun/issues/14672
+**WebSockets do not need HTTP/2.** Bun does not yet carry WebSockets over
+HTTP/2 (RFC 8441, now tracked as
+[oven-sh/bun#44061](https://github.com/oven-sh/bun/issues/44061)), and it no
+longer has to for HMR. A browser only uses Extended CONNECT when the server
+sends `SETTINGS_ENABLE_CONNECT_PROTOCOL`; otherwise it opens a separate
+HTTP/1.1 connection for the WebSocket, and that connection negotiates
+`http/1.1` on the same TLS port. Our earlier blocker for that path,
+[oven-sh/bun#28581](https://github.com/oven-sh/bun/pull/28581), was closed
+unmerged and is no longer needed.
 
-**Status as of Bun 1.3.14 (2026-05-13):** Still OPEN, last touched 2026-02-17.
-Bun 1.3.14 added HTTP/3 to `Bun.serve` but **skipped HTTP/2 server** — and the
-HTTP/3 server doesn't support WebSocket upgrade (see h3 section below), so the
-release doesn't unblock us. The team appears to be prioritizing h3 over h2 for
-the server side.
+Verified on Bun 1.4.2, both with `Bun.serve` directly and through Elysia
+(`app.listen({ tls, http2: true })`) on 2.0.0-beta.6 and 2.0.0-beta.21:
 
-### Bun PR #28581 — enableConnectProtocol SETTINGS
-`session.settings({ enableConnectProtocol: true })` is silently ignored —
-the setting never reaches the SETTINGS frame. Browsers require
-`SETTINGS_ENABLE_CONNECT_PROTOCOL=1` before using RFC 8441 Extended CONNECT
-for WebSocket over HTTP/2.
+- a `node:http2` client negotiated `h2` and ran 10–20 module requests
+  multiplexed on **one** connection
+- a WebSocket to `/hmr` on the same port connected and echoed
 
-**Track:** https://github.com/oven-sh/bun/pull/28581
+Still to verify before shipping: the same in a real browser (Chromium through
+Playwright), confirming modules arrive over `h2` and the HMR socket falls back
+to HTTP/1.1.
 
-**Status as of Bun 1.3.14 (2026-05-13):** Still OPEN, not merged, last touched
-2026-03-26. This is the actual unblocker for WS-over-h2 in the `node:http2`
-bridge path — without it the browser refuses Extended CONNECT.
+## What AbsoluteJS has today
 
-## When Bun.serve Gets HTTP/2
+- `dev: { https: true }`, `src/dev/devCert.ts` (mkcert or self-signed) and TLS
+  in `src/plugins/networking.ts` — shipping.
+- `.ws('/hmr')` is always registered in `src/plugins/hmr.ts`. Its comment "In
+  HTTP/2 mode, WebSocket is handled by the http2Bridge" is stale: no bridge
+  exists.
+- `src/core/prepare.ts` sets `globalThis.__http2Config` when `dev.https` is on,
+  for a `node:http2` bridge that was never kept. Nothing reads it.
 
-1. **networking.ts** — pass h2 option to `app.listen()` / `Bun.serve()` config
-2. **hmr.ts** — `__http2Config` check already skips `.ws()` in h2 mode
-3. **WebSocket** — use RFC 8441 Extended CONNECT (requires #28581 or Bun adding it natively)
-4. Remove `__http2Config` pattern if Bun.serve handles h2 + WS natively
+## To ship
+
+1. `src/plugins/networking.ts`: pass `http2: true` alongside `tls` when HTTPS
+   is enabled.
+2. Delete `globalThis.__http2Config` (`src/core/prepare.ts`,
+   `types/globals.d.ts`) and the stale comment in `src/plugins/hmr.ts`.
+3. Verify in Chromium as above, then on a remote dev host where the
+   connection limit actually bites.
 
 ## HTTP/3 is tracked separately
 
-h3 is **not a prerequisite** for h2. The h1.1 → h2 jump is the transformative
-win (kills the 6-connection bottleneck, enables Extended CONNECT WS); h2 → h3
-is incremental and largely invisible on localhost. See
-[docs/HTTP3_STATUS.md](./HTTP3_STATUS.md) for h3 tracking — including why Bun
-1.3.14's new `Bun.serve({ http3: true })` doesn't unblock HMR (no WS upgrade
-on the h3 listener, no RFC 9220 yet).
+See [docs/HTTP3_STATUS.md](./HTTP3_STATUS.md). HTTP/2 was the transformative
+step; HTTP/3 is incremental and largely invisible on localhost.
 
-Plan: ship h2 first via the `node:http2.createSecureServer()` bridge once
-#28581 lands. Revisit h3 as an optional add-on later — don't gate h2 on it.
+## Outbound HTTP/2 fetch
 
-## Side opportunity unlocked by 1.3.14 — outbound h2 fetch
-
-`fetch(url, { protocol: "http2" })` is shippable today (per-request opt-in,
-no flag). Useful for **outbound** AbsoluteJS calls where multiplexing matters:
-
-- `src/plugins/imageOptimizer.ts` — remote image fetches (currently 1 fetch
-  per `<Image>` request to upstream CDN; multiplexing to e.g. an image origin
-  cuts handshake cost).
-- AI provider adapters (in the separate `absolute-ai-example` project) — many
-  parallel SSE/JSON requests to the same provider host.
-- Any user code that does fan-out fetches to a single origin.
-
-This doesn't fix the dev-server HMR story, but it's a free win for runtime
-fetches. Marked "experimental" but stable enough that the per-request opt-in
-form is documented in the release notes (no flag required).
+`fetch(url, { protocol: "http2" })` has worked per request since Bun 1.3.14.
+It suits outbound fan-out to one origin: remote image fetches in
+`src/plugins/imageOptimizer.ts`, AI provider calls, user code. Independent of
+the dev server.
 
 ## References
 
-- Bun 1.3.14 release notes: <https://bun.com/blog/bun-v1.3.14>
-- RFC 8441 (WS over HTTP/2): <https://www.rfc-editor.org/rfc/rfc8441>
-- RFC 9220 (WS over HTTP/3): <https://www.rfc-editor.org/rfc/rfc9220>
+- Bun 1.4.1 release notes: <https://bun.com/blog/bun-v1.4.1>
+- RFC 8441 (WebSockets over HTTP/2): <https://www.rfc-editor.org/rfc/rfc8441>
