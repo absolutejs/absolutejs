@@ -74,7 +74,7 @@ if (command === 'dev') {
 } else if (command === 'bun-patch') {
 	// BUN-REACT-REFRESH-LEGACY: manages AbsoluteJS's patched Bun (./patchedBun.ts).
 	const { bunPatch } = await import('./patchedBun');
-	await bunPatch(args);
+	bunPatch(args);
 } else if (command === 'start') {
 	sendTelemetryEvent('cli:command', { command });
 	const outdir = parseNamedArg('--outdir');
