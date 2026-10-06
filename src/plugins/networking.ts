@@ -228,8 +228,14 @@ export const networking = <A extends AnyElysia>(app: A) => {
 			idleTimeout: httpIdleTimeout,
 			port: port,
 			...(parentHandoff ? { reusePort: true } : {}),
+			// With TLS, clients that offer h2 through ALPN get HTTP/2, so module
+			// fetches multiplex over one connection instead of HTTP/1.1's six.
+			// The HMR WebSocket still connects: browsers open it as a separate
+			// HTTP/1.1 connection on the same port when the server does not
+			// offer WebSockets over HTTP/2 (RFC 8441).
 			...(tls
 				? {
+						http2: true,
 						tls: {
 							cert: tls.cert,
 							key: tls.key

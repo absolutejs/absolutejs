@@ -68,12 +68,6 @@ declare global {
 	 *  transforms import these URLs, so the registry must outlive the module. */
 	var __svelteExternalCss: Map<string, string> | undefined;
 	var __transformInvalidationVersions: Map<string, number> | undefined;
-	var __http2Config:
-		| {
-				hmrState: import('../src/dev/clientManager').HMRState;
-				manifest: Record<string, string>;
-		  }
-		| undefined;
 	var __hmrDevResult:
 		| {
 				hmrState: import('../src/dev/clientManager').HMRState;

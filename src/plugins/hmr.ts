@@ -197,8 +197,6 @@ export const hmr = (
 				sendPings: true
 			})
 		)
-		// In HTTP/2 mode, WebSocket is handled by the http2Bridge
-		// so we skip Elysia's .ws() registration
 		// `request` (not `beforeHandle`) is required: HMR-emitted chunks
 		// like /generated/indexes/<hash>.js have no matching Elysia route
 		// (the upstream `staticPlugin({ alwaysStatic })` only registers

@@ -412,16 +412,6 @@ const prepareDev = async (
 	});
 	recordStep('schedule source module prewarm', stepStartedAt);
 
-	// Expose HMR state for the HTTP/2 bridge (networking.ts reads this
-	// to attach WebSocket handling on the HTTP/2 server).
-	// Only set when HTTPS is enabled — otherwise Elysia's native .ws() is used.
-	if (config.dev?.https) {
-		globalThis.__http2Config = {
-			hmrState: result.hmrState,
-			manifest: result.manifest
-		};
-	}
-
 	stepStartedAt = performance.now();
 	setBootPhase('configure dev plugins');
 	const hmrPlugin = hmr(result.hmrState, result.manifest, moduleHandler);

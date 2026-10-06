@@ -140,8 +140,15 @@ describe('when absolute dev offers the patched Bun', () => {
 	});
 
 	test('never replaces a newer Bun with the older patched one', () => {
+		// Relative to the pinned release, so the test holds across bumps.
+		const [major, minor, patch] = PATCHED_BUN_RELEASE.bunVersion
+			.split('.')
+			.map(Number);
 		expect(
-			patchedBunOfferState({ ...offerContext, bunVersion: '1.4.1' })
+			patchedBunOfferState({
+				...offerContext,
+				bunVersion: `${major}.${minor}.${Number(patch) + 1}`
+			})
 		).toBe('runtime-newer');
 		expect(
 			patchedBunOfferState({ ...offerContext, bunVersion: '1.3.14' })

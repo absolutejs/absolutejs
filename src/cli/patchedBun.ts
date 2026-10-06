@@ -25,36 +25,36 @@ import { inflateRawSync } from 'node:zlib';
  *  checksums are the release's SHASUMS256.txt, pinned so a download that
  *  differs by one byte is refused. */
 export const PATCHED_BUN_RELEASE = {
-	bunVersion: '1.4.0',
+	bunVersion: '1.4.2',
 	issue: 'https://github.com/oven-sh/bun/issues/32919',
 	repo: 'absolutejs/patched-bun',
 	sha256: {
 		'bun-darwin-aarch64':
-			'940d8c7eadb9fb4f39f06b0a086bbb6851d1bf3bc164bd3ba3a6966f8229f53c',
+			'75f45c72eac0c01e579f81ec48c8530bbec72406604c09abdd1fe6947ec4ac05',
 		'bun-darwin-x64':
-			'847f215cdd147431d025ffec94063467d1e4e80a5e4c311efff4570e04fa06ed',
+			'0ad06bff1c847de7a592ecac2e92060dfc8f56361fe92ca52ece8a685cbf416d',
 		'bun-freebsd-aarch64':
-			'6d1c6c51cb782a1f9d2f4e2481aa7b856eff05be430094fa3b8fb86adf4067a3',
+			'bbc981e3d890b65e042fbf15128d8499acf11bf29d82b1a15efc07a8d02c424d',
 		'bun-freebsd-x64':
-			'c5395cd411bf3df75c3943e6ebb7722b5dd369df9a97c622449d36129cc6277a',
+			'344e1cc9b01541ee16b93be9a946d33f9766e235aa95af758e3b7bd9ebccb354',
 		'bun-linux-aarch64':
-			'fd5931bf59ff2bbaeab5fa37a1b003a3f10ada6b7fee2d3d8f15e606adad61f9',
+			'7ad50219c85899ba5d5ffb6728cb128a08f106d99857be7f505ec6b520a2315c',
 		'bun-linux-aarch64-android':
-			'ab560ea72357554c93b4b0390b869ec62769c9b5f676ab196ecb3b0e328d7126',
+			'699c6eb9a1ffcb6787811729ca8f4812e2f4d8969ac3c0bc6b4cfc8265bfd65c',
 		'bun-linux-aarch64-musl':
-			'b9c3f9936f4c7b6b0b749090f70806a1f73ca48d5a9762709ef9a4e9a5b0fed8',
+			'70089d21421103d03f9bf657bba48beefb22d58b16dd974cd552ea28d1f7c087',
 		'bun-linux-x64':
-			'd36584f9aa71773fada3831ddf01a34c6089988988b900fd968586db099a0567',
+			'efc724f5c613ae4ae9bb884c067ac8a2b935b959a60082f204b08b4736b531e9',
 		'bun-linux-x64-android':
-			'1a9712c77516fc224ed3307e083a12ea6e4f1a2956e920b9590bf12e4f59304e',
+			'e68a9486017e8a2fa02d0144807e2b48b10db3a09be05ad05b66e3bbf5197610',
 		'bun-linux-x64-musl':
-			'061a8bd6afad866f807d93125508c303f16c2dbf000387c91d22dd777c072951',
+			'86afabbaacca2a652f9eb4821c5163935eac42ee4c966db323c066b95737fdaa',
 		'bun-windows-aarch64':
-			'91ed75e937b191eaf18bb361040acc24cd363b38f7bdaab5228fadd813f2a9ea',
+			'88157fccfac80028c45609d969da819f7ba6d9dafc3c887793188b56d4bf518c',
 		'bun-windows-x64':
-			'f7a7a22349dc7d4df0347da3f3058fe746763e22950bc77f4ae8021dab75a7b3'
+			'6dbf24593722d1c94e9c54fafd2087a3e8966aa954f753a565e52522162634c8'
 	},
-	tag: 'bun-v1.4.0-absolute.2'
+	tag: 'bun-v1.4.2-absolute.1'
 } as const;
 
 export type PatchedBunAsset = keyof typeof PATCHED_BUN_RELEASE.sha256;

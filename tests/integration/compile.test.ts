@@ -498,9 +498,12 @@ const assertCompileStressServer = async (baseUrl: string) => {
 	expect(stream.status).toBe(200);
 	expect(await stream.text()).toBe('STREAM_READY');
 
-	const streamError = await fetch(`${baseUrl}/stream-error`);
-	expect(streamError.status).toBe(200);
-	await streamError.text();
+	// A body stream that errors must not read as a complete response: Bun
+	// 1.4.1+ aborts the connection instead. What matters is that the server
+	// keeps serving afterwards.
+	await fetch(`${baseUrl}/stream-error`)
+		.then((response) => response.text())
+		.catch(() => undefined);
 
 	const afterStreamError = await fetch(`${baseUrl}/api/ping`);
 	expect(afterStreamError.status).toBe(200);

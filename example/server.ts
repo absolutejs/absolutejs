@@ -245,7 +245,7 @@ export const server: AnyElysia = new Elysia()
 	.post('/htmx/increment', ({ scopedStore }) => ++scopedStore.count)
 	.error(({ error, request }) => {
 		console.error(
-			`Server error on ${request.method} ${request.url}: ${error.message}`
+			`Server error on ${request.method} ${request.url}: ${error instanceof Error ? error.message : String(error)}`
 		);
 	})
 	.use(networking);

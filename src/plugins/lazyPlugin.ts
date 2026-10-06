@@ -204,7 +204,11 @@ export const lazyPlugin = (options: LazyPluginOptions) => {
 			// socket (`plugins/networking.ts`).
 			Reflect.set(app, '~generation', undefined);
 			app.use(plugin);
-			app['~newGeneration']();
+			// Reading the fetch handler rebuilds the router and publishes the
+			// new generation, sealing the app again (Elysia 2.0.0-beta.21 made
+			// the explicit publish private).
+			if (typeof app.fetch !== 'function')
+				throw new Error('lazyPlugin: the app has no fetch handler');
 			mounted = true;
 			rebindLiveServer(app);
 		};
