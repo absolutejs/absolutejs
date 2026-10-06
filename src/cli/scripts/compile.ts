@@ -46,7 +46,10 @@ import { loadConfig } from '../../utils/loadConfig';
 import { formatTimestamp } from '../../utils/startupBanner';
 import { sendTelemetryEvent } from '../telemetryEvent';
 import { createElysiaOpenApiTypeboxPlugin } from '../elysiaOpenApiTypeboxPlugin';
-import { resolveServerBundleExternals } from '../serverBundleExternals';
+import {
+	createOptionalPeerPlugin,
+	resolveServerBundleExternals
+} from '../serverBundleExternals';
 import { findFreePort, killStaleProcesses } from '../utils';
 import { isRecord } from '../config/guards';
 
@@ -1558,6 +1561,7 @@ export default server;
 		external: resolveServerBundleExternals(buildConfig),
 		outdir: resolvedOutdir,
 		plugins: [
+			createOptionalPeerPlugin(),
 			...(islandRegistryPlugin ? [islandRegistryPlugin] : []),
 			...(buildConfig.mobile
 				? [

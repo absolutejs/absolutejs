@@ -3,7 +3,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, test } from 'bun:test';
 import type { BuildConfig } from '../../../types/build';
-import { resolveServerBundleExternals } from '../../../src/cli/serverBundleExternals';
+import {
+	createOptionalPeerPlugin,
+	resolveServerBundleExternals
+} from '../../../src/cli/serverBundleExternals';
 
 const config = (input: Partial<BuildConfig>) => input as BuildConfig;
 
@@ -37,57 +40,94 @@ describe('server bundle externals', () => {
 	});
 });
 
-describe('missing optional peers', () => {
-	const project = async (installed: string[]) => {
+describe('optional peers', () => {
+	/* An app depending on `dep-a`, whose module imports `peer-x`, an
+	 * optional peer of `dep-a`. Where `peer-x` is installed decides whether
+	 * the server bundle inlines it or leaves the import bare. */
+	const project = async (peerAt: 'absent' | 'beside' | 'root') => {
 		const root = await mkdtemp(join(tmpdir(), 'absolute-optional-peers-'));
-		const write = async (file: string, value: unknown) => {
+		const write = async (file: string, value: string) => {
 			await mkdir(join(root, file, '..'), { recursive: true });
-			await writeFile(join(root, file), JSON.stringify(value));
+			await writeFile(join(root, file), value);
 		};
-		await write('package.json', {
-			dependencies: { '@absolutejs/auth': '0.83.0' }
+		await write(
+			'package.json',
+			JSON.stringify({ dependencies: { 'dep-a': '1.0.0' } })
+		);
+		await write(
+			'node_modules/dep-a/package.json',
+			JSON.stringify({
+				main: 'index.js',
+				name: 'dep-a',
+				peerDependencies: { 'peer-x': '*', 'peer-required': '*' },
+				peerDependenciesMeta: { 'peer-x': { optional: true } }
+			})
+		);
+		await write(
+			'node_modules/dep-a/index.js',
+			"import { x } from 'peer-x';\nexport const y = x;\n"
+		);
+		const peerModule = "export const x = 'PEER_X_MARKER';\n";
+		const peerManifest = JSON.stringify({
+			main: 'index.js',
+			name: 'peer-x'
 		});
-		await write('node_modules/@absolutejs/auth/package.json', {
-			peerDependencies: {
-				'@node-saml/node-saml': '>=5.1.0 <6',
-				elysia: '*'
-			},
-			peerDependenciesMeta: {
-				'@node-saml/node-saml': { optional: true }
-			}
-		});
-		await Promise.all(
-			installed.map((name) =>
-				write(`node_modules/${name}/package.json`, { name })
-			)
+		// `beside` is Bun's isolated layout: linked next to the dependency
+		// that declares it, not at the project root.
+		const peerDirectory =
+			peerAt === 'root'
+				? 'node_modules/peer-x'
+				: 'node_modules/dep-a/node_modules/peer-x';
+		if (peerAt !== 'absent') {
+			await write(`${peerDirectory}/package.json`, peerManifest);
+			await write(`${peerDirectory}/index.js`, peerModule);
+		}
+		await write(
+			'entry.ts',
+			"import { y } from 'dep-a';\nconsole.log(y);\n"
 		);
 
 		return root;
 	};
+	const bundle = async (root: string) => {
+		const result = await Bun.build({
+			entrypoints: [join(root, 'entry.ts')],
+			plugins: [createOptionalPeerPlugin(root)],
+			target: 'bun',
+			throw: false
+		});
+
+		return { code: (await result.outputs[0]?.text()) ?? '', result };
+	};
 
 	test('leaves an optional peer the app did not install external', async () => {
-		const root = await project([]);
+		const { code, result } = await bundle(await project('absent'));
 
-		expect(resolveServerBundleExternals(config({}), root)).toEqual(
-			expect.arrayContaining([
-				'@node-saml/node-saml',
-				'@node-saml/node-saml/*'
-			])
-		);
+		expect(result.success).toBe(true);
+		expect(code).toContain('from "peer-x"');
 	});
 
-	test('bundles an optional peer the app installed', async () => {
-		const root = await project(['@node-saml/node-saml']);
+	test('bundles an optional peer installed at the project root', async () => {
+		const { code } = await bundle(await project('root'));
 
-		expect(resolveServerBundleExternals(config({}), root)).not.toContain(
-			'@node-saml/node-saml'
-		);
+		expect(code).toContain('PEER_X_MARKER');
+		expect(code).not.toContain('from "peer-x"');
 	});
 
-	test('never externalizes a required peer', async () => {
-		const root = await project([]);
+	test('bundles an optional peer linked beside its dependency', async () => {
+		// The isolated-install case that left @neondatabase/serverless and
+		// zod external in production and crashed the server at startup.
+		const { code } = await bundle(await project('beside'));
 
-		expect(resolveServerBundleExternals(config({}), root)).not.toContain(
+		expect(code).toContain('PEER_X_MARKER');
+		expect(code).not.toContain('from "peer-x"');
+	});
+
+	test('never treats a required peer, or other packages, as optional', () => {
+		expect(resolveServerBundleExternals(config({}))).not.toContain(
+			'peer-required'
+		);
+		expect(resolveServerBundleExternals(config({}))).not.toContain(
 			'elysia'
 		);
 	});

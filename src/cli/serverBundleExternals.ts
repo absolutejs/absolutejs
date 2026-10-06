@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import type { BunPlugin } from 'bun';
 import type { BuildConfig } from '../../types/build';
 
 const FRAMEWORK_EXTERNALS = [
@@ -60,44 +61,72 @@ const readManifest = (file: string) => {
 	}
 };
 
-const isInstalled = (specifier: string, projectRoot: string) =>
-	existsSync(join(projectRoot, 'node_modules', specifier, 'package.json'));
-
-// A dependency's optional peer that the app did not install is a feature
-// the app does not use (e.g. @absolutejs/auth's SAML provider and
-// @node-saml/node-saml). The package reaches it with a guarded dynamic
-// import, but the production bundler resolves every import up front and
-// failed the whole server bundle on the missing module. Left external, the
-// import fails only if that feature is ever used, which is what optional
-// means.
-export const collectMissingOptionalPeers = (projectRoot: string) => {
+// The optional peers the app's direct dependencies declare, whether or not
+// they are installed.
+const collectOptionalPeers = (projectRoot: string) => {
 	const app = readManifest(join(projectRoot, 'package.json'));
-	const optionalPeers = Object.keys(app?.dependencies ?? {}).flatMap(
-		(dependency) =>
-			Object.entries(
-				readManifest(
-					join(
-						projectRoot,
-						'node_modules',
-						dependency,
-						'package.json'
-					)
-				)?.peerDependenciesMeta ?? {}
-			)
-				.filter(([, meta]) => meta.optional === true)
-				.map(([peer]) => peer)
-	);
-	const missing = new Set(
-		optionalPeers.filter((peer) => !isInstalled(peer, projectRoot))
-	);
 
-	return [...missing].flatMap((peer) => [peer, `${peer}/*`]);
+	return [
+		...new Set(
+			Object.keys(app?.dependencies ?? {}).flatMap((dependency) =>
+				Object.entries(
+					readManifest(
+						join(
+							projectRoot,
+							'node_modules',
+							dependency,
+							'package.json'
+						)
+					)?.peerDependenciesMeta ?? {}
+				)
+					.filter(([, meta]) => meta.optional === true)
+					.map(([peer]) => peer)
+			)
+		)
+	];
 };
 
-export const resolveServerBundleExternals = (
-	buildConfig: BuildConfig,
+const escapeRegExp = (text: string) =>
+	text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/** A dependency's optional peer that the app did not install is a feature
+ *  the app does not use (e.g. @absolutejs/auth's SAML provider and
+ *  @node-saml/node-saml). The package reaches it with a guarded dynamic
+ *  import, but the production bundler resolves every import up front and
+ *  failed the whole server bundle on the missing module. Left external, the
+ *  import fails only if that feature is ever used, which is what optional
+ *  means.
+ *
+ *  "Missing" is decided per import, from the importing file: under Bun's
+ *  isolated installs a peer the dependency does have is linked beside that
+ *  dependency, not at the project root, and Bun's `external` list applies to
+ *  every importer. Checking only `<root>/node_modules` once left
+ *  `@neondatabase/serverless` and `zod` external although installed, and the
+ *  production server could not resolve them at startup. */
+export const createOptionalPeerPlugin = (
 	projectRoot = process.cwd()
-) => [
+): BunPlugin => ({
+	name: 'absolute-optional-peers',
+	setup(build) {
+		const peers = collectOptionalPeers(projectRoot);
+		if (peers.length === 0) return;
+		const filter = new RegExp(
+			`^(?:${peers.map(escapeRegExp).join('|')})(?:/.*)?$`
+		);
+		build.onResolve({ filter }, (args) => {
+			const from = args.importer ? dirname(args.importer) : projectRoot;
+			try {
+				Bun.resolveSync(args.path, from);
+
+				return undefined;
+			} catch {
+				return { external: true, path: args.path };
+			}
+		});
+	}
+});
+
+export const resolveServerBundleExternals = (buildConfig: BuildConfig) => [
 	...FRAMEWORK_EXTERNALS.filter((specifier) => {
 		if (
 			buildConfig.reactDirectory &&
@@ -121,6 +150,5 @@ export const resolveServerBundleExternals = (
 
 		return true;
 	}),
-	...collectUserServerExternals(buildConfig),
-	...collectMissingOptionalPeers(projectRoot)
+	...collectUserServerExternals(buildConfig)
 ];
