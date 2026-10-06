@@ -59,7 +59,7 @@ describe('optional peers', () => {
 			JSON.stringify({
 				main: 'index.js',
 				name: 'dep-a',
-				peerDependencies: { 'peer-x': '*', 'peer-required': '*' },
+				peerDependencies: { 'peer-required': '*', 'peer-x': '*' },
 				peerDependenciesMeta: { 'peer-x': { optional: true } }
 			})
 		);
