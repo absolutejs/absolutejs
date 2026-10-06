@@ -8,7 +8,7 @@ rewritten.
 Related open work that could land it: [#42010](https://github.com/oven-sh/bun/pull/42010) (one React
 Fast Refresh contract for `.jsx` and `.tsx`, adds `reactFastRefresh.importSource`) and
 [#40179](https://github.com/oven-sh/bun/issues/40179) (a `bun --hot` flag running the transform).
-The patch's source hunks apply cleanly to 1.4.2; only its test hunk needs fresh context.
+The patched build is now `bun-v1.4.2-absolute.1` (Bun 1.4.2 plus only this fix), pinned in `src/cli/patchedBun.ts`.
 **Our answer:** AbsoluteJS publishes Bun with just that fix,
 [absolutejs/patched-bun](https://github.com/absolutejs/patched-bun), for every platform Bun ships.
 

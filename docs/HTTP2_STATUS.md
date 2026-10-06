@@ -37,28 +37,16 @@ Verified on Bun 1.4.2, both with `Bun.serve` directly and through Elysia
   multiplexed on **one** connection
 - a WebSocket to `/hmr` on the same port connected and echoed
 
-Still to verify before shipping: the same in a real browser (Chromium through
-Playwright), confirming modules arrive over `h2` and the HMR socket falls back
-to HTTP/1.1.
+**Shipped in 0.20.0-beta.131.** With `dev: { https: true }`,
+`src/plugins/networking.ts` passes `http2: true` alongside `tls`. The dead
+`globalThis.__http2Config` bridge plumbing is gone.
+`tests/integration/hmr/lifecycle/https-http2-browser.test.ts` loads the HTTPS
+dev server in Chromium and asserts both halves: every page script arrives
+over `h2`, and the `/hmr` WebSocket receives frames over `wss://`. The test
+fails if `http2: true` is removed.
 
-## What AbsoluteJS has today
-
-- `dev: { https: true }`, `src/dev/devCert.ts` (mkcert or self-signed) and TLS
-  in `src/plugins/networking.ts` — shipping.
-- `.ws('/hmr')` is always registered in `src/plugins/hmr.ts`. Its comment "In
-  HTTP/2 mode, WebSocket is handled by the http2Bridge" is stale: no bridge
-  exists.
-- `src/core/prepare.ts` sets `globalThis.__http2Config` when `dev.https` is on,
-  for a `node:http2` bridge that was never kept. Nothing reads it.
-
-## To ship
-
-1. `src/plugins/networking.ts`: pass `http2: true` alongside `tls` when HTTPS
-   is enabled.
-2. Delete `globalThis.__http2Config` (`src/core/prepare.ts`,
-   `types/globals.d.ts`) and the stale comment in `src/plugins/hmr.ts`.
-3. Verify in Chromium as above, then on a remote dev host where the
-   connection limit actually bites.
+Next: measure the gain on a remote dev host (a Studio workspace), where the
+six-connection limit actually bites.
 
 ## HTTP/3 is tracked separately
 
