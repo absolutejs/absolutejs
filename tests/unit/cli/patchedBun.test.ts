@@ -1,67 +1,21 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { deflateRawSync } from 'node:zlib';
 import {
 	PATCHED_BUN_RELEASE,
+	type BvmRunner,
+	bvmPlatformPackage,
+	findBvm,
 	installPatchedBun,
+	installVerifiedPatchedBun,
+	installedPatchedBun,
+	migrateLegacyPatchedBun,
 	parsePatchedBunChoice,
-	patchedBunAsset,
 	patchedBunOfferState,
-	patchedBunPath,
 	readPatchedBunPreference,
-	readZipEntry,
 	writePatchedBunPreference
 } from '../../../src/cli/patchedBun';
-
-/* A minimal zip writer: one local header + central directory entry per file,
- * so the reader is tested against real archive bytes, stored and deflated. */
-const zip = (
-	files: Array<{ data: Uint8Array; deflate: boolean; name: string }>
-) => {
-	const encoder = new TextEncoder();
-	const locals: Uint8Array[] = [];
-	const centrals: Uint8Array[] = [];
-	let offset = 0;
-	for (const file of files) {
-		const name = encoder.encode(file.name);
-		const body = file.deflate
-			? new Uint8Array(deflateRawSync(file.data))
-			: file.data;
-		const local = new Uint8Array(30 + name.length + body.length);
-		const lv = new DataView(local.buffer);
-		lv.setUint32(0, 0x04034b50, true);
-		lv.setUint16(8, file.deflate ? 8 : 0, true);
-		lv.setUint32(18, body.length, true);
-		lv.setUint32(22, file.data.length, true);
-		lv.setUint16(26, name.length, true);
-		local.set(name, 30);
-		local.set(body, 30 + name.length);
-		const central = new Uint8Array(46 + name.length);
-		const cv = new DataView(central.buffer);
-		cv.setUint32(0, 0x02014b50, true);
-		cv.setUint16(10, file.deflate ? 8 : 0, true);
-		cv.setUint32(20, body.length, true);
-		cv.setUint32(24, file.data.length, true);
-		cv.setUint16(28, name.length, true);
-		cv.setUint32(42, offset, true);
-		central.set(name, 46);
-		locals.push(local);
-		centrals.push(central);
-		offset += local.length;
-	}
-	const directorySize = centrals.reduce((sum, part) => sum + part.length, 0);
-	const end = new Uint8Array(22);
-	const ev = new DataView(end.buffer);
-	ev.setUint32(0, 0x06054b50, true);
-	ev.setUint16(8, files.length, true);
-	ev.setUint16(10, files.length, true);
-	ev.setUint32(12, directorySize, true);
-	ev.setUint32(16, offset, true);
-
-	return new Uint8Array(Buffer.concat([...locals, ...centrals, end]));
-};
 
 const homes: string[] = [];
 const tempHome = () => {
@@ -76,8 +30,8 @@ afterEach(() => {
 });
 
 const offerContext: Parameters<typeof patchedBunOfferState>[0] = {
-	asset: 'bun-linux-x64',
 	bunVersion: '1.4.0',
+	bvm: true,
 	ci: false,
 	installed: false,
 	interactive: true,
@@ -87,32 +41,25 @@ const offerContext: Parameters<typeof patchedBunOfferState>[0] = {
 	usesReact: true
 };
 
-describe('patched Bun platform build', () => {
-	test('names the zip the way Bun names its release', () => {
-		expect(patchedBunAsset('linux', 'x64', 'glibc')).toBe('bun-linux-x64');
-		expect(patchedBunAsset('linux', 'arm64', 'musl')).toBe(
-			'bun-linux-aarch64-musl'
+describe('finding bvm', () => {
+	test('names the platform package the way @absolutejs/bvm does', () => {
+		expect(bvmPlatformPackage('linux', 'x64')).toBe(
+			'@absolutejs/bvm-linux-x64'
 		);
-		expect(patchedBunAsset('android', 'arm64', 'android')).toBe(
-			'bun-linux-aarch64-android'
+		expect(bvmPlatformPackage('darwin', 'arm64')).toBe(
+			'@absolutejs/bvm-darwin-arm64'
 		);
-		expect(patchedBunAsset('darwin', 'arm64', 'glibc')).toBe(
-			'bun-darwin-aarch64'
+		expect(bvmPlatformPackage('win32', 'x64')).toBe(
+			'@absolutejs/bvm-windows-x64'
 		);
-		expect(patchedBunAsset('win32', 'x64', 'glibc')).toBe(
-			'bun-windows-x64'
-		);
-		expect(patchedBunAsset('freebsd', 'x64', 'glibc')).toBe(
-			'bun-freebsd-x64'
-		);
-		expect(patchedBunAsset('sunos', 'x64', 'glibc')).toBeNull();
-		expect(patchedBunAsset('linux', 'ia32', 'glibc')).toBeNull();
+		expect(bvmPlatformPackage('freebsd', 'x64')).toBeNull();
+		expect(bvmPlatformPackage('linux', 'ia32')).toBeNull();
 	});
 
-	test('every release build has a pinned checksum', () => {
-		for (const hash of Object.values(PATCHED_BUN_RELEASE.sha256))
-			expect(hash).toMatch(/^[0-9a-f]{64}$/);
-		expect(Object.keys(PATCHED_BUN_RELEASE.sha256)).toHaveLength(12);
+	test('finds the binary npm installed with AbsoluteJS', () => {
+		const bvm = findBvm();
+		expect(bvm).not.toBeNull();
+		expect(bvm).toContain('bvm-');
 	});
 });
 
@@ -128,7 +75,7 @@ describe('when absolute dev offers the patched Bun', () => {
 		expect(
 			patchedBunOfferState({ ...offerContext, usesReact: false })
 		).toBe('not-a-react-project');
-		expect(patchedBunOfferState({ ...offerContext, asset: null })).toBe(
+		expect(patchedBunOfferState({ ...offerContext, bvm: false })).toBe(
 			'unsupported-platform'
 		);
 		expect(patchedBunOfferState({ ...offerContext, ci: true })).toBe(
@@ -210,67 +157,80 @@ describe('when absolute dev offers the patched Bun', () => {
 	});
 });
 
-describe('installing the patched Bun', () => {
-	const binary = new TextEncoder().encode(
-		'#!/bin/sh\necho patched\n'.repeat(50)
-	);
-	const archive = zip([
-		{
-			data: new TextEncoder().encode('ignored'),
-			deflate: false,
-			name: 'bun-linux-x64/'
-		},
-		{ data: binary, deflate: true, name: 'bun-linux-x64/bun' }
-	]);
-	const serve = (body: Uint8Array) => () =>
-		Promise.resolve(new Response(body.slice()));
-	const sha = (bytes: Uint8Array) =>
-		new Bun.CryptoHasher('sha256').update(bytes).digest('hex');
+describe('installing the patched Bun with bvm', () => {
+	/* A fake bvm: records every call and keeps an installed set. */
+	const fakeBvm = (options: { failInstall?: boolean } = {}) => {
+		const installed = new Set<string>();
+		const calls: string[][] = [];
+		const run: BvmRunner = (args) => {
+			calls.push(args);
+			const [command, version = ''] = args;
+			if (command === 'install') {
+				if (options.failInstall) return { status: 1, stdout: '' };
+				installed.add(version);
 
-	test('reads stored and deflated zip entries', () => {
-		expect(readZipEntry(archive, 'bun-linux-x64/bun')).toEqual(binary);
-		expect(readZipEntry(archive, 'bun-linux-x64/')).toEqual(
-			new TextEncoder().encode('ignored')
+				return { status: 0, stdout: '' };
+			}
+			if (command === 'uninstall') {
+				installed.delete(version);
+
+				return { status: 0, stdout: '' };
+			}
+			if (command === 'which' && installed.has(version))
+				return { status: 0, stdout: `/bvm/versions/${version}/bun\n` };
+
+			return { status: 1, stdout: '' };
+		};
+
+		return { calls, installed, run };
+	};
+
+	test('asks bvm for exactly the pinned patched version', () => {
+		const bvm = fakeBvm();
+		expect(installedPatchedBun(bvm.run)).toBeNull();
+		expect(installPatchedBun(bvm.run)).toBe(
+			`/bvm/versions/${PATCHED_BUN_RELEASE.version}/bun`
 		);
-		expect(() => readZipEntry(archive, 'missing')).toThrow(
-			'missing is not in the archive.'
-		);
-		expect(() => readZipEntry(new Uint8Array(40), 'x')).toThrow(
-			'Not a zip archive.'
+		expect(bvm.calls[1]).toEqual(['install', PATCHED_BUN_RELEASE.version]);
+		expect(installedPatchedBun(bvm.run)).toBe(
+			`/bvm/versions/${PATCHED_BUN_RELEASE.version}/bun`
 		);
 	});
 
-	test('installs into its own cache when the checksum matches', async () => {
+	test('fails clearly without bvm or when bvm refuses the download', () => {
+		expect(() => installPatchedBun(null)).toThrow('bvm is not available');
+		expect(() =>
+			installPatchedBun(fakeBvm({ failInstall: true }).run)
+		).toThrow('bvm could not install');
+	});
+
+	test('uninstalls a build that fails its probe', () => {
+		const bvm = fakeBvm();
+		expect(() =>
+			installVerifiedPatchedBun(tempHome(), bvm.run, () => false)
+		).toThrow('did not pass its check');
+		expect(bvm.installed.size).toBe(0);
+	});
+
+	test('moves an install from ~/.absolutejs/bun onto bvm', () => {
 		const home = tempHome();
-		const path = await installPatchedBun({
-			asset: 'bun-linux-x64',
-			checksums: {
-				...PATCHED_BUN_RELEASE.sha256,
-				'bun-linux-x64': sha(archive)
-			},
-			fetchImpl: serve(archive) as unknown as typeof fetch,
+		const legacy = join(
 			home,
-			log: () => undefined
-		});
-		expect(path).toBe(patchedBunPath('bun-linux-x64', home));
-		expect(
-			path.startsWith(
-				join(home, '.absolutejs', 'bun', PATCHED_BUN_RELEASE.tag)
-			)
-		).toBe(true);
-		expect(new Uint8Array(readFileSync(path))).toEqual(binary);
-	});
-
-	test('refuses a download that does not match the pinned checksum', async () => {
-		const home = tempHome();
-		await expect(
-			installPatchedBun({
-				asset: 'bun-linux-x64',
-				fetchImpl: serve(archive) as unknown as typeof fetch,
-				home,
-				log: () => undefined
-			})
-		).rejects.toThrow('does not match its pinned SHA-256');
-		expect(existsSync(patchedBunPath('bun-linux-x64', home))).toBe(false);
+			'.absolutejs',
+			'bun',
+			'bun-v1.4.0-absolute.2'
+		);
+		mkdirSync(legacy, { recursive: true });
+		writePatchedBunPreference({ decision: 'never' }, home);
+		const bvm = fakeBvm();
+		expect(migrateLegacyPatchedBun(home, bvm.run, () => true)).toBe(
+			`/bvm/versions/${PATCHED_BUN_RELEASE.version}/bun`
+		);
+		expect(existsSync(join(home, '.absolutejs', 'bun'))).toBe(false);
+		expect(readPatchedBunPreference(home)).toBeNull();
+		// Nothing to move: no download.
+		const untouched = fakeBvm();
+		expect(migrateLegacyPatchedBun(tempHome(), untouched.run)).toBeNull();
+		expect(untouched.calls).toEqual([]);
 	});
 });

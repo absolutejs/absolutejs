@@ -7,6 +7,7 @@
       "dependencies": {
         "@absolutejs/auth": ">=0.75.0 <0.98.0",
         "@absolutejs/beacon": ">=0.7.0-beta.4 <0.8.0",
+        "@absolutejs/bvm": "^0.1.1",
         "@absolutejs/deploy": "0.27.0",
         "@absolutejs/devices": "0.7.0",
         "@absolutejs/devices-capacitor": "0.8.0",
@@ -384,6 +385,20 @@
     "@absolutejs/beacon": ["@absolutejs/beacon@0.7.0-beta.4", "", { "dependencies": { "@absolutejs/manifest": "0.9.0", "@sinclair/typebox": "0.34.52" }, "peerDependencies": { "web-vitals": ">=4" }, "optionalPeers": ["web-vitals"] }, "sha512-Cqog1V8q1vEPtdxvQ9cVMlIux0h3QFTyO6Gwz/LlhxD+NxDSRLEXyW0HvLopeaJRVxFDYRe3g5PW+afYjMqkzw=="],
 
     "@absolutejs/blob": ["@absolutejs/blob@0.5.2", "", { "dependencies": { "@absolutejs/manifest": "^0.7.2", "@sinclair/typebox": "^0.34.0" }, "peerDependencies": { "@aws-sdk/client-s3": "^3.1087.0", "@aws-sdk/lib-storage": "^3.1087.0", "@aws-sdk/s3-request-presigner": "^3.1087.0", "uploadthing": "^7.7.4" }, "optionalPeers": ["@aws-sdk/client-s3", "@aws-sdk/lib-storage", "@aws-sdk/s3-request-presigner", "uploadthing"] }, "sha512-3g6aR8B2G5lRdP6kRcih7FGRk0aII+FXq+VvM/+aFV3rfmDHGkyBHJg1ggawjAoMhjuhPCEmc8RLKaQC0CTkSQ=="],
+
+    "@absolutejs/bvm": ["@absolutejs/bvm@0.1.1", "", { "optionalDependencies": { "@absolutejs/bvm-darwin-arm64": "0.1.1", "@absolutejs/bvm-darwin-x64": "0.1.1", "@absolutejs/bvm-linux-arm64": "0.1.1", "@absolutejs/bvm-linux-x64": "0.1.1", "@absolutejs/bvm-windows-arm64": "0.1.1", "@absolutejs/bvm-windows-x64": "0.1.1" }, "bin": { "bvm": "bin/bvm.js" } }, "sha512-7bvg3t3nIHUKxMGouL6KHKN1MBF3i4bdQTQypqZ6TunEyJLR+sPcJI2d/lsZLGYLyso7Vtz8xd7ZawN2O2pt8Q=="],
+
+    "@absolutejs/bvm-darwin-arm64": ["@absolutejs/bvm-darwin-arm64@0.1.1", "", { "os": "darwin", "cpu": "arm64" }, "sha512-859h9q84xs9dEOGHqh+yj6bnZhQNpfTTSu7mCOakTolhiSzB35Wy3LDXoH9QPz9Dv7Ia91gGg3eR9VMZ5QO4vg=="],
+
+    "@absolutejs/bvm-darwin-x64": ["@absolutejs/bvm-darwin-x64@0.1.1", "", { "os": "darwin", "cpu": "x64" }, "sha512-qtM2jrW168YDVj5J5jYbSAzLEFFQf8KfPnHy69b61rkArdPB6a8xlUcZ9XXYiVGI0uDr/xsdguOYvbhgru2jSQ=="],
+
+    "@absolutejs/bvm-linux-arm64": ["@absolutejs/bvm-linux-arm64@0.1.1", "", { "os": "linux", "cpu": "arm64" }, "sha512-wc9E2buQ9Ea3D11aWNB4bqlsAIPgAuYUuZ+0KS5jYR8Ez+oDsozNqt6iokZ7G40W7ANh9vuoG3xxLWSYRDnI6A=="],
+
+    "@absolutejs/bvm-linux-x64": ["@absolutejs/bvm-linux-x64@0.1.1", "", { "os": "linux", "cpu": "x64" }, "sha512-pohpwB1xXIv01a6iYPMCdhONRwp11Tcv9SzVJqSNlPPZLxd1XKsEOg+mkIG/ZXZL+kpKobSY2G+/SbPg860G5Q=="],
+
+    "@absolutejs/bvm-windows-arm64": ["@absolutejs/bvm-windows-arm64@0.1.1", "", { "os": "win32", "cpu": "arm64" }, "sha512-n4eYE5ET5aGVvPr3RN/nEhuq6FsSX5+UUYrdP69y2sAsw7XnHry+sjWkLg2x/QOLDawdEY5mnvB8J0DagAfhkQ=="],
+
+    "@absolutejs/bvm-windows-x64": ["@absolutejs/bvm-windows-x64@0.1.1", "", { "os": "win32", "cpu": "x64" }, "sha512-XlkK3c89uRaTsMHJHdewgF/aS+Eb5V8kx8tJTXVXnnGCgZ7GUQZfUnLeptVEuToeGe3dgncNzBOgT2+RGzOFqA=="],
 
     "@absolutejs/changelog": ["@absolutejs/changelog@0.6.0", "", { "dependencies": { "typescript": "^5.8.3" }, "bin": { "absolute-changelog": "dist/cli.js" } }, "sha512-bsCCN7PVubSQ07dcaZgoE8M46QDOYMz9+Idc//bmxZd2KRK2wG7W5jqAIvjotD7mZD/6pVfGyNCxE+VNoYguvA=="],
 
