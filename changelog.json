@@ -23,6 +23,21 @@
 					"detail": "Stock Bun still ignores `reactFastRefresh` on `Bun.Transpiler` in 1.4.2 (oven-sh/bun#32919). The patched build `absolute dev` offers was Bun 1.4.0, and the CLI never replaces a newer Bun with an older patched one, so anyone on Bun 1.4.1 or 1.4.2 lost the offer and React edits fell back to a remount. The CLI now offers `bun-v1.4.2-absolute.1`, Bun 1.4.2 with only that fix, checked against its pinned SHA-256 for every platform.",
 					"kind": "fixed",
 					"summary": "React Fast Refresh is offered again on Bun 1.4.1 and newer"
+				},
+				{
+					"detail": "These exports return Elysia app and plugin types, so their generated declarations follow Elysia 2.0.0-beta.21: Elysia's own types are now referenced from `elysia` instead of `elysia/types`, and the route map `prepare` returns is inferred by the newer Elysia. Their parameters and runtime behavior are unchanged; code that uses them against the same Elysia version needs no changes.",
+					"kind": "changed",
+					"summary": "Exports that return Elysia apps or plugins carry Elysia 2.0.0-beta.21's types",
+					"symbols": [
+						"prepare",
+						"startDevPrebuild",
+						"absoluteRequestContext",
+						"devtoolsJson",
+						"createAbsoluteMobileAssociationPlugin",
+						"createAbsoluteMobileCompatibilityDispatcher",
+						"createAbsoluteMobilePreviewPlugin",
+						"createAbsoluteMobileUpdateServerPlugin"
+					]
 				}
 			],
 			"date": "2026-10-06",
