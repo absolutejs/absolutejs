@@ -937,6 +937,7 @@ const MIME: Record<string, string> = {
 	".json": "application/json",
 	".xml": "application/xml",
 	".txt": "text/plain; charset=utf-8",
+	".pdf": "application/pdf",
 	".png": "image/png",
 	".jpg": "image/jpeg",
 	".svg": "image/svg+xml",

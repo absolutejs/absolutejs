@@ -16,6 +16,7 @@ const mimeTypes: Record<string, string> = {
 	'.map': 'application/json',
 	'.mjs': 'application/javascript',
 	'.otf': 'font/otf',
+	'.pdf': 'application/pdf',
 	'.png': 'image/png',
 	'.svg': 'image/svg+xml',
 	'.ttf': 'font/ttf',
