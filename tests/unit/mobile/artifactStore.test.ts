@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, test } from 'bun:test';
@@ -7,6 +7,7 @@ import {
 	carryForwardAbsoluteMobileCompatibilityReleases,
 	createAbsoluteMobileBlobArtifactStore,
 	createAbsoluteMobileFileArtifactStore,
+	loadAbsoluteMobileCompatibilityStore,
 	type AbsoluteMobileBlobStore,
 	type AbsoluteMobileStoredCompatibilityRelease
 } from '../../../src/mobile/artifactStore';
@@ -177,5 +178,85 @@ describe('mobile compatibility artifact store', () => {
 		await expect(
 			store.read('com.example.absolute', '../escape')
 		).rejects.toThrow('Invalid mobile compatibility release id');
+	});
+
+	test('loads a blob store module and keeps history across fresh checkouts', async () => {
+		const root = await temporaryRoot();
+		const modulePath = join(root, 'mobile.compatibility.ts');
+		await writeFile(
+			modulePath,
+			[
+				'const objects = new Map<string, Uint8Array>();',
+				'export default {',
+				'\tdelete: async (key: string) => { objects.delete(key); },',
+				'\tget: async (key: string) => objects.get(key) ?? null,',
+				'\tlist: async ({ prefix }: { prefix: string }) => ({',
+				'\t\tobjects: [...objects.keys()].filter((key) => key.startsWith(prefix)).map((key) => ({ key })),',
+				'\t\ttruncated: false',
+				'\t}),',
+				'\tput: async (key: string, body: ReadableStream<Uint8Array> | Uint8Array | string) => {',
+				'\t\tobjects.set(key, new Uint8Array(await new Response(body).arrayBuffer()));',
+				'\t}',
+				'};'
+			].join('\n')
+		);
+		const firstCheckout = await loadAbsoluteMobileCompatibilityStore({
+			modulePath,
+			prefix: 'tenant/history'
+		});
+		await carryForwardAbsoluteMobileCompatibilityReleases({
+			current: releaseFor(1),
+			store: firstCheckout
+		});
+		const secondCheckout = await loadAbsoluteMobileCompatibilityStore({
+			modulePath,
+			prefix: 'tenant/history'
+		});
+		const retained = await carryForwardAbsoluteMobileCompatibilityReleases({
+			current: releaseFor(2),
+			store: secondCheckout
+		});
+
+		expect(retained.map(({ artifact }) => artifact.generation)).toEqual([
+			2, 1
+		]);
+		const otherPrefix = await loadAbsoluteMobileCompatibilityStore({
+			modulePath,
+			prefix: 'other'
+		});
+		expect(await otherPrefix.list('com.example.absolute')).toEqual([]);
+	});
+
+	test('uses an exported release-history store as it is', async () => {
+		const root = await temporaryRoot();
+		const modulePath = join(root, 'history.ts');
+		const historyRoot = join(root, 'history');
+		await writeFile(
+			modulePath,
+			`import { createAbsoluteMobileFileArtifactStore } from ${JSON.stringify(
+				join(import.meta.dir, '../../../src/mobile/artifactStore')
+			)};\nexport default createAbsoluteMobileFileArtifactStore({ root: ${JSON.stringify(historyRoot)} });\n`
+		);
+		const store = await loadAbsoluteMobileCompatibilityStore({
+			modulePath
+		});
+		const release = releaseFor(1);
+		await store.write(release);
+
+		expect(
+			await createAbsoluteMobileFileArtifactStore({
+				root: historyRoot
+			}).list(release.artifact.appId)
+		).toEqual([release.artifact]);
+	});
+
+	test('rejects a module that does not export a store', async () => {
+		const root = await temporaryRoot();
+		const modulePath = join(root, 'not-a-store.ts');
+		await writeFile(modulePath, 'export default { bucket: "releases" };\n');
+
+		await expect(
+			loadAbsoluteMobileCompatibilityStore({ modulePath })
+		).rejects.toThrow('must export a blob store');
 	});
 });

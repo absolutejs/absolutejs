@@ -26,6 +26,7 @@ export type NormalizedAbsoluteMobileConfig = {
 	androidCertificateFingerprints: string[];
 	appleAppIdPrefix?: string;
 	bundleDirectory: string;
+	compatibilityStore?: { modulePath: string; prefix?: string };
 	deepLinkHosts: string[];
 	deepLinkScheme?: string;
 	engine: 'capacitor' | 'expo';
@@ -1090,6 +1091,28 @@ export const normalizeAbsoluteMobileConfig = (
 			config.bundleDirectory ?? '.absolutejs/mobile/web',
 			'mobile.bundleDirectory'
 		),
+		...(config.compatibility
+			? {
+					compatibilityStore: {
+						modulePath: resolveProjectPath(
+							projectRoot,
+							requireText(
+								config.compatibility.store,
+								'mobile.compatibility.store'
+							),
+							'mobile.compatibility.store'
+						),
+						...(config.compatibility.prefix === undefined
+							? {}
+							: {
+									prefix: requireText(
+										config.compatibility.prefix,
+										'mobile.compatibility.prefix'
+									)
+								})
+					}
+				}
+			: {}),
 		deepLinkHosts: normalizeHosts(
 			config.deepLinks?.hosts,
 			productionOrigin

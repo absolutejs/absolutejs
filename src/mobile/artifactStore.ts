@@ -9,6 +9,7 @@ import {
 	writeFile
 } from 'node:fs/promises';
 import { join, resolve as resolvePath } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import {
 	parseAbsoluteMobileCompatibilityArtifact,
 	retainAbsoluteMobileCompatibilityArtifacts,
@@ -420,6 +421,42 @@ export const createAbsoluteMobileFileArtifactStore = (
 			}
 		}
 	};
+};
+
+const isFunctionRecord = (value: unknown, keys: readonly string[]) =>
+	typeof value === 'object' &&
+	value !== null &&
+	keys.every((key) => typeof Reflect.get(value, key) === 'function');
+
+const isArtifactStore = (
+	value: unknown
+): value is AbsoluteMobileCompatibilityArtifactStore =>
+	isFunctionRecord(value, ['delete', 'list', 'read', 'write']);
+
+const isBlobStore = (value: unknown): value is AbsoluteMobileBlobStore =>
+	isFunctionRecord(value, ['delete', 'get', 'list', 'put']);
+
+export const loadAbsoluteMobileCompatibilityStore = async (options: {
+	modulePath: string;
+	prefix?: string;
+}) => {
+	const loaded: unknown = await import(
+		pathToFileURL(options.modulePath).href
+	);
+	const exported =
+		typeof loaded === 'object' && loaded !== null
+			? (Reflect.get(loaded, 'default') ?? Reflect.get(loaded, 'store'))
+			: undefined;
+	if (isArtifactStore(exported)) return exported;
+	if (isBlobStore(exported))
+		return createAbsoluteMobileBlobArtifactStore({
+			...(options.prefix === undefined ? {} : { prefix: options.prefix }),
+			store: exported
+		});
+
+	throw new TypeError(
+		`mobile.compatibility.store (${options.modulePath}) must export a blob store with get, put, list and delete.`
+	);
 };
 
 export const verifyAbsoluteMobileCompatibilityProducer = async (

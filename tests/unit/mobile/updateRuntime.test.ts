@@ -111,4 +111,35 @@ describe('mobile update runtime fingerprint', () => {
 			fingerprintAbsoluteMobileUpdateRuntime(right)
 		);
 	});
+
+	test('excludes the compatibility history store from the native ABI', () => {
+		const configured = (store?: string) =>
+			normalizeAbsoluteMobileConfig(
+				{
+					appId: 'com.example.absolute',
+					appName: 'Absolute',
+					...(store ? { compatibility: { store } } : {}),
+					server: { productionOrigin: 'https://api.example.com' }
+				},
+				'/workspace'
+			);
+		const withoutStore = createAbsoluteMobileUpdateRuntimeDescriptor({
+			config: configured(),
+			deviceCapabilities: devices
+		});
+		const withStore = createAbsoluteMobileUpdateRuntimeDescriptor({
+			config: configured('mobile.compatibility.ts'),
+			deviceCapabilities: devices
+		});
+
+		expect(
+			configured('mobile.compatibility.ts').compatibilityStore
+		).toEqual({ modulePath: '/workspace/mobile.compatibility.ts' });
+		expect(fingerprintAbsoluteMobileUpdateRuntime(withStore)).toBe(
+			fingerprintAbsoluteMobileUpdateRuntime(withoutStore)
+		);
+		expect(() => configured('../outside.ts')).toThrow(
+			'mobile.compatibility.store must remain inside the project root.'
+		);
+	});
 });

@@ -2,6 +2,10 @@ import { readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import type { Elysia } from 'elysia';
 import type { MobileConfig } from '../../types/build';
+import {
+	carryForwardAbsoluteMobileCompatibilityReleases,
+	loadAbsoluteMobileCompatibilityStore
+} from './artifactStore';
 import { buildAbsoluteMobileCompatibilityRelease } from './buildRelease';
 import { materializeAbsoluteCapacitorWebBundle } from './capacitorBundle';
 import { normalizeAbsoluteMobileConfig } from './config';
@@ -136,12 +140,27 @@ export const finalizeAbsoluteMobileCompatibilityBuild = async (
 		);
 		restoreEnvironmentVariable('ABSOLUTE_CONFIG', previousConfigPath);
 	}
+	const compatibilityStore = mobile.compatibilityStore
+		? await loadAbsoluteMobileCompatibilityStore(mobile.compatibilityStore)
+		: undefined;
+	const storedArtifacts = compatibilityStore
+		? await compatibilityStore.list(mobile.appId)
+		: [];
+	const storedReleaseIds = new Set(
+		storedArtifacts.map(({ releaseId }) => releaseId)
+	);
+	const localOnly = previous.filter(
+		({ artifact }) => !storedReleaseIds.has(artifact.releaseId)
+	);
 	const current = await buildAbsoluteMobileCompatibilityRelease({
 		app: loaded.app,
 		appId: mobile.appId,
 		buildDirectory,
 		manifest,
-		previousArtifacts: previous.map(({ artifact }) => artifact),
+		previousArtifacts: [
+			...storedArtifacts,
+			...localOnly.map(({ artifact }) => artifact)
+		],
 		producerExport: loaded.exportName,
 		producerPath: resolve(options.producerPath),
 		runtime: String(ABSOLUTE_MOBILE_PAGE_PROTOCOL_VERSION)
@@ -186,11 +205,20 @@ export const finalizeAbsoluteMobileCompatibilityBuild = async (
 			'@absolutejs/auth is installed, but its OIDC provider is not mounted. Native authentication requires the auth oidc configuration so AbsoluteJS can provision a public PKCE client.'
 		);
 	}
+	// With a store, history comes from it: releases only this build directory
+	// knows are written first, so moving to a store loses none of them.
+	if (compatibilityStore)
+		await Promise.all(
+			localOnly.map((release) => compatibilityStore.write(release))
+		);
+	const candidates = compatibilityStore
+		? await carryForwardAbsoluteMobileCompatibilityReleases({
+				current,
+				store: compatibilityStore
+			})
+		: [current, ...previous];
 	const releasesById = new Map(
-		[current, ...previous].map((release) => [
-			release.artifact.releaseId,
-			release
-		])
+		candidates.map((release) => [release.artifact.releaseId, release])
 	);
 	const retained = retainAbsoluteMobileCompatibilityArtifacts(
 		[...releasesById.values()].map(({ artifact }) => artifact)

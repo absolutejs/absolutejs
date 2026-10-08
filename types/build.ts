@@ -257,6 +257,17 @@ type MobileSharedConfig = {
 	};
 	/** Capacitor webDir output. Defaults to `.absolutejs/mobile/web`. */
 	bundleDirectory?: string;
+	/** Durable history of mobile releases. Builds keep serving the three most
+	 * recent releases to installed apps; without a store that history lives
+	 * only in the build directory, so a fresh checkout (such as CI) starts
+	 * with none and every installed app is asked to update. */
+	compatibility?: {
+		/** Project-relative module whose default export is a blob store, such
+		 * as `awsS3BlobStore` from `@absolutejs/blob/aws-s3`. */
+		store: string;
+		/** Key prefix inside the store. Defaults to `absolutejs/mobile-compatibility`. */
+		prefix?: string;
+	};
 	nativeProject?: {
 		/** v1 keeps native projects as committed, editable source. */
 		mode?: 'source';
