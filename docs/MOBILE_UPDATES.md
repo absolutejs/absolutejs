@@ -272,8 +272,11 @@ Content-Range`; a full `200` safely restarts that file, and any mismatched range
 fails closed. Completed and partial staging bytes remain untrusted until their
 signed size and SHA-256 digest pass.
 
-Downloads use at most three concurrent asset requests by default, reduce that to
-two on a reported 3G connection, and serialize on 2G or data-saver connections.
+Installed apps download up to six assets at once (the shell passes
+`concurrency: 6`; `createAbsoluteMobileUpdateClient` defaults to three and
+allows at most six when called directly). Either way that drops to two on a
+reported 3G connection, and downloads are serialized on 2G or data-saver
+connections.
 The `absolute:mobile-update` stream emits `download-progress` events and a final
 `downloaded` event with `downloadedBytes`, `downloadedFiles`, `resumedBytes`,
 `resumedFiles`, `reusedBytes`, `reusedFiles`, `avoidedBytes`, `completedFiles`,

@@ -1,5 +1,16 @@
 # AbsoluteJS Mobile Apps: Research and Implementation Plan
 
+> **Historical design plan, not a reference.** This document records how the
+> mobile work was researched and planned, and parts of what it proposes were
+> never built or shipped differently. Commands such as `absolute mobile run`,
+> `mobile dev`, `mobile bundle`, `mobile open` and `mobile explain`, flags such
+> as `mobile init --app-id/--app-name/--platform`, config such as
+> `shell.offlineFallback` and `capacitor: { ios, android, plugins }`, and API
+> names such as `camera.capture()` and `share.open()` do not exist. The source
+> of truth is `types/build.ts` (the `mobile` config), the `absolute mobile`
+> usage in `src/cli/scripts/mobile.ts`, and the public documentation at
+> https://absolutejs.com/documentation/native-apps.
+
 Status: Capacitor Android development/release, all-framework embedded bundles, universal native Auth/Sync, Expo hybrid native Auth/Sync, background Sync, automatic device provisioning, provider-neutral native push registration, signed staged Capacitor updates, end-to-end RSA-signed self-hosted Expo production updates, and provider-neutral Android development plus installed production-AAB conformance are operational; iOS development/release automation plus installed Expo iOS OTA and replacement-upgrade harnesses are shipped and awaiting real macOS/physical-device acceptance
 
 Acceptance checkpoint (September 18, 2026 UTC, installed Android server data):
