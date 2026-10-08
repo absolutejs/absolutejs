@@ -1736,7 +1736,10 @@ export default server;
 			}),
 			createBunStringRawUnicodePlugin()
 		],
-		target: 'bun'
+		target: 'bun',
+		// Like the server bundle above: report failures as data so each log
+		// is printed below, rather than a bare `AggregateError: Bundle failed`.
+		throw: false
 	});
 
 	if (!result.success) {
