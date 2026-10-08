@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "When the last step of `absolute compile` (\"Compiling standalone executable\") failed, it printed only `AggregateError: Bundle failed`, because Bun throws by default. It now reports failures as data, like the server bundle step, so each error is printed with its file and message.",
+					"kind": "fixed",
+					"summary": "absolute compile prints the real error when the executable fails to bundle"
+				}
+			],
+			"date": "2026-10-08",
+			"version": "0.20.0-beta.137"
+		},
+		{
+			"changes": [
+				{
 					"detail": "An app that uses push notifications is built with the `development` push environment so debug builds sign, and App Store export is expected to switch it to `production` through the distribution profile. If it does not, Apple rejects every installed device's push token and no user receives push, with nothing to show for it. `absolute mobile build ios` now reads the entitlements signed into the exported IPA and fails, explaining the fix, unless `aps-environment` is `production`. Apps that do not use push are not inspected.",
 					"kind": "added",
 					"summary": "iOS release builds check that a push app is signed for production push"
