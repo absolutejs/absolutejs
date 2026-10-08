@@ -351,6 +351,11 @@ const configureIosPushNotifications = async (
 		throw new TypeError(
 			'AbsoluteJS iOS entitlements are missing. Run native deep-link projection before device capabilities.'
 		);
+	// The source entitlement stays `development`: debug builds are signed with a
+	// development profile, which only grants that value. Exporting for App
+	// Store Connect or TestFlight re-signs with the distribution profile, and
+	// Xcode takes aps-environment from it, so the shipped binary says
+	// `production`. Writing `production` here would break development signing.
 	const entitlementRegion = enabled
 		? `\t<!-- ${PUSH_START_MARKER} -->\n\t<key>aps-environment</key>\n\t<string>development</string>\n\t<!-- ${PUSH_END_MARKER} -->\n`
 		: '';

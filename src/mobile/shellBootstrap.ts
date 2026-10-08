@@ -14,6 +14,7 @@ import {
 } from './client';
 import { installAbsoluteMobileStaticDocument } from './staticDocument';
 import { installAbsoluteMobileShellHttp } from './shellHttp';
+import { installAbsoluteMobilePushDeepLinks } from './pushDeepLinks';
 import {
 	installAbsoluteMobileAdaptiveShell,
 	type AbsoluteMobileAdaptiveShell
@@ -687,6 +688,9 @@ export const startAbsoluteMobileShell = async (
 	dispatchEvent(new Event('absolute:shell-rendered'));
 	await options.installUpdates?.(manifest);
 	await installDeepLinks(manifest, onNavigate, auth?.redirectUri);
+	await installAbsoluteMobilePushDeepLinks(manifest, (url) =>
+		navigateDeepLink(manifest, onNavigate, url, auth?.redirectUri)
+	).catch(() => undefined);
 	try {
 		await App.addListener('backButton', ({ canGoBack }) => {
 			if (uiPrimitives?.requestBack()) return;
