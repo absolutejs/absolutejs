@@ -773,7 +773,7 @@ describe('experimental Expo project', () => {
 		expect(app).toContain('expo-image-picker');
 		expect(app).toContain('expo-document-picker');
 		expect(app).toContain('expo-location');
-		expect(manifest).toContain('"@absolutejs/devices-expo": "0.0.11"');
+		expect(manifest).toContain('"@absolutejs/devices-expo": "0.0.12"');
 		expect(manifest).toContain('"expo-image-manipulator": "57.0.14"');
 		expect(devices).toContain('createExpoCameraCapability');
 		expect(devices).toContain('createExpoClipboardCapability');

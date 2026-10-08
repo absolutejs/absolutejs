@@ -40,7 +40,7 @@ const fixture = async () => {
 	);
 	await writeJson(join(projectRoot, 'package.json'), {
 		dependencies: {
-			'@absolutejs/devices': '0.7.0',
+			'@absolutejs/devices': '0.7.1',
 			'@absolutejs/devices-capacitor': '0.8.0',
 			'@capacitor/core': '8.5.0'
 		},

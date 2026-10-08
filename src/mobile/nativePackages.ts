@@ -4,8 +4,8 @@ import { dirname, join, resolve } from 'node:path';
 // One tested Devices pair for application provisioning and generated shells.
 export const ABSOLUTE_CAPACITOR_DEVICES_VERSION = '0.8.0';
 export const ABSOLUTE_CAPACITOR_SYNC_VERSION = '0.9.3';
-export const ABSOLUTE_DEVICES_VERSION = '0.7.0';
-export const ABSOLUTE_EXPO_DEVICES_VERSION = '0.0.11';
+export const ABSOLUTE_DEVICES_VERSION = '0.7.1';
+export const ABSOLUTE_EXPO_DEVICES_VERSION = '0.0.12';
 export const ABSOLUTE_NATIVE_EXACT_PACKAGES = new Set([
 	'@absolutejs/devices',
 	'@absolutejs/devices-capacitor',

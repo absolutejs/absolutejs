@@ -46,7 +46,7 @@ test('repairs stale Devices and Sync adapters, not just missing packages', async
 			ABSOLUTE_NATIVE_EXACT_PACKAGES
 		)
 	).toEqual([
-		'@absolutejs/devices@0.7.0',
+		'@absolutejs/devices@0.7.1',
 		'@absolutejs/devices-capacitor@0.8.0',
 		'@absolutejs/sync-capacitor@0.9.3'
 	]);
