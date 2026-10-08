@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
+import { mkdirSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -23,7 +24,7 @@ afterEach(async () => {
 	);
 });
 
-const fixture = async () => {
+const fixture = async (deviceCapabilities: string[] = []) => {
 	const projectRoot = await mkdtemp(join(tmpdir(), 'absolute-ios-release-'));
 	roots.push(projectRoot);
 	const config = normalizeAbsoluteMobileConfig(
@@ -39,7 +40,7 @@ const fixture = async () => {
 	await mkdir(config.bundleDirectory, { recursive: true });
 	await writeFile(
 		join(config.bundleDirectory, 'absolute-mobile-manifest.json'),
-		`${JSON.stringify({ appBuild: 'ambuild_fixture', appId: config.appId, runtime: '1' })}\n`
+		`${JSON.stringify({ appBuild: 'ambuild_fixture', appId: config.appId, deviceCapabilities, runtime: '1' })}\n`
 	);
 	const iosRoot = join(config.nativeProjectDirectory, 'ios');
 	await mkdir(join(iosRoot, 'App', 'App.xcworkspace'), { recursive: true });
@@ -284,3 +285,81 @@ const temporaryRootForImport = async () => {
 
 	return root;
 };
+
+describe('iOS release push entitlement', () => {
+	const entitlements = (environment: string) =>
+		`<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>aps-environment</key><string>${environment}</string></dict></plist>`;
+	// ditto unpacks the IPA; codesign reports the signed entitlements.
+	const signedCapture =
+		(environment: string, captured: string[][]) => (command: string[]) => {
+			captured.push(command);
+			if (command[0] === 'ditto') {
+				const target = command.at(-1);
+				if (!target) throw new Error('missing ditto target');
+				mkdirSync(join(target, 'Payload', 'App.app'), {
+					recursive: true
+				});
+			}
+			const stdout =
+				command[0] === 'codesign' && command.includes('--entitlements')
+					? entitlements(environment)
+					: '';
+
+			return { exitCode: 0, stderr: '', stdout };
+		};
+
+	test('accepts a push app signed for the production APNs environment', async () => {
+		const { config, projectRoot, run } = await fixture([
+			'pushNotifications'
+		]);
+		const captured: string[][] = [];
+		const release = await buildAbsoluteIosRelease({
+			buildNumber: 3,
+			capture: signedCapture('production', captured),
+			config,
+			host: 'macos',
+			projectRoot,
+			run
+		});
+
+		expect(release.metadata.signed).toBe(true);
+		expect(captured.some((command) => command[0] === 'ditto')).toBe(true);
+		expect(
+			captured.find((command) => command.includes('--entitlements'))
+		).toContain(':-');
+	});
+
+	test('refuses a push app still signed for the development environment', async () => {
+		const { config, projectRoot, run } = await fixture([
+			'pushNotifications'
+		]);
+
+		await expect(
+			buildAbsoluteIosRelease({
+				buildNumber: 3,
+				capture: signedCapture('development', []),
+				config,
+				host: 'macos',
+				projectRoot,
+				run
+			})
+		).rejects.toThrow(
+			'signed aps-environment entitlement is "development", not "production"'
+		);
+	});
+
+	test('does not inspect apps that do not use push', async () => {
+		const { config, projectRoot, run } = await fixture(['camera']);
+		const captured: string[][] = [];
+		await buildAbsoluteIosRelease({
+			buildNumber: 3,
+			capture: signedCapture('development', captured),
+			config,
+			host: 'macos',
+			projectRoot,
+			run
+		});
+
+		expect(captured.some((command) => command[0] === 'ditto')).toBe(false);
+	});
+});

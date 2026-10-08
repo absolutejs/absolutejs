@@ -356,6 +356,7 @@ const configureIosPushNotifications = async (
 	// Store Connect or TestFlight re-signs with the distribution profile, and
 	// Xcode takes aps-environment from it, so the shipped binary says
 	// `production`. Writing `production` here would break development signing.
+	// buildAbsoluteIosRelease reads the signed IPA and fails if it does not.
 	const entitlementRegion = enabled
 		? `\t<!-- ${PUSH_START_MARKER} -->\n\t<key>aps-environment</key>\n\t<string>development</string>\n\t<!-- ${PUSH_END_MARKER} -->\n`
 		: '';

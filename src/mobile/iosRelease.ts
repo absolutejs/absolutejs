@@ -45,6 +45,7 @@ export type AbsoluteIosReleaseMetadata = {
 type MobileClientManifest = {
 	appBuild: string;
 	appId: string;
+	deviceCapabilities: string[];
 	runtime: string;
 };
 type CommandOptions = {
@@ -105,8 +106,56 @@ const requireManifest = (value: unknown): MobileClientManifest => {
 	return {
 		appBuild: value.appBuild,
 		appId: value.appId,
+		deviceCapabilities: Array.isArray(value.deviceCapabilities)
+			? value.deviceCapabilities.filter(
+					(capability): capability is string =>
+						typeof capability === 'string'
+				)
+			: [],
 		runtime: value.runtime
 	};
+};
+
+const APS_ENVIRONMENT_PATTERN =
+	/<key>aps-environment<\/key>\s*<string>([^<]*)<\/string>/;
+
+// The source project declares aps-environment as development so debug builds
+// sign. App Store export re-signs with the distribution profile, which must
+// replace it with production: APNs production rejects a development app's
+// device tokens, so push would fail silently for every installed user. This
+// reads the entitlements actually signed into the exported app.
+const verifyIosPushEntitlement = async (options: {
+	artifactPath: string;
+	capture: (command: string[], options?: CommandOptions) => CommandResult;
+	staging: string;
+}) => {
+	const unpacked = join(options.staging, 'push-entitlement-check');
+	if (
+		options.capture(['ditto', '-x', '-k', options.artifactPath, unpacked])
+			.exitCode !== 0
+	)
+		throw new TypeError(
+			'Could not unpack the exported IPA to check its push entitlement.'
+		);
+	const app = await findByExtension(join(unpacked, 'Payload'), '.app');
+	if (!app)
+		throw new TypeError('The exported IPA does not contain an app bundle.');
+	const signed = options.capture([
+		'codesign',
+		'--display',
+		'--entitlements',
+		':-',
+		app
+	]);
+	if (signed.exitCode !== 0)
+		throw new TypeError(
+			"Could not read the exported app's signed entitlements."
+		);
+	const environment = APS_ENVIRONMENT_PATTERN.exec(signed.stdout)?.[1];
+	if (environment !== 'production')
+		throw new TypeError(
+			`The app uses push notifications, but its signed aps-environment entitlement is ${environment ? `"${environment}"` : 'missing'}, not "production". APNs production would reject its device tokens, so no installed user would receive push. Sign the release with an App Store distribution profile whose App ID has Push Notifications enabled.`
+		);
 };
 
 const pathExists = async (path: string) => {
@@ -730,6 +779,8 @@ export const buildAbsoluteIosRelease = async (
 		const artifactPath = await findByExtension(exportPath, '.ipa');
 		if (!artifactPath)
 			throw new TypeError('Xcode did not produce an exported IPA.');
+		if (signed && manifest.deviceCapabilities.includes('pushNotifications'))
+			await verifyIosPushEntitlement({ artifactPath, capture, staging });
 		const [bytes, sha256] = await Promise.all([
 			stat(artifactPath).then(({ size }) => size),
 			sha256File(artifactPath)
