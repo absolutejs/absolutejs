@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "An app that uses push notifications is built with the `development` push environment so debug builds sign, and App Store export is expected to switch it to `production` through the distribution profile. If it does not, Apple rejects every installed device's push token and no user receives push, with nothing to show for it. `absolute mobile build ios` now reads the entitlements signed into the exported IPA and fails, explaining the fix, unless `aps-environment` is `production`. Apps that do not use push are not inspected.",
+					"kind": "added",
+					"summary": "iOS release builds check that a push app is signed for production push"
+				}
+			],
+			"date": "2026-10-08",
+			"version": "0.20.0-beta.136"
+		},
+		{
+			"changes": [
+				{
 					"detail": "Mobile builds now install `@absolutejs/devices` 0.7.1 and Expo builds `@absolutejs/devices-expo` 0.0.12. On Expo, tapping a notification while the app is closed now reaches `pushNotifications.onAction`, so the notification's deep link opens; before, a tap that launched the app was reported before anything listened and was lost. `@absolutejs/devices/testing` gains a push notifications test capability. Run `absolute mobile sync` to update an existing app.",
 					"kind": "fixed",
 					"summary": "Tapping a notification that launches an Expo app now opens its deep link"
