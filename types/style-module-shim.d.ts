@@ -1,14 +1,3 @@
-/* TypeScript 7, and so bun check, reports a side-effect import of a file it
- * has no declaration for (TS2882), and every AbsoluteJS app imports its
- * stylesheets that way. The CSS-module declarations below are more specific
- * and still win for `*.module.*` files. */
-declare module '*.css';
-declare module '*.scss';
-declare module '*.sass';
-declare module '*.less';
-declare module '*.styl';
-declare module '*.stylus';
-
 declare module '*.module.scss' {
 	const classes: Readonly<Record<string, string>>;
 
@@ -38,3 +27,18 @@ declare module '*.module.stylus' {
 
 	export default classes;
 }
+
+/* Plain stylesheets, imported for their side effect (`import './app.css'`).
+ * TypeScript 7 checks those imports (noUncheckedSideEffectImports is on by
+ * default), so bun check reports TS2882 without a declaration. The bodies are
+ * empty, as in Next.js and Vite: a stylesheet has no named exports to type.
+ *
+ * They must stay below the `*.module.*` declarations. When two wildcards
+ * match, TypeScript takes the first declared, not the most specific, and a
+ * `*.css` above `*.module.css` turns every CSS-module class into `any`. */
+declare module '*.css' {}
+declare module '*.scss' {}
+declare module '*.sass' {}
+declare module '*.less' {}
+declare module '*.styl' {}
+declare module '*.stylus' {}
