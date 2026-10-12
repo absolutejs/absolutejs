@@ -1,6 +1,6 @@
 import { resolve, join, relative } from 'node:path';
 import { existsSync, readFileSync } from 'node:fs';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { parse as parseJsonc } from 'jsonc-parser';
 import {
 	getWorkspaceServices,
@@ -14,6 +14,11 @@ import {
 	summarizeImportAdvice
 } from '../../dev/importCost/advice';
 import { getString, isRecord } from '../config/guards';
+import {
+	bunCheckCommand,
+	bunCheckSupported,
+	checkFingerprint
+} from './bunCheck';
 import { ANSI_ESCAPE_CODE } from '../../constants';
 import { DEFAULT_SERVER_ENTRY } from '../utils';
 import type {
@@ -414,24 +419,28 @@ const buildAngularCheck = async (cacheDir: string, angularDir: string) => {
 	);
 };
 
-const buildTscCheck = (cacheDir: string) => {
-	const tscBin = findBin('tsc');
-	if (!tscBin) {
-		console.error(
-			'\x1b[31m✗\x1b[0m typescript is required for type checking. Install it: bun add -d typescript'
-		);
-		process.exit(1);
-	}
-
-	const tscConfigPath = join(cacheDir, 'tsconfig.typecheck.json');
-
-	return writeFile(
+/* The program tsc and bun check both read: the project's own tsconfig,
+ * minus the directories AbsoluteJS generates, plus its style shims. */
+const writeTypecheckConfig = async (
+	cacheDir: string,
+	checker: 'bun' | 'tsc'
+) => {
+	const tscConfigPath = join(
+		cacheDir,
+		checker === 'tsc'
+			? 'tsconfig.typecheck.json'
+			: 'tsconfig.typecheck.bun.json'
+	);
+	await writeFile(
 		tscConfigPath,
 		JSON.stringify(
 			{
-				compilerOptions: {
-					rootDir: '..'
-				},
+				/* TypeScript 7 requires every source file to sit under
+				 * rootDir even when nothing is emitted (TS6059), so a test
+				 * importing a script beside the project failed bun check.
+				 * bun check never emits; only tsc's incremental output
+				 * needs the root pinned. */
+				compilerOptions: checker === 'tsc' ? { rootDir: '..' } : {},
 				exclude: getProjectTypecheckExcludes(),
 				extends: resolve('tsconfig.json'),
 				include: getProjectTypecheckIncludes()
@@ -439,18 +448,66 @@ const buildTscCheck = (cacheDir: string) => {
 			null,
 			'\t'
 		)
-	).then(() =>
-		run('tsc', [
-			tscBin,
-			'--noEmit',
-			'--project',
-			resolve(tscConfigPath),
-			'--incremental',
-			'--tsBuildInfoFile',
-			join(cacheDir, 'tsc.tsbuildinfo'),
-			'--pretty'
-		])
 	);
+
+	return resolve(tscConfigPath);
+};
+
+const buildTscCheck = async (cacheDir: string) => {
+	const tscBin = findBin('tsc');
+	if (!tscBin) {
+		console.error(
+			'\x1b[31m✗\x1b[0m typescript is required for type checking. Install it: bun add -d typescript'
+		);
+		process.exit(1);
+	}
+	const tscConfigPath = await writeTypecheckConfig(cacheDir, 'tsc');
+
+	return run('tsc', [
+		tscBin,
+		'--noEmit',
+		'--project',
+		tscConfigPath,
+		'--incremental',
+		'--tsBuildInfoFile',
+		join(cacheDir, 'tsc.tsbuildinfo'),
+		'--pretty'
+	]);
+};
+
+const BUN_CHECK_PASS_FILE = 'bun-check.pass';
+const UNCHANGED = 'unchanged since the last pass';
+
+/* bun check keeps no .tsbuildinfo, so the incremental step lives here: a
+ * pass is remembered as the fingerprint of everything it read, and an
+ * unchanged program is not checked again. Only passes are remembered, so a
+ * failing project always re-runs and shows its errors. */
+const buildBunCheck = async (cacheDir: string) => {
+	const configPath = await writeTypecheckConfig(cacheDir, 'bun');
+	const passFile = join(cacheDir, BUN_CHECK_PASS_FILE);
+	const listing = await spawnChecker('bun check', [
+		process.execPath,
+		'check',
+		'-p',
+		configPath,
+		'--listFilesOnly'
+	]);
+	const fingerprint =
+		listing.exitCode === 0
+			? checkFingerprint(listing.output, configPath)
+			: null;
+	const lastPass = existsSync(passFile)
+		? readFileSync(passFile, 'utf-8').trim()
+		: null;
+	if (fingerprint !== null && fingerprint === lastPass)
+		return { exitCode: 0, name: 'bun check', output: UNCHANGED };
+
+	const result = await spawnChecker('bun check', bunCheckCommand(configPath));
+	if (result.exitCode === 0 && fingerprint !== null)
+		await writeFile(passFile, `${fingerprint}\n`);
+	else if (existsSync(passFile)) await rm(passFile, { force: true });
+
+	return result;
 };
 
 const buildSvelteCheck = async (cacheDir: string, svelteDir: string) => {
@@ -600,8 +657,11 @@ export const typecheck = async (configPath?: string) => {
 
 	// vue-tsc is a superset of tsc — it checks .ts, .tsx, AND .vue files.
 	// Any .ts file can import from .vue, so vue-tsc must check everything
-	// when Vue is present. When Vue is absent, plain tsc suffices.
-	checks.push(hasVue ? buildVueTscCheck(cacheDir) : buildTscCheck(cacheDir));
+	// when Vue is present. When Vue is absent, bun check does tsc's job
+	// (Bun 1.4.3+); tsc remains the fallback on older Bun or with
+	// ABSOLUTE_TYPECHECK_CHECKER=tsc.
+	const plainCheck = bunCheckSupported() ? buildBunCheck : buildTscCheck;
+	checks.push(hasVue ? buildVueTscCheck(cacheDir) : plainCheck(cacheDir));
 
 	// svelte-check scoped to the Svelte directory only
 	for (const svelteDir of hasSvelte ? svelteDirs : []) {
@@ -617,7 +677,10 @@ export const typecheck = async (configPath?: string) => {
 	const detailedAdvice = importAdviceRequested();
 
 	if (failed.length === 0) {
-		console.log('\x1b[32m✓\x1b[0m Typecheck passed');
+		const unchanged = results.every((res) => res.output === UNCHANGED);
+		console.log(
+			`\x1b[32m✓\x1b[0m Typecheck passed${unchanged ? ` (${UNCHANGED})` : ''}`
+		);
 		reportImportAdvice(targets, detailedAdvice, true);
 
 		return;
