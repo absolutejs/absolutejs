@@ -68,7 +68,8 @@ export const compileTailwind = async (
 ) => {
 	const outputPath = join(buildPath, output);
 	await mkdir(dirname(outputPath), { recursive: true });
-	await incrementalTailwindBuild(
+
+	return incrementalTailwindBuild(
 		{ input, output },
 		buildPath,
 		changedFiles,

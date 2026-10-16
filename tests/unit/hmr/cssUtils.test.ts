@@ -17,19 +17,31 @@ const waitForDOMTasks = async () => {
 	await Reflect.apply(waitUntilComplete, happyDOM, []);
 };
 const cssOrigin = 'http://localhost';
+// Status the fake server answers for a path; anything unlisted is a 200.
+const statusByPath = new Map<string, number>();
+const requestedPaths: string[] = [];
 GlobalRegistrator.register({
 	settings: {
 		fetch: {
 			interceptor: {
-				beforeAsyncRequest: ({ window: browserWindow }) =>
-					Promise.resolve(
-						new browserWindow.Response('body {}', {
-							headers: {
-								'access-control-allow-origin': '*',
-								'content-type': 'text/css'
+				beforeAsyncRequest: ({ request, window: browserWindow }) => {
+					const { pathname } = new URL(request.url);
+					requestedPaths.push(pathname);
+					const status = statusByPath.get(pathname) ?? 200;
+
+					return Promise.resolve(
+						new browserWindow.Response(
+							status === 200 ? 'body {}' : 'Not Found',
+							{
+								headers: {
+									'access-control-allow-origin': '*',
+									'content-type': 'text/css'
+								},
+								status
 							}
-						})
-					)
+						)
+					);
+				}
 			}
 		}
 	},
@@ -40,6 +52,25 @@ afterAll(async () => {
 	await waitForDOMTasks();
 	await GlobalRegistrator.unregister();
 });
+
+const stylesheetLinks = () =>
+	document.head.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]');
+
+// Records every stylesheet link appended to `<head>`, including a retry
+// that loads (or fails) and is removed again before a test could read it.
+const recordAddedStylesheets = () => {
+	const added: HTMLLinkElement[] = [];
+	const observer = new MutationObserver((records) => {
+		records.forEach((record) =>
+			record.addedNodes.forEach((node) => {
+				if (node instanceof HTMLLinkElement) added.push(node);
+			})
+		);
+	});
+	observer.observe(document.head, { childList: true });
+
+	return { added, stop: () => observer.disconnect() };
+};
 
 const stylesheet = (href: string) => {
 	const link = document.createElement('link');
@@ -77,15 +108,12 @@ describe('CSS HMR completion', () => {
 
 	test('preserves the old stylesheet when replacement loading fails', async () => {
 		document.head.innerHTML = '';
-		const original = stylesheet(`${cssOrigin}/indexes/example.css`);
+		statusByPath.set('/indexes/unavailable.css', 503);
+		const original = stylesheet(`${cssOrigin}/indexes/unavailable.css`);
 		const pending = reloadCSSStylesheets({});
-		document
-			.querySelectorAll('link[rel="stylesheet"]')[1]
-			?.dispatchEvent(new Event('error'));
-		document
-			.querySelectorAll('link[rel="stylesheet"]')[1]
-			?.dispatchEvent(new Event('error'));
+		stylesheetLinks()[1]?.dispatchEvent(new Event('error'));
 		expect(await pending).toBe(false);
+		statusByPath.clear();
 		expect(original.isConnected).toBe(true);
 		expect(document.querySelectorAll('link[rel="stylesheet"]').length).toBe(
 			1
@@ -95,18 +123,83 @@ describe('CSS HMR completion', () => {
 	test('retries one transient stylesheet loading failure', async () => {
 		document.head.innerHTML = '';
 		const original = stylesheet(`${cssOrigin}/indexes/example.css`);
+		const recorder = recordAddedStylesheets();
 		const pending = reloadCSSStylesheets({});
-		document
-			.querySelectorAll('link[rel="stylesheet"]')[1]
-			?.dispatchEvent(new Event('error'));
-		const [, retry] = document.querySelectorAll('link[rel="stylesheet"]');
-		expect(retry?.getAttribute('href')).toContain('retry=');
-		retry?.dispatchEvent(new Event('load'));
+		stylesheetLinks()[1]?.dispatchEvent(new Event('error'));
 		expect(await pending).toBe(true);
+		recorder.stop();
+		const [, retry] = recorder.added;
+		expect(recorder.added.length).toBe(2);
+		expect(retry?.getAttribute('href')).toContain('retry=');
 		expect(original.isConnected).toBe(true);
 		expect(original.getAttribute('href')).toContain('retry=');
 		original.dispatchEvent(new Event('load'));
 		expect(retry?.isConnected).toBe(false);
+	});
+
+	test('disables a stylesheet that 404s instead of refetching it on every update', async () => {
+		document.head.innerHTML = '';
+		statusByPath.set('/indexes/deleted.abc123.css', 404);
+		const original = stylesheet(`${cssOrigin}/indexes/deleted.abc123.css`);
+		const pending = reloadCSSStylesheets({});
+		stylesheetLinks()[1]?.dispatchEvent(new Event('error'));
+		expect(await pending).toBe(false);
+		// Gone: no retry, the original stays in place (a framework may own
+		// it) but is disabled.
+		expect(stylesheetLinks().length).toBe(1);
+		expect(original.isConnected).toBe(true);
+		expect(original.disabled).toBe(true);
+
+		const requestsBefore = requestedPaths.length;
+		const updates = Array.from({ length: 20 }, () =>
+			reloadCSSStylesheets({})
+		);
+		expect(stylesheetLinks().length).toBe(1);
+		expect(await Promise.all(updates)).toEqual(Array(20).fill(true));
+		expect(requestedPaths.length).toBe(requestsBefore);
+		statusByPath.clear();
+	});
+
+	test('re-enables a gone stylesheet once the manifest names a new file', async () => {
+		document.head.innerHTML = '';
+		statusByPath.set('/indexes/restored.abc123.css', 404);
+		const original = stylesheet(`${cssOrigin}/indexes/restored.abc123.css`);
+		const gone = reloadCSSStylesheets({});
+		stylesheetLinks()[1]?.dispatchEvent(new Event('error'));
+		expect(await gone).toBe(false);
+		expect(original.disabled).toBe(true);
+
+		const restored = reloadCSSStylesheets({
+			RestoredCSS: '/indexes/restored.def456.css'
+		});
+		const [, replacement] = stylesheetLinks();
+		expect(replacement?.getAttribute('href')).toContain(
+			'/indexes/restored.def456.css'
+		);
+		replacement?.dispatchEvent(new Event('load'));
+		expect(await restored).toBe(true);
+		expect(original.disabled).toBe(false);
+		expect(original.getAttribute('href')).toContain('restored.def456.css');
+		statusByPath.clear();
+	});
+
+	test('backs off a stylesheet after a transient failure', async () => {
+		document.head.innerHTML = '';
+		statusByPath.set('/indexes/limited.abc123.css', 429);
+		const original = stylesheet(`${cssOrigin}/indexes/limited.abc123.css`);
+		const recorder = recordAddedStylesheets();
+		const pending = reloadCSSStylesheets({});
+		stylesheetLinks()[1]?.dispatchEvent(new Event('error'));
+		expect(await pending).toBe(false);
+		recorder.stop();
+		// The clone, then one retry after the probe saw a 429.
+		expect(recorder.added.length).toBe(2);
+		// Rate limited, not gone: still enabled, but the next update inside
+		// the backoff window does not refetch it.
+		expect(original.disabled).toBeFalsy();
+		expect(await reloadCSSStylesheets({})).toBe(false);
+		expect(stylesheetLinks().length).toBe(1);
+		statusByPath.clear();
 	});
 
 	test('does not refetch unrelated cross-origin stylesheets', async () => {

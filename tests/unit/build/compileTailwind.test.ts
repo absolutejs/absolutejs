@@ -74,4 +74,51 @@ describe('compileTailwind', () => {
 			await rm(root, { force: true, recursive: true });
 		}
 	});
+
+	// Dev rebuilds broadcast a stylesheet reload only when the emitted CSS
+	// changed; a saved file that adds no utility must report no change.
+	test('reports whether the emitted CSS changed', async () => {
+		const root = await mkdtemp(join(process.cwd(), '.tmp-tailwind-changed-'));
+		const input = join(root, 'input.css');
+		const source = join(root, 'index.html');
+		const outDir = join(root, 'build');
+		const output = 'tailwind.css';
+
+		try {
+			await writeFile(
+				input,
+				[
+					'@import "tailwindcss";',
+					`@source "${source.replace(/\\/g, '/')}";`
+				].join('\n')
+			);
+			await writeFile(source, '<div class="p-4"></div>');
+			const first = await compileTailwind(input, output, outDir);
+			expect(first.cssChanged).toBe(true);
+
+			await writeFile(source, '<div class="p-4">copy edit</div>');
+			const unchanged = await compileTailwind(
+				input,
+				output,
+				outDir,
+				undefined,
+				[],
+				[source]
+			);
+			expect(unchanged.cssChanged).toBe(false);
+
+			await writeFile(source, '<div class="p-4 text-red-500"></div>');
+			const changed = await compileTailwind(
+				input,
+				output,
+				outDir,
+				undefined,
+				[],
+				[source]
+			);
+			expect(changed.cssChanged).toBe(true);
+		} finally {
+			await rm(root, { force: true, recursive: true });
+		}
+	});
 });

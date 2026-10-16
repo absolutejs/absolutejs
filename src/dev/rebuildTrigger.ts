@@ -5377,12 +5377,17 @@ const performFullRebuild = async (
 	});
 
 	// `build()` already rebuilt the Tailwind output if a candidate changed;
-	// trigger a CSS reload so the browser picks up the new utilities.
+	// trigger a CSS reload so the browser picks up the new utilities. Only
+	// when the emitted CSS actually changed: every `style-update` makes the
+	// client refetch every stylesheet on the page, so broadcasting one per
+	// saved `.tsx`/`.html` file (most of which add no utility class) turned
+	// an agent writing files into a stream of stylesheet refetches.
 	const hasDedicatedStyleUpdate = affectedFrameworks.some(
 		(framework) => framework === 'styles' || framework === 'assets'
 	);
 	if (
 		config.tailwind &&
+		buildResult.tailwindChanged &&
 		filesToRebuild &&
 		filesToRebuild.some(isTailwindCandidate) &&
 		!hasDedicatedStyleUpdate
