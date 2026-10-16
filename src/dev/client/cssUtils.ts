@@ -1,12 +1,19 @@
 /* CSS reload/preload utilities for HMR */
 
-import type { CSSUpdateResult } from '../../../types/client';
+import type {
+	CSSUpdateResult,
+	StylesheetReloadFailure
+} from '../../../types/client';
 import {
 	CSS_ERROR_RESOLVE_DELAY_MS,
 	CSS_MAX_CHECK_ATTEMPTS,
 	CSS_MAX_PARSE_TIMEOUT_MS,
+	CSS_RELOAD_BACKOFF_BASE_MS,
+	CSS_RELOAD_BACKOFF_MAX_MS,
 	CSS_SHEET_READY_TIMEOUT_MS,
 	DOM_UPDATE_DELAY_MS,
+	HTTP_STATUS_GONE,
+	HTTP_STATUS_NOT_FOUND,
 	RAF_BATCH_COUNT
 } from './constants';
 import { hmrState } from './hmrState';
@@ -165,6 +172,63 @@ const adoptHref = (
 	setTimeout(dropReplacement, CSS_MAX_PARSE_TIMEOUT_MS);
 };
 
+/* A stylesheet whose replacement fails is either gone (its source was
+   deleted, so the server answers 404) or briefly unreachable (a rate limit,
+   a dropped connection). Neither may be refetched on every update: each
+   `style-update` reloads every stylesheet on the page, so an agent writing
+   files turned one deleted stylesheet into thousands of requests.
+   A gone stylesheet is disabled and only tried again once the manifest
+   points it at a different file; an unreachable one backs off. */
+const MISSING_STYLESHEET_ATTRIBUTE = 'data-absolute-hmr-missing';
+const reloadFailures = new WeakMap<HTMLLinkElement, StylesheetReloadFailure>();
+
+const hrefPath = (href: string) => new URL(href, window.location.href).pathname;
+
+const isStylesheetGone = (href: string) =>
+	fetch(href, { cache: 'no-store' }).then(
+		(response) =>
+			response.status === HTTP_STATUS_NOT_FOUND ||
+			response.status === HTTP_STATUS_GONE,
+		() => false
+	);
+
+const markStylesheetGone = (link: HTMLLinkElement, href: string) => {
+	reloadFailures.delete(link);
+	// Disable rather than remove: a framework that rendered the `<link>`
+	// (React hoists page links into `<head>`) still owns the node.
+	link.disabled = true;
+	link.setAttribute(MISSING_STYLESHEET_ATTRIBUTE, hrefPath(href));
+};
+
+const recordReloadFailure = (link: HTMLLinkElement, href: string) => {
+	const path = hrefPath(href);
+	const previous = reloadFailures.get(link);
+	const count = previous?.path === path ? previous.count + 1 : 1;
+	const delay = Math.min(
+		CSS_RELOAD_BACKOFF_BASE_MS * 2 ** (count - 1),
+		CSS_RELOAD_BACKOFF_MAX_MS
+	);
+	reloadFailures.set(link, { count, path, retryAt: Date.now() + delay });
+};
+
+const clearReloadFailure = (link: HTMLLinkElement) => {
+	reloadFailures.delete(link);
+	if (!link.hasAttribute(MISSING_STYLESHEET_ATTRIBUTE)) return;
+	link.removeAttribute(MISSING_STYLESHEET_ATTRIBUTE);
+	link.disabled = false;
+};
+
+/* Whether a reload of `link` to `href` should be skipped: the stylesheet is
+   known to be gone and the manifest still names the same file, or it failed
+   recently and is backing off. */
+const shouldSkipReload = (link: HTMLLinkElement, href: string) => {
+	const path = hrefPath(href);
+	if (link.getAttribute(MISSING_STYLESHEET_ATTRIBUTE) === path) return true;
+	const failure = reloadFailures.get(link);
+
+	return failure?.path === path && Date.now() < failure.retryAt;
+};
+
 const replaceStylesheetLink = (
 	existingLink: HTMLLinkElement,
 	newHref: string,
@@ -174,29 +238,47 @@ const replaceStylesheetLink = (
 	if (!(replacement instanceof HTMLLinkElement)) {
 		return Promise.resolve(false);
 	}
+	replacement.disabled = false;
+	replacement.removeAttribute(MISSING_STYLESHEET_ATTRIBUTE);
 	const { promise, resolve } = Promise.withResolvers<boolean>();
 	let settled = false;
 	const finish = (applied: boolean) => {
 		if (settled) return;
 		settled = true;
-		if (applied) adoptHref(existingLink, replacement, newHref);
-		else replacement.remove();
+		if (applied) {
+			clearReloadFailure(existingLink);
+			adoptHref(existingLink, replacement, newHref);
+		} else {
+			replacement.remove();
+			recordReloadFailure(existingLink, newHref);
+		}
 		resolve(applied);
+	};
+	// The `<link>` error does not say why it failed. Ask once: a 404/410
+	// means the stylesheet was deleted, anything else is worth one retry.
+	const recoverFromError = async () => {
+		if (await isStylesheetGone(newHref)) {
+			markStylesheetGone(existingLink, newHref);
+			resolve(false);
+
+			return;
+		}
+		const retryHref = `${newHref}${newHref.includes('?') ? '&' : '?'}retry=${Date.now()}`;
+		resolve(
+			await replaceStylesheetLink(existingLink, retryHref, attempt + 1)
+		);
 	};
 	replacement.onload = () => finish(true);
 	replacement.onerror = () => {
+		if (settled) return;
 		if (attempt >= 1) {
 			finish(false);
 
 			return;
 		}
-		replacement.remove();
 		settled = true;
-		void replaceStylesheetLink(
-			existingLink,
-			`${newHref}${newHref.includes('?') ? '&' : '?'}retry=${Date.now()}`,
-			attempt + 1
-		).then(resolve);
+		replacement.remove();
+		void recoverFromError();
 	};
 	replacement.href = newHref;
 	existingLink.after(replacement);
@@ -235,6 +317,9 @@ const updateStylesheetLink = (
 	} else {
 		currentUrl.searchParams.set('t', Date.now().toString());
 		replacementHref = currentUrl.toString();
+	}
+	if (shouldSkipReload(link, replacementHref)) {
+		return Promise.resolve(link.hasAttribute(MISSING_STYLESHEET_ATTRIBUTE));
 	}
 
 	return replaceStylesheetLink(link, replacementHref);

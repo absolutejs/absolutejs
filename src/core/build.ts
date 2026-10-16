@@ -1238,7 +1238,7 @@ const buildUnlocked = async ({
 		htmxPagesPath
 	].filter((path): path is string => Boolean(path));
 	const [
-		,
+		tailwindResult,
 		allReactEntries,
 		allHtmlEntries,
 		reactConventionResult,
@@ -3438,7 +3438,8 @@ const buildUnlocked = async ({
 			conventions: conventionsMap,
 			errors: passErrors.length > 0 ? passErrors : undefined,
 			manifest,
-			pageEntries
+			pageEntries,
+			tailwindChanged: tailwindResult?.cssChanged ?? false
 		};
 	}
 
@@ -3493,7 +3494,8 @@ const buildUnlocked = async ({
 		conventions: conventionsMap,
 		errors: passErrors.length > 0 ? passErrors : undefined,
 		manifest,
-		pageEntries
+		pageEntries,
+		tailwindChanged: tailwindResult?.cssChanged ?? false
 	};
 };
 

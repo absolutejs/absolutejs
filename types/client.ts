@@ -56,6 +56,14 @@ export type CSSUpdateResult = {
 	linksToWaitFor: Promise<void>[];
 };
 
+/* A stylesheet reload that failed without the stylesheet being gone (rate
+   limit, dropped connection): `retryAt` holds further reloads of `path` off. */
+export type StylesheetReloadFailure = {
+	count: number;
+	path: string;
+	retryAt: number;
+};
+
 /* Shared mutable state for the HMR client */
 export const hmrState: {
 	isConnected: boolean;
