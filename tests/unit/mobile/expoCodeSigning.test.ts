@@ -1,7 +1,15 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { access, mkdtemp, mkdir, readFile, rm, stat } from 'node:fs/promises';
+import {
+	access,
+	mkdtemp,
+	mkdir,
+	readFile,
+	rm,
+	stat,
+	symlink
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import {
 	createPrivateKey,
 	createPublicKey,
@@ -10,6 +18,18 @@ import {
 import { generateAbsoluteExpoCodeSigning } from '../../../src/mobile/expoCodeSigning';
 
 const roots: string[] = [];
+const SIGNING_PACKAGE = '@expo/code-signing-certificates';
+
+// The package is an optional peer the application installs; link the
+// repository's copy in as an installed dependency.
+const installSigningPackage = async (projectRoot: string) => {
+	const installed = join(projectRoot, 'node_modules', SIGNING_PACKAGE);
+	await mkdir(dirname(installed), { recursive: true });
+	await symlink(
+		resolve(import.meta.dir, '../../../node_modules', SIGNING_PACKAGE),
+		installed
+	);
+};
 
 afterEach(async () => {
 	await Promise.all(
@@ -26,6 +46,7 @@ describe('Expo code-signing provisioning', () => {
 		const projectRoot = join(root, 'application');
 		const privateKeyPath = join(root, 'secrets', 'private-key.pem');
 		await mkdir(projectRoot);
+		await installSigningPackage(projectRoot);
 		const result = await generateAbsoluteExpoCodeSigning({
 			certificatePath: 'mobile/code-signing/certificate.pem',
 			commonName: 'AbsoluteJS Test Updates',
@@ -74,5 +95,20 @@ describe('Expo code-signing provisioning', () => {
 				projectRoot: root
 			})
 		).rejects.toThrow('outside the project');
+	});
+
+	test('explains how to install the signing package when the application lacks it', async () => {
+		const root = await mkdtemp(join(tmpdir(), 'absolute-expo-signing-'));
+		roots.push(root);
+		const projectRoot = join(root, 'application');
+		await mkdir(projectRoot);
+		await expect(
+			generateAbsoluteExpoCodeSigning({
+				certificatePath: 'certificate.pem',
+				commonName: 'AbsoluteJS Test Updates',
+				privateKeyPath: join(root, 'secrets', 'private-key.pem'),
+				projectRoot
+			})
+		).rejects.toThrow(`bun add --dev ${SIGNING_PACKAGE}@0.0.6`);
 	});
 });

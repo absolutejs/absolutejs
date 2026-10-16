@@ -317,6 +317,21 @@ export const absoluteDeviceNativeRequirements = (
 	};
 };
 
+// The Expo adapter is an optional peer an Expo application installs (through
+// `absolute mobile init`), so a project without it is told how to get it.
+const resolveAdapterManifest = (
+	adapter: string,
+	provider: AbsoluteDeviceProvider
+) => {
+	try {
+		return fileURLToPath(import.meta.resolve(`${adapter}/package.json`));
+	} catch {
+		throw new TypeError(
+			`${adapter} is not installed. Run \`absolute mobile init\` to install the ${provider === 'expo' ? 'Expo' : 'Capacitor'} device adapters.`
+		);
+	}
+};
+
 export const loadAbsoluteDeviceCapabilityProviders = (
 	projectRoot: string,
 	provider: AbsoluteDeviceProvider = 'capacitor'
@@ -331,7 +346,7 @@ export const loadAbsoluteDeviceCapabilityProviders = (
 	try {
 		readFileSync(path, 'utf8');
 	} catch {
-		path = fileURLToPath(import.meta.resolve(`${adapter}/package.json`));
+		path = resolveAdapterManifest(adapter, provider);
 	}
 	const manifest = readJson(path);
 	const { absolutejs } = manifest;
