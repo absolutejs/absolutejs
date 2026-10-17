@@ -114,6 +114,8 @@ export const broadcastToClients = (
 		state.clientTargets.delete(client);
 	});
 };
+const SERVER_STARTED_AT = Math.round(performance.timeOrigin);
+
 export const handleClientConnect = (
 	state: HMRState,
 	client: HMRWebSocket,
@@ -125,7 +127,11 @@ export const handleClientConnect = (
 	client.send(
 		JSON.stringify({
 			data: {
+				// A page reconnecting after a dropped connection compares
+				// these with what it saw, and reloads only if it missed one.
+				lastBroadcastAt: state.lastBroadcastTimestamp,
 				manifest,
+				serverStartedAt: SERVER_STARTED_AT,
 				serverVersions
 			},
 			timestamp: Date.now(),
