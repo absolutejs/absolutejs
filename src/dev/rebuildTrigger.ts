@@ -40,6 +40,7 @@ import {
 } from './fileHashTracker';
 import {
 	findNearestComponent,
+	getTransformed,
 	invalidate as invalidateTransformCache
 } from './transformCache';
 
@@ -2464,6 +2465,47 @@ const resolveComponentTarget = (
 	);
 };
 
+const MAX_REFRESH_BOUNDARY_HOPS = 8;
+
+// Whether a transformed module registers a component with React Fast Refresh.
+const registersRefreshComponent = (file: string) =>
+	/\$RefreshReg\$\(/u.test(getTransformed(resolvePath(file)) ?? '');
+
+/* Module URLs to re-import alongside `targets` so every edit shows. Fast
+ * Refresh updates a component it registered; a module that registers none (a
+ * class component, a wrapper the transpiler does not register) changes
+ * nothing on screen when only it re-runs, because its importer keeps the old
+ * module. So for each such target, its importers up to the nearest one that
+ * registers a component are re-imported too (getModuleUrl bumps their
+ * versions, so they load the new module). */
+const refreshBoundaryUrls = async (targets: string[]) => {
+	const urls: string[] = [];
+	const seen = new Set(targets.map((file) => resolvePath(file)));
+	const climb = async (file: string, hops: number): Promise<void> => {
+		const importer = findNearestComponent(resolvePath(file));
+		if (
+			!importer ||
+			seen.has(importer) ||
+			hops >= MAX_REFRESH_BOUNDARY_HOPS
+		)
+			return;
+		seen.add(importer);
+		urls.push(await getReactModuleUrl(importer));
+		if (!registersRefreshComponent(importer))
+			await climb(importer, hops + 1);
+	};
+	// One at a time: a climb may transform modules the next one reads.
+	await targets.reduce<Promise<void>>(
+		(previous, target) =>
+			previous.then(() =>
+				registersRefreshComponent(target) ? undefined : climb(target, 0)
+			),
+		Promise.resolve()
+	);
+
+	return urls;
+};
+
 /* Every module the browser must re-import for this batch. One per edited
  * file: an edit that creates a component and adds it to the page has to
  * re-run the page too, or the page keeps rendering without it. Children
@@ -2542,7 +2584,10 @@ const handleReactModuleServerPath = async (
 		return state.manifest;
 	}
 
-	const moduleUrls = await Promise.all(targets.map(getReactModuleUrl));
+	const targetUrls = await Promise.all(targets.map(getReactModuleUrl));
+	const moduleUrls = fastRefreshSupported
+		? [...targetUrls, ...(await refreshBoundaryUrls(targets))]
+		: targetUrls;
 	// Transform the edited files too (a target may import them), so a syntax
 	// error anywhere in the batch is caught here rather than in the browser.
 	await Promise.all(
