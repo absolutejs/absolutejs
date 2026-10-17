@@ -114,6 +114,7 @@ import { validateSafePath } from '../utils/validateSafePath';
 import { setSpaRouteManifest } from '../utils/spaRouteManifest';
 import { isTestSourcePath } from '../utils/isTestSourcePath';
 import { injectPwaBootstrapHtml, materializeAbsolutePwa } from '../build/pwa';
+import { writePrecompressedAssets } from './precompressed';
 
 type BuildTraceEvent = {
 	durationMs: number;
@@ -3481,6 +3482,14 @@ const buildUnlocked = async ({
 		} catch (err) {
 			console.warn('[sitemap] Build-time generation failed:', err);
 		}
+	}
+
+	// Text assets ship with brotli and gzip copies beside them, which the
+	// production server sends to browsers that accept them.
+	if (mode === 'production') {
+		await tracePhase('compress/assets', () =>
+			writePrecompressedAssets(buildPath)
+		);
 	}
 
 	// Production builds don't need the persistent Tailwind compiler in
