@@ -27,6 +27,7 @@ import { logStartupTimingBlock } from '../utils/startupTimings';
 import { markBoot } from '../utils/bootTimeline';
 import { logWarn } from '../utils/logger';
 import { deferUntilServing, setBootPhase } from '../dev/bootLifecycle';
+import { assetCacheControl, createPrecompressedPlugin } from './precompressed';
 import { devServerBusy } from '../dev/devActivity';
 import { dependencyOrderedSequence, runWhenIdle } from '../dev/idleScheduler';
 
@@ -688,6 +689,7 @@ const runPrepare = async (configOrPath?: string) => {
 
 		return file;
 	});
+	const precompressedFiles = await createPrecompressedPlugin(buildDir);
 	recordStep('create static plugin', stepStartedAt);
 
 	// Cache policy for static assets. Content-hashed filenames (e.g.
@@ -702,13 +704,6 @@ const runPrepare = async (configOrPath?: string) => {
 	// A content-hashed filename always mixes letters AND digits in its hash
 	// segment (e.g. `a1b2c3d4`); dictionary-word segments (`generated`, `vue`,
 	// `iconfont`) never do, so they correctly fall through to revalidation.
-	const isFingerprintedAsset = (pathname: string) => {
-		if (pathname.startsWith('/.absolutejs/')) return true;
-		const base = pathname.slice(pathname.lastIndexOf('/') + 1);
-		const hash = base.match(/[.-]([0-9a-z]{6,12})\.[0-9a-z]+$/i)?.[1];
-
-		return hash ? /[0-9]/.test(hash) && /[a-z]/i.test(hash) : false;
-	};
 	const assetCachePlugin = new Elysia({
 		name: 'absolutejs-asset-cache'
 	}).afterHandle('global', ({ request, responseValue }) => {
@@ -718,12 +713,7 @@ const runPrepare = async (configOrPath?: string) => {
 		// Only touch real static files (have an extension) — never pages/APIs.
 		if (pathname.endsWith('/') || !/\.[0-9a-z]+$/i.test(pathname)) return;
 		// Replace (not append) whatever blanket policy @elysia/static set.
-		responseValue.headers.set(
-			'cache-control',
-			isFingerprintedAsset(pathname)
-				? 'public, max-age=31536000, immutable'
-				: 'public, max-age=0, must-revalidate'
-		);
+		responseValue.headers.set('cache-control', assetCacheControl(pathname));
 	});
 
 	// Check for pre-rendered pages (from SSG or compile)
@@ -798,6 +788,7 @@ const runPrepare = async (configOrPath?: string) => {
 			.use(assetCachePlugin)
 			.use(imageOptimizer(config.images, buildDir))
 			.use(prerenderPlugin)
+			.use(precompressedFiles)
 			.use(staticFiles)
 			.use(generatedAssetsPlugin)
 			.use(createNotFoundPlugin());
@@ -818,6 +809,7 @@ const runPrepare = async (configOrPath?: string) => {
 		.use(mobileUpdatePlugin)
 		.use(assetCachePlugin)
 		.use(imageOptimizer(config.images, buildDir))
+		.use(precompressedFiles)
 		.use(staticFiles)
 		.use(generatedAssetsPlugin)
 		.use(createNotFoundPlugin());
