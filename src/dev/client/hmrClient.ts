@@ -4,12 +4,15 @@
 import { hmrState } from './hmrState';
 import {
 	HMR_UPDATE_TIMEOUT_MS,
-	MAX_RECONNECT_ATTEMPTS,
 	PING_INTERVAL_MS,
-	RECONNECT_INITIAL_DELAY_MS,
-	RECONNECT_POLL_INTERVAL_MS,
 	WEBSOCKET_NORMAL_CLOSURE
 } from './constants';
+import {
+	RECONNECT_GIVE_UP_MS,
+	missedWhileDisconnected,
+	reconnectDelayMs,
+	type ServerSnapshot
+} from './reconnect';
 import { detectCurrentFramework } from './frameworkDetect';
 import {
 	absoluteHmrClientTarget,
@@ -102,11 +105,9 @@ const removeNativeSyncDevtools =
 		? () => undefined
 		: installAbsoluteNativeSyncDevtools();
 
-/* Lightweight "server disconnected" banner. When the dev server is
- * genuinely down (process restarting or crashed) the browser would
- * otherwise show its own blank "site can't be reached" page — this keeps
- * a branded, self-explanatory notice on screen while the client polls
- * `/hmr-status` and reloads on recovery. Kept separate from the compile
+/* Lightweight "server disconnected" banner, shown while the socket is
+ * down (a dropped network or a restarting server) and the client reconnects.
+ * The page reloads on recovery only if it missed an update. Kept separate from the compile
  * error overlay so it never clobbers a build-error message. The
  * `data-hmr-overlay` attribute exempts it from HMR DOM diffing. */
 const CONNECTION_LOST_BANNER_ID = 'absolutejs-connection-lost';
@@ -129,7 +130,10 @@ const showConnectionLostBanner = () => {
 		'text-align:center',
 		'box-shadow:0 -2px 12px rgba(0,0,0,0.3)'
 	].join(';');
-	banner.textContent = 'AbsoluteJS · dev server disconnected — reconnecting…';
+	banner.textContent =
+		navigator.onLine === false
+			? 'AbsoluteJS · offline — reconnects when the network is back'
+			: 'AbsoluteJS · dev server disconnected — reconnecting…';
 	document.body.appendChild(banner);
 };
 const hideConnectionLostBanner = () => {
@@ -202,6 +206,7 @@ type HMRMessage = {
 		// BUN-REACT-REFRESH-LEGACY: false only on stock Bun (see handlers/react.ts).
 		fastRefreshSupported?: boolean;
 		file?: string;
+		lastBroadcastAt?: number;
 		framework?: string;
 		hasCSSChanges?: boolean;
 		hasComponentChanges?: boolean;
@@ -216,6 +221,7 @@ type HMRMessage = {
 		primarySource?: string;
 		scriptUrl?: string;
 		serverDuration?: number;
+		serverStartedAt?: number;
 		serverVersions?: Record<string, number>;
 	};
 	timestamp?: number;
@@ -380,8 +386,43 @@ const handleHMRMessage = (message: HMRMessage) => {
 	}
 };
 
-// Prevent multiple WebSocket connections
-if (!(window.__HMR_WS__ && window.__HMR_WS__.readyState === WebSocket.OPEN)) {
+// What the server said when this page last connected, and the newest update
+// the page received: on reconnecting, the page reloads only if it missed one.
+let serverSnapshot: ServerSnapshot | undefined;
+let lastReceivedAt = 0;
+let reconnectAttempt = 0;
+let disconnectedAt = 0;
+
+const scheduleReconnect = (connect: () => void) => {
+	if (hmrState.reconnectTimeout) clearTimeout(hmrState.reconnectTimeout);
+	if (!disconnectedAt) disconnectedAt = Date.now();
+	if (Date.now() - disconnectedAt > RECONNECT_GIVE_UP_MS) return;
+	// An offline browser waits for the network instead of spending attempts.
+	if (navigator.onLine === false) return;
+	hmrState.reconnectTimeout = setTimeout(
+		connect,
+		reconnectDelayMs(reconnectAttempt)
+	);
+	reconnectAttempt += 1;
+};
+
+const receivedSnapshot = (message: HMRMessage) => {
+	const after: ServerSnapshot = {
+		lastBroadcastAt: message.data.lastBroadcastAt,
+		serverStartedAt: message.data.serverStartedAt
+	};
+	const missed = missedWhileDisconnected(
+		serverSnapshot,
+		after,
+		lastReceivedAt
+	);
+	if (!serverSnapshot) lastReceivedAt = after.lastBroadcastAt ?? 0;
+	serverSnapshot = after;
+
+	return missed;
+};
+
+const connectHmrSocket = () => {
 	// Determine WebSocket URL
 	const wsHost = location.hostname;
 	const wsPort =
@@ -394,6 +435,8 @@ if (!(window.__HMR_WS__ && window.__HMR_WS__.readyState === WebSocket.OPEN)) {
 
 	wsc.onopen = function () {
 		hmrState.isConnected = true;
+		reconnectAttempt = 0;
+		disconnectedAt = 0;
 		hideConnectionLostBanner();
 		sessionStorage.setItem('__HMR_CONNECTED__', 'true');
 
@@ -426,6 +469,20 @@ if (!(window.__HMR_WS__ && window.__HMR_WS__.readyState === WebSocket.OPEN)) {
 			return;
 		}
 
+		if (message?.type === 'manifest' && receivedSnapshot(message)) {
+			// The server restarted or sent updates while this page was
+			// away; only a reload is sure to show the current build.
+			window.location.reload();
+
+			return;
+		}
+		if (
+			typeof message?.timestamp === 'number' &&
+			message.type !== 'manifest' &&
+			message.type !== 'connected' &&
+			message.type !== 'pong'
+		)
+			lastReceivedAt = Math.max(lastReceivedAt, message.timestamp);
 		handleHMRMessage(message);
 	};
 
@@ -439,37 +496,32 @@ if (!(window.__HMR_WS__ && window.__HMR_WS__.readyState === WebSocket.OPEN)) {
 
 		if (event.code !== WEBSOCKET_NORMAL_CLOSURE) {
 			showConnectionLostBanner();
-			let attempts = 0;
-			hmrState.reconnectTimeout = setTimeout(function pollServer() {
-				attempts++;
-				if (attempts > MAX_RECONNECT_ATTEMPTS) return;
-
-				fetch('/hmr-status', { cache: 'no-store' })
-					.then((res) => {
-						if (res.ok) {
-							window.location.reload();
-						} else {
-							hmrState.reconnectTimeout = setTimeout(
-								pollServer,
-								RECONNECT_POLL_INTERVAL_MS
-							);
-						}
-
-						return undefined;
-					})
-					.catch(() => {
-						hmrState.reconnectTimeout = setTimeout(
-							pollServer,
-							RECONNECT_POLL_INTERVAL_MS
-						);
-					});
-			}, RECONNECT_INITIAL_DELAY_MS);
+			scheduleReconnect(connectHmrSocket);
 		}
 	};
 
 	wsc.onerror = function () {
 		hmrState.isConnected = false;
 	};
+};
+
+// The network or the tab coming back is the moment to retry, not the next
+// backoff step.
+const reconnectNow = () => {
+	if (hmrState.isConnected || !disconnectedAt) return;
+	reconnectAttempt = 0;
+	if (hmrState.reconnectTimeout) clearTimeout(hmrState.reconnectTimeout);
+	hmrState.reconnectTimeout = null;
+	connectHmrSocket();
+};
+
+// Prevent multiple WebSocket connections
+if (!(window.__HMR_WS__ && window.__HMR_WS__.readyState === WebSocket.OPEN)) {
+	connectHmrSocket();
+	window.addEventListener('online', reconnectNow);
+	document.addEventListener('visibilitychange', () => {
+		if (document.visibilityState === 'visible') reconnectNow();
+	});
 
 	window.addEventListener('beforeunload', () => {
 		removeNativeSyncDevtools();
