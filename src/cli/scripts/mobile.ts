@@ -15,6 +15,9 @@ import {
 	ABSOLUTE_NATIVE_EXACT_PACKAGES,
 	CAPACITOR_PACKAGE_SPECS,
 	CAPACITOR_SYNC_PACKAGE_SPECS,
+	EXPO_APP_EXACT_PACKAGES,
+	EXPO_APP_PACKAGE_SPECS,
+	EXPO_CODE_SIGNING_PACKAGE_SPEC,
 	assertNativePackageVersions,
 	packageNameFromSpec,
 	packagesNeedingExactInstall
@@ -488,7 +491,32 @@ const runExpo = async (
 		throw new TypeError(`Expo exited with status ${exitCode}.`);
 };
 
-const ensureExpoPackages = async (project: string, args: string[]) => {
+const ensureExpoAppPackages = async (projectRoot: string, args: string[]) => {
+	const missing = await packagesNeedingExactInstall(
+		projectRoot,
+		EXPO_APP_PACKAGE_SPECS,
+		await directProjectPackages(projectRoot),
+		EXPO_APP_EXACT_PACKAGES
+	);
+	await installApprovedPackages(
+		projectRoot,
+		args,
+		'The AbsoluteJS Expo device adapters are missing or outdated. Install them now?',
+		missing
+	);
+	await assertNativePackageVersions(
+		projectRoot,
+		EXPO_APP_PACKAGE_SPECS,
+		EXPO_APP_EXACT_PACKAGES
+	);
+};
+
+const ensureExpoPackages = async (
+	projectRoot: string,
+	project: string,
+	args: string[]
+) => {
+	await ensureExpoAppPackages(projectRoot, args);
 	try {
 		const manifest: unknown = JSON.parse(
 			await readFile(join(project, 'package.json'), 'utf8')
@@ -731,6 +759,7 @@ const initialize = async (args: string[]) => {
 		console.warn(
 			'Experimental: Expo Android and iOS release automation is available; real macOS and physical-device acceptance remains pending.'
 		);
+		await ensureExpoAppPackages(projectRoot, args);
 		const generated = await writeAbsoluteExpoProject(mobile, {
 			force: args.includes('--force'),
 			projectRoot
@@ -738,7 +767,7 @@ const initialize = async (args: string[]) => {
 		console.log(
 			`${generated.changed > 0 ? 'Generated' : 'Verified'} Expo shell ${generated.path}`
 		);
-		await ensureExpoPackages(generated.path, args);
+		await ensureExpoPackages(projectRoot, generated.path, args);
 		if (args.includes('--no-native')) return;
 		await runExpo(generated.path, [
 			'prebuild',
@@ -786,11 +815,16 @@ const sync = async (args: string[]) => {
 		console.warn(
 			'Experimental: syncing the Expo CNG shell and embedded AbsoluteJS bundle.'
 		);
+		await ensureExpoAppPackages(projectRoot, args);
 		await writeAbsoluteExpoProject(mobile, {
 			force: args.includes('--force'),
 			projectRoot
 		});
-		await ensureExpoPackages(mobile.nativeProjectDirectory, args);
+		await ensureExpoPackages(
+			projectRoot,
+			mobile.nativeProjectDirectory,
+			args
+		);
 		const assets = await syncAbsoluteExpoWebAssets(mobile);
 		console.log(
 			`Synced ${assets.assets} embedded AbsoluteJS assets for ${assets.appBuild}.`
@@ -875,11 +909,12 @@ const generateMobileBranding = async (
 
 		return;
 	}
+	await ensureExpoAppPackages(projectRoot, args);
 	await writeAbsoluteExpoProject(mobile, {
 		force: args.includes('--force'),
 		projectRoot
 	});
-	await ensureExpoPackages(mobile.nativeProjectDirectory, args);
+	await ensureExpoPackages(projectRoot, mobile.nativeProjectDirectory, args);
 	await runExpo(mobile.nativeProjectDirectory, [
 		'prebuild',
 		'--no-install',
@@ -1815,7 +1850,11 @@ const prepareExpoMobileUpdateExport = async (options: {
 			bundleDirectory: mobile.bundleDirectory,
 			temporaryDirectory: undefined
 		};
-	await ensureExpoPackages(mobile.nativeProjectDirectory, options.args);
+	await ensureExpoPackages(
+		options.projectRoot,
+		mobile.nativeProjectDirectory,
+		options.args
+	);
 	const temporaryParent = join(
 		options.projectRoot,
 		'.absolutejs',
@@ -1999,6 +2038,19 @@ const generateExpoUpdateSigning = async (args: string[]) => {
 		throw new TypeError(
 			'mobile update signing generate --key-id contains unsupported characters.'
 		);
+	const signingPackage = await packagesNeedingExactInstall(
+		projectRoot,
+		[EXPO_CODE_SIGNING_PACKAGE_SPEC],
+		await directProjectPackages(projectRoot),
+		new Set([packageNameFromSpec(EXPO_CODE_SIGNING_PACKAGE_SPEC)])
+	);
+	await installApprovedPackages(
+		projectRoot,
+		args,
+		'Generating an update-signing certificate needs @expo/code-signing-certificates. Install it as a development dependency now?',
+		signingPackage,
+		true
+	);
 	const result = await generateAbsoluteExpoCodeSigning({
 		certificatePath:
 			valueAfter(args, '--certificate') ??
@@ -2723,8 +2775,12 @@ const prepareExpoAndroidReleaseProject = async (
 	projectRoot: string,
 	args: string[]
 ) => {
+	await ensureExpoAppPackages(projectRoot, [...args, '--yes']);
 	await writeAbsoluteExpoProject(mobile, { projectRoot });
-	await ensureExpoPackages(mobile.nativeProjectDirectory, [...args, '--yes']);
+	await ensureExpoPackages(projectRoot, mobile.nativeProjectDirectory, [
+		...args,
+		'--yes'
+	]);
 	await syncAbsoluteExpoWebAssets(mobile);
 	await runExpo(
 		mobile.nativeProjectDirectory,
@@ -2738,8 +2794,12 @@ const prepareExpoIosReleaseProject = async (
 	projectRoot: string,
 	args: string[]
 ) => {
+	await ensureExpoAppPackages(projectRoot, [...args, '--yes']);
 	await writeAbsoluteExpoProject(mobile, { projectRoot });
-	await ensureExpoPackages(mobile.nativeProjectDirectory, [...args, '--yes']);
+	await ensureExpoPackages(projectRoot, mobile.nativeProjectDirectory, [
+		...args,
+		'--yes'
+	]);
 	await syncAbsoluteExpoWebAssets(mobile);
 	await runExpo(
 		mobile.nativeProjectDirectory,

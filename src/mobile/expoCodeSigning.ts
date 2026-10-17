@@ -1,10 +1,3 @@
-import {
-	convertCertificateToCertificatePEM,
-	convertKeyPairToPEM,
-	generateKeyPair,
-	generateSelfSignedCodeSigningCertificate,
-	validateSelfSignedCertificate
-} from '@expo/code-signing-certificates';
 import { access, mkdir, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 
@@ -31,6 +24,16 @@ const inside = (root: string, path: string) => {
 			!location.startsWith(`..${sep}`) &&
 			!isAbsolute(location))
 	);
+};
+
+const resolveCodeSigningPackage = (root: string) => {
+	try {
+		return Bun.resolveSync('@expo/code-signing-certificates', root);
+	} catch {
+		throw new TypeError(
+			'Generating an Expo code-signing certificate needs @expo/code-signing-certificates: run `bun add --dev @expo/code-signing-certificates@0.0.6`, or `absolute mobile update signing generate`, which installs it.'
+		);
+	}
 };
 
 export const generateAbsoluteExpoCodeSigning = async (
@@ -81,6 +84,17 @@ export const generateAbsoluteExpoCodeSigning = async (
 			`Refusing to overwrite Expo code-signing material: ${collisions.map(({ path }) => path).join(', ')}`
 		);
 
+	// An optional peer: only an Expo app that signs its updates installs it,
+	// so it is loaded from that app, never bundled into the framework.
+	const {
+		convertCertificateToCertificatePEM,
+		convertKeyPairToPEM,
+		generateKeyPair,
+		generateSelfSignedCodeSigningCertificate,
+		validateSelfSignedCertificate
+	}: typeof import('@expo/code-signing-certificates') = await import(
+		resolveCodeSigningPackage(root)
+	);
 	const keyPair = generateKeyPair();
 	const validityNotBefore = new Date(Date.now() - 5 * 60_000);
 	const validityNotAfter = new Date(validityNotBefore);

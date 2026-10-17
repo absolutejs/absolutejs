@@ -1,5 +1,7 @@
 {
 	"dependencies": {
+		"@absolutejs/devices": "0.7.1",
+		"@absolutejs/devices-expo": "0.0.12",
 		"elysia": "*",
 		"react": "*",
 		"react-dom": "*"

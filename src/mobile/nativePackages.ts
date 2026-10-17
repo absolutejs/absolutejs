@@ -27,6 +27,21 @@ export const CAPACITOR_SYNC_PACKAGE_SPECS = [
 	`@absolutejs/sync-capacitor@${ABSOLUTE_CAPACITOR_SYNC_VERSION}`,
 	'@capacitor-community/sqlite@8.1.1'
 ];
+// The Expo shell's web side imports these from the application, so an Expo
+// app installs them itself. They are optional peers of the framework: a web
+// application never installs Expo or React Native.
+export const EXPO_APP_EXACT_PACKAGES = new Set([
+	'@absolutejs/devices',
+	'@absolutejs/devices-expo'
+]);
+export const EXPO_APP_PACKAGE_SPECS = [
+	`@absolutejs/devices@${ABSOLUTE_DEVICES_VERSION}`,
+	`@absolutejs/devices-expo@${ABSOLUTE_EXPO_DEVICES_VERSION}`
+];
+// Installed as a development dependency only when an Expo app generates its
+// update-signing certificate.
+export const EXPO_CODE_SIGNING_PACKAGE_SPEC =
+	'@expo/code-signing-certificates@0.0.6';
 
 // Follow node_modules ancestry: workspace packages may be hoisted, while a stale
 // nearer installation must never be skipped in favor of a matching ancestor.
