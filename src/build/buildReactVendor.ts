@@ -123,7 +123,10 @@ const generateEntrySource = async (specifier: string) => {
  *  Output goes to {buildDir}/react/vendor/ with predictable names like
  *  react.js, react-dom_client.js, etc. These files never change between
  *  rebuilds, so the browser always loads React from a single source. */
-export const buildReactVendor = async (buildDir: string) => {
+export const buildReactVendor = async (
+	buildDir: string,
+	{ production = false }: { production?: boolean } = {}
+) => {
 	const vendorDir = join(buildDir, 'react', 'vendor');
 	mkdirSync(vendorDir, { recursive: true });
 
@@ -145,9 +148,16 @@ export const buildReactVendor = async (buildDir: string) => {
 	);
 
 	const result = await bunBuild({
+		// React picks its build from process.env.NODE_ENV. Left unset, every
+		// production app shipped React's development build, unminified: 903 KB
+		// for react-dom alone, and slower to run (absolutejs.ai, 2026-10-16).
+		// Development keeps it, because Fast Refresh needs the development build.
+		...(production
+			? { define: { 'process.env.NODE_ENV': '"production"' } }
+			: {}),
 		entrypoints,
 		format: 'esm',
-		minify: false,
+		minify: production,
 		naming: '[name].[ext]',
 		outdir: vendorDir,
 		splitting: true,
