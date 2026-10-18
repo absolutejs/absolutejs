@@ -5,6 +5,27 @@
 		{
 			"changes": [
 				{
+					"detail": "When the dev-server socket dropped, `absolute dev` pages polled for about 18 seconds and reloaded as soon as the server answered. On weak wifi every network change became a full reload, refetching every stylesheet and script and losing the page's state, and an outage longer than 18 seconds left the page disconnected until a manual reload. The page now reconnects the socket for up to 30 minutes, backing off from half a second to ten, waits for the network instead of retrying while the browser is offline, and retries at once when the network or the tab returns. It reloads only if it missed something: the server restarted, or sent an update while the page was away. The server now includes when it started and when it last sent an update in the manifest it sends each connecting page. The banner says when the browser is offline.",
+					"kind": "fixed",
+					"summary": "Dev pages reconnect after a dropped connection without reloading, and keep trying through long outages"
+				},
+				{
+					"detail": "Production builds bundled React into its vendor files without setting `process.env.NODE_ENV`, so React picked its development build: `react-dom_client.js` was 903 KB, and React ran its development checks in every production page. Production builds now set `process.env.NODE_ENV` to `\"production\"`: 400 KB, 81 KB gzipped. Only whitespace is minified; renaming identifiers or minifying syntax across the split vendor chunks makes Bun emit an export named `__INVALID__REF__`, which stopped compiled executables from hydrating. `absolute dev` is unchanged; Fast Refresh needs the development build.",
+					"kind": "fixed",
+					"summary": "Production builds ship React's production build (react-dom 903 KB → 400 KB, no development checks)"
+				},
+				{
+					"detail": "React Fast Refresh updates the components it registered. Editing a module that registers none (a class component, or a `memo`/`forwardRef` wrapper the transpiler does not register) re-ran only that module, and its importer kept rendering the old one, so the edit never showed until a reload. The update now also re-imports the module's importers up to the nearest one that registers a component, so the edit appears and the rest of the page keeps its state.",
+					"kind": "fixed",
+					"summary": "Edits to class components and `memo`/`forwardRef` wrappers appear in `absolute dev` without a reload"
+				}
+			],
+			"date": "2026-10-18",
+			"version": "0.20.0-beta.140"
+		},
+		{
+			"changes": [
+				{
 					"detail": "Every AbsoluteJS application used to install Expo and React Native, because the framework depended on `@absolutejs/devices-expo` (which needs both as peers) and on `@expo/code-signing-certificates`. A web application never runs either, but it carried them, and with them packages a vulnerability scan flags with no fixed release (node-forge through the signing certificates, braces through Metro). Both are now optional peer dependencies. `absolute mobile` installs `@absolutejs/devices` and `@absolutejs/devices-expo` into an Expo application the first time it needs them, the way it already installs Capacitor, and `absolute mobile update signing generate` installs `@expo/code-signing-certificates` as a development dependency. The framework no longer bundles node-forge into its CLI. Calling `generateAbsoluteExpoCodeSigning` directly now needs `@expo/code-signing-certificates` installed in the application, and says so if it is not.",
 					"kind": "changed",
 					"summary": "Web applications no longer install Expo, React Native or the Expo code-signing tooling; `absolute mobile` installs them for Expo apps",
