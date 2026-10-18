@@ -157,7 +157,7 @@ export const buildReactVendor = async (
 			: {}),
 		entrypoints,
 		format: 'esm',
-		minify: production,
+		minify: production ? { whitespace: true } : false,
 		naming: '[name].[ext]',
 		outdir: vendorDir,
 		splitting: true,
