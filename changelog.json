@@ -5,6 +5,22 @@
 		{
 			"changes": [
 				{
+					"detail": "Elysia 2 no longer answers HEAD for a GET route, so every AbsoluteJS app answered HEAD with 404 while GET answered 200, pages and static files alike. Uptime monitors, link checkers, crawlers and validators ask with HEAD and read that as down. `networking()` now adds a HEAD fallback that runs the request as GET and returns its status and headers without a body, compiled executables included. A route the app declares with `.head()` still wins.",
+					"kind": "fixed",
+					"summary": "HEAD requests answer like GET (status and headers, no body) instead of 404"
+				},
+				{
+					"detail": "Production served every asset uncompressed, so browsers downloaded scripts, stylesheets and HTML files at full size: about three times the bytes, which on a slow network is most of the wait. Production builds now write brotli (quality 9) and gzip copies beside each text asset that compression shrinks by at least a tenth (about a second for the example app), and the production server sends a copy to a browser that accepts it, with `Content-Encoding`, the original `Content-Type`, `Vary: Accept-Encoding` and the asset's cache policy. React's vendor bundle goes from 181 KB to 53 KB. Nothing is compressed on the fly, so streamed responses (server-sent events, streamed pages) are untouched.",
+					"kind": "added",
+					"summary": "Production serves brotli and gzip copies of static text assets, written at build time"
+				}
+			],
+			"date": "2026-10-19",
+			"version": "0.20.0-beta.141"
+		},
+		{
+			"changes": [
+				{
 					"detail": "When the dev-server socket dropped, `absolute dev` pages polled for about 18 seconds and reloaded as soon as the server answered. On weak wifi every network change became a full reload, refetching every stylesheet and script and losing the page's state, and an outage longer than 18 seconds left the page disconnected until a manual reload. The page now reconnects the socket for up to 30 minutes, backing off from half a second to ten, waits for the network instead of retrying while the browser is offline, and retries at once when the network or the tab returns. It reloads only if it missed something: the server restarted, or sent an update while the page was away. The server now includes when it started and when it last sent an update in the manifest it sends each connecting page. The banner says when the browser is offline.",
 					"kind": "fixed",
 					"summary": "Dev pages reconnect after a dropped connection without reloading, and keep trying through long outages"
