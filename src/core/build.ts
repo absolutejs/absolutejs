@@ -2210,7 +2210,7 @@ const buildUnlocked = async ({
 		const { buildReactVendor, computeVendorPaths } = await import(
 			'../build/buildReactVendor'
 		);
-		await buildReactVendor(buildPath, { production: !isDev });
+		await buildReactVendor(buildPath);
 		vendorPaths = computeVendorPaths();
 		setDevVendorPaths(vendorPaths);
 	}
