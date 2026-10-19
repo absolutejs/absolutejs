@@ -1,3 +1,4 @@
+import { headFallback } from './headFallback';
 import { argv } from 'node:process';
 import { env } from 'bun';
 import { type AnyElysia } from 'elysia';
@@ -113,6 +114,9 @@ const selfRegisterInstance = () => {
 // empty base singleton — checking that against a big chain trips TS2589 at the
 // call site. The bound is what's widened, never the return.
 export const networking = <A extends AnyElysia>(app: A) => {
+	// Before the compiled-runtime return: production executables answer HEAD
+	// too.
+	headFallback(app);
 	if (env.ABSOLUTE_COMPILED_RUNTIME === '1') return app;
 
 	app.use(
