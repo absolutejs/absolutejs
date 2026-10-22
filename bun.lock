@@ -140,7 +140,7 @@
         "@expo/code-signing-certificates": "0.0.6",
         "@libsql/client": ">=0.15.0 <1",
         "@vue/compiler-sfc": "^3.5.27",
-        "elysia": "^2.0.0-beta.21",
+        "elysia": "2.0.0-beta.21",
         "less": "^4.6.0",
         "mssql": ">=11.0.0 <13",
         "postcss": "^8.5.0",
@@ -353,6 +353,8 @@
       "version": "0.0.0",
       "dependencies": {
         "@absolutejs/auth": "0.75.0",
+        "@absolutejs/devices": "0.7.1",
+        "@absolutejs/devices-expo": "0.0.12",
         "@absolutejs/sync": "2.31.0",
         "elysia": "*",
         "react": "*",
@@ -363,6 +365,8 @@
       "name": "@absolutejs/fixture-expo-android-release",
       "version": "0.0.0",
       "dependencies": {
+        "@absolutejs/devices": "0.7.1",
+        "@absolutejs/devices-expo": "0.0.12",
         "elysia": "*",
         "react": "*",
         "react-dom": "*",

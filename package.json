@@ -339,7 +339,7 @@
 		"@expo/code-signing-certificates": "0.0.6",
 		"@libsql/client": ">=0.15.0 <1",
 		"@vue/compiler-sfc": "^3.5.27",
-		"elysia": "^2.0.0-beta.21",
+		"elysia": "2.0.0-beta.21",
 		"less": "^4.6.0",
 		"mssql": ">=11.0.0 <13",
 		"postcss": "^8.5.0",
@@ -563,7 +563,7 @@
 			]
 		}
 	},
-	"version": "0.20.0-beta.141",
+	"version": "0.20.0-beta.143",
 	"workspaces": [
 		"tests/fixtures/*",
 		"tests/fixtures/_packages/*"

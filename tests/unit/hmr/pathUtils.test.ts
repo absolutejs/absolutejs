@@ -205,3 +205,40 @@ describe('getWatchPaths', () => {
 		expect(paths.some((p) => p.includes('assets'))).toBe(true);
 	});
 });
+
+describe('browser test artifacts', () => {
+	for (const directory of [
+		'test-results',
+		'playwright-report',
+		'blob-report',
+		'.playwright-mcp',
+		'.playwright-artifacts-0'
+	]) {
+		test(`ignores ${directory} creation and contents on Unix and Windows`, () => {
+			for (const suffix of [
+				'',
+				'/trace.zip',
+				'/resources/frame.jpeg',
+				'/index.html',
+				'/snapshot.tmp'
+			]) {
+				const path = `/project/${directory}${suffix}`;
+				expect(shouldIgnorePath(path, makePaths())).toBe(true);
+				expect(
+					shouldIgnorePath(path.replaceAll('/', '\\'), makePaths())
+				).toBe(true);
+				expect(detectFramework(path, makePaths())).toBe('ignored');
+			}
+		});
+	}
+	test('keeps actual test source, similarly named files, and application screenshots watchable', () => {
+		for (const path of [
+			'/project/e2e/chat.spec.ts',
+			'/project/src/test-results.ts',
+			'/project/test-results-source/view.vue',
+			'/project/example/assets/screenshot.png'
+		]) {
+			expect(shouldIgnorePath(path, makePaths())).toBe(false);
+		}
+	});
+});
