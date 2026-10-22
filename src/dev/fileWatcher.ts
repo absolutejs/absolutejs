@@ -114,6 +114,7 @@ const setupWatcher = (
 		for (const name of entries) {
 			if (shouldSkipFilename(name, isStylesDir)) continue;
 			const child = join(eventDir, name).replace(/\\/g, '/');
+			if (shouldIgnorePath(child, state.resolvedPaths)) continue;
 			let st: ReturnType<typeof statSync>;
 			try {
 				st = statSync(child);

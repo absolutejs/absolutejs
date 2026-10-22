@@ -322,7 +322,7 @@ export const getWatchPaths = (
  *  itself writes into — feeding their events back into the watcher
  *  causes the rebuild thrash. */
 const HARD_DENY_PATTERN =
-	/(^|\/)(build|generated|compiled|indexes|\.absolutejs|node_modules|\.git|\.test-builds|dist)(\/|$)/;
+	/(^|\/)(build|generated|compiled|indexes|\.absolutejs|node_modules|\.git|\.test-builds|test-results|playwright-report|blob-report|\.playwright-mcp|\.playwright-artifacts(?:-[^/]+)?|dist)(\/|$)/;
 
 /** A path is ignored when it is NOT inside any of the configured
  *  positive watch roots, OR when it falls inside a hard-denied
