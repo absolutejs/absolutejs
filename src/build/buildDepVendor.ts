@@ -1,4 +1,5 @@
 import { mkdirSync } from 'node:fs';
+import { isWorkspacePackageSpecifier } from './workspacePackages';
 import { isBuiltin } from 'node:module';
 import { join } from 'node:path';
 import { rm } from 'node:fs/promises';
@@ -100,7 +101,9 @@ const isDepSpecifier = (path: string) =>
 	isBareSpecifier(path) &&
 	!isBuiltin(path) &&
 	!isFrameworkSpecifier(path) &&
-	!isAbsolutePackageSpecifier(path);
+	!isAbsolutePackageSpecifier(path) &&
+	// The app's own workspace packages are served as source, not vendored.
+	!isWorkspacePackageSpecifier(path);
 
 const isFrameworkRootCandidate = (path: string) =>
 	isBareSpecifier(path) &&

@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { runUntracked } from '../dev/hotResources';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { basename, join, relative, resolve as resolvePath } from 'node:path';
+import { encodeSrcPath } from '../dev/srcPath';
 import { Elysia, NotFound } from 'elysia';
 import type { staticPlugin } from '@elysia/static';
 import type { MobileConfig } from '../../types/build';
@@ -278,8 +279,8 @@ export const patchManifestIndexes = (
 		const srcPath = resolvePath(devIndexDir, fileName);
 		if (!existsSync(srcPath)) continue;
 
-		const rel = relative(process.cwd(), srcPath).replace(/\\/g, '/');
-		manifest[key] = `${SRC_URL_PREFIX}${rel}`;
+		manifest[key] =
+			`${SRC_URL_PREFIX}${encodeSrcPath(relative(process.cwd(), srcPath))}`;
 	}
 };
 

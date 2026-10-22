@@ -1,6 +1,7 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { Glob } from 'bun';
 import { resolve } from 'node:path';
+import { isWorkspacePackageSpecifier } from '../build/workspacePackages';
 import { stripStringsAndComments } from '../utils/stripStringsAndComments';
 
 /* Dependency graph for tracking file relationships
@@ -41,12 +42,19 @@ const loaderForFile = (filePath: string) => {
    instead of readFileSync — avoids reading file content just to check
    existence. */
 const resolveImportPath = (importPath: string, fromFile: string) => {
-	// Skip external packages
+	const fromDir = resolve(fromFile, '..');
+	// A bare import is an external package -- unless it is one of the app's
+	// own workspace packages, whose source edits must reach its importers
+	// (otherwise an edit there could only reload the whole page).
 	if (!importPath.startsWith('.') && !importPath.startsWith('/')) {
-		return null;
+		if (!isWorkspacePackageSpecifier(importPath, fromDir)) return null;
+		try {
+			return realpathSync(Bun.resolveSync(importPath, fromDir));
+		} catch {
+			return null;
+		}
 	}
 
-	const fromDir = resolve(fromFile, '..');
 	const normalized = resolve(fromDir, importPath);
 
 	// Try common extensions

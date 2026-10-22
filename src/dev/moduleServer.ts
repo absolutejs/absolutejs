@@ -1,6 +1,8 @@
 import { BASE_36_RADIX, UNFOUND_INDEX } from '../constants';
 import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { basename, dirname, extname, join, resolve, relative } from 'node:path';
+import { decodeSrcPath, encodeSrcPath } from './srcPath';
+import { importFromProject } from '../build/importFromProject';
 import { resolvePackageImport } from '../build/resolvePackageImport';
 import { addAutoRouterSetupApp } from '../build/vueAutoRouterTransform';
 import { buildIslandMetadataExports } from '../islands/sourceMetadata';
@@ -265,7 +267,7 @@ const buildVersion = (mtime: number, absPath: string) => {
 
 // Build a /@src/ URL with the file's mtime as a cache buster.
 const srcUrl = (relPath: string, projectRoot: string) => {
-	const base = `${SRC_PREFIX}${relPath.replace(/\\/g, '/')}`;
+	const base = `${SRC_PREFIX}${encodeSrcPath(relPath)}`;
 	const absPath = resolve(projectRoot, relPath);
 
 	const cached = mtimeCache.get(absPath);
@@ -506,6 +508,11 @@ const rewriteImports = (
 
 			return `${prefix}${srcUrl(rel, projectRoot)}${suffix}`;
 		}
+		// An absolute URL the server already serves (`/react/vendor/react.js`)
+		// is not a file: leave it. It used to be rewritten to
+		// `/@src/../../…/react/vendor/react.js` and only worked because the
+		// browser collapsed the `../` back to where it started.
+		if (!existsSync(absPath)) return _match;
 		// Path outside project root (for example, Bun-linked package files
 		// whose realpath points at a sibling workspace). We still rewrite it
 		// through /@src/ so the module server can serve it consistently.
@@ -972,7 +979,7 @@ const compileSvelteComponent = (
 	}
 
 	// ── import.meta.hot → accept registry ──
-	const moduleUrl = `${SRC_PREFIX}${relative(projectRoot, filePath).replace(/\\/g, '/')}`;
+	const moduleUrl = `${SRC_PREFIX}${encodeSrcPath(relative(projectRoot, filePath))}`;
 	code = code.replace(
 		/if\s*\(import\.meta\.hot\)\s*\{/,
 		`if (typeof window !== "undefined") {\n` +
@@ -1424,7 +1431,7 @@ const buildStubCode = async (
 	specifier: string,
 	requested: readonly string[] = []
 ) => {
-	const discovered = await import(specifier).then(
+	const discovered = await importFromProject(specifier).then(
 		(mod) =>
 			Object.keys(mod).filter(
 				(key) => key !== 'default' && key !== '__esModule'
@@ -1488,7 +1495,7 @@ const handleVirtualSvelteCss = (cssCheckPath: string) => {
 // Resolve a /@src/ path to an absolute file path and extension,
 // probing known extensions if the path has none.
 const resolveSourcePath = (relPath: string, projectRoot: string) => {
-	const filePath = resolve(projectRoot, relPath);
+	const filePath = resolve(projectRoot, decodeSrcPath(relPath));
 	const ext = extname(filePath);
 
 	if (ext === '.svelte')
@@ -1858,7 +1865,7 @@ export const createModuleServer = (config: ModuleServerConfig) => {
 			return handleBunWrapRequest();
 
 		const virtualCssResponse = handleVirtualSvelteCss(
-			resolve(projectRoot, relPath)
+			resolve(projectRoot, decodeSrcPath(relPath))
 		);
 		if (virtualCssResponse) return virtualCssResponse;
 
@@ -1892,7 +1899,7 @@ const extractImportedFiles = (content: string, projectRoot: string) => {
 	let match;
 	SRC_IMPORT_RE.lastIndex = 0;
 	while ((match = SRC_IMPORT_RE.exec(content)) !== null) {
-		if (match[1]) files.push(resolve(projectRoot, match[1]));
+		if (match[1]) files.push(resolve(projectRoot, decodeSrcPath(match[1])));
 	}
 
 	return files;

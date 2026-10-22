@@ -1,5 +1,6 @@
 import { type Dirent, existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
+import { workspacePackageDirs } from '../build/workspacePackages';
 import { BuildConfig } from '../../types/build';
 import { normalizePath } from '../utils/normalizePath';
 import type { ResolvedBuildPaths } from './configResolver';
@@ -254,6 +255,13 @@ const collectPositiveWatchRoots = (
 	// User-supplied extra dirs from absolute.config.ts → dev.watchDirs.
 	const extraDirs = config.dev?.watchDirs ?? [];
 	for (const dir of extraDirs) push(dir);
+
+	// The app's own workspace packages live outside its folder; editing one
+	// reloads the page like editing the app.
+	for (const dir of workspacePackageDirs(cwd)) {
+		const abs = normalizePath(dir);
+		if (!roots.includes(abs)) roots.push(abs);
+	}
 
 	// Angular component resource dirs (templateUrl / styleUrl pointing
 	// outside angularDir). See `collectAngularResourceDirs` above.

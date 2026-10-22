@@ -1,3 +1,5 @@
+import { importFromProject } from './importFromProject';
+
 /** Generate a vendor entry source that re-exports both named AND default
  *  exports robustly, regardless of whether the source is ESM or CJS.
  *
@@ -52,7 +54,7 @@ const RESERVED_KEYS = new Set([
 const VALID_IDENTIFIER = /^[$_\p{L}][$_\p{L}\p{N}]*$/u;
 
 export const generateVendorEntrySource = async (specifier: string) => {
-	const mod = (await import(specifier)) as Record<string, unknown>;
+	const mod = (await importFromProject(specifier)) as Record<string, unknown>;
 	const exportKeys = Object.keys(mod).filter(
 		(key) => !RESERVED_KEYS.has(key) && VALID_IDENTIFIER.test(key)
 	);
