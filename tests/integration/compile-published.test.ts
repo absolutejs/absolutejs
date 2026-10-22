@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test';
+import packageJson from '../../package.json';
 import {
 	chmod,
 	copyFile,
@@ -129,7 +130,7 @@ const writeAcceptanceApp = async (root: string) => {
 				dependencies: {
 					'@absolutejs/absolute': publishedPackageSpec,
 					'@vitejs/plugin-react': 'latest',
-					elysia: '^2.0.0-beta.6',
+					elysia: packageJson.peerDependencies.elysia,
 					react: 'latest',
 					'react-dom': 'latest'
 				},
