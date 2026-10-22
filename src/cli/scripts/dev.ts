@@ -248,7 +248,7 @@ export const formatServerBootDiagnostic = (
 //    SIGINT/SIGTERM/exit handlers and its own ppid watcher cover every
 //    teardown path except one: the CLI process itself being SIGKILLed
 //    (kill -9 / pkill -9 / OOM-killer / a task runner hard-stopping it). No
-//    handler runs in the CLI then, the `bun --hot` child is reparented to
+//    handler runs in the CLI then, the bun child is reparented to
 //    init, keeps the dev port, and serves STALE code forever — edits appear
 //    to "not take" no matter how many restarts. The child is the only
 //    process that can notice that, so it polls its own ppid (same technique
@@ -1865,7 +1865,7 @@ export const dev = async (
 		interactive?.showPrompt();
 	};
 
-	/** §1.3 — Spawn the bun --hot child in its own process group so that
+	/** §1.3 — Spawn the bun child in its own process group so that
 	 *  on parent exit we can `kill(-childPgid, SIGTERM)` and cascade to
 	 *  the entire subtree. Bun.spawn doesn't expose detached/process-group
 	 *  knobs, so this one spawn uses node:child_process for portability
@@ -2151,18 +2151,15 @@ export const dev = async (
 	let serverProcess: ChildProcess = await spawnServer();
 	const sessionStart = Date.now();
 
-	// Watch the server entry file for edits and restart the bun child
-	// process when it changes. `bun --hot` re-evaluates the module but
-	// Elysia's `.listen()` doesn't have a hot-swap story — the OLD
-	// listener stays bound to the port and new routes/handlers added
-	// in the edit silently never take effect. A full child-process
-	// restart is the only reliable way for Elysia (and most other
-	// HTTP frameworks). Frontend file edits go through the in-process
-	// HMR pipeline so this restart only fires on backend / route /
-	// handler edits. Wired here at the CLI rather than inside the
-	// bun child because we can't ask the child to restart itself
-	// gracefully without dropping the parent's process-group + signal
-	// plumbing.
+	// Restart the bun child when something it reads once at boot changes:
+	// project-root config (`.env`, `tsconfig.json`, `package.json`,
+	// `bun.lock`, …), or when an in-place reload reports `[abs:restart]`
+	// because it could not apply an edit. Server source edits never land
+	// here: the child applies them in place, statement by statement
+	// (docs/BACKEND_HMR.md), and the child is not run under `bun --hot`.
+	// Wired here at the CLI rather than inside the bun child because we
+	// can't ask the child to restart itself gracefully without dropping
+	// the parent's process-group + signal plumbing.
 	// `serverRestartPending` covers the whole lifecycle (debounce + the async
 	// restart), not just the debounce window — so a burst of edits can't kick
 	// off OVERLAPPING restarts that each capture the same `old` proc and spawn
@@ -2391,14 +2388,15 @@ export const dev = async (
 	}
 	updateInstance(instancePid, { frameworks });
 
-	// Server files are handled by Bun --hot (module re-evaluation without process restart).
-	// Frontend files are handled by the HMR file watcher inside the server process.
+	// Server source edits are applied in place by the child's backend HMR
+	// (docs/BACKEND_HMR.md); frontend files by the HMR watcher in the same
+	// process.
 
 	sendTelemetryEvent('dev:start', { entry: serverEntry, frameworks });
 
 	// Signal a child and its whole process group. With `detached: true` the
 	// child leads its own group, so the negative-PID target cascades to
-	// `bun --hot` and every descendant; the single-PID path is the fallback
+	// the bun child and every descendant; the single-PID path is the fallback
 	// when the group send fails (e.g. the leader already reaped).
 	const signalChildTree = (proc: ChildProcess, signal: NodeJS.Signals) => {
 		const childPid = proc.pid;
@@ -2422,7 +2420,7 @@ export const dev = async (
 
 	// Fully terminate a child and WAIT for it to exit — so its listening
 	// socket is released before anything tries to rebind the port. SIGTERM
-	// first; if `bun --hot` is mid-reload and ignores it, force SIGKILL after
+	// first; if the child is mid-reload and ignores it, force SIGKILL after
 	// a grace window so a restart can never wedge waiting on a stuck child.
 	const FORCE_KILL_GRACE_MS = 2 * MILLISECONDS_IN_A_SECOND;
 	const terminateChild = (proc: ChildProcess) =>
@@ -2752,7 +2750,7 @@ export const dev = async (
 	 *
 	 *  SIGKILL on the outer `bun dev` package-script wrapper can't run a
 	 *  handler. The wrapper dies instantly, this `absolute dev` process
-	 *  gets reparented to init (PID 1), and the `bun --hot` grandchild
+	 *  gets reparented to init (PID 1), and the bun grandchild
 	 *  it spawned keeps running — bound to the dev port, untouched by
 	 *  any cleanup code. Polling `process.ppid` is the only portable
 	 *  way to notice (nodemon, PM2 do the same). When the parent

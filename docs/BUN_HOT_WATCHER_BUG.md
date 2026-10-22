@@ -1,6 +1,14 @@
 # Bun — `Bun.build()` inside a `--hot` entry permanently disables hot reload
 
 **Tracking:** [oven-sh/bun#30436](https://github.com/oven-sh/bun/issues/30436)
+
+**Fixed upstream, nothing to remove here (2026-10-22).** The minimal repro below
+counts `n=1..3` on Bun 1.4.2 and 1.4.4, so `Bun.build()` no longer disables
+`--hot`. The workaround's cleanup steps further down no longer apply: `absolute dev`
+stopped running the server under `bun --hot` at all, and backend edits are applied
+in place statement by statement (docs/BACKEND_HMR.md). `serverEntryWatcher.ts` and
+the reload branch in `networking.ts` are that design, not a workaround, so they stay.
+
 **Status:** Reproduces deterministically on Bun 1.3.13 (Linux x86_64).
 **Re-verified on Bun 1.3.14 (2026-05-13):** still broken. The 1.3.14
 fs.watch rewrite did not incidentally fix this — the minimal repro
