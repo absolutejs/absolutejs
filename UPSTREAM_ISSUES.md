@@ -19,14 +19,19 @@ repro retires an entry**.
 | --- | ------------------------------------------------- | ------------------------------------------------ | ---------- |
 | 3   | `@playwright/mcp` orphans Chrome trees            | playwright#41013 closed (dismissed), #43098 open | No         |
 | 4   | Svelte HMR drops `$state`                         | svelte#17995 (ours) open                         | No         |
-| 5   | Tailwind v4 at-rule warnings                      | bun#12878 open                                   | No (1.4.3) |
-| 6   | `String.raw` escapes non-ASCII on `target: "bun"` | bun#8745 open                                    | No (1.4.3) |
-| 7   | `Bun.Transpiler` ignores `reactFastRefresh`       | bun#32919 (ours) open                            | No (1.4.3) |
+| 5   | Tailwind v4 at-rule warnings                      | bun#12878 open                                   | No (1.4.4) |
+| 6   | `String.raw` escapes non-ASCII on `target: "bun"` | bun#8745 open                                    | No (1.4.4) |
+| 7   | `Bun.Transpiler` ignores `reactFastRefresh`       | bun#32919 (ours) open                            | No (1.4.4) |
 
 The Bun entries (#5, #6, #7) were re-run on **Bun 1.4.3** on 2026-10-12, and
 all three still reproduce. 1.4.3's React Fast Refresh fixes are in the dev
 server and `bun build`, not `Bun.Transpiler`, and patched-bun's fix applies to
 it unchanged.
+
+Re-run again on **Bun 1.4.4** on 2026-10-22: #5 still warns on `@theme` and
+`@tailwind`, #6 still escapes `“` to `\u201C` for `target: "bun"`, and #7 still
+emits no `$RefreshReg$`. 1.4.4 moved `Bun.Transpiler`'s options to a generated
+binding, so patched-bun's fix was rebased onto it (bun-v1.4.4+absolute.1).
 
 Resolved entries are kept at the end so the fix is on record.
 
