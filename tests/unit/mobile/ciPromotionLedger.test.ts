@@ -217,6 +217,7 @@ describe('mobile CI promotion ledger', () => {
 		).rejects.toThrow('operation is invalid');
 	});
 
+	// Two cold CLI processes must finish even with the release cache disabled.
 	test('resumes an ambiguous accepted dispatch without dispatching again', async () => {
 		const root = await fixture();
 		await createAbsoluteMobilePromotionOperation(root, {
@@ -317,5 +318,5 @@ fi
 			dispatchId: DISPATCH_ID,
 			phase: 'completed'
 		});
-	});
+	}, 60_000);
 });

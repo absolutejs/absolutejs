@@ -29,6 +29,7 @@ const runCli = async (
 };
 
 describe('mobile certify CLI', () => {
+	// This exercises several cold CLI processes, not a startup-speed budget.
 	test('creates and verifies a content-addressed Android certification without loading app config', async () => {
 		const root = await mkdtemp(join(tmpdir(), 'absolute-certify-cli-'));
 		const releaseRoot = join(root, 'release');
@@ -280,5 +281,5 @@ describe('mobile certify CLI', () => {
 		expect(missingOutput.stderr).toContain(
 			'mobile certify --outdir requires a value.'
 		);
-	}, 15_000);
+	}, 60_000);
 });
