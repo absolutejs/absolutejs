@@ -1234,9 +1234,7 @@ const encodedWindowsGradleCommand = (
 };
 
 export type AbsoluteAndroidGradleTask =
-	| 'assembleDebug'
-	| 'assembleRelease'
-	| 'bundleRelease';
+	'assembleDebug' | 'assembleRelease' | 'bundleRelease';
 
 export type BuildAbsoluteAndroidGradleOptions = {
 	capture?: NonNullable<StartAbsoluteAndroidDevOptions['capture']>;

@@ -85,7 +85,8 @@ const findImportForBinding = (
 			if (element.isTypeOnly) continue;
 			if (element.name.text === binding) {
 				return {
-					importedName: element.propertyName?.text ?? element.name.text,
+					importedName:
+						element.propertyName?.text ?? element.name.text,
 					source: statement.moduleSpecifier.text
 				};
 			}
@@ -147,7 +148,8 @@ export const parseAngularProvidersImport = (
 	if (!configObject) return null;
 
 	const angularField = findPropertyInitializer(configObject, 'angular');
-	if (!angularField || !ts.isObjectLiteralExpression(angularField)) return null;
+	if (!angularField || !ts.isObjectLiteralExpression(angularField))
+		return null;
 
 	const providersField = findPropertyInitializer(angularField, 'providers');
 	if (!providersField) return null;

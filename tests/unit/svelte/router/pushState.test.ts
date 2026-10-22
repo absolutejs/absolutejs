@@ -10,9 +10,8 @@ import { afterEach, describe, expect, test } from 'bun:test';
 (globalThis as { $state?: <T>(initial: T) => T }).$state = <T>(initial: T) =>
 	initial;
 
-const { pushState, replaceState } = await import(
-	'../../../../src/svelte/router/pushState'
-);
+const { pushState, replaceState } =
+	await import('../../../../src/svelte/router/pushState');
 const { page } = await import('../../../../src/svelte/router/page.svelte');
 
 const originalWindow = (globalThis as { window?: unknown }).window;

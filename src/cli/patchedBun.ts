@@ -32,8 +32,7 @@ export const PATCHED_BUN_RELEASE = {
 
 type Choice = 'install' | 'later' | 'never';
 type Preference =
-	| { askAfter: string; decision: 'later' }
-	| { decision: 'never' };
+	{ askAfter: string; decision: 'later' } | { decision: 'never' };
 type OfferContext = {
 	bunVersion: string;
 	bvm: boolean;

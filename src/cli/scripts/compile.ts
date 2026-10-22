@@ -1645,9 +1645,8 @@ export default server;
 				: `./${relPath}`;
 		}
 		if (Object.keys(angularServerVendorPaths).length > 0) {
-			const { rewriteImports } = await import(
-				'../../build/rewriteImports'
-			);
+			const { rewriteImports } =
+				await import('../../build/rewriteImports');
 			await rewriteImports([outputPath], angularServerVendorPaths);
 		}
 	}

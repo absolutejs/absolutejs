@@ -37,12 +37,7 @@ export type InstanceRecord = {
 };
 
 export type InstanceSource =
-	| 'compiled'
-	| 'dev'
-	| 'standalone'
-	| 'start'
-	| 'untracked'
-	| 'workspace';
+	'compiled' | 'dev' | 'standalone' | 'start' | 'untracked' | 'workspace';
 
 export type InstanceStatus = 'ready' | 'starting' | 'stopped';
 

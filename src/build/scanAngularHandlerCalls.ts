@@ -117,9 +117,7 @@ const fileMayContainAngularHandler = (source: string) =>
 /** Look for the manifest key string in something like
  *  `pagePath: asset(manifest, "Foo")`. Returns null if the value isn't
  *  shaped that way (e.g. dynamic computation). */
-const extractManifestKey = (
-	pagePathValue: ts.Expression
-): string | null => {
+const extractManifestKey = (pagePathValue: ts.Expression): string | null => {
 	if (!ts.isCallExpression(pagePathValue)) return null;
 	const callee = pagePathValue.expression;
 	if (!ts.isIdentifier(callee) || callee.text !== 'asset') return null;

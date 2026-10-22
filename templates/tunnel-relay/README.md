@@ -25,12 +25,12 @@ In the consuming app's `absolute.config.ts`:
 
 ```ts
 export default defineConfig({
-  dev: {
-    tunnel: {
-      relay: 'https://absolute-tunnel-relay-xxxxx.ondigitalocean.app',
-      token: process.env.ABSOLUTE_TUNNEL_TOKEN // same secret as the relay
-    }
-  }
+	dev: {
+		tunnel: {
+			relay: 'https://absolute-tunnel-relay-xxxxx.ondigitalocean.app',
+			token: process.env.ABSOLUTE_TUNNEL_TOKEN // same secret as the relay
+		}
+	}
 });
 ```
 

@@ -128,8 +128,7 @@ type AliasEntry = {
 };
 
 let tsconfigAliasCache:
-	| { cwd: string; aliases: AliasEntry[]; baseUrl: string }
-	| undefined;
+	{ cwd: string; aliases: AliasEntry[]; baseUrl: string } | undefined;
 
 const stripJsonComments = (source: string) =>
 	source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');

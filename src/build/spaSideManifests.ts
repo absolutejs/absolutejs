@@ -41,10 +41,7 @@ export const writeSpaSideManifests = async (
 				return [{ cssPath, path }];
 			});
 			if (entries.length === 0) return;
-			const sideManifestPath = parentJsPath.replace(
-				/\.js$/,
-				'.spa.json'
-			);
+			const sideManifestPath = parentJsPath.replace(/\.js$/, '.spa.json');
 			await writeFile(sideManifestPath, JSON.stringify(entries));
 			manifestEntries[`${parentName}SpaManifest`] = sideManifestPath;
 		})

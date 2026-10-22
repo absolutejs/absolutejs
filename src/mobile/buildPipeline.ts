@@ -61,9 +61,7 @@ const serverExportName = (loaded: ServerModule, app: unknown) => {
 
 const restoreEnvironmentVariable = (
 	name:
-		| 'ABSOLUTE_BUILD_DIR'
-		| 'ABSOLUTE_COMPILED_RUNTIME'
-		| 'ABSOLUTE_CONFIG',
+		'ABSOLUTE_BUILD_DIR' | 'ABSOLUTE_COMPILED_RUNTIME' | 'ABSOLUTE_CONFIG',
 	previous: string | undefined
 ) => {
 	if (previous !== undefined) process.env[name] = previous;

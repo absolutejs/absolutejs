@@ -96,9 +96,8 @@ export const collectDepVendorSourceDirs = (config: BuildConfig) => {
  *  for web-only projects keeps every mobile package out of their vendor set. */
 const collectDepVendorSourceFiles = async (config: BuildConfig) => {
 	if (!config.mobile) return [];
-	const { resolveAbsoluteMobilePreviewClientEntry } = await import(
-		'../mobile/mobilePreviewClientBundle'
-	);
+	const { resolveAbsoluteMobilePreviewClientEntry } =
+		await import('../mobile/mobilePreviewClientBundle');
 
 	return [await resolveAbsoluteMobilePreviewClientEntry()];
 };
@@ -598,9 +597,8 @@ export const devBuild = async (config: BuildConfig) => {
 	) {
 		globalThis.__depVendorPaths = prescannedVendorPaths;
 	} else {
-		const { computeDepVendorPaths } = await import(
-			'../build/buildDepVendor'
-		);
+		const { computeDepVendorPaths } =
+			await import('../build/buildDepVendor');
 		const scanned = await computeDepVendorPaths(
 			remainingVendorDirs,
 			sourceFiles
@@ -799,9 +797,8 @@ export const devBuild = async (config: BuildConfig) => {
 
 	if (lazyPages) {
 		const pageEntries = buildResult?.pageEntries ?? [];
-		const { createDevPageWarmer, runOnDemandPageBuild } = await import(
-			'../dev/moduleServer'
-		);
+		const { createDevPageWarmer, runOnDemandPageBuild } =
+			await import('../dev/moduleServer');
 		state.lazyPages = {
 			buildCount: 0,
 			builder: createOnDemandPageBuilder(runOnDemandPageBuild),
@@ -970,9 +967,8 @@ export const devBuild = async (config: BuildConfig) => {
 		...depPaths
 	};
 	if (!restoredVendor) {
-		const { rewriteVendorDirectories } = await import(
-			'../build/rewriteImportsPlugin'
-		);
+		const { rewriteVendorDirectories } =
+			await import('../build/rewriteImportsPlugin');
 		await rewriteVendorDirectories(activeVendorDirs, combinedVendorPaths);
 		recordStep('rewrite vendor cross-references', stepStartedAt);
 		// Cache the rewritten result, so a restart restores exactly what

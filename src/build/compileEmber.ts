@@ -45,14 +45,12 @@ type ContentTagModule = {
 	};
 };
 
-let cachedPreprocessor:
-	| {
-			process: (
-				source: string,
-				options: { filename?: string }
-			) => { code: string; map: string };
-	  }
-	| null = null;
+let cachedPreprocessor: {
+	process: (
+		source: string,
+		options: { filename?: string }
+	) => { code: string; map: string };
+} | null = null;
 
 const getPreprocessor = async () => {
 	if (cachedPreprocessor) return cachedPreprocessor;
@@ -157,7 +155,8 @@ const rewriteTemplateEvalToScope = (source: string) => {
 
 	// content-tag emits the eval shim with a stable shape — replace each
 	// occurrence with an equivalent `scope()` returning the explicit map.
-	const evalShim = /eval\s*\(\)\s*\{\s*return\s+eval\(arguments\[0\]\);\s*\}/g;
+	const evalShim =
+		/eval\s*\(\)\s*\{\s*return\s+eval\(arguments\[0\]\);\s*\}/g;
 
 	return source.replace(evalShim, `scope() { return ${scopeObject}; }`);
 };
@@ -241,13 +240,10 @@ const createEmberServerResolverPlugin = (
 		// @embroider/macros: serve the inline shim via a virtual module.
 		// Returning a custom namespace + path makes Bun route the
 		// follow-up onLoad call here, where we hand back the shim source.
-		build.onResolve(
-			{ filter: /^@embroider\/macros$/ },
-			() => ({
-				namespace: 'absolutejs-ember-virtual',
-				path: 'embroider-macros-shim'
-			})
-		);
+		build.onResolve({ filter: /^@embroider\/macros$/ }, () => ({
+			namespace: 'absolutejs-ember-virtual',
+			path: 'embroider-macros-shim'
+		}));
 
 		build.onLoad(
 			{
@@ -437,9 +433,7 @@ export const compileEmberFile = async (
 		minify: false,
 		naming: `${baseName}.js`,
 		outdir: serverDir,
-		plugins: [
-			createEmberServerResolverPlugin(cwd, { stagedSourceMap })
-		],
+		plugins: [createEmberServerResolverPlugin(cwd, { stagedSourceMap })],
 		// `target=bun` so Bun.build emits something Node-runnable; the
 		// page handler uses `await import(serverPath)` to load it.
 		target: 'bun',

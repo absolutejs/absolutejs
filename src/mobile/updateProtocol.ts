@@ -6,9 +6,7 @@ export const ABSOLUTE_MOBILE_UPDATE_SIGNATURE_ALGORITHM =
 	'ecdsa-p256-sha256' as const;
 
 export type AbsoluteMobileUpdateClassification =
-	| 'bug-fix'
-	| 'content'
-	| 'security';
+	'bug-fix' | 'content' | 'security';
 
 export type AbsoluteMobileUpdateFile = {
 	bytes: number;

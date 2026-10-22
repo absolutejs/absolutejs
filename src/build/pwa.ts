@@ -175,9 +175,8 @@ export const materializeAbsolutePwa = async ({
 	const syncSchema = config.sync
 		? discoverAbsoluteSyncSchema(projectRoot)
 		: undefined;
-	const { createWebAppManifest, pushServiceWorker } = await import(
-		'@absolutejs/pwa'
-	);
+	const { createWebAppManifest, pushServiceWorker } =
+		await import('@absolutejs/pwa');
 	const workerDestination = destinationFor(buildPath, serviceWorkerPath);
 	await mkdir(dirname(workerDestination), { recursive: true });
 	await writeFile(

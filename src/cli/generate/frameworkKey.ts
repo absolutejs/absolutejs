@@ -1,10 +1,5 @@
 export type FrameworkKey =
-	| 'angular'
-	| 'html'
-	| 'htmx'
-	| 'react'
-	| 'svelte'
-	| 'vue';
+	'angular' | 'html' | 'htmx' | 'react' | 'svelte' | 'vue';
 
 export const FRAMEWORK_KEYS: FrameworkKey[] = [
 	'angular',

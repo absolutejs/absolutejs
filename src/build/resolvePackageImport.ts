@@ -9,10 +9,7 @@ import { existsSync, readFileSync } from 'node:fs';
  */
 type ExportConditions = 'browser' | 'import';
 
-const resolveExportPath = (
-	entry: unknown,
-	conditions: ExportConditions[]
-) => {
+const resolveExportPath = (entry: unknown, conditions: ExportConditions[]) => {
 	if (typeof entry === 'string') return entry;
 	if (!entry || typeof entry !== 'object') return null;
 
@@ -37,7 +34,9 @@ export const resolvePackageImport = (
 	const parts = specifier.split('/');
 	const isScoped = specifier.startsWith('@');
 	const packageName = isScoped ? `${parts[0]}/${parts[1]}` : parts[0];
-	const subpath = isScoped ? parts.slice(2).join('/') : parts.slice(1).join('/');
+	const subpath = isScoped
+		? parts.slice(2).join('/')
+		: parts.slice(1).join('/');
 	const exportKey = subpath ? `./${subpath}` : '.';
 
 	const currentPackageJsonPath = resolve(process.cwd(), 'package.json');
@@ -47,7 +46,8 @@ export const resolvePackageImport = (
 	const currentPackageDir =
 		currentPackageJson?.name === packageName ? process.cwd() : null;
 	const packageDir =
-		currentPackageDir ?? resolve(process.cwd(), 'node_modules', packageName ?? '');
+		currentPackageDir ??
+		resolve(process.cwd(), 'node_modules', packageName ?? '');
 	const packageJsonPath = join(packageDir, 'package.json');
 
 	if (!existsSync(packageJsonPath)) return null;
@@ -57,7 +57,7 @@ export const resolvePackageImport = (
 			currentPackageDir && currentPackageJson
 				? currentPackageJson
 				: JSON.parse(readFileSync(packageJsonPath, 'utf-8'));
-		const {exports} = packageJson;
+		const { exports } = packageJson;
 
 		if (!exports) return null;
 

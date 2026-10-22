@@ -60,9 +60,7 @@ export type AbsoluteIosRelease = {
 export type AbsoluteIosReleaseAcceptanceResult = {
 	artifactBytes: number;
 	artifactExactness:
-		| 'archive-equivalent'
-		| 'source-equivalent'
-		| 'store-delivered';
+		'archive-equivalent' | 'source-equivalent' | 'store-delivered';
 	artifactSha256: string;
 	buildNumber?: number;
 	distribution: 'apple-processed' | 'registered-device' | 'simulator-release';

@@ -38,7 +38,12 @@ const getAttr = (attrs: string, name: string) => {
 const removeAttr = (attrs: string, name: string) =>
 	attrs.replace(new RegExp(`\\s*${name}\\s*=\\s*["'][^"']*["']`, 'gi'), '');
 
-const transformImgTag = (fullMatch: string, before: string, after: string, config?: ImageConfig) => {
+const transformImgTag = (
+	fullMatch: string,
+	before: string,
+	after: string,
+	config?: ImageConfig
+) => {
 	const attrs = before + after;
 
 	const src = getAttr(attrs, 'src');
@@ -65,7 +70,10 @@ const transformImgTag = (fullMatch: string, before: string, after: string, confi
 		const allSizes = getAllSizes(config);
 
 		srcset = allSizes
-			.map((sizeWidth) => `${buildOptimizedUrl(src, sizeWidth, quality, basePath)} ${sizeWidth}w`)
+			.map(
+				(sizeWidth) =>
+					`${buildOptimizedUrl(src, sizeWidth, quality, basePath)} ${sizeWidth}w`
+			)
 			.join(', ');
 	} else if (width) {
 		// 1x and 2x density descriptors
@@ -80,7 +88,10 @@ const transformImgTag = (fullMatch: string, before: string, after: string, confi
 		const deviceSizes = config?.deviceSizes ?? IMAGE_DEFAULT_DEVICE_SIZES;
 
 		srcset = deviceSizes
-			.map((sizeWidth) => `${buildOptimizedUrl(src, sizeWidth, quality, basePath)} ${sizeWidth}w`)
+			.map(
+				(sizeWidth) =>
+					`${buildOptimizedUrl(src, sizeWidth, quality, basePath)} ${sizeWidth}w`
+			)
 			.join(', ');
 	}
 
@@ -122,9 +133,8 @@ export const optimizeHtmlImages = async (
 
 		if (!original.includes('data-optimized')) return;
 
-		const updated = original.replace(
-			IMG_REGEX,
-			(match, before, after) => transformImgTag(match, before, after, config)
+		const updated = original.replace(IMG_REGEX, (match, before, after) =>
+			transformImgTag(match, before, after, config)
 		);
 
 		if (updated !== original) {

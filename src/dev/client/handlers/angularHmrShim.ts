@@ -13,8 +13,7 @@
  * `hmrClient.ts`'s import-evaluation pass, before page chunks load. */
 
 export type AngularHmrEvent =
-	| 'angular:component-update'
-	| 'angular:component-remount';
+	'angular:component-update' | 'angular:component-remount';
 export type AngularComponentUpdate = {
 	id: string;
 	timestamp: number;

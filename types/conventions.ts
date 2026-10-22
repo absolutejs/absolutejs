@@ -34,8 +34,7 @@ export type ErrorPageProps = Pick<Error, 'name' | 'message' | 'stack'>;
 // `<!DOCTYPE html>` — TS contextually narrows template literals against
 // this template literal type, so users don't need `as const` casts.
 export type HtmlDocument =
-	| `<!DOCTYPE html>${string}`
-	| `<!doctype html>${string}`;
+	`<!DOCTYPE html>${string}` | `<!doctype html>${string}`;
 
 export type RenderErrorPage = (error: ErrorPageProps) => HtmlDocument;
 export type RenderNotFoundPage = () => HtmlDocument;

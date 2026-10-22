@@ -252,9 +252,8 @@ export const hmr = (
 				if (!id) {
 					return new Response('Missing ?c=<id>', { status: 400 });
 				}
-				const { getApplyMetadataModule } = await import(
-					'../dev/angular/hmrCompiler'
-				);
+				const { getApplyMetadataModule } =
+					await import('../dev/angular/hmrCompiler');
 				const module = await getApplyMetadataModule(id);
 				if (module === null) {
 					return new Response(
@@ -281,9 +280,8 @@ export const hmr = (
 				//     globalThis for cross-plugin access)
 				const { getDevVendorPaths, getAngularVendorPaths } =
 					await import('../core/devVendorPaths');
-				const { rewriteImportsInContent } = await import(
-					'../build/rewriteImportsPlugin'
-				);
+				const { rewriteImportsInContent } =
+					await import('../build/rewriteImportsPlugin');
 				const depVendorPaths = globalThis.__depVendorPaths ?? {};
 				const vendorPaths: Record<string, string> = {
 					...(getDevVendorPaths() ?? {}),

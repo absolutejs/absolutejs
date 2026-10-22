@@ -7,8 +7,7 @@ const CLOSING_HEAD_TAG = '</head>';
 declare global {
 	var __absoluteManifest: Record<string, string> | undefined;
 	var __ABS_ISLAND_STATE__:
-		| Record<string, Record<string, unknown>>
-		| undefined;
+		Record<string, Record<string, unknown>> | undefined;
 }
 
 const buildIslandsHeadMarkup = (manifest: Record<string, string>) => {

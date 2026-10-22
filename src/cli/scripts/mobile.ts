@@ -2417,11 +2417,7 @@ const inspectMobileUpdateHealth = async (args: string[]) => {
 };
 
 type MobileUpdateRolloutAction =
-	| 'advance'
-	| 'cancel'
-	| 'pause'
-	| 'reconcile'
-	| 'resume';
+	'advance' | 'cancel' | 'pause' | 'reconcile' | 'resume';
 const MOBILE_UPDATE_ROLLOUT_ACTION_LABEL: Record<
 	MobileUpdateRolloutAction,
 	string
@@ -3141,7 +3137,8 @@ const publishAndroid = async (args: string[]) => {
 		success = true;
 		if (args.includes('--json'))
 			return (
-				console.log(JSON.stringify(publication, null, 2)), publication
+				console.log(JSON.stringify(publication, null, 2)),
+				publication
 			);
 		console.log(
 			`${publication.reused ? 'Reused' : 'Published'} Android release ${release.metadata.releaseId}${publication.channel ? ` on ${publication.channel.channel}` : ''}.`
@@ -3452,7 +3449,8 @@ const publishIos = async (args: string[]) => {
 		success = true;
 		if (args.includes('--json'))
 			return (
-				console.log(JSON.stringify(publication, null, 2)), publication
+				console.log(JSON.stringify(publication, null, 2)),
+				publication
 			);
 		console.log(
 			`${publication.reused ? 'Reused' : 'Published'} iOS release ${release.metadata.releaseId}${publication.channel ? ` on ${publication.channel.channel}` : ''}.`
@@ -5126,8 +5124,7 @@ const testIosRelease = async (
 	const startedAt = performance.now();
 	let targetId = requestedDevice ?? 'ios-simulator';
 	let remoteReportMetadata:
-		| Awaited<ReturnType<typeof iosReportMetadata>>
-		| undefined;
+		Awaited<ReturnType<typeof iosReportMetadata>> | undefined;
 	if (remoteProfile && reportRoot) {
 		const macos = await captureAbsoluteRemoteMacCommand(remoteProfile, [
 			'/usr/bin/sw_vers',

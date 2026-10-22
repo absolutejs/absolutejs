@@ -32,9 +32,8 @@ type TypedCommandServiceConfig<TConfig, TSelf extends string> = Omit<
 
 type TypedWorkspaceConfig<TConfig extends Record<string, unknown>> = {
 	[K in keyof TConfig]: K extends string
-		?
-				| TypedAbsoluteServiceConfig<TConfig, K>
-				| TypedCommandServiceConfig<TConfig, K>
+		? | TypedAbsoluteServiceConfig<TConfig, K>
+			| TypedCommandServiceConfig<TConfig, K>
 		: never;
 };
 

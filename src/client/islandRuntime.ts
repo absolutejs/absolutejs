@@ -81,9 +81,8 @@ const hydrateByFramework = async (
 	const propsRecord = isPropsRecord(props) ? props : undefined;
 
 	if (framework === 'react') {
-		const { hydrateReactIsland, isReactComponent } = await import(
-			'./hydrators/react'
-		);
+		const { hydrateReactIsland, isReactComponent } =
+			await import('./hydrators/react');
 		const resolvedComponent =
 			(await resolveComponent?.(framework, componentName)) ??
 			getIslandComponent(registry.react?.[componentName]);
@@ -96,9 +95,8 @@ const hydrateByFramework = async (
 	}
 
 	if (framework === 'svelte') {
-		const { hydrateSvelteIsland, isSvelteComponent } = await import(
-			'./hydrators/svelte'
-		);
+		const { hydrateSvelteIsland, isSvelteComponent } =
+			await import('./hydrators/svelte');
 		const resolvedComponent =
 			(await resolveComponent?.(framework, componentName)) ??
 			getIslandComponent(registry.svelte?.[componentName]);
@@ -113,9 +111,8 @@ const hydrateByFramework = async (
 	}
 
 	if (framework === 'vue') {
-		const { hydrateVueIsland, isVueComponent } = await import(
-			'./hydrators/vue'
-		);
+		const { hydrateVueIsland, isVueComponent } =
+			await import('./hydrators/vue');
 		const resolvedComponent =
 			(await resolveComponent?.(framework, componentName)) ??
 			getIslandComponent(registry.vue?.[componentName]);
@@ -130,9 +127,8 @@ const hydrateByFramework = async (
 	}
 
 	if (framework === 'angular') {
-		const { mountAngularIsland, isAngularComponent } = await import(
-			'../angular/islands'
-		);
+		const { mountAngularIsland, isAngularComponent } =
+			await import('../angular/islands');
 		const resolvedComponent =
 			(await resolveComponent?.(framework, componentName)) ??
 			getIslandComponent(registry.angular?.[componentName]);

@@ -1802,8 +1802,7 @@ type AdvancedMetadata = {
 	viewProviders: import('@angular/compiler').Expression | null;
 	animations: import('@angular/compiler').Expression | null;
 	hostDirectives:
-		| import('@angular/compiler').R3HostDirectiveMetadata[]
-		| null;
+		import('@angular/compiler').R3HostDirectiveMetadata[] | null;
 };
 
 const extractAdvancedMetadata = (

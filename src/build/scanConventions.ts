@@ -40,10 +40,7 @@ const classifyFile = (
 	else if (kind === 'loading') pages[pageName].loading = file;
 };
 
-export const scanConventions = async (
-	pagesDir: string,
-	pattern: string
-) => {
+export const scanConventions = async (pagesDir: string, pattern: string) => {
 	if (!existsSync(pagesDir)) {
 		const pageFiles: string[] = [];
 

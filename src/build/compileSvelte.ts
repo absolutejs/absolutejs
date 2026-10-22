@@ -189,9 +189,8 @@ export const compileSvelte = async (
 	isDev = false,
 	stylePreprocessors?: StylePreprocessorConfig
 ) => {
-	const { compile, compileModule, preprocess } = await import(
-		'svelte/compiler'
-	);
+	const { compile, compileModule, preprocess } =
+		await import('svelte/compiler');
 
 	// Generated output lives at <projectRoot>/.absolutejs/generated/svelte/.
 	// See `src/utils/generatedDir.ts` for rationale (keeps `src/` clean).

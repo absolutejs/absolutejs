@@ -60,8 +60,7 @@ export type RouteMiss = {
 };
 
 export type RouteMatchResult<Params extends Record<string, unknown>> =
-	| RouteMatch<Params>
-	| RouteMiss;
+	RouteMatch<Params> | RouteMiss;
 
 export type RouterMode = 'history' | 'hash';
 

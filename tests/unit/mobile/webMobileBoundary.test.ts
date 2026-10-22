@@ -74,9 +74,8 @@ describe('web / mobile boundary', () => {
 		globalThis.fetch = stubFetch;
 		try {
 			await withBrowserGlobals(async () => {
-				const previewClient = await import(
-					'../../../src/mobile/mobilePreviewClient'
-				);
+				const previewClient =
+					await import('../../../src/mobile/mobilePreviewClient');
 				expect(globalThis.fetch).toBe(stubFetch);
 				expect(Reflect.has(globalThis, '__ABS_MOBILE_PREVIEW__')).toBe(
 					false

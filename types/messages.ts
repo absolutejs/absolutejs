@@ -11,12 +11,7 @@ export type HMRClientTarget =
 	| 'web';
 
 export type HMRApplyKind =
-	| 'component'
-	| 'css'
-	| 'full-reload'
-	| 'html'
-	| 'htmx'
-	| 'script';
+	'component' | 'css' | 'full-reload' | 'html' | 'htmx' | 'script';
 
 export type HMRApplyOutcome = 'applied' | 'failed' | 'reloaded';
 

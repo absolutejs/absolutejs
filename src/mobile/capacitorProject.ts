@@ -55,13 +55,11 @@ export const prepareAbsoluteCapacitorInitialization = async (
 			{ flag: 'wx' }
 		);
 	} catch (error) {
-		if (
-			!(
-				error instanceof Error &&
-				'code' in error &&
-				error.code === 'EEXIST'
-			)
-		)
+		if (!(
+			error instanceof Error &&
+			'code' in error &&
+			error.code === 'EEXIST'
+		))
 			throw error;
 	}
 

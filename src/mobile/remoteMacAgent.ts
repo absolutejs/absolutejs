@@ -530,11 +530,9 @@ const runAbsoluteRemoteExpoAgent = async (options: {
 		});
 	}
 	let serverRelay:
-		| Awaited<ReturnType<typeof startAbsoluteIosTcpRelay>>
-		| undefined;
+		Awaited<ReturnType<typeof startAbsoluteIosTcpRelay>> | undefined;
 	let metroRelay:
-		| Awaited<ReturnType<typeof startAbsoluteIosTcpRelay>>
-		| undefined;
+		Awaited<ReturnType<typeof startAbsoluteIosTcpRelay>> | undefined;
 	let session: AbsoluteExpoDevSession | undefined;
 	try {
 		serverRelay = options.deviceIdentifier

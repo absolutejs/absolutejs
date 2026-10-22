@@ -22,9 +22,8 @@ export const server = new Elysia()
 			)
 	)
 	.get('/api/dependency-assets', async () => {
-		const packageDynamicModule = await import(
-			'compile-asset-package/dynamic'
-		);
+		const packageDynamicModule =
+			await import('compile-asset-package/dynamic');
 
 		return {
 			asset: (await readPackageAsset()).trim(),

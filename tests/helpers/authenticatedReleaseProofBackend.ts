@@ -77,7 +77,9 @@ export const createAuthenticatedReleaseProofBackend = async ({
 					.query<
 						{ fingerprint: string; result: string },
 						[string, string]
-					>('SELECT fingerprint, result FROM proof_receipts WHERE scope = ? AND operation = ?')
+					>(
+						'SELECT fingerprint, result FROM proof_receipts WHERE scope = ? AND operation = ?'
+					)
 					.get(operation.scope, operation.operationId);
 				if (receipt) {
 					if (receipt.fingerprint !== fingerprint)
@@ -124,10 +126,9 @@ export const createAuthenticatedReleaseProofBackend = async ({
 			},
 			hydrate: (_params, context) =>
 				db
-					.query<
-						AuthenticatedProofRow,
-						[string]
-					>('SELECT * FROM proof_rows WHERE owner = ?')
+					.query<AuthenticatedProofRow, [string]>(
+						'SELECT * FROM proof_rows WHERE owner = ?'
+					)
 					.all(subject(context)),
 			match: (row, _params, context) => row.owner === subject(context)
 		})
@@ -207,17 +208,15 @@ export const createAuthenticatedReleaseProofBackend = async ({
 	const facts = () => ({
 		challenge,
 		rows: db
-			.query<
-				AuthenticatedProofRow,
-				[]
-			>('SELECT * FROM proof_rows ORDER BY rowid')
+			.query<AuthenticatedProofRow, []>(
+				'SELECT * FROM proof_rows ORDER BY rowid'
+			)
 			.all(),
 		writes:
 			db
-				.query<
-					{ count: number },
-					[]
-				>('SELECT COUNT(*) AS count FROM proof_rows')
+				.query<{ count: number }, []>(
+					'SELECT COUNT(*) AS count FROM proof_rows'
+				)
 				.get()?.count ?? 0
 	});
 	let syncEnabled = true;

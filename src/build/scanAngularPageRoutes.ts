@@ -141,4 +141,3 @@ export const scanAngularPageRoutes = (
 
 	return out;
 };
-

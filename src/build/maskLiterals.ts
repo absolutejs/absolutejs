@@ -80,9 +80,7 @@ const NONE = -1;
 
 // A `/` starts a regex literal (not division) when the previous significant
 // token is one of these chars/keywords, or nothing (start of file).
-const REGEX_OK_AFTER_CODE = new Set(
-	[...'(,=:[!&|?{};+-*/%^~<>'].map(code)
-);
+const REGEX_OK_AFTER_CODE = new Set([...'(,=:[!&|?{};+-*/%^~<>'].map(code));
 const REGEX_OK_AFTER_WORD = new Set([
 	'return',
 	'typeof',
@@ -129,7 +127,8 @@ const endOfString = (src: string, start: number) => {
 		const charCode = src.charCodeAt(pos);
 		if (charCode === BACKSLASH) pos += 2;
 		else if (charCode === quote) return pos + 1;
-		else if (charCode === NEWLINE) return pos; // unterminated guard
+		else if (charCode === NEWLINE)
+			return pos; // unterminated guard
 		else pos += 1;
 	}
 
@@ -153,7 +152,8 @@ const endOfRegex = (src: string, start: number) => {
 	while (pos < len) {
 		const charCode = src.charCodeAt(pos);
 		if (charCode === NEWLINE) return -1;
-		if (charCode === SLASH && !inClass) return endOfRegexFlags(src, pos + 1);
+		if (charCode === SLASH && !inClass)
+			return endOfRegexFlags(src, pos + 1);
 		if (charCode === OPEN_BRACKET) inClass = true;
 		else if (charCode === CLOSE_BRACKET) inClass = false;
 		pos += charCode === BACKSLASH ? 2 : 1;
@@ -204,7 +204,8 @@ const noteInterpolationCode = (
 		return;
 	}
 	const contiguous = isIdentCode(state.prevCode) && !state.space;
-	if (isIdentCode(charCode)) state.word = contiguous ? state.word + char : char;
+	if (isIdentCode(charCode))
+		state.word = contiguous ? state.word + char : char;
 	else state.word = '';
 	state.prevCode = charCode;
 	state.space = false;

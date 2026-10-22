@@ -21,8 +21,7 @@ type FrameworkSuspenseSlotProps<T = unknown> = {
 };
 
 type SuspenseSlotProps<T = unknown> =
-	| LegacySuspenseSlotProps
-	| FrameworkSuspenseSlotProps<T>;
+	LegacySuspenseSlotProps | FrameworkSuspenseSlotProps<T>;
 
 const isLegacyProps = <T,>(
 	props: SuspenseSlotProps<T>

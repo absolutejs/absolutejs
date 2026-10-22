@@ -33,8 +33,7 @@ test('provisions WebView Sync through a single native-owned principal', async ()
 		}
 	};
 	let principalListener:
-		| ((principal: AbsoluteMobileShellPrincipal | null) => void)
-		| undefined;
+		((principal: AbsoluteMobileShellPrincipal | null) => void) | undefined;
 	let reloads = 0;
 	const dispose = installAbsoluteExpoShellSync(
 		{

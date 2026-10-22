@@ -16,16 +16,10 @@ import type { AbsoluteIosReleaseMetadata } from './iosRelease';
 export const ABSOLUTE_MOBILE_RELEASE_CERTIFICATION_FORMAT = 1 as const;
 
 export type AbsoluteMobileCertificationRequirement =
-	| 'device'
-	| 'installed'
-	| 'simulator'
-	| 'store';
+	'device' | 'installed' | 'simulator' | 'store';
 
 export type AbsoluteMobileCertificationStrength =
-	| 'installed'
-	| 'simulator'
-	| 'device'
-	| 'store';
+	'installed' | 'simulator' | 'device' | 'store';
 
 export type AbsoluteMobileCertificationRelease = {
 	appBuild: string;
@@ -44,13 +38,9 @@ export type AbsoluteMobileCertificationRelease = {
 
 export type AbsoluteMobileCertificationEvidence = {
 	artifactExactness?:
-		| 'archive-equivalent'
-		| 'source-equivalent'
-		| 'store-delivered';
+		'archive-equivalent' | 'source-equivalent' | 'store-delivered';
 	distribution?:
-		| 'apple-processed'
-		| 'registered-device'
-		| 'simulator-release';
+		'apple-processed' | 'registered-device' | 'simulator-release';
 	generatedAt: string;
 	networkUnavailable: 'not-proven' | 'proven';
 	remote: boolean;
