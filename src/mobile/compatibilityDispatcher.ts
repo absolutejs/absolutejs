@@ -160,7 +160,7 @@ export const createAbsoluteMobileCompatibilityDispatcher = (
 	const resolveProducer = createProducerResolver(options.loadProducer);
 
 	return new Elysia({ name: 'absolutejs-mobile-compatibility-dispatcher' })
-		.request(async ({ request }) => {
+		.onRequest(async ({ request }) => {
 			if (getCurrentAbsoluteMobileProducerContext()) return undefined;
 			const preflight = mobilePreflightResponse(request);
 			if (preflight) return preflight;
@@ -219,7 +219,7 @@ export const createAbsoluteMobileCompatibilityDispatcher = (
 				);
 			}
 		})
-		.afterHandle('global', ({ request, responseValue }) => {
+		.onAfterHandle('global', ({ request, responseValue }) => {
 			const origin = mobileWebViewOrigin(request);
 			if (!origin || !(responseValue instanceof Response)) return;
 

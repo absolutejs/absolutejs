@@ -64,7 +64,7 @@ export const requestInspector = new Elysia({
 	name: 'absolute-request-inspector'
 })
 	.get('/__absolute/requests', () => requestLog())
-	.request(({ request }) => {
+	.onRequest(({ request }) => {
 		// Also the dev server's "am I busy?" signal — background boot work
 		// (the module prewarm) pauses while requests are in flight.
 		noteDevRequestStart();
@@ -73,7 +73,7 @@ export const requestInspector = new Elysia({
 			start: performance.now()
 		});
 	})
-	.afterResponse(({ request, set, responseValue }) => {
+	.onAfterResponse(({ request, set, responseValue }) => {
 		noteDevRequestEnd();
 		const path = pathOf(request.url);
 		// Skip the inspector's own introspection traffic (observer effect).

@@ -1,9 +1,9 @@
 {
 	"dependencies": {
-		"@absolutejs/auth": "0.75.0",
+		"@absolutejs/auth": "0.101.0",
 		"@absolutejs/devices": "0.7.1",
 		"@absolutejs/devices-expo": "0.0.12",
-		"@absolutejs/sync": "2.31.0",
+		"@absolutejs/sync": "3.0.0",
 		"elysia": "*",
 		"react": "*",
 		"react-dom": "*"

@@ -99,7 +99,7 @@ export const createPrecompressedPlugin = async (buildDir: string) => {
 		copies.set(pathname, known);
 	}
 
-	return new Elysia({ name: 'absolutejs-precompressed' }).request(
+	return new Elysia({ name: 'absolutejs-precompressed' }).onRequest(
 		({ request }) => {
 			if (copies.size === 0) return undefined;
 			if (request.method !== 'GET' && request.method !== 'HEAD')

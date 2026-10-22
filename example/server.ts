@@ -243,7 +243,7 @@ export const server: AnyElysia = new Elysia()
 	.post('/htmx/reset', ({ resetScopedStore }) => resetScopedStore())
 	.get('/htmx/count', ({ scopedStore }) => scopedStore.count)
 	.post('/htmx/increment', ({ scopedStore }) => ++scopedStore.count)
-	.error(({ error, request }) => {
+	.onError(({ error, request }) => {
 		console.error(
 			`Server error on ${request.method} ${request.url}: ${error instanceof Error ? error.message : String(error)}`
 		);

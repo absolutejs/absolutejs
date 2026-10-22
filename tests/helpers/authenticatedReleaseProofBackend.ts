@@ -221,7 +221,7 @@ export const createAuthenticatedReleaseProofBackend = async ({
 				.get()?.count ?? 0
 	});
 	let syncEnabled = true;
-	const app = new Elysia().request(({ request }) => {
+	const app = new Elysia().onRequest(({ request }) => {
 		const path = new URL(request.url).pathname;
 		if (
 			!syncEnabled &&

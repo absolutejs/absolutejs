@@ -204,7 +204,7 @@ export const hmr = (
 		// later is unrouted). `beforeHandle` only fires when a route
 		// matches, so it would never see those requests; `request` fires
 		// before routing and lets us serve them from the asset store.
-		.request(async ({ request, store }) => {
+		.onRequest(async ({ request, store }) => {
 			restoreStore(store);
 			// Bridge React internals if bun install created a duplicate instance.
 			// Runs before any route handler so page handlers stay clean.
