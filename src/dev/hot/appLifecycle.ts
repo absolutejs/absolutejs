@@ -1,9 +1,10 @@
 /* Elysia's server lifecycle across a hot swap (see docs/BACKEND_HMR.md).
  *
  * `app.listen()` runs an app's `setup` hooks once the server is up, and
- * `app.stop()` runs its `cleanup` hooks. A hot swap does neither: the new
- * app takes over the running server through `Bun.serve.reload`. So the swap
- * runs them itself — the replaced app's `cleanup` (including cleanups its
+ * `app.stop()` runs its `cleanup` hooks (registered with `onStart` and
+ * `onStop`; Elysia keeps them under those names). A hot swap does neither:
+ * the new app takes over the running server through `Bun.serve.reload`. So
+ * the swap runs them itself — the replaced app's `cleanup` (including cleanups its
  * setup hooks registered), then the new app's `setup` — exactly as a stop
  * followed by a listen would, minus closing the port. */
 
