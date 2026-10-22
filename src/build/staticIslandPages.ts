@@ -31,9 +31,7 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 const isIslandFramework = (value: string): value is IslandFramework =>
 	islandFrameworks.some((framework) => framework === value);
 
-const isIslandHydrationMode = (
-	value: string
-): value is IslandHydrate =>
+const isIslandHydrationMode = (value: string): value is IslandHydrate =>
 	islandHydrationModes.some((mode) => mode === value);
 
 type HTMLAttributeMap = Map<string, string>;
@@ -108,7 +106,11 @@ export const transformStaticPageHtml = async (
 
 	islandTagRe.lastIndex = 0;
 
-	const segments: { before: string; props: ReturnType<typeof parseIslandTag>; fullMatch: string }[] = [];
+	const segments: {
+		before: string;
+		props: ReturnType<typeof parseIslandTag>;
+		fullMatch: string;
+	}[] = [];
 	let lastIndex = 0;
 	let match = islandTagRe.exec(originalHtml);
 
@@ -125,8 +127,12 @@ export const transformStaticPageHtml = async (
 	}
 
 	const renderedSegments = await Promise.all(
-		segments.map(async (segment) =>
-			segment.before + (segment.props ? await renderIslandMarkup(registry, segment.props) : segment.fullMatch)
+		segments.map(
+			async (segment) =>
+				segment.before +
+				(segment.props
+					? await renderIslandMarkup(registry, segment.props)
+					: segment.fullMatch)
 		)
 	);
 
@@ -136,10 +142,7 @@ export const transformStaticPageHtml = async (
 const HTMX_STREAM_SLOT_TAG_RE =
 	/<abs-htmx-stream-slot\b([^>]*?)(?:\/>|>([\s\S]*?)<\/abs-htmx-stream-slot>)/gi;
 
-const requireAttribute = (
-	attributes: HTMLAttributeMap,
-	name: string
-) => {
+const requireAttribute = (attributes: HTMLAttributeMap, name: string) => {
 	const value = attributes.get(name)?.trim();
 	if (!value) {
 		throw new Error(
@@ -200,7 +203,10 @@ export const transformStaticHTMXStreamSlotHtml = (originalHtml: string) => {
 		]);
 
 		result += originalHtml.slice(nextIndex, match.index);
-		result += injectAttributesIntoSingleRootElement(innerHtml, loweredAttributes);
+		result += injectAttributesIntoSingleRootElement(
+			innerHtml,
+			loweredAttributes
+		);
 		nextIndex = match.index + fullMatch.length;
 		match = HTMX_STREAM_SLOT_TAG_RE.exec(originalHtml);
 	}

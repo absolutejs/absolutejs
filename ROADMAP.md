@@ -9,19 +9,21 @@ Features missing from AbsoluteJS that Next.js provides, ordered by priority. Eac
 **What this is:**
 The original "Next.js-style smooth navigation" story — a shared client-side navigation module that lets a React page link to a Svelte page (or Vue → Angular) without a full page load, with persistent layouts spanning framework boundaries.
 
-This is **strictly opt-in infrastructure**. Intra-framework SPA (each framework's own router driving sub-route navigation inside one page) is already shipped via native router cooperation in every adapter — see `applyVueRouterRedirect`, the Svelte router under `@absolutejs/absolute/svelte/router`, and the `request?: Request` field on every page handler. This roadmap item is for the *cross-framework* case: multi-team monorepos, gradual framework migrations, and mixed-stack design systems where layouts need to persist across framework switches.
+This is **strictly opt-in infrastructure**. Intra-framework SPA (each framework's own router driving sub-route navigation inside one page) is already shipped via native router cooperation in every adapter — see `applyVueRouterRedirect`, the Svelte router under `@absolutejs/absolute/svelte/router`, and the `request?: Request` field on every page handler. This roadmap item is for the _cross-framework_ case: multi-team monorepos, gradual framework migrations, and mixed-stack design systems where layouts need to persist across framework switches.
 
 **What AbsoluteJS has today:**
 Plain `<a>` tags trigger full page loads on cross-framework navigation. Within a single framework, the framework's native router handles client-side SPA already.
 
 **Why this matters:**
+
 - Persistent layouts across framework boundaries: a React navbar stays mounted while the page area swaps to a Svelte route.
 - Better than the native-router story for teams where pages span multiple frameworks.
 - Astro-like in posture — HTML-first, JS-to-enhance.
 
 **What needs to be built:**
 
-*Shared navigation module (`src/client/navigate.ts`):*
+_Shared navigation module (`src/client/navigate.ts`):_
+
 - Intercept clicks on internal `<a>` tags (skip external links, `target="_blank"`, modifier keys)
 - `fetch()` the URL with an `X-AbsoluteJS-Nav: partial` header
 - Receive partial HTML (just the `<main>` content, not the full document)
@@ -32,35 +34,41 @@ Plain `<a>` tags trigger full page loads on cross-framework navigation. Within a
 - View Transitions API for smooth animated swaps (already used in Angular HMR)
 - Cooperates with native routers: a `data-link="external"` attribute or a same-framework-detection heuristic decides whether the framework's own router or the cross-framework swap handles the click.
 
-*Prefetching:*
+_Prefetching:_
+
 - On `mouseenter` (default) — prefetch the page so it's ready on click
 - On viewport intersection (opt-in via `data-prefetch="viewport"`)
 - `data-prefetch="none"` to disable
 - Cache prefetched responses in a Map; smart limits
 
-*Server-side partial rendering:*
+_Server-side partial rendering:_
+
 - An Elysia `onBeforeHandle` hook that checks for `X-AbsoluteJS-Nav: partial`
 - Each framework's page handler skips the outer `<html>/<head>/<body>` shell and returns only inner content + metadata (title, CSS paths, framework, hydration entry)
 
-*Per-framework `<Link>` wrappers:*
+_Per-framework `<Link>` wrappers:_
+
 - React: `<Link href="/about">About</Link>`
 - Svelte: `<Link href="/about">About</Link>`
 - Vue: `<Link href="/about">About</Link>`
 - Angular: `<a absLink href="/about">About</a>` directive
 - All wrappers accept `prefetch` prop (`"hover"` | `"viewport"` | `"none"`)
 
-*Cross-framework navigation:*
+_Cross-framework navigation:_
+
 - Same-framework destination: defer to the page's native router, or swap `<main>` if no native router is set up.
 - Cross-framework destination: tear down old framework's hydration, bootstrap the new one. May need `<body>` swap rather than `<main>` for runtime isolation.
 - Fallback: if cross-framework swap fails, fall back to full page load with a View Transition for visual continuity.
 
 **Design considerations:**
+
 - Progressive enhancement — `<Link>` renders a real `<a>` tag. If JS fails, plain navigation works.
 - Module loads on every page as part of the AbsoluteJS client runtime — opt out via config for users who only need intra-framework SPA via the native routers.
 - CSS handling: partial response includes new page's stylesheet list; navigation module loads them before swap to prevent FOUC.
 - Scroll behavior: scroll to top on navigate; `scrollRestoration: 'manual'` for back/forward.
 
 **Files likely involved:**
+
 - New: `src/client/navigate.ts`
 - New: `src/react/components/Link.tsx`
 - New: `src/svelte/Link.svelte`
@@ -78,23 +86,27 @@ Plain `<a>` tags trigger full page loads on cross-framework navigation. Within a
 The current implementation keeps one HTML document response open and streams slot patches through that same response. This is the simplest and most SSR-native model, but it means the browser can continue showing a page-load spinner until the final slot patch arrives.
 
 This follow-up would add an optional detached transport mode where:
+
 - The initial HTML document can close earlier
 - Slot fallbacks are still rendered in the initial HTML
 - Late slot resolutions arrive over a secondary channel such as streaming `fetch()` or SSE
 - The same raw-slot and framework-primitive APIs continue to work on top of a different delivery transport
 
 **Why this matters:**
+
 - Lets the browser load state settle earlier
 - Better fit for teams that want a more app-like loading model
 - Cleaner analytics/perf semantics for initial document load
 - Keeps the current out-of-order slot API while improving transport polish
 
 **Why this is separate from the core feature:**
+
 - The current single-response HTML streaming model is already correct and production-worthy
 - Detached transport is a transport enhancement, not a missing piece of out-of-order streaming correctness
 - It adds client/runtime complexity and should be evaluated as an optional mode, not as an automatic replacement for the default model
 
 **What would need to be built:**
+
 - A second slot delivery backend for post-document updates
 - A way to associate the initial response with a detached slot stream
 - Retry/reconnect/error semantics for the detached channel
@@ -102,6 +114,7 @@ This follow-up would add an optional detached transport mode where:
 - Shared runtime support so the same slot APIs can consume either in-document or detached updates
 
 **Likely files:**
+
 - `src/utils/streamingSlots.ts`
 - `src/client/streamSwap.ts`
 - New: `src/core/detachedStreamingTransport.ts`
@@ -120,6 +133,7 @@ SvelteKit's form actions return typed data that flows back to the page. Remix's 
 Elysia POST handlers work for form processing, but there's no convention for progressive enhancement. If JS fails to load, forms don't work unless the developer manually sets up a standard HTML form submission flow. HTMX pages handle this naturally, but React/Svelte/Vue/Angular pages don't.
 
 **Why this matters:**
+
 - Forms are the primary way users mutate data on the web. Every app has them.
 - Progressive enhancement means forms work even when JS fails (slow connections, CDN outage, corporate firewalls blocking scripts). This is real resilience, not theoretical.
 - The developer writes one handler and gets both behaviors. Less code, more robust.
@@ -127,70 +141,76 @@ Elysia POST handlers work for form processing, but there's no convention for pro
 
 **What needs to be built:**
 
-*Server side — action handlers:*
+_Server side — action handlers:_
+
 - A convention for defining form actions on Elysia routes. This could be as simple as a helper that creates a POST handler with typed input validation:
-  ```ts
-  import { defineAction } from 'absolutejs'
-  import { t } from 'elysia'
+    ```ts
+    import { defineAction } from 'absolutejs';
+    import { t } from 'elysia';
 
-  const createUser = defineAction({
-    body: t.Object({
-      name: t.String(),
-      email: t.String({ format: 'email' }),
-    }),
-    handler: async ({ body }) => {
-      const user = await db.insert(users).values(body).returning()
-      return { success: true, user }
-    },
-    error: (errors) => {
-      return { success: false, errors }
-      // errors is typed: { name?: string, email?: string }
-    }
-  })
+    const createUser = defineAction({
+    	body: t.Object({
+    		name: t.String(),
+    		email: t.String({ format: 'email' })
+    	}),
+    	handler: async ({ body }) => {
+    		const user = await db.insert(users).values(body).returning();
+    		return { success: true, user };
+    	},
+    	error: (errors) => {
+    		return { success: false, errors };
+    		// errors is typed: { name?: string, email?: string }
+    	}
+    });
 
-  app.post('/users', createUser)
-  ```
+    app.post('/users', createUser);
+    ```
 - The action handler detects whether the request came from a plain form submission (no JS) or a `fetch()` call (JS available):
-  - Plain form: process, then redirect (POST/Redirect/GET pattern) or re-render the page with errors
-  - Fetch: return JSON with the result or validation errors
+    - Plain form: process, then redirect (POST/Redirect/GET pattern) or re-render the page with errors
+    - Fetch: return JSON with the result or validation errors
 - Detection via `Accept` header — `application/json` means JS fetch, `text/html` means plain form
 
-*Client side — per-framework hooks:*
-- **React**: `useFormAction(actionUrl)` hook that returns `{ submit, data, errors, isSubmitting }`. Intercepts `<form onSubmit>`, sends via fetch, returns typed result. Falls back to normal form submission if hook isn't used.
-  ```tsx
-  const { submit, errors, isSubmitting } = useFormAction('/users')
+_Client side — per-framework hooks:_
 
-  <form onSubmit={submit}>
-    <input name="name" />
-    {errors?.name && <span>{errors.name}</span>}
-    <input name="email" />
-    {errors?.email && <span>{errors.email}</span>}
-    <button disabled={isSubmitting}>Create</button>
-  </form>
-  ```
+- **React**: `useFormAction(actionUrl)` hook that returns `{ submit, data, errors, isSubmitting }`. Intercepts `<form onSubmit>`, sends via fetch, returns typed result. Falls back to normal form submission if hook isn't used.
+    ```tsx
+    const { submit, errors, isSubmitting } = useFormAction('/users')
+
+    <form onSubmit={submit}>
+      <input name="name" />
+      {errors?.name && <span>{errors.name}</span>}
+      <input name="email" />
+      {errors?.email && <span>{errors.email}</span>}
+      <button disabled={isSubmitting}>Create</button>
+    </form>
+    ```
 - **Svelte**: `useFormAction` that returns a store with the same shape. Bind to `<form use:enhance>` pattern.
 - **Vue**: `useFormAction` composable returning reactive refs.
 - **Angular**: `FormAction` service that returns an Observable-based interface.
 - All hooks preserve form state on validation errors — the form doesn't reset when the server returns errors.
 
-*Progressive enhancement flow:*
+_Progressive enhancement flow:_
+
 1. Server renders the page with a `<form action="/users" method="POST">`
 2. If JS loads: the hook intercepts submit, sends fetch, updates UI reactively
 3. If JS fails: the form submits normally, server processes it, redirects or re-renders with errors
 4. Same server handler handles both cases — the developer doesn't write two code paths
 
-*Type safety:*
+_Type safety:_
+
 - The action's `body` schema (Elysia's `t.Object`) defines both server validation and client-side error types
 - `errors` in the hook is typed to match the schema fields — `errors.name` exists only if `name` is in the schema
 - The action's return type flows to the hook's `data` — full end-to-end type safety via Elysia's existing type system
 
 **Design considerations:**
+
 - The `<form>` must have a real `action` and `method` attribute for the no-JS path to work. The hook enhances it, doesn't replace it.
 - File uploads should work in both paths — `multipart/form-data` for plain forms, `FormData` via fetch for enhanced forms.
 - Optimistic UI: the hook could accept an `optimistic` callback that updates the UI immediately before the server responds, then reconciles when the real response arrives.
 - CSRF protection should be built in — the action handler validates a token automatically.
 
 **Files likely involved:**
+
 - New: `src/utils/defineAction.ts` — action handler factory with typed validation and dual-mode response
 - New: `src/react/hooks/useFormAction.ts` — React hook for form enhancement
 - New: `src/svelte/useFormAction.ts` — Svelte store-based form enhancement
@@ -212,53 +232,60 @@ No security headers. No CSP. Inline scripts are injected without nonces.
 
 **What needs to be built:**
 
-*An Elysia plugin — `secureHeaders()`:*
-```ts
-import { security } from 'absolutejs'
+_An Elysia plugin — `secureHeaders()`:_
 
-app.use(secureHeaders())
+```ts
+import { security } from 'absolutejs';
+
+app.use(secureHeaders());
 // or with custom config:
-app.use(secureHeaders({
-  csp: {
-    directives: {
-      'script-src': ['self'],      // default: 'self' + nonce
-      'style-src': ['self', 'unsafe-inline'], // for inline styles
-      'img-src': ['self', 'data:'],
-      'connect-src': ['self'],     // for fetch/WebSocket
-      'font-src': ['self', 'https://fonts.gstatic.com'],
-    },
-    reportUri: '/api/__csp-report', // optional: log violations
-  },
-  headers: {
-    hsts: true,                     // Strict-Transport-Security
-    frameOptions: 'DENY',          // X-Frame-Options
-    contentTypeOptions: true,       // X-Content-Type-Options: nosniff
-    referrerPolicy: 'strict-origin-when-cross-origin',
-    permissionsPolicy: {            // Permissions-Policy
-      camera: [],
-      microphone: [],
-      geolocation: [],
-    },
-  },
-}))
+app.use(
+	secureHeaders({
+		csp: {
+			directives: {
+				'script-src': ['self'], // default: 'self' + nonce
+				'style-src': ['self', 'unsafe-inline'], // for inline styles
+				'img-src': ['self', 'data:'],
+				'connect-src': ['self'], // for fetch/WebSocket
+				'font-src': ['self', 'https://fonts.gstatic.com']
+			},
+			reportUri: '/api/__csp-report' // optional: log violations
+		},
+		headers: {
+			hsts: true, // Strict-Transport-Security
+			frameOptions: 'DENY', // X-Frame-Options
+			contentTypeOptions: true, // X-Content-Type-Options: nosniff
+			referrerPolicy: 'strict-origin-when-cross-origin',
+			permissionsPolicy: {
+				// Permissions-Policy
+				camera: [],
+				microphone: [],
+				geolocation: []
+			}
+		}
+	})
+);
 ```
 
-*How CSP nonces work under the hood:*
+_How CSP nonces work under the hood:_
+
 1. The `secureHeaders()` plugin runs in `onBeforeHandle` — generates a random nonce per request using `crypto.getRandomValues()` and stores it in the request context via Elysia's `derive`
 2. Each framework's page handler reads the nonce from the request context and adds `nonce="..."` to every inline `<script>` tag it generates:
-   - `<script nonce="${nonce}">window.__INITIAL_PROPS__=...</script>`
-   - `<script nonce="${nonce}">window.$RefreshReg$=...</script>`
-   - `<script nonce="${nonce}" type="module" src="..."></script>`
+    - `<script nonce="${nonce}">window.__INITIAL_PROPS__=...</script>`
+    - `<script nonce="${nonce}">window.$RefreshReg$=...</script>`
+    - `<script nonce="${nonce}" type="module" src="..."></script>`
 3. The plugin sets the `Content-Security-Policy` header with `'nonce-${nonce}'` in the `script-src` directive
 4. The browser allows scripts with the matching nonce and blocks everything else — XSS injections can't guess the nonce
 
-*Subresource Integrity (SRI) in production:*
+_Subresource Integrity (SRI) in production:_
+
 - During `build()`, compute SHA-384 hashes of all JS and CSS output files
 - Store hashes in the manifest alongside file paths
 - Page handlers add `integrity="sha384-..."` to `<script>` and `<link>` tags
 - If a CDN or proxy tampers with the file, the browser refuses to load it
 
-*Default security headers (all configurable, all on by default):*
+_Default security headers (all configurable, all on by default):_
+
 - `Content-Security-Policy` — with per-request nonces for inline scripts
 - `Strict-Transport-Security: max-age=31536000; includeSubDomains` — force HTTPS
 - `X-Content-Type-Options: nosniff` — prevent MIME sniffing
@@ -268,19 +295,22 @@ app.use(secureHeaders({
 - `Cross-Origin-Opener-Policy: same-origin` — isolate browsing context
 - `Cross-Origin-Resource-Policy: same-origin` — prevent cross-origin resource loading
 
-*CSRF protection (built into the plugin):*
+_CSRF protection (built into the plugin):_
+
 - On every mutating request (POST, PUT, PATCH, DELETE), compare the `Origin` header to the `Host` header. If they don't match, reject with `403 Forbidden`. This prevents a malicious site from making a user's browser submit forms to your server using their cookies.
 - This is the OWASP-recommended "Fetch Metadata" approach — no tokens needed, no client-side changes, works automatically.
 - Enabled by default. Configurable with `csrf: { allowedOrigins: ['https://trusted.example.com'] }` for cases where cross-origin requests are intentional (e.g., a mobile app hitting your API).
 - Safe requests (GET, HEAD, OPTIONS) are not checked — they should never mutate state anyway.
 - Requests without an `Origin` header (curl, Postman, server-to-server) can be optionally allowed via `csrf: { allowNoOrigin: true }` for API-only routes.
 
-*Dev mode behavior:*
+_Dev mode behavior:_
+
 - CSP is relaxed in dev to allow HMR WebSocket connections (`connect-src: 'self' ws:`) and hot-reloaded scripts
 - Other security headers still set in dev so developers see the same behavior as production
 - A warning in the dev console if CSP would block something that's only allowed because of dev mode relaxation
 
 **Design considerations:**
+
 - Enabled by default when `app.use(secureHeaders())` is called — secure-by-default, opt-out for specific directives
 - The nonce is available in the request context for users who render their own inline scripts: `const nonce = ctx.nonce`
 - Google Fonts requires `font-src: 'self' https://fonts.gstatic.com` and `style-src: 'self' https://fonts.googleapis.com` — the default config includes these if `generateHeadElement()` is used with a font
@@ -288,6 +318,7 @@ app.use(secureHeaders({
 - CSP violation reporting endpoint (`/api/__csp-report`) is optional — logs violations as structured JSON when enabled
 
 **Files likely involved:**
+
 - New: `src/plugins/secureHeaders.ts` — the Elysia plugin with nonce generation, header setting, and CSP construction
 - New: `types/secureHeaders.ts` — configuration types for CSP directives, header options
 - `src/react/pageHandler.ts` — read nonce from context, add to all `<script>` tags
@@ -308,12 +339,14 @@ A single `middleware.ts` at the project root that runs before every request. Can
 Elysia's full middleware system — `onBeforeHandle`, `onAfterHandle`, `.use()` plugin chain, `derive`, `guard`. This is actually more powerful than Next.js middleware but less conventionalized.
 
 **What needs to be built:**
+
 - Honestly, this might just need documentation. Elysia's `onBeforeHandle` IS middleware. A `guard()` block with auth checks IS the auth middleware pattern.
 - Consider a thin `middleware()` helper that wraps the common pattern: check auth, redirect if not authenticated, rewrite URLs, set CORS headers
 - Examples showing: auth guard, redirect, URL rewrite, rate limiting, CORS
 - The key gap isn't functionality — it's discoverability. New users don't know that Elysia's `onBeforeHandle` is the middleware they're looking for.
 
 **Files likely involved:**
+
 - Mostly documentation/examples
 - Optional: `src/utils/middleware.ts` — convenience wrappers for common patterns
 
@@ -331,6 +364,7 @@ Every page is fully server-rendered at request time. No static caching of any pa
 
 **Why this matters:**
 Most pages are 80% static content (nav, sidebar, footer, headings, layout) and 20% dynamic (user name, notifications, personalized feed). Rendering that 80% on every request is wasted work. Partial prerendering means:
+
 - The static shell loads from CDN in ~50ms (no server round-trip)
 - The dynamic holes stream from the server in ~200-500ms
 - Combined: users see a near-instant page with dynamic content appearing smoothly
@@ -338,48 +372,55 @@ Most pages are 80% static content (nav, sidebar, footer, headings, layout) and 2
 
 **What needs to be built (depends on SSG being implemented first):**
 
-*Build-time static shell generation:*
+_Build-time static shell generation:_
+
 - During the build, render each page but stop at dynamic boundaries (Suspense, `{#await}`, `<Suspense>`, `@defer`)
 - Write the static HTML (everything outside dynamic boundaries) to disk with placeholder slots for the dynamic parts
 - The static shell includes all CSS, the page layout, and fallback content (loading skeletons) for each dynamic slot
 
-*Request-time dynamic streaming:*
+_Request-time dynamic streaming:_
+
 - When a request comes in, serve the static shell immediately from disk/cache
 - Simultaneously, render the dynamic parts on the server and stream them into the placeholder slots
 - Reuse the out-of-order streaming infrastructure — the `$RC` swap script handles inserting dynamic content into the static shell
 
-*Per-framework dynamic boundaries:*
+_Per-framework dynamic boundaries:_
+
 - **React**: `<Suspense>` boundaries — everything inside is dynamic, everything outside is static
 - **Svelte**: `{#await}` blocks or a new `<Dynamic>` component
 - **Vue**: `<Suspense>` component — same pattern as React
 - **Angular**: `@defer` blocks — natural fit, Angular already distinguishes static vs deferred content
 
-*Caching strategy:*
+_Caching strategy:_
+
 - Static shells cached in memory and/or on disk with content-hash keys
 - Cache invalidation: rebuild the shell when the page's static parts change (detected via file watcher or manual invalidation)
 - Dynamic parts are never cached (they're user-specific/time-specific)
 - CDN integration: set `Cache-Control` headers so the static shell is edge-cached while the dynamic stream bypasses cache
 
-*Configuration:*
+_Configuration:_
+
 - Per-page opt-in via a config option or export:
-  ```ts
-  // In the route handler
-  app.get('/dashboard', () =>
-    handleReactPageRequest(Dashboard, manifest['DashboardIndex'], {
-      prerender: 'partial',  // static shell + dynamic streaming
-      props: { userId: getCurrentUser() }
-    })
-  )
-  ```
+    ```ts
+    // In the route handler
+    app.get('/dashboard', () =>
+    	handleReactPageRequest(Dashboard, manifest['DashboardIndex'], {
+    		prerender: 'partial', // static shell + dynamic streaming
+    		props: { userId: getCurrentUser() }
+    	})
+    );
+    ```
 - Or via the build config for pages that should always be partially prerendered
 
 **Design considerations:**
+
 - The static shell must be a valid HTML document on its own — if dynamic streaming fails, the user sees the shell with fallback content (loading skeletons), not a broken page.
 - Dynamic boundaries should be explicit — the developer marks what's dynamic, everything else is assumed static. No guessing.
 - This compounds with islands — an island with `hydrate="visible"` inside a dynamic boundary gets: static shell → streamed SSR HTML → hydrated on scroll. Three layers of progressive loading.
 - Hot reloading in dev: skip the static cache and render everything server-side (same as today). Partial prerendering is a production optimization only.
 
 **Files likely involved:**
+
 - Builds on top of SSG implementation and out-of-order streaming
 - New: `src/core/partialPrerender.ts` — orchestrates static shell serving + dynamic streaming
 - New: `src/build/generateStaticShells.ts` — renders pages at build time, extracts static content, writes shells to disk
@@ -399,56 +440,63 @@ HMR timing is reported via WebSocket (`hmr-timing` message type). No production 
 
 **What needs to be built:**
 
-*Auto-injected web vitals script:*
+_Auto-injected web vitals script:_
+
 - A small inline script (~1KB, not the full `web-vitals` library) that measures Core Web Vitals using the native `PerformanceObserver` API:
-  - **LCP** (Largest Contentful Paint) — how fast the main content loads
-  - **INP** (Interaction to Next Paint) — how responsive the page is to user input
-  - **CLS** (Cumulative Layout Shift) — how much the layout shifts during load
-  - **FCP** (First Contentful Paint) — when the first content appears
-  - **TTFB** (Time to First Byte) — server response time
+    - **LCP** (Largest Contentful Paint) — how fast the main content loads
+    - **INP** (Interaction to Next Paint) — how responsive the page is to user input
+    - **CLS** (Cumulative Layout Shift) — how much the layout shifts during load
+    - **FCP** (First Contentful Paint) — when the first content appears
+    - **TTFB** (Time to First Byte) — server response time
 - Injected automatically by the page handlers in production (opt-out via config)
 - Batches measurements and sends them to a configurable endpoint
 
-*Built-in vitals endpoint:*
-```ts
-import { vitals } from 'absolutejs'
+_Built-in vitals endpoint:_
 
-app.use(vitals())
+```ts
+import { vitals } from 'absolutejs';
+
+app.use(vitals());
 // or with config:
-app.use(vitals({
-  endpoint: '/api/__vitals',  // default
-  sampleRate: 0.1,            // report 10% of page loads (default: 1.0)
-  onReport: (metric) => {
-    // Optional: forward to external service (Datadog, Grafana, etc.)
-    console.log(metric)
-  },
-}))
+app.use(
+	vitals({
+		endpoint: '/api/__vitals', // default
+		sampleRate: 0.1, // report 10% of page loads (default: 1.0)
+		onReport: (metric) => {
+			// Optional: forward to external service (Datadog, Grafana, etc.)
+			console.log(metric);
+		}
+	})
+);
 ```
 
 - The endpoint receives batched vitals and stores/forwards them
 - In-memory aggregation with percentile calculation (P50, P75, P95)
 - Exposes `GET /api/__vitals/summary` with aggregated stats (useful for dashboards)
 
-*Dev mode performance overlay:*
+_Dev mode performance overlay:_
+
 - A small floating panel (similar to the error overlay) showing real-time vitals:
-  ```
-  ┌─────────────────────────┐
-  │ LCP  320ms  ✓           │
-  │ INP   45ms  ✓           │
-  │ CLS  0.02   ✓           │
-  │ FCP  180ms  ✓           │
-  │ TTFB  12ms  ✓           │
-  └─────────────────────────┘
-  ```
+    ```
+    ┌─────────────────────────┐
+    │ LCP  320ms  ✓           │
+    │ INP   45ms  ✓           │
+    │ CLS  0.02   ✓           │
+    │ FCP  180ms  ✓           │
+    │ TTFB  12ms  ✓           │
+    └─────────────────────────┘
+    ```
 - Color-coded: green (good), yellow (needs improvement), red (poor) based on Google's thresholds
 - Toggle with a keyboard shortcut or `dev: { vitals: true }` in config
 - Shows per-navigation metrics when using client-side navigation (`<Link>`)
 
-*Integration with OpenTelemetry:*
+_Integration with OpenTelemetry:_
+
 - If the OpenTelemetry Elysia plugin is also registered, vitals are exported as OTel metrics
 - Trace ID correlation: the vitals report includes the server trace ID from the page request, enabling end-to-end performance analysis (server render time → network → client paint)
 
 **Design considerations:**
+
 - The injected script must not affect the metrics it measures — load it async, measure before injecting any other framework JS
 - Sample rate prevents overwhelming the endpoint on high-traffic sites
 - Client-side only — vitals are measured in the browser, not during SSR
@@ -456,6 +504,7 @@ app.use(vitals({
 - Privacy: no PII collected. Report includes: URL path (not query params), metric name, metric value, user agent, connection type. No cookies, no user IDs.
 
 **Files likely involved:**
+
 - New: `src/plugins/vitals.ts` — Elysia plugin with the reporting endpoint and aggregation
 - New: `src/client/vitals.ts` — lightweight client script that measures and reports Core Web Vitals
 - New: `src/dev/client/vitalsOverlay.ts` — dev-mode performance overlay
@@ -474,68 +523,79 @@ The HMR plugin has a `/hmr-status` endpoint in dev, but nothing for production h
 
 **What needs to be built:**
 
-*An Elysia plugin — `healthChecks()`:*
+_An Elysia plugin — `healthChecks()`:_
+
 ```ts
-import { healthChecks, defineHealthCheck } from 'absolutejs'
+import { healthChecks, defineHealthCheck } from 'absolutejs';
 
 // Optional: custom readiness checks
 const dbCheck = defineHealthCheck('database', async () => {
-  await db.execute(sql`SELECT 1`)
-})
+	await db.execute(sql`SELECT 1`);
+});
 
 const redisCheck = defineHealthCheck('redis', async () => {
-  await redis.ping()
-})
+	await redis.ping();
+});
 
-app.use(healthChecks({
-  checks: [dbCheck, redisCheck],
-  // Endpoints auto-registered:
-  // GET /_health   — liveness (is the process alive?)
-  // GET /_ready    — readiness (are dependencies connected?)
-  // GET /_startup  — startup (has initialization completed?)
-}))
+app.use(
+	healthChecks({
+		checks: [dbCheck, redisCheck]
+		// Endpoints auto-registered:
+		// GET /_health   — liveness (is the process alive?)
+		// GET /_ready    — readiness (are dependencies connected?)
+		// GET /_startup  — startup (has initialization completed?)
+	})
+);
 ```
 
-*How each endpoint works:*
+_How each endpoint works:_
+
 - **`/_health` (liveness)**: Always returns `200 OK` if the Bun process is running. No external checks. If this fails, the orchestrator restarts the container.
-  ```json
-  { "status": "ok", "uptime": 84321 }
-  ```
+
+    ```json
+    { "status": "ok", "uptime": 84321 }
+    ```
 
 - **`/_ready` (readiness)**: Runs all registered health checks in parallel. Returns `200` if all pass, `503` if any fail. If this fails, the orchestrator stops sending traffic until it passes.
-  ```json
-  {
-    "status": "ready",
-    "checks": {
-      "database": { "status": "ok", "latency": 2 },
-      "redis": { "status": "ok", "latency": 1 }
+
+    ```json
+    {
+    	"status": "ready",
+    	"checks": {
+    		"database": { "status": "ok", "latency": 2 },
+    		"redis": { "status": "ok", "latency": 1 }
+    	}
     }
-  }
-  ```
-  Or on failure:
-  ```json
-  {
-    "status": "not_ready",
-    "checks": {
-      "database": { "status": "ok", "latency": 2 },
-      "redis": { "status": "fail", "error": "Connection refused" }
+    ```
+
+    Or on failure:
+
+    ```json
+    {
+    	"status": "not_ready",
+    	"checks": {
+    		"database": { "status": "ok", "latency": 2 },
+    		"redis": { "status": "fail", "error": "Connection refused" }
+    	}
     }
-  }
-  ```
+    ```
 
 - **`/_startup` (startup)**: Returns `503` until `prepare()` completes (build done, manifest loaded, compilers warmed). Then returns `200` forever. Prevents the orchestrator from sending traffic before the app is ready.
 
-*Configuration:*
+_Configuration:_
+
 - `timeout: 5000` — max time per health check before it's considered failed
 - `cacheDuration: 5000` — cache health check results to avoid hammering dependencies on every probe
 - `path: { health: '/_health', ready: '/_ready', startup: '/_startup' }` — customizable paths
 
 **Design considerations:**
+
 - Health check endpoints should NOT be behind auth middleware — the orchestrator needs to reach them unauthenticated
 - Error details in `/_ready` should be hidden in production by default (just `"status": "fail"`) to avoid leaking infrastructure info. Configurable with `verbose: true` for internal deployments.
 - The startup check should integrate with `prepare()` — set a flag when build + manifest load is complete
 
 **Files likely involved:**
+
 - New: `src/plugins/healthChecks.ts` — Elysia plugin with the three endpoints
 - New: `src/utils/defineHealthCheck.ts` — health check factory
 - New: `types/health.ts` — types for health check definitions and responses
@@ -553,63 +613,71 @@ app.use(healthChecks({
 
 **What needs to be built:**
 
-*An Elysia plugin — `logging()`:*
-```ts
-import { logging } from 'absolutejs'
+_An Elysia plugin — `logging()`:_
 
-app.use(logging())
+```ts
+import { logging } from 'absolutejs';
+
+app.use(logging());
 // or with config:
-app.use(logging({
-  level: 'info',              // 'debug' | 'info' | 'warn' | 'error'
-  format: 'json',             // 'json' (production) | 'pretty' (dev) | 'auto'
-  redact: ['authorization', 'cookie', 'x-api-key'], // headers to redact
-}))
+app.use(
+	logging({
+		level: 'info', // 'debug' | 'info' | 'warn' | 'error'
+		format: 'json', // 'json' (production) | 'pretty' (dev) | 'auto'
+		redact: ['authorization', 'cookie', 'x-api-key'] // headers to redact
+	})
+);
 ```
 
-*How it works:*
+_How it works:_
+
 - The plugin wraps every request in an `AsyncLocalStorage` context with a unique request ID
 - Anywhere in the app, `import { log } from 'absolutejs'` gives a logger that auto-attaches the current request's context:
-  ```ts
-  import { log } from 'absolutejs'
+    ```ts
+    import { log } from 'absolutejs';
 
-  // In any function called during request handling — no logger param needed
-  log.info('User created', { userId: user.id })
-  ```
+    // In any function called during request handling — no logger param needed
+    log.info('User created', { userId: user.id });
+    ```
 - Output in production (JSON):
-  ```json
-  {
-    "level": "info",
-    "msg": "User created",
-    "userId": "abc123",
-    "requestId": "req_7f2a3b",
-    "method": "POST",
-    "path": "/api/users",
-    "duration": 45,
-    "timestamp": "2026-03-27T22:30:00.000Z"
-  }
-  ```
+    ```json
+    {
+    	"level": "info",
+    	"msg": "User created",
+    	"userId": "abc123",
+    	"requestId": "req_7f2a3b",
+    	"method": "POST",
+    	"path": "/api/users",
+    	"duration": 45,
+    	"timestamp": "2026-03-27T22:30:00.000Z"
+    }
+    ```
 - Output in dev (pretty):
-  ```
-  22:30:00 INFO [POST /api/users] User created userId=abc123 (45ms)
-  ```
+    ```
+    22:30:00 INFO [POST /api/users] User created userId=abc123 (45ms)
+    ```
 
-*Auto-logged events (no user code needed):*
+_Auto-logged events (no user code needed):_
+
 - Request start: method, path, query params, user agent
 - Request end: status code, duration, response size
 - SSR render: framework, component, render time
 - Errors: full stack trace with request context
 - Slow requests: warning if request exceeds a configurable threshold (default: 1s)
 
-*Request ID propagation:*
+_Request ID propagation:_
+
 - Generates a unique `requestId` per request (UUID or nanoid)
 - Sets `X-Request-Id` response header so clients can reference it in bug reports
 - If an incoming request has `X-Request-Id` header (from a load balancer or upstream service), uses that instead — enables distributed tracing
 
-*Integration with existing systems:*
+_Integration with existing systems:_
+
 - The logger's JSON output is compatible with any log aggregation tool (Datadog, Loki, CloudWatch, ELK)
 - If OpenTelemetry plugin is registered, the request ID correlates with OTel trace/span IDs
 
 **Design considerations:**
+
 - `AsyncLocalStorage` has negligible overhead in Bun — safe to use on every request
 - The `log` import is a singleton that reads from `AsyncLocalStorage` — no need to thread a logger through every function call
 - Outside of request context (startup, cron jobs, background jobs), `log` still works but without request-specific fields
@@ -617,6 +685,7 @@ app.use(logging({
 - Sensitive headers (`authorization`, `cookie`) are redacted by default in log output
 
 **Files likely involved:**
+
 - New: `src/plugins/logging.ts` — Elysia plugin that wraps requests in AsyncLocalStorage with request context
 - New: `src/utils/log.ts` — the `log` singleton that reads from AsyncLocalStorage and formats output
 - New: `types/logging.ts` — types for log levels, config, and structured log entries
@@ -631,98 +700,111 @@ Request waterfalls are the #1 hidden performance killer. A parent component fetc
 
 **What AbsoluteJS has today:**
 Data is fetched in the route handler and passed as props:
+
 ```ts
 app.get('/dashboard', async () => {
-  const user = await getUser()         // 50ms
-  const stats = await getStats()       // 200ms
-  const activity = await getActivity() // 100ms
-  // Total: 350ms (sequential)
+	const user = await getUser(); // 50ms
+	const stats = await getStats(); // 200ms
+	const activity = await getActivity(); // 100ms
+	// Total: 350ms (sequential)
 
-  return handleReactPageRequest(Dashboard, manifest['DashboardIndex'], {
-    user, stats, activity
-  })
-})
+	return handleReactPageRequest(Dashboard, manifest['DashboardIndex'], {
+		user,
+		stats,
+		activity
+	});
+});
 ```
 
 Developers can manually `Promise.all` these, but it's easy to forget and there's no framework-level pattern for it.
 
 **What needs to be built:**
 
-*A `defineLoader` utility:*
+_A `defineLoader` utility:_
+
 ```ts
-import { defineLoader } from 'absolutejs'
+import { defineLoader } from 'absolutejs';
 
 const userLoader = defineLoader('user', async (ctx) => {
-  return await getUser(ctx.headers.authorization)
-})
+	return await getUser(ctx.headers.authorization);
+});
 
 const statsLoader = defineLoader('stats', async () => {
-  return await getStats()
-})
+	return await getStats();
+});
 
 const activityLoader = defineLoader('activity', async () => {
-  return await getActivity()
-})
+	return await getActivity();
+});
 ```
 
-*A `loadAll` utility that runs loaders in parallel:*
+_A `loadAll` utility that runs loaders in parallel:_
+
 ```ts
-import { loadAll } from 'absolutejs'
+import { loadAll } from 'absolutejs';
 
 app.get('/dashboard', async (ctx) => {
-  // All three loaders run in parallel — total time = max(50, 200, 100) = 200ms
-  const { user, stats, activity } = await loadAll(ctx, [
-    userLoader,
-    statsLoader,
-    activityLoader,
-  ])
+	// All three loaders run in parallel — total time = max(50, 200, 100) = 200ms
+	const { user, stats, activity } = await loadAll(ctx, [
+		userLoader,
+		statsLoader,
+		activityLoader
+	]);
 
-  return handleReactPageRequest(Dashboard, manifest['DashboardIndex'], {
-    user, stats, activity
-  })
-})
+	return handleReactPageRequest(Dashboard, manifest['DashboardIndex'], {
+		user,
+		stats,
+		activity
+	});
+});
 ```
 
-*How `loadAll` works:*
+_How `loadAll` works:_
+
 - Takes the Elysia request context and an array of loaders
 - Runs all loaders with `Promise.all` — true parallel execution
 - Returns a typed object where each key matches the loader name and the value matches the loader's return type
 - If any loader throws, the error includes which loader failed and the partial results from loaders that succeeded (useful for partial rendering with out-of-order streaming)
 
-*Type safety:*
+_Type safety:_
+
 - `defineLoader` is generic over its return type — `defineLoader('user', async () => getUser())` infers the return as the user type
 - `loadAll` returns an object typed as `{ user: User, stats: Stats, activity: Activity[] }` — no manual type annotations needed
 - If you pass a loader that doesn't exist, TypeScript errors
 
-*Integration with out-of-order streaming:*
+_Integration with out-of-order streaming:_
+
 - `loadAll` can return a special object that integrates with streaming — each loader's result streams independently:
-  ```ts
-  const data = await loadAll(ctx, [userLoader, statsLoader, activityLoader], {
-    streaming: true,
-  })
-  // data.user resolves first (50ms) — streams immediately
-  // data.activity resolves next (100ms) — streams into its slot
-  // data.stats resolves last (200ms) — streams into its slot
-  ```
+    ```ts
+    const data = await loadAll(ctx, [userLoader, statsLoader, activityLoader], {
+    	streaming: true
+    });
+    // data.user resolves first (50ms) — streams immediately
+    // data.activity resolves next (100ms) — streams into its slot
+    // data.stats resolves last (200ms) — streams into its slot
+    ```
 - This turns sequential data fetching into parallel fetching with progressive rendering — the best of both worlds
 
-*Error handling:*
+_Error handling:_
+
 - Individual loader errors don't crash the whole page — `loadAll` can be configured to return partial results:
-  ```ts
-  const data = await loadAll(ctx, [userLoader, statsLoader], {
-    partial: true, // don't throw if one loader fails
-  })
-  // data.user — User
-  // data.stats — Stats | LoaderError (if it failed)
-  ```
+    ```ts
+    const data = await loadAll(ctx, [userLoader, statsLoader], {
+    	partial: true // don't throw if one loader fails
+    });
+    // data.user — User
+    // data.stats — Stats | LoaderError (if it failed)
+    ```
 
 **Design considerations:**
+
 - Loaders are just async functions — no magic. `loadAll` is just `Promise.all` with type inference and error handling. The value is the convention, not the implementation.
 - Loaders receive the Elysia request context so they can read headers, cookies, query params for auth-gated data
 - Loaders can depend on each other — `statsLoader` might need the user ID from `userLoader`. For dependent loaders, use a sequential chain inside the loader itself, or split into two `loadAll` calls.
 - Caching: loaders can opt into per-request deduplication — if two components request the same loader, it runs once. Uses a `Map` scoped to the request via `AsyncLocalStorage`.
 
 **Files likely involved:**
+
 - New: `src/utils/defineLoader.ts` — loader factory with typed handler
 - New: `src/utils/loadAll.ts` — parallel execution with typed results
 - New: `types/loader.ts` — types for loader definitions, results, and error shapes
@@ -739,7 +821,8 @@ Adding a new page to an AbsoluteJS app requires: creating the page component fil
 
 **What needs to be built:**
 
-*A new CLI command — `bun abs generate page`:*
+_A new CLI command — `bun abs generate page`:_
+
 ```bash
 # Generate a React page
 bun abs generate page dashboard --framework react
@@ -760,45 +843,49 @@ bun abs generate page landing --framework html
 bun abs generate page contact --framework htmx
 ```
 
-*What it does:*
+_What it does:_
+
 1. **Reads `absolute.config.ts`** to find the framework directories (`reactDirectory`, `svelteDirectory`, etc.)
 2. **Generates the page component** using the same templates and generators from `create-absolutejs`:
-   - React: `pages/Dashboard.tsx` with `Head`, `App` wrapper, typed props
-   - Svelte: `pages/Dashboard.svelte` with `$props()`, `<svelte:head>`, scoped styles
-   - Vue: `pages/Dashboard.vue` with `<script setup>`, `defineProps`, `<style scoped>`
-   - Angular: `pages/dashboard.ts` component + template
-   - HTML: `pages/Dashboard.html` with boilerplate
-   - HTMX: `pages/Dashboard.html` with HTMX attributes
+    - React: `pages/Dashboard.tsx` with `Head`, `App` wrapper, typed props
+    - Svelte: `pages/Dashboard.svelte` with `$props()`, `<svelte:head>`, scoped styles
+    - Vue: `pages/Dashboard.vue` with `<script setup>`, `defineProps`, `<style scoped>`
+    - Angular: `pages/dashboard.ts` component + template
+    - HTML: `pages/Dashboard.html` with boilerplate
+    - HTMX: `pages/Dashboard.html` with HTMX attributes
 3. **Generates the CSS file** in the styles directory (e.g., `styles/indexes/dashboard.css`)
 4. **Updates `server.ts`** — adds the import and route:
-   ```ts
-   // Added automatically:
-   import { Dashboard } from './react/pages/Dashboard'
+    ```ts
+    // Added automatically:
+    import { Dashboard } from './react/pages/Dashboard'
 
-   // Added to the route chain:
-   .get('/dashboard', () =>
-     handleReactPageRequest(
-       Dashboard,
-       asset(manifest, 'DashboardIndex'),
-       { cssPath: asset(manifest, 'DashboardCSS') }
-     )
-   )
-   ```
+    // Added to the route chain:
+    .get('/dashboard', () =>
+      handleReactPageRequest(
+        Dashboard,
+        asset(manifest, 'DashboardIndex'),
+        { cssPath: asset(manifest, 'DashboardCSS') }
+      )
+    )
+    ```
 5. **Prints a summary** of what was created and what manifest keys to expect after the next build
 
-*How it modifies `server.ts`:*
+_How it modifies `server.ts`:_
+
 - Parses the file using a simple AST or regex to find:
-  - The import block — inserts the new import
-  - The route chain — inserts the new `.get()` call before `.use(networking)` or `.on('error')`
+    - The import block — inserts the new import
+    - The route chain — inserts the new `.get()` call before `.use(networking)` or `.on('error')`
 - Uses the same `generateImportsBlock` and `generateRoutesBlock` patterns from `create-absolutejs`
 - If the file structure is too different from the expected pattern (user heavily customized it), falls back to printing the code snippet for manual insertion
 
-*Template source:*
+_Template source:_
+
 - Reuse the generators from `create-absolutejs` directly — import `generateReactComponents`, `generateSveltePage`, `generateVuePage`, etc.
 - The templates produce the same quality output as a freshly scaffolded project
 - Respects the project's existing patterns (Tailwind vs plain CSS, auth vs no auth) by reading the config and installed dependencies
 
-*Additional generators:*
+_Additional generators:_
+
 ```bash
 # Generate an API route
 bun abs generate api users
@@ -811,6 +898,7 @@ bun abs generate component Button --framework react
 ```
 
 **Design considerations:**
+
 - The generator must be idempotent-safe — running it twice for the same page should warn "Dashboard page already exists" instead of overwriting
 - Page names are PascalCased automatically — `bun abs generate page user-settings` creates `UserSettings.tsx`
 - The route path is kebab-cased from the page name — `UserSettings` → `/user-settings`
@@ -818,6 +906,7 @@ bun abs generate component Button --framework react
 - The generator should work even if `create-absolutejs` isn't installed — the templates should be bundled with the `absolutejs` CLI
 
 **Files likely involved:**
+
 - `src/cli/index.ts` — add `generate` command with `page`, `api`, `component` subcommands
 - New: `src/cli/scripts/generate.ts` — orchestrates the generation
 - New: `src/cli/generators/generatePage.ts` — page generation logic (reuses create-absolutejs templates)
@@ -838,7 +927,8 @@ A project starts with React only. Six months later the team wants to add a Svelt
 
 **What needs to be built:**
 
-*A new CLI command — `bun abs add`:*
+_A new CLI command — `bun abs add`:_
+
 ```bash
 bun abs add react
 bun abs add svelte
@@ -848,91 +938,97 @@ bun abs add html
 bun abs add htmx
 ```
 
-*What it does — step by step:*
+_What it does — step by step:_
 
 1. **Checks if the framework is already configured** — reads `absolute.config.ts`, warns and exits if the framework directory is already set.
 
 2. **Installs framework dependencies** — runs `bun add` with the correct packages:
-   - React: `react`, `react-dom`, `@types/react`, `@types/react-dom`
-   - Svelte: `svelte`
-   - Vue: `vue`, `@vue/compiler-sfc`, `vue-tsc`
-   - Angular: `@angular/core`, `@angular/common`, `@angular/platform-browser`, `@angular/platform-server`, `@angular/compiler-cli`, `@angular/ssr`, `zone.js`
-   - HTML: no deps
-   - HTMX: no deps (copies `htmx.min.js` to the directory)
+    - React: `react`, `react-dom`, `@types/react`, `@types/react-dom`
+    - Svelte: `svelte`
+    - Vue: `vue`, `@vue/compiler-sfc`, `vue-tsc`
+    - Angular: `@angular/core`, `@angular/common`, `@angular/platform-browser`, `@angular/platform-server`, `@angular/compiler-cli`, `@angular/ssr`, `zone.js`
+    - HTML: no deps
+    - HTMX: no deps (copies `htmx.min.js` to the directory)
 
 3. **Creates the framework directory** with the correct structure using the same layout as `create-absolutejs`:
-   - `src/frontend/{framework}/pages/`
-   - `src/frontend/{framework}/components/`
-   - `src/frontend/{framework}/composables/` (Svelte, Vue)
-   - `src/frontend/{framework}/templates/` (Angular)
+    - `src/frontend/{framework}/pages/`
+    - `src/frontend/{framework}/components/`
+    - `src/frontend/{framework}/composables/` (Svelte, Vue)
+    - `src/frontend/{framework}/templates/` (Angular)
 
 4. **Generates a starter page** using the same templates from `create-absolutejs`:
-   - React: `ReactExample.tsx` with `Head`, `App`, `Dropdown` components
-   - Svelte: `SvelteExample.svelte` with counter using `$props()` and `$state()`
-   - Vue: `VueExample.vue` with `<script setup>`, `defineProps`, composition API counter
-   - Angular: `angular-example.ts` with counter component + template
-   - HTML: `HTMLExample.html` with boilerplate
-   - HTMX: `HTMXExample.html` with counter endpoints and `hx-` attributes
+    - React: `ReactExample.tsx` with `Head`, `App`, `Dropdown` components
+    - Svelte: `SvelteExample.svelte` with counter using `$props()` and `$state()`
+    - Vue: `VueExample.vue` with `<script setup>`, `defineProps`, composition API counter
+    - Angular: `angular-example.ts` with counter component + template
+    - HTML: `HTMLExample.html` with boilerplate
+    - HTMX: `HTMXExample.html` with counter endpoints and `hx-` attributes
 
 5. **Generates a CSS file** in the styles directory (`styles/indexes/{framework}-example.css`)
 
 6. **Updates `absolute.config.ts`** — inserts the framework directory config:
-   ```ts
-   // Added:
-   svelteDirectory: 'src/frontend/svelte',
-   ```
+
+    ```ts
+    // Added:
+    svelteDirectory: 'src/frontend/svelte',
+    ```
 
 7. **Updates `server.ts`** — adds the import and a route for the starter page:
-   ```ts
-   // Added import:
-   import { handleSveltePageRequest } from 'absolutejs/svelte'
 
-   // Added route:
-   .get('/svelte', async () => {
-     const SvelteExample = (await import('./svelte/pages/SvelteExample.svelte')).default
-     return handleSveltePageRequest(
-       SvelteExample,
-       asset(manifest, 'SvelteExample'),
-       asset(manifest, 'SvelteExampleIndex'),
-       { cssPath: asset(manifest, 'SvelteExampleCSS'), initialCount: 0 }
-     )
-   })
-   ```
+    ```ts
+    // Added import:
+    import { handleSveltePageRequest } from 'absolutejs/svelte'
+
+    // Added route:
+    .get('/svelte', async () => {
+      const SvelteExample = (await import('./svelte/pages/SvelteExample.svelte')).default
+      return handleSveltePageRequest(
+        SvelteExample,
+        asset(manifest, 'SvelteExample'),
+        asset(manifest, 'SvelteExampleIndex'),
+        { cssPath: asset(manifest, 'SvelteExampleCSS'), initialCount: 0 }
+      )
+    })
+    ```
 
 8. **Updates navigation** — if a `Dropdown` component exists (the framework switcher), adds the new framework link
 
 9. **Prints a summary:**
-   ```
-   ✓ Added Svelte to your project
+    ```
+    ✓ Added Svelte to your project
 
-   Created:
-     src/frontend/svelte/pages/SvelteExample.svelte
-     src/frontend/svelte/components/Counter.svelte
-     src/frontend/svelte/composables/counter.svelte.ts
-     src/frontend/styles/indexes/svelte-example.css
+    Created:
+      src/frontend/svelte/pages/SvelteExample.svelte
+      src/frontend/svelte/components/Counter.svelte
+      src/frontend/svelte/composables/counter.svelte.ts
+      src/frontend/styles/indexes/svelte-example.css
 
-   Updated:
-     absolute.config.ts — added svelteDirectory
-     src/backend/server.ts — added /svelte route
+    Updated:
+      absolute.config.ts — added svelteDirectory
+      src/backend/server.ts — added /svelte route
 
-   Run `bun run dev` to see your new Svelte page at /svelte
-   ```
+    Run `bun run dev` to see your new Svelte page at /svelte
+    ```
 
-*How it modifies files:*
+_How it modifies files:_
+
 - `absolute.config.ts`: parses the `defineConfig({...})` object and inserts the new property. Regex/AST to find the config object, insert the key before the closing brace.
 - `server.ts`: same approach as the page generator — find the import block, find the route chain (before `.use(networking)` or `.on('error')`), insert in the right spots.
 - If files are too heavily customized to safely modify, falls back to printing the code snippets for manual insertion.
 
-*Removing a framework:*
+_Removing a framework:_
+
 ```bash
 bun abs remove svelte
 ```
+
 - Removes the directory config from `absolute.config.ts`
 - Does NOT delete the framework directory or source files — too destructive, user does this manually
 - Warns which routes in `server.ts` reference the removed framework so the user can clean up
 - Removes framework dependencies via `bun remove` (only if no other framework needs them)
 
 **Design considerations:**
+
 - Detect the project structure automatically — if the project uses `src/frontend/` (create-absolutejs default) vs `example/` (the absolutejs repo), adapt paths by reading existing `absolute.config.ts` directory patterns and following the same convention.
 - Version alignment: install the same dependency versions that the current AbsoluteJS version is tested with. Bundle a version manifest with the CLI.
 - If HTMX is added, also install `@absolutejs/scoped-state` and add the HTMX counter endpoints as a starter.
@@ -941,6 +1037,7 @@ bun abs remove svelte
 - Idempotent — running `bun abs add react` when React is already configured prints a message and exits, doesn't break anything.
 
 **Files likely involved:**
+
 - `src/cli/index.ts` — add `add` and `remove` commands
 - New: `src/cli/scripts/add.ts` — orchestrates the framework addition
 - New: `src/cli/scripts/remove.ts` — orchestrates framework removal (config + deps only, not file deletion)
@@ -959,6 +1056,7 @@ Built-in locale routing (`/en/about`, `/fr/about`), locale detection from Accept
 Nothing.
 
 **What needs to be built:**
+
 - Locale detection middleware (Accept-Language header parsing, cookie-based locale persistence)
 - URL prefix routing pattern (`/:locale/page`)
 - A helper to load translation files and inject them as props
@@ -966,6 +1064,7 @@ Nothing.
 - This is mostly a pattern/plugin, not core framework work
 
 **Files likely involved:**
+
 - New: `src/plugins/i18n.ts` — Elysia plugin for locale detection and routing
 - Documentation showing integration with popular i18n libraries
 
@@ -980,12 +1079,14 @@ Nothing.
 `generateHeadElement()` adds a Google Fonts `<link>` with `display=swap`. Fonts are loaded at runtime from Google's CDN.
 
 **What needs to be built:**
+
 - A build-time step that downloads declared Google Fonts, subsets them (woff2), and writes them to the assets directory
 - Inline the `@font-face` CSS directly in the `<head>` instead of linking to Google
 - This eliminates the external request to Google, improves privacy, and prevents FOUT
 - Consider a `defineFont()` helper that takes a font config and returns the CSS + paths
 
 **Files likely involved:**
+
 - New: `src/build/downloadFonts.ts` — fetches and subsets Google Fonts at build time
 - `src/utils/generateHeadElement.ts` — inline font CSS instead of external link
 - `src/core/build.ts` — add font download step to build pipeline
@@ -1001,6 +1102,7 @@ Routes can opt into the Edge Runtime (lightweight V8) for lower latency at the e
 Bun-only. Requires a long-running Bun server process. No serverless or edge adapter.
 
 **What needs to be built:**
+
 - Deployment adapters for common platforms (Fly.io, Railway, Render are easy since they support Bun directly)
 - Docker template with a minimal Bun image
 - For serverless: an adapter that wraps the Elysia server as a Lambda/Cloud Function handler
@@ -1008,6 +1110,7 @@ Bun-only. Requires a long-running Bun server process. No serverless or edge adap
 - Focus on making traditional deployment dead simple rather than chasing edge
 
 **Files likely involved:**
+
 - New: `src/adapters/docker/Dockerfile`
 - New: `src/adapters/lambda.ts` — AWS Lambda adapter
 - Documentation for common deployment targets

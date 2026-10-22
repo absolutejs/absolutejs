@@ -52,9 +52,7 @@ export type VueRouteRecord = {
 export type VueRoutes = readonly VueRouteRecord[];
 
 type ReservedVueProps =
-	| keyof VNodeProps
-	| keyof AllowedComponentProps
-	| keyof ComponentCustomProps;
+	keyof VNodeProps | keyof AllowedComponentProps | keyof ComponentCustomProps;
 
 export type VuePropsOf<C> = C extends new () => { $props: infer Props }
 	? Omit<Props, ReservedVueProps>

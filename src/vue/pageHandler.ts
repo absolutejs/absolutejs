@@ -312,9 +312,8 @@ export const handleVuePageRequest = async <Component extends VueComponent>(
 
 			const resolvedPage = await resolvePageComponent();
 			const { createSSRApp } = await import('vue');
-			const { renderToString, renderToWebStream } = await import(
-				'vue/server-renderer'
-			);
+			const { renderToString, renderToWebStream } =
+				await import('vue/server-renderer');
 
 			// Match the generated client entry exactly: both sides must use the
 			// page component itself as the app root. Wrapping it in an extra server-

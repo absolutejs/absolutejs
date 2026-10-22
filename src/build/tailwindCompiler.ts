@@ -150,8 +150,7 @@ const resolveBareCssImport = (id: string, base: string) => {
 	}
 
 	const exportsField = pkg.exports as
-		| { '.'?: { style?: string } }
-		| undefined;
+		{ '.'?: { style?: string } } | undefined;
 	const styleFromExports = exportsField?.['.']?.style;
 	const candidates = [
 		styleFromExports,
@@ -217,9 +216,7 @@ const buildCompilerEntry = async (
 	const sourceDirectives = extraSources
 		.map((pattern) => `@source ${JSON.stringify(pattern)};`)
 		.join('\n');
-	const css = sourceDirectives
-		? `${sourceDirectives}\n${userCss}`
-		: userCss;
+	const css = sourceDirectives ? `${sourceDirectives}\n${userCss}` : userCss;
 	const compiler = await compile(css, {
 		base: dirname(absPath),
 		loadModule,

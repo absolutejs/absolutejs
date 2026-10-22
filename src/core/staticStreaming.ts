@@ -6,8 +6,7 @@ import type {
 } from '../utils/streamingSlots';
 
 export type StaticStreamingSlotResolver = () =>
-	| Promise<StreamingSlotPatchPayload>
-	| StreamingSlotPatchPayload;
+	Promise<StreamingSlotPatchPayload> | StreamingSlotPatchPayload;
 
 export type StaticStreamingSlotDefinition = {
 	resolve: StaticStreamingSlotResolver;

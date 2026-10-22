@@ -24,9 +24,8 @@ try {
 	const { handleVuePageRequest } = await import('../../../src/vue');
 	const { captureSsrTextBaselines, prepareBrowserTranslationHydration } =
 		await import('../../../src/vue/browserTranslation');
-	const { ABSOLUTE_TELEPORT_TARGET } = await import(
-		'../../../src/vue/teleports'
-	);
+	const { ABSOLUTE_TELEPORT_TARGET } =
+		await import('../../../src/vue/teleports');
 	const MultiRootPage = defineComponent({
 		props: { label: { required: true, type: String } },
 		setup(props) {

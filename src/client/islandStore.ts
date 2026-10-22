@@ -20,8 +20,7 @@ export const ABSOLUTE_ISLAND_STORES = '__ABS_ISLAND_STORES__';
 declare global {
 	var __ABS_ISLAND_STATE__: IslandStateSnapshot | undefined;
 	var __ABS_ISLAND_STORES__:
-		| Map<string, Set<IslandStoreInstance>>
-		| undefined;
+		Map<string, Set<IslandStoreInstance>> | undefined;
 }
 
 const getIslandStoreSnapshot = () => {

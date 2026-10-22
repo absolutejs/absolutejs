@@ -230,9 +230,8 @@ export const createAbsoluteMobileUpdateServerPlugin = async (
 			'Auto-mounted mobile update manifests must end in /update.json.'
 		);
 	const route = manifest.pathname.slice(0, -'/update.json'.length);
-	const { createMobileUpdateHandler } = await import(
-		'@absolutejs/deploy/mobile-update'
-	);
+	const { createMobileUpdateHandler } =
+		await import('@absolutejs/deploy/mobile-update');
 	const handler = createMobileUpdateHandler({
 		appId: config.appId,
 		channel: updates.channel,

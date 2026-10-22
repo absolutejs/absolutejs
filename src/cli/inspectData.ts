@@ -87,23 +87,21 @@ export const fetchRequests = async (url: string) => {
 		const data = await response.json();
 		if (!Array.isArray(data)) return null;
 
-		return data.map(
-			(entry): RequestRecord => ({
-				at: Number(entry.at) || 0,
-				durationMs: Number(entry.durationMs) || 0,
-				kind: entry.kind,
-				method: String(entry.method ?? ''),
-				path: String(entry.path ?? ''),
-				query: String(entry.query ?? ''),
-				requestHeaders: entry.requestHeaders ?? {},
-				responseHeaders: entry.responseHeaders ?? {},
-				size:
-					entry.size === null || entry.size === undefined
-						? null
-						: Number(entry.size),
-				status: Number(entry.status) || 0
-			})
-		);
+		return data.map((entry): RequestRecord => ({
+			at: Number(entry.at) || 0,
+			durationMs: Number(entry.durationMs) || 0,
+			kind: entry.kind,
+			method: String(entry.method ?? ''),
+			path: String(entry.path ?? ''),
+			query: String(entry.query ?? ''),
+			requestHeaders: entry.requestHeaders ?? {},
+			responseHeaders: entry.responseHeaders ?? {},
+			size:
+				entry.size === null || entry.size === undefined
+					? null
+					: Number(entry.size),
+			status: Number(entry.status) || 0
+		}));
 	} catch {
 		return null;
 	}

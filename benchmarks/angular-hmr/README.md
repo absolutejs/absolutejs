@@ -7,11 +7,12 @@ five common edit shapes. Used to populate the table in
 ## Project shape
 
 Three standalone Angular components on `@absolutejs/absolute@0.19.0-beta.915`
-+ `@angular/* 21.2.11`:
 
-- `BenchPage` — root page (templateUrl)
-- `HeaderComponent` — inline-template component
-- `CounterComponent` — templateUrl + styleUrl + `@Input`
+- `@angular/* 21.2.11`:
+
+* `BenchPage` — root page (templateUrl)
+* `HeaderComponent` — inline-template component
+* `CounterComponent` — templateUrl + styleUrl + `@Input`
 
 ## Running
 
@@ -31,13 +32,13 @@ breakdown. Originals are restored on exit (and on SIGINT).
 
 ## Cases
 
-| # | Edit shape | Tier | Expected WS broadcast |
-|---|---|---|---|
-| 1 | TS method body                     | 0   | `angular:component-update` |
-| 2 | Inline template literal            | 0   | `angular:component-update` |
-| 3 | External `templateUrl` `.html`     | 0   | `angular:component-update` |
-| 4 | External `styleUrl` `.css`         | css | `style-update` (framework CSS HMR) |
-| 5 | Add `@Input` (structural change)   | 1a  | `angular:component-remount` |
+| #   | Edit shape                       | Tier | Expected WS broadcast              |
+| --- | -------------------------------- | ---- | ---------------------------------- |
+| 1   | TS method body                   | 0    | `angular:component-update`         |
+| 2   | Inline template literal          | 0    | `angular:component-update`         |
+| 3   | External `templateUrl` `.html`   | 0    | `angular:component-update`         |
+| 4   | External `styleUrl` `.css`       | css  | `style-update` (framework CSS HMR) |
+| 5   | Add `@Input` (structural change) | 1a   | `angular:component-remount`        |
 
 ## Output shape
 

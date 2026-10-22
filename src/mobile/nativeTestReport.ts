@@ -3,10 +3,7 @@ import { join } from 'node:path';
 import type { AbsoluteAndroidUpgradeConformanceResult } from './androidUpgradeConformance';
 
 export type AbsoluteNativeReportResult =
-	| 'FAIL'
-	| 'NOT_RUN'
-	| 'PASS'
-	| 'SKIPPED';
+	'FAIL' | 'NOT_RUN' | 'PASS' | 'SKIPPED';
 
 export type AbsoluteNativeReportCheck = {
 	details: string;
@@ -63,9 +60,7 @@ export type AbsoluteNativeReleaseResult = {
 export type AbsoluteNativeIosReleaseResult = {
 	artifactBytes: number;
 	artifactExactness:
-		| 'archive-equivalent'
-		| 'source-equivalent'
-		| 'store-delivered';
+		'archive-equivalent' | 'source-equivalent' | 'store-delivered';
 	artifactSha256: string;
 	distribution: 'apple-processed' | 'registered-device' | 'simulator-release';
 	embeddedLocal: boolean;

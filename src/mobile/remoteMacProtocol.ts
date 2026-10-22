@@ -273,8 +273,7 @@ type RemoteEvent =
 			v: number;
 	  }
 	| ({ type: 'timing'; v: number } & (
-			| AbsoluteIosDevPhaseTiming
-			| AbsoluteExpoDevPhaseTiming
+			AbsoluteIosDevPhaseTiming | AbsoluteExpoDevPhaseTiming
 	  ))
 	| {
 			id: string;
@@ -1633,9 +1632,8 @@ const requireRemoteIosReleaseAcceptance = (
 		);
 	const result = value as Record<string, unknown>;
 	let expectedExactness:
-		| 'archive-equivalent'
-		| 'source-equivalent'
-		| 'store-delivered' = 'archive-equivalent';
+		'archive-equivalent' | 'source-equivalent' | 'store-delivered' =
+		'archive-equivalent';
 	if (distribution === 'simulator-release')
 		expectedExactness = 'source-equivalent';
 	if (distribution === 'testflight') expectedExactness = 'store-delivered';

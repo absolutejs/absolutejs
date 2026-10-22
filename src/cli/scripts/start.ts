@@ -618,9 +618,8 @@ export const start = async (
 			fileName.endsWith('.js')
 		);
 		const angularServerVendorPaths: Record<string, string> = {};
-		const { relative: pathRelative, dirname: pathDirname } = await import(
-			'node:path'
-		);
+		const { relative: pathRelative, dirname: pathDirname } =
+			await import('node:path');
 		for (const file of vendorEntries) {
 			// angular_core.js → @angular/core, angular_common_http.js →
 			// @angular/common/http. The first underscore separates the scope
@@ -641,9 +640,8 @@ export const start = async (
 				: `./${relPath}`;
 		}
 		if (Object.keys(angularServerVendorPaths).length > 0) {
-			const { rewriteImports } = await import(
-				'../../build/rewriteImports'
-			);
+			const { rewriteImports } =
+				await import('../../build/rewriteImports');
 			await rewriteImports([outputPath], angularServerVendorPaths);
 		}
 	}

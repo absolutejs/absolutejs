@@ -5,8 +5,7 @@ import type { BunPlugin } from 'bun';
 
 const CACHE_ROOT = resolve('.absolutejs', 'cache', 'angular-linker');
 
-export const ANGULAR_LINKER_CANDIDATE_RE =
-	/[\\/]node_modules[\\/].*\.m?js$/;
+export const ANGULAR_LINKER_CANDIDATE_RE = /[\\/]node_modules[\\/].*\.m?js$/;
 
 /**
  * Bun bundler plugin that runs the Angular Linker on partially compiled
@@ -35,88 +34,93 @@ export const createAngularLinkerPlugin = (
 ): BunPlugin => ({
 	name: 'angular-linker',
 	setup(bld) {
-		let needsLinking: ((path: string, source: string) => boolean) | undefined;
-		let babelTransform: ((source: string, options: Record<string, unknown>) => { code?: string } | null) | undefined;
+		let needsLinking:
+			((path: string, source: string) => boolean) | undefined;
+		let babelTransform:
+			| ((
+					source: string,
+					options: Record<string, unknown>
+			  ) => { code?: string } | null)
+			| undefined;
 		let linkerPlugin: unknown;
 
 		const cacheDir = join(CACHE_ROOT, linkerJitMode ? 'jit' : 'aot');
 
-		bld.onLoad(
-			{ filter: ANGULAR_LINKER_CANDIDATE_RE },
-			async (args) => {
-				const source = await Bun.file(args.path).text();
+		bld.onLoad({ filter: ANGULAR_LINKER_CANDIDATE_RE }, async (args) => {
+			const source = await Bun.file(args.path).text();
 
-				if (!needsLinking) {
-					const specifier = '@angular/compiler-cli/linker';
-					const mod = await import(specifier);
-					({ needsLinking } = mod);
-				}
-
-				const checkLink = needsLinking;
-				if (!checkLink || !checkLink(args.path, source)) {
-					return undefined;
-				}
-
-				const hash = createHash('md5')
-					.update(source)
-					.digest('hex');
-				const cachePath = join(cacheDir, `${hash}.js`);
-
-				if (existsSync(cachePath)) {
-					return {
-						contents: readFileSync(cachePath, 'utf-8'),
-						loader: 'js'
-					};
-				}
-
-				if (!babelTransform) {
-					const babelSpecifier = '@babel/core';
-					const babel = await import(babelSpecifier);
-					babelTransform = babel.transformSync;
-				}
-				if (!linkerPlugin) {
-					const linkerSpecifier = '@angular/compiler-cli/linker/babel';
-					const mod = await import(linkerSpecifier);
-					linkerPlugin = mod.createEs2015LinkerPlugin({
-						fileSystem: {
-							dirname,
-							exists: existsSync,
-							readFile: readFileSync,
-							relative,
-							resolve
-						},
-						linkerJitMode,
-						logger: {
-							error: console.error,
-							level: 1,
-							warn: console.warn,
-							debug: () => { /* noop */ },
-							info: () => { /* noop */ }
-						}
-					});
-				}
-
-				const transform = babelTransform;
-				if (!transform) {
-					return { contents: source, loader: 'js' };
-				}
-
-				const result = transform(source, {
-					compact: false,
-					filename: args.path,
-					filenameRelative: args.path,
-					plugins: [linkerPlugin],
-					sourceMaps: false
-				});
-
-				const linked = result?.code ?? source;
-
-				mkdirSync(cacheDir, { recursive: true });
-				writeFileSync(cachePath, linked, 'utf-8');
-
-				return { contents: linked, loader: 'js' };
+			if (!needsLinking) {
+				const specifier = '@angular/compiler-cli/linker';
+				const mod = await import(specifier);
+				({ needsLinking } = mod);
 			}
-		);
+
+			const checkLink = needsLinking;
+			if (!checkLink || !checkLink(args.path, source)) {
+				return undefined;
+			}
+
+			const hash = createHash('md5').update(source).digest('hex');
+			const cachePath = join(cacheDir, `${hash}.js`);
+
+			if (existsSync(cachePath)) {
+				return {
+					contents: readFileSync(cachePath, 'utf-8'),
+					loader: 'js'
+				};
+			}
+
+			if (!babelTransform) {
+				const babelSpecifier = '@babel/core';
+				const babel = await import(babelSpecifier);
+				babelTransform = babel.transformSync;
+			}
+			if (!linkerPlugin) {
+				const linkerSpecifier = '@angular/compiler-cli/linker/babel';
+				const mod = await import(linkerSpecifier);
+				linkerPlugin = mod.createEs2015LinkerPlugin({
+					fileSystem: {
+						dirname,
+						exists: existsSync,
+						readFile: readFileSync,
+						relative,
+						resolve
+					},
+					linkerJitMode,
+					logger: {
+						error: console.error,
+						level: 1,
+						warn: console.warn,
+						debug: () => {
+							/* noop */
+						},
+						info: () => {
+							/* noop */
+						}
+					}
+				});
+			}
+
+			const transform = babelTransform;
+			if (!transform) {
+				return { contents: source, loader: 'js' };
+			}
+
+			const result = transform(source, {
+				compact: false,
+				filename: args.path,
+				filenameRelative: args.path,
+				plugins: [linkerPlugin],
+				sourceMaps: false
+			});
+
+			const linked = result?.code ?? source;
+
+			mkdirSync(cacheDir, { recursive: true });
+			writeFileSync(cachePath, linked, 'utf-8');
+
+			return { contents: linked, loader: 'js' };
+		});
 	}
 });
 

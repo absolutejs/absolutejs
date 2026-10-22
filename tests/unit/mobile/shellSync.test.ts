@@ -7,8 +7,7 @@ import { installAbsoluteMobileShellSync } from '../../../src/mobile/shellSync';
 
 test('provisions account-bound native durability and lifecycle without page wiring', async () => {
 	let principalListener:
-		| ((principal: AbsoluteMobileShellPrincipal | null) => void)
-		| undefined;
+		((principal: AbsoluteMobileShellPrincipal | null) => void) | undefined;
 	let principalListenerRemoved = 0;
 	let lifecycleRemoved = 0;
 	let reloads = 0;

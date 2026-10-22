@@ -330,8 +330,7 @@ void copy.writeText('x'); void device.documents.pick(); void device.haptics.impa
 			{
 				NSPrivacyAccessedAPICategoryFileTimestamp: ['C617.1']
 			};
-		value.absolutejs.devices.capabilities.systemBars.native.ios.systemBars =
-			false;
+		value.absolutejs.devices.capabilities.systemBars.native.ios.systemBars = false;
 		await writeFile(path, JSON.stringify(value));
 		expect(() => loadAbsoluteDeviceCapabilityProviders(root)).toThrow(
 			'systemBars must be true'

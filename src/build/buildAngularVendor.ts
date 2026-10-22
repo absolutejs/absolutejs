@@ -256,7 +256,10 @@ export const buildAngularVendor = async (
 		specifiers.map(async (specifier) => {
 			const safeName = toSafeFileName(specifier);
 			const entryPath = join(tmpDir, `${safeName}.ts`);
-			await Bun.write(entryPath, await generateVendorEntrySource(specifier));
+			await Bun.write(
+				entryPath,
+				await generateVendorEntrySource(specifier)
+			);
 
 			return entryPath;
 		})
@@ -345,7 +348,10 @@ export const buildAngularServerVendor = async (
 		specifiers.map(async (specifier) => {
 			const safeName = toSafeFileName(specifier);
 			const entryPath = join(tmpDir, `${safeName}.ts`);
-			await Bun.write(entryPath, await generateVendorEntrySource(specifier));
+			await Bun.write(
+				entryPath,
+				await generateVendorEntrySource(specifier)
+			);
 
 			return entryPath;
 		})
@@ -366,10 +372,7 @@ export const buildAngularServerVendor = async (
 	await rm(tmpDir, { force: true, recursive: true });
 
 	if (!result.success) {
-		console.warn(
-			'⚠️ Angular server vendor build had errors:',
-			result.logs
-		);
+		console.warn('⚠️ Angular server vendor build had errors:', result.logs);
 	}
 
 	return specifiers;

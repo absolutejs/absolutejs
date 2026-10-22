@@ -178,7 +178,9 @@ export const Head = ({
 			/>
 		)}
 		{robots && <RobotsContent robots={robots} />}
-		{meta?.map((tag, i) => <CustomMetaTag key={i} tag={tag} />)}
+		{meta?.map((tag, i) => (
+			<CustomMetaTag key={i} tag={tag} />
+		))}
 		{font && (
 			<>
 				<link href="https://fonts.googleapis.com" rel="preconnect" />

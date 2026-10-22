@@ -57,8 +57,7 @@ type WebAccessibilityProof = {
 };
 
 const PLATFORM = process.env.ABSOLUTE_TEST_NATIVE_EXPO_HMR_PLATFORM as
-	| Platform
-	| undefined;
+	Platform | undefined;
 const REUSE_ANDROID_INSTALL =
 	process.env.ABSOLUTE_TEST_NATIVE_EXPO_HMR_REUSE_INSTALL === '1';
 const QUALITY_ENABLED =

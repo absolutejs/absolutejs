@@ -967,9 +967,8 @@ const logAngularErrorsAndExit = (errors: ts.Diagnostic[]) => {
 };
 
 const compileAngularComponentsPartial = async () => {
-	const { readConfiguration, performCompilation, EmitFlags } = await import(
-		'@angular/compiler-cli'
-	);
+	const { readConfiguration, performCompilation, EmitFlags } =
+		await import('@angular/compiler-cli');
 
 	const finalDir = join(DIST, 'angular', 'components');
 	const finalTypesDir = join(DIST, 'src', 'angular', 'components');

@@ -27,9 +27,8 @@ const runSourcemapChain = async ({
 	bundleFilePath,
 	sourcesContent
 }: SourcemapChainInput) => {
-	const { chainBundleInlineSourcemap } = await import(
-		'./chainInlineSourcemaps'
-	);
+	const { chainBundleInlineSourcemap } =
+		await import('./chainInlineSourcemaps');
 
 	return {
 		chained: chainBundleInlineSourcemap(bundleFilePath, { sourcesContent })

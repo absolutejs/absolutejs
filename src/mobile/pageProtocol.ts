@@ -34,13 +34,7 @@ export const MOBILE_PAGE_REQUEST_HEADERS = {
 } as const;
 
 export type AbsoluteMobilePageFramework =
-	| 'angular'
-	| 'ember'
-	| 'html'
-	| 'htmx'
-	| 'react'
-	| 'svelte'
-	| 'vue';
+	'angular' | 'ember' | 'html' | 'htmx' | 'react' | 'svelte' | 'vue';
 
 export type AbsoluteMobilePageClient = {
 	appBuild: string;
@@ -80,10 +74,7 @@ export type AbsoluteMobilePageResult = {
 };
 
 export type AbsoluteMobileUpgradeReason =
-	| 'app-release'
-	| 'page-contract'
-	| 'protocol'
-	| 'runtime';
+	'app-release' | 'page-contract' | 'protocol' | 'runtime';
 
 export type AbsoluteMobileUpgradeRequiredResult = {
 	kind: 'upgrade-required';

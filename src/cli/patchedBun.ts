@@ -20,19 +20,19 @@ import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { createInterface, type Interface } from 'node:readline/promises';
 
-/** The patched build `absolute dev` uses: Bun 1.4.2 + the reactFastRefresh
- *  backport, as bvm names it. */
+/** The patched build `absolute dev` uses: Bun 1.4.4 + the reactFastRefresh
+ *  backport, as bvm names it. From 1.4.4 the build reports this full version
+ *  (`1.4.4+absolute.1`) as `Bun.version`; earlier ones reported plain Bun's. */
 export const PATCHED_BUN_RELEASE = {
-	bunVersion: '1.4.2',
+	bunVersion: '1.4.4',
 	issue: 'https://github.com/oven-sh/bun/issues/32919',
 	repo: 'absolutejs/patched-bun',
-	version: '1.4.2-absolute.1'
+	version: '1.4.4+absolute.1'
 } as const;
 
 type Choice = 'install' | 'later' | 'never';
 type Preference =
-	| { askAfter: string; decision: 'later' }
-	| { decision: 'never' };
+	{ askAfter: string; decision: 'later' } | { decision: 'never' };
 type OfferContext = {
 	bunVersion: string;
 	bvm: boolean;
@@ -65,7 +65,7 @@ const legacyInstallDirectory = (home: string) =>
 
 const compareVersions = (left: string, right: string) => {
 	const parse = (version: string) =>
-		version.split('-')[0]?.split('.').map(Number) ?? [];
+		version.split(/[-+]/)[0]?.split('.').map(Number) ?? [];
 	const leftParts = parse(left);
 	const rightParts = parse(right);
 	const differences = Array.from(
@@ -317,7 +317,7 @@ export const verifyPatchedBun = (path: string) => {
 
 	return (
 		probe.status === 0 &&
-		probe.stdout.trim() === `${PATCHED_BUN_RELEASE.bunVersion} true`
+		probe.stdout.trim() === `${PATCHED_BUN_RELEASE.version} true`
 	);
 };
 

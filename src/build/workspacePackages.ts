@@ -42,16 +42,21 @@ export const workspacePackageDirs = (projectRoot = process.cwd()) => {
 	} catch {
 		return [];
 	}
-	const names = ['dependencies', 'devDependencies', 'optionalDependencies']
-		.flatMap((field) => {
-			const deps = manifest[field];
+	const names = [
+		'dependencies',
+		'devDependencies',
+		'optionalDependencies'
+	].flatMap((field) => {
+		const deps = manifest[field];
 
-			return deps && typeof deps === 'object' ? Object.keys(deps) : [];
-		});
+		return deps && typeof deps === 'object' ? Object.keys(deps) : [];
+	});
 	const dirs = new Set<string>();
 	for (const name of names) {
 		try {
-			const linked = realpathSync(join(projectRoot, 'node_modules', name));
+			const linked = realpathSync(
+				join(projectRoot, 'node_modules', name)
+			);
 			if (!`${linked}${sep}`.includes(NODE_MODULES_SEGMENT))
 				dirs.add(linked);
 		} catch {

@@ -59,7 +59,8 @@ const collectRegistryFactory = (sourceFile: ts.SourceFile) => {
 	for (const statement of sourceFile.statements) {
 		if (!ts.isImportDeclaration(statement)) continue;
 		if (!ts.isStringLiteral(statement.moduleSpecifier)) continue;
-		if (!isIslandRegistryHelperImport(statement.moduleSpecifier.text)) continue;
+		if (!isIslandRegistryHelperImport(statement.moduleSpecifier.text))
+			continue;
 		const bindings = statement.importClause?.namedBindings;
 		if (!bindings) continue;
 		if (ts.isNamespaceImport(bindings)) {
@@ -177,10 +178,13 @@ export const transformIslandRegistrySource = (
 	>();
 	for (const definition of info.definitions) {
 		if (!definition.buildReference) continue;
-		definitionLookup.set(`${definition.framework}:${definition.component}`, {
-			export: definition.buildReference.export,
-			source: definition.buildReference.source
-		});
+		definitionLookup.set(
+			`${definition.framework}:${definition.component}`,
+			{
+				export: definition.buildReference.export,
+				source: definition.buildReference.source
+			}
+		);
 	}
 
 	const edits: Edit[] = [];
@@ -191,7 +195,8 @@ export const transformIslandRegistrySource = (
 		const frameworkName = getObjectPropertyName(frameworkProperty.name);
 		const framework = VALID_FRAMEWORKS.find((f) => f === frameworkName);
 		if (!framework) continue;
-		if (!ts.isObjectLiteralExpression(frameworkProperty.initializer)) continue;
+		if (!ts.isObjectLiteralExpression(frameworkProperty.initializer))
+			continue;
 
 		for (const componentProperty of frameworkProperty.initializer
 			.properties) {
@@ -269,7 +274,8 @@ export const transformIslandRegistrySource = (
 	edits.sort((a, b) => b.start - a.start);
 	let output = source;
 	for (const edit of edits) {
-		output = output.slice(0, edit.start) + edit.text + output.slice(edit.end);
+		output =
+			output.slice(0, edit.start) + edit.text + output.slice(edit.end);
 	}
 
 	return output;

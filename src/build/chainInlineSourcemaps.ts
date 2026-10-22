@@ -39,7 +39,7 @@ const decodeVlq = (str: string, startPos: number) => {
 };
 
 const encodeVlq = (value: number) => {
-	let v = value < 0 ? ((-value) << 1) | 1 : value << 1;
+	let v = value < 0 ? (-value << 1) | 1 : value << 1;
 	let result = '';
 	do {
 		let digit = v & 31;
@@ -154,11 +154,7 @@ const traceInner = (
 	if (!targetLineSegs) return null;
 	for (let i = targetLineSegs.length - 1; i >= 0; i--) {
 		const seg = targetLineSegs[i];
-		if (
-			seg &&
-			seg.genCol <= targetCol &&
-			seg.sourceIdx !== undefined
-		) {
+		if (seg && seg.genCol <= targetCol && seg.sourceIdx !== undefined) {
 			return {
 				col: seg.sourceCol!,
 				line: seg.sourceLine!,

@@ -8,8 +8,7 @@ import { build as bunBuild } from 'bun';
 const vueSpecifiers = ['vue'];
 
 /** Convert a bare specifier to a safe filename */
-const toSafeFileName = (specifier: string) =>
-	specifier.replace(/\//g, '_');
+const toSafeFileName = (specifier: string) => specifier.replace(/\//g, '_');
 
 /** Build Vue packages into stable vendor files (no content hash).
  *  Output goes to {buildDir}/vue/vendor/ with predictable names. */
@@ -60,9 +59,8 @@ export const buildVueVendor = async (buildDir: string) => {
 	// Vue doesn't overwrite the HMR runtime set by the initial bundle.
 	// Without this, importing the vendor Vue during HMR nukes all
 	// component records and reload() can't find existing instances.
-	const { readFileSync, writeFileSync, readdirSync } = await import(
-		'node:fs'
-	);
+	const { readFileSync, writeFileSync, readdirSync } =
+		await import('node:fs');
 	const files = readdirSync(vendorDir).filter((f) => f.endsWith('.js'));
 	for (const file of files) {
 		const filePath = join(vendorDir, file);

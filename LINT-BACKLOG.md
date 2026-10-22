@@ -9,6 +9,7 @@ Status of bringing the repo to a clean `bun run lint` (`absolute eslint`, plugin
 - Lint is **not** in the `release` pipeline, which is how this backlog accumulated after the ruleset was tightened (`a4b9e46 "eslint studio rule manager + lint config cleanup"`).
 
 ### Done
+
 - `eslint --fix` mechanical pass (sorted keys, blank-line padding) — 432.
 - `no-return-await`, `consistent-return`, `consistent-type-definitions` (Window aug → disable, declaration merging required).
 - `no-explicit-return-type`: stripped 78 + a recursion-rule round; **only ever edited at ESLint-flagged ranges** (the rule has allowances — never blanket-strip).
@@ -18,40 +19,44 @@ Status of bringing the repo to a clean `bun run lint` (`absolute eslint`, plugin
 ## Remaining: 1,063 errors
 
 ### Behavior-risky (do carefully, verify per file) — held
-| count | rule | notes |
-|---|---|---|
-| 451 | `absolute/max-depth-extended` (max 1) | control-flow refactors (extract helpers / early returns); concentrated in dev/angular + build |
-| 107 | `@typescript-eslint/consistent-type-assertions` (never) | removing `as` can mask real type errors; many are unavoidable AST casts → may need refactor or per-line disable |
-| 30 | `@typescript-eslint/no-non-null-assertion` | replace `!` with guards/`??` |
-| 18 | `no-await-in-loop` | parallelizing changes concurrency semantics — judge per case |
-| 105 | `absolute/no-explicit-return-type` | the 9 inference-anchor / **mutual-recursion** files (e.g. `fromType.ts` `toSchema`↔`single`): refactor to infer, extend the rule for mutual recursion, or per-line disable |
+
+| count | rule                                                    | notes                                                                                                                                                                      |
+| ----- | ------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 451   | `absolute/max-depth-extended` (max 1)                   | control-flow refactors (extract helpers / early returns); concentrated in dev/angular + build                                                                              |
+| 107   | `@typescript-eslint/consistent-type-assertions` (never) | removing `as` can mask real type errors; many are unavoidable AST casts → may need refactor or per-line disable                                                            |
+| 30    | `@typescript-eslint/no-non-null-assertion`              | replace `!` with guards/`??`                                                                                                                                               |
+| 18    | `no-await-in-loop`                                      | parallelizing changes concurrency semantics — judge per case                                                                                                               |
+| 105   | `absolute/no-explicit-return-type`                      | the 9 inference-anchor / **mutual-recursion** files (e.g. `fromType.ts` `toSchema`↔`single`): refactor to infer, extend the rule for mutual recursion, or per-line disable |
 
 ### Mechanical (lower risk, still manual — no autofix path)
-| count | rule | approach |
-|---|---|---|
-| 111 | `absolute/min-var-length` | scope-aware renames (≥3 chars; allowed shorts in config) |
-| 40 | `prefer-destructuring` | `const x = obj.x` → `const { x } = obj` (these are `arr[i]`/reassign forms, not auto-fixable) |
-| 25 | `promise/param-names` | rename executor params → `resolve`/`reject` |
-| 21 | `@typescript-eslint/no-unused-vars` | remove / prefix `_` |
-| 20 | `no-shadow` | rename shadowing bindings |
-| 15 | `@typescript-eslint/no-unused-expressions` | |
-| 13 | `absolute/explicit-object-types` | annotate object literals with named types |
-| 9 | `absolute/sort-keys-fixable` | non-autofix positions |
-| 9 | `no-restricted-exports` | default → named export |
-| 7 | `promise/catch-or-return` | |
-| 6 | `preserve-caught-error` | add `{ cause }` (needs the catch var in scope) |
-| 6 | `no-restricted-syntax` | IIFE ban → extract named fn |
-| 5 | `func-style`, 5 `no-useless-function`, 5 `no-require-imports`, 3 `no-duplicate-imports`, 2 `no-nested-ternary`, 2 `no-useless-assignment`, 1 `no-loop-func` | |
+
+| count | rule                                                                                                                                                        | approach                                                                                      |
+| ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| 111   | `absolute/min-var-length`                                                                                                                                   | scope-aware renames (≥3 chars; allowed shorts in config)                                      |
+| 40    | `prefer-destructuring`                                                                                                                                      | `const x = obj.x` → `const { x } = obj` (these are `arr[i]`/reassign forms, not auto-fixable) |
+| 25    | `promise/param-names`                                                                                                                                       | rename executor params → `resolve`/`reject`                                                   |
+| 21    | `@typescript-eslint/no-unused-vars`                                                                                                                         | remove / prefix `_`                                                                           |
+| 20    | `no-shadow`                                                                                                                                                 | rename shadowing bindings                                                                     |
+| 15    | `@typescript-eslint/no-unused-expressions`                                                                                                                  |                                                                                               |
+| 13    | `absolute/explicit-object-types`                                                                                                                            | annotate object literals with named types                                                     |
+| 9     | `absolute/sort-keys-fixable`                                                                                                                                | non-autofix positions                                                                         |
+| 9     | `no-restricted-exports`                                                                                                                                     | default → named export                                                                        |
+| 7     | `promise/catch-or-return`                                                                                                                                   |                                                                                               |
+| 6     | `preserve-caught-error`                                                                                                                                     | add `{ cause }` (needs the catch var in scope)                                                |
+| 6     | `no-restricted-syntax`                                                                                                                                      | IIFE ban → extract named fn                                                                   |
+| 5     | `func-style`, 5 `no-useless-function`, 5 `no-require-imports`, 3 `no-duplicate-imports`, 2 `no-nested-ternary`, 2 `no-useless-assignment`, 1 `no-loop-func` |                                                                                               |
 
 ### Render-affecting (JSX) — judge per component
-| count | rule |
-|---|---|
-| 16 | `absolute/no-unnecessary-div` (move styles to surrounding element) |
-| 13 | `absolute/max-jsxnesting` (extract subcomponents) |
-| 7 | `absolute/localize-react-props` |
+
+| count | rule                                                               |
+| ----- | ------------------------------------------------------------------ |
+| 16    | `absolute/no-unnecessary-div` (move styles to surrounding element) |
+| 13    | `absolute/max-jsxnesting` (extract subcomponents)                  |
+| 7     | `absolute/localize-react-props`                                    |
 
 ### Config decisions needed (not code fixes)
-- **`tests/fixtures/**` (32 errors)** — these are test *inputs*, several intentionally invalid: `cjs-probe.cjs` uses `require` by design (`no-require-imports`/`no-undef`), `BoomPage` throws by design, plus `package.json`/`tsconfig.json`/`data.json` (the `null`-ruleId errors = JSON). **Recommend adding `tests/fixtures/**` to eslint `ignores`** rather than editing them.
+
+- **`tests/fixtures/**` (32 errors)** — these are test _inputs_, several intentionally invalid: `cjs-probe.cjs` uses `require` by design (`no-require-imports`/`no-undef`), `BoomPage` throws by design, plus `package.json`/`tsconfig.json`/`data.json` (the `null`-ruleId errors = JSON). **Recommend adding `tests/fixtures/**` to eslint `ignores`** rather than editing them.
 - `src/cli/scripts/dev.ts:356` `no-control-regex` — the ANSI `\x1b` regex is intentional → `eslint-disable-next-line` with reason.
 - Pre-existing **typecheck** error (not lint, not mine): `tests/fixtures/compile-stress/server.ts:29` from commit `3782f2d` — `BoomPage` (`() => void`) passed where `ComponentType` expected.
 

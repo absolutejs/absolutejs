@@ -28,10 +28,7 @@ export type EntryImport = {
 };
 
 export type EntryImportVerdict =
-	| 'deferrable'
-	| 'side-effect import'
-	| 'type-only'
-	| 'used at module scope';
+	'deferrable' | 'side-effect import' | 'type-only' | 'used at module scope';
 
 type EntryDeclaration = {
 	bindings: string[];

@@ -1052,8 +1052,7 @@ describe('experimental Expo project', () => {
 			source.indexOf('export const createAbsoluteExpoSyncBridge')
 		);
 		let listener:
-			| ((principal: { namespace: string } | null) => void)
-			| undefined;
+			((principal: { namespace: string } | null) => void) | undefined;
 		const calls: unknown[] = [];
 		runInNewContext(handler, {
 			absoluteExpoAuth: {

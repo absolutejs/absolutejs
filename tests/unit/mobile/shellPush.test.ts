@@ -9,8 +9,7 @@ const createHarness = (responses: Response[], initialInstallation?: string) => {
 		values.set('absolutejs.push.installation-id', initialInstallation);
 	const requests: Array<{ body: unknown; method: string }> = [];
 	let principalListener:
-		| ((principal: { namespace: string } | null) => void)
-		| undefined;
+		((principal: { namespace: string } | null) => void) | undefined;
 	let disables = 0;
 	let enables = 0;
 	let permissionRequests = 0;

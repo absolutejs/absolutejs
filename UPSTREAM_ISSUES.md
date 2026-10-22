@@ -15,18 +15,23 @@ its issue's state. Upstream closes issues that are not fixed (as a duplicate,
 "unable to reproduce", or "fixed" for a narrower case), so **only a passing
 repro retires an entry**.
 
-| # | Problem | Upstream | Fixed? |
-| --- | --- | --- | --- |
-| 3 | `@playwright/mcp` orphans Chrome trees | playwright#41013 closed (dismissed), #43098 open | No |
-| 4 | Svelte HMR drops `$state` | svelte#17995 (ours) open | No |
-| 5 | Tailwind v4 at-rule warnings | bun#12878 open | No (1.4.3) |
-| 6 | `String.raw` escapes non-ASCII on `target: "bun"` | bun#8745 open | No (1.4.3) |
-| 7 | `Bun.Transpiler` ignores `reactFastRefresh` | bun#32919 (ours) open | No (1.4.3) |
+| #   | Problem                                           | Upstream                                         | Fixed?     |
+| --- | ------------------------------------------------- | ------------------------------------------------ | ---------- |
+| 3   | `@playwright/mcp` orphans Chrome trees            | playwright#41013 closed (dismissed), #43098 open | No         |
+| 4   | Svelte HMR drops `$state`                         | svelte#17995 (ours) open                         | No         |
+| 5   | Tailwind v4 at-rule warnings                      | bun#12878 open                                   | No (1.4.4) |
+| 6   | `String.raw` escapes non-ASCII on `target: "bun"` | bun#8745 open                                    | No (1.4.4) |
+| 7   | `Bun.Transpiler` ignores `reactFastRefresh`       | bun#32919 (ours) open                            | No (1.4.4) |
 
 The Bun entries (#5, #6, #7) were re-run on **Bun 1.4.3** on 2026-10-12, and
 all three still reproduce. 1.4.3's React Fast Refresh fixes are in the dev
 server and `bun build`, not `Bun.Transpiler`, and patched-bun's fix applies to
 it unchanged.
+
+Re-run again on **Bun 1.4.4** on 2026-10-22: #5 still warns on `@theme` and
+`@tailwind`, #6 still escapes `“` to `\u201C` for `target: "bun"`, and #7 still
+emits no `$RefreshReg$`. 1.4.4 moved `Bun.Transpiler`'s options to a generated
+binding, so patched-bun's fix was rebased onto it (bun-v1.4.4+absolute.1).
 
 Resolved entries are kept at the end so the fix is on record.
 
@@ -44,19 +49,19 @@ Resolved entries are kept at the end so the fix is on record.
 - **Dependency:** `@playwright/mcp` (Microsoft) — source actually lives in
   `playwright-core` at `packages/playwright-core/src/tools/mcp/watchdog.ts`
 - **Status:** still applies; upstream dismissed it (re-checked 2026-10-05)
-  - **microsoft/playwright#41013** (our report, deterministic repro) — **closed
-    2026-06-08** by the maintainer as "the problem seems to be on the client
-    end": https://github.com/microsoft/playwright/issues/41013
-  - microsoft/playwright#41089 — "fix(mcp): close browser when host dies
-    without a signal" — **closed unmerged** with it:
-    https://github.com/microsoft/playwright/pull/41089
-  - microsoft/playwright#41017 — maintainer investigation "cannot reproduce
-    orphan Chrome trees" — closed
-  - **microsoft/playwright#43098** — **open**, related: on stdin EOF the stdio
-    server force-kills its own browser 1 ms after start (the shutdown path is
-    still being reworked): https://github.com/microsoft/playwright/issues/43098
-  - Earlier: microsoft/playwright#41009 (closed), microsoft/playwright-mcp#1634,
-    #1568, #1512 (closed, "no repro")
+    - **microsoft/playwright#41013** (our report, deterministic repro) — **closed
+      2026-06-08** by the maintainer as "the problem seems to be on the client
+      end": https://github.com/microsoft/playwright/issues/41013
+    - microsoft/playwright#41089 — "fix(mcp): close browser when host dies
+      without a signal" — **closed unmerged** with it:
+      https://github.com/microsoft/playwright/pull/41089
+    - microsoft/playwright#41017 — maintainer investigation "cannot reproduce
+      orphan Chrome trees" — closed
+    - **microsoft/playwright#43098** — **open**, related: on stdin EOF the stdio
+      server force-kills its own browser 1 ms after start (the shutdown path is
+      still being reworked): https://github.com/microsoft/playwright/issues/43098
+    - Earlier: microsoft/playwright#41009 (closed), microsoft/playwright-mcp#1634,
+      #1568, #1512 (closed, "no repro")
 
 **Symptom.** Doesn't bite **deployed** AbsoluteJS apps — bites the **dev
 environment** any time an AI agent (Claude Code, Cursor, etc.) uses the
@@ -69,6 +74,7 @@ bundlers, your AbsoluteJS app process).
 
 **Root cause.** `watchdog.ts` only listens for `SIGINT`, `SIGTERM`, and
 `process.stdin.on('close')`. None of those fire when:
+
 - the parent MCP host is SIGKILL'd (no signal reaches the MCP server), or
 - the parent sits behind an `npm exec` / `npx` intermediary (standard MCP
   config: `{ "command": "npx", "args": ["@playwright/mcp@latest"] }`) which
@@ -98,15 +104,16 @@ overhead; a persistent 1GB+ `node` is usually the TS server, but multiple
 this bug.
 
 ---
+
 ## 4. Svelte 5's `$.hmr()` does not preserve `$state` across HMR component swaps
 
 - **Dependency:** Svelte (`svelte`)
 - **Status:** our fix PR is still open upstream (re-checked 2026-10-05)
-  - **sveltejs/svelte#17995** (our PR) — "feat: preserve $state across HMR
-    component swaps" — **open**, last activity 2026-07-24:
-    https://github.com/sveltejs/svelte/pull/17995
-  - sveltejs/svelte#14434 — the long-standing feature request it fixes:
-    https://github.com/sveltejs/svelte/issues/14434
+    - **sveltejs/svelte#17995** (our PR) — "feat: preserve $state across HMR
+      component swaps" — **open**, last activity 2026-07-24:
+      https://github.com/sveltejs/svelte/pull/17995
+    - sveltejs/svelte#14434 — the long-standing feature request it fixes:
+      https://github.com/sveltejs/svelte/issues/14434
 
 **Symptom.** Dev-only. On a surgical Svelte HMR update (`$.hmr_accept`), any
 reactive state that lives where the swap can't reach — composables
@@ -152,16 +159,17 @@ the page `<script>`, count must survive — now via the runtime, with no remount
 log/behavior).
 
 ---
+
 ## 5. Bun's native CSS parser doesn't understand Tailwind v4 at-rules
 
 - **Dependency:** Bun (`bun`)
 - **Status:** open upstream; **still reproduces on Bun 1.4.2** (re-checked
   2026-10-05 — `@theme`, `@tailwind` and `@utility` each still warn)
-  - **oven-sh/bun#12878** — "Bun Bundler: Tailwind CSS" (umbrella, open since
-    July 2024): https://github.com/oven-sh/bun/issues/12878
-  - Related, open: oven-sh/bun#42909 and #43143 — other valid CSS constructs
-    the parser still rejects or mishandles. They show the parser is being
-    extended rule by rule; nothing there targets Tailwind's directives.
+    - **oven-sh/bun#12878** — "Bun Bundler: Tailwind CSS" (umbrella, open since
+      July 2024): https://github.com/oven-sh/bun/issues/12878
+    - Related, open: oven-sh/bun#42909 and #43143 — other valid CSS constructs
+      the parser still rejects or mishandles. They show the parser is being
+      extended rule by rule; nothing there targets Tailwind's directives.
 
 **Symptom.** When a TS/TSX file `import`s a Tailwind v4 entry CSS (e.g.
 `import "./index.css"` where `index.css` contains `@theme {…}` / `@tailwind …`),
@@ -198,35 +206,43 @@ adds a way to silence unknown-at-rule warnings per file).
 
 ```ts
 // entry.tsx
-import "./test.css";
+import './test.css';
 ```
+
 ```css
 /* test.css */
-@theme { --color-primary: #00685b; }
+@theme {
+	--color-primary: #00685b;
+}
 @tailwind base;
 ```
+
 ```ts
 const r = await Bun.build({
-  entrypoints: ["entry.tsx"], outdir: "out", target: "browser", throw: false
+	entrypoints: ['entry.tsx'],
+	outdir: 'out',
+	target: 'browser',
+	throw: false
 });
 // r.logs → [warn] invalid @ rule encountered: '@theme'
 //          [warn] invalid @ rule encountered: '@tailwind'
 ```
 
 ---
+
 ## 6. Bun escapes non-ASCII text inside `String.raw` tagged templates
 
 - **Dependency:** Bun (`bun`)
 - **Status:** open upstream; **still reproduces on Bun 1.4.2** (re-checked
   2026-10-05 — `target: "bun"` escapes, `target: "browser"` keeps the literal)
-  - **oven-sh/bun#8745** — "raw tagged template literals show escapes for non
-    ascii text" — **open, the canonical issue now**:
-    https://github.com/oven-sh/bun/issues/8745
-  - oven-sh/bun#16763 — our original link — **closed 2026-08-13 as a duplicate
-    of #8745**: https://github.com/oven-sh/bun/issues/16763
-  - oven-sh/bun#33867 ("Preserve non-ASCII source text in
-    TemplateStringsArray.raw") and #33868 ("transpiler: preserve non-ASCII
-    source text at runtime") — the two fix PRs — **both closed unmerged**
+    - **oven-sh/bun#8745** — "raw tagged template literals show escapes for non
+      ascii text" — **open, the canonical issue now**:
+      https://github.com/oven-sh/bun/issues/8745
+    - oven-sh/bun#16763 — our original link — **closed 2026-08-13 as a duplicate
+      of #8745**: https://github.com/oven-sh/bun/issues/16763
+    - oven-sh/bun#33867 ("Preserve non-ASCII source text in
+      TemplateStringsArray.raw") and #33868 ("transpiler: preserve non-ASCII
+      source text at runtime") — the two fix PRs — **both closed unmerged**
 
 **Symptom.** A production SSR build can render different text from its browser
 bundle when application source contains a non-ASCII character inside
@@ -264,14 +280,14 @@ remove `bunStringRawUnicodePlugin.ts` and every
 - **Dependency:** Bun (`bun`)
 - **Status:** open upstream; **still reproduces on Bun 1.4.2** (re-checked
   2026-10-05 — no `$RefreshReg$` / `$RefreshSig$` in the output)
-  - **oven-sh/bun#32919** (ours) — **open**:
-    https://github.com/oven-sh/bun/issues/32919
-  - oven-sh/bun#32951 — the fix — **closed unmerged** as stale.
-  - Related, open: oven-sh/bun#42010 — "bundler: one React Fast Refresh
-    contract for .jsx and .tsx, add reactFastRefresh.importSource" (an unmerged
-    PR touching the same option), and #40179 — "Add a bun --hot flag that runs
-    the React Fast Refresh transform". Either could land the transpiler path
-    as a side effect; re-run the probe when they move.
+    - **oven-sh/bun#32919** (ours) — **open**:
+      https://github.com/oven-sh/bun/issues/32919
+    - oven-sh/bun#32951 — the fix — **closed unmerged** as stale.
+    - Related, open: oven-sh/bun#42010 — "bundler: one React Fast Refresh
+      contract for .jsx and .tsx, add reactFastRefresh.importSource" (an unmerged
+      PR touching the same option), and #40179 — "Add a bun --hot flag that runs
+      the React Fast Refresh transform". Either could land the transpiler path
+      as a side effect; re-run the probe when they move.
 
 **Symptom, root cause and workaround** are in
 [docs/REACT_TRANSPILER_BUG.md](./docs/REACT_TRANSPILER_BUG.md). In short:
@@ -283,9 +299,13 @@ only the patch's own test hunk needs fresh context.
 **Probe** (prints `false` while the bug exists):
 
 ```ts
-const out = new Bun.Transpiler({ loader: "tsx", reactFastRefresh: true } as never)
-  .transformSync("export function C() { const [n] = useState(0); return <b>{n}</b>; }");
-console.log(out.includes("$RefreshReg$"));
+const out = new Bun.Transpiler({
+	loader: 'tsx',
+	reactFastRefresh: true
+} as never).transformSync(
+	'export function C() { const [n] = useState(0); return <b>{n}</b>; }'
+);
+console.log(out.includes('$RefreshReg$'));
 ```
 
 ---

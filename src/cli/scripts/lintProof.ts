@@ -50,8 +50,7 @@ type LintProof = {
 };
 
 type ProofResult =
-	| { valid: true; proof: LintProof }
-	| { reason: string; valid: false };
+	{ valid: true; proof: LintProof } | { reason: string; valid: false };
 
 type ValidationResult = { valid: true } | { reason: string; valid: false };
 

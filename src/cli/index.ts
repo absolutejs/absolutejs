@@ -127,6 +127,10 @@ if (command === 'dev') {
 	sendTelemetryEvent('cli:command', { command });
 	const { runLintProof } = await import('./scripts/lintProof');
 	process.exitCode = await runLintProof(args);
+} else if (command === 'fmt') {
+	sendTelemetryEvent('cli:command', { command });
+	const { fmt } = await import('./scripts/fmt');
+	await fmt(args);
 } else if (command === 'prettier') {
 	sendTelemetryEvent('cli:command', { command });
 	const { prettier } = await import('./scripts/prettier');
@@ -325,6 +329,9 @@ if (command === 'dev') {
 	);
 	console.error(
 		'  ps [--watch] [--json] [--kill <pid|port>] [--kill-all] List/manage running servers'
+	);
+	console.error(
+		'  fmt [--check] Format with bun fmt (Bun 1.4.4+; reads your Prettier config)'
 	);
 	console.error('  prettier      Run Prettier check (cached)');
 	console.error(

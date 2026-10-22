@@ -328,7 +328,8 @@ export const createDevServerExternalResolver = ({
 			return false;
 
 		return (
-			packageIsRuntimeResolvable(fromRoot) && entryIsRuntimeLoadable(fromRoot)
+			packageIsRuntimeResolvable(fromRoot) &&
+			entryIsRuntimeLoadable(fromRoot)
 		);
 	};
 

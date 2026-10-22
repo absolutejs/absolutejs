@@ -26,41 +26,41 @@ export const createHTMLScriptHMRPlugin = (
 	htmlDir?: string,
 	htmxDir?: string
 ): BunPlugin => ({
-		name: 'html-script-hmr',
-		setup(build) {
-			// Only apply to TypeScript/JavaScript files
-			build.onLoad({ filter: /\.(ts|js|tsx|jsx)$/ }, async (args) => {
-				const normalizedPath = args.path.replace(/\\/g, '/');
+	name: 'html-script-hmr',
+	setup(build) {
+		// Only apply to TypeScript/JavaScript files
+		build.onLoad({ filter: /\.(ts|js|tsx|jsx)$/ }, async (args) => {
+			const normalizedPath = args.path.replace(/\\/g, '/');
 
-				// Check if this file is in the HTML or HTMX scripts directory
-				const isHtmlScript =
-					htmlDir &&
-					normalizedPath.includes(htmlDir.replace(/\\/g, '/')) &&
-					normalizedPath.includes('/scripts/');
-				const isHtmxScript =
-					htmxDir &&
-					normalizedPath.includes(htmxDir.replace(/\\/g, '/')) &&
-					normalizedPath.includes('/scripts/');
+			// Check if this file is in the HTML or HTMX scripts directory
+			const isHtmlScript =
+				htmlDir &&
+				normalizedPath.includes(htmlDir.replace(/\\/g, '/')) &&
+				normalizedPath.includes('/scripts/');
+			const isHtmxScript =
+				htmxDir &&
+				normalizedPath.includes(htmxDir.replace(/\\/g, '/')) &&
+				normalizedPath.includes('/scripts/');
 
-				if (!isHtmlScript && !isHtmxScript) {
-					// Not an HTML/HTMX script, let Bun handle it normally
-					return undefined;
-				}
+			if (!isHtmlScript && !isHtmxScript) {
+				// Not an HTML/HTMX script, let Bun handle it normally
+				return undefined;
+			}
 
-				// Read the original script content
-				const text = await Bun.file(args.path).text();
+			// Read the original script content
+			const text = await Bun.file(args.path).text();
 
-				// Wrap with HMR support
-				const wrapped = wrapHTMLScriptWithHMR(text, normalizedPath);
+			// Wrap with HMR support
+			const wrapped = wrapHTMLScriptWithHMR(text, normalizedPath);
 
-				// Determine the loader based on file extension
-				const ext = args.path.split('.').pop() ?? 'ts';
-				const loader = toLoader(ext);
+			// Determine the loader based on file extension
+			const ext = args.path.split('.').pop() ?? 'ts';
+			const loader = toLoader(ext);
 
-				return {
-					contents: wrapped,
-					loader
-				};
-			});
-		}
-	});
+			return {
+				contents: wrapped,
+				loader
+			};
+		});
+	}
+});

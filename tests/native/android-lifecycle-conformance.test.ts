@@ -290,8 +290,7 @@ describeNative('real Capacitor Android lifecycle conformance', () => {
 			await webview?.close();
 			webview = undefined;
 			let resolveRebuild:
-				| ((session: AbsoluteAndroidDevSession) => void)
-				| undefined;
+				((session: AbsoluteAndroidDevSession) => void) | undefined;
 			let rejectRebuild: ((error: unknown) => void) | undefined;
 			const rebuilt = new Promise<AbsoluteAndroidDevSession>(
 				(_resolve, reject) => {

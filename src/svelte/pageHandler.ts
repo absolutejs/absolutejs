@@ -287,9 +287,8 @@ export const handleSveltePageRequest = async <
 					};
 				};
 
-			const { renderToReadableStream } = await import(
-				'./renderToReadableStream'
-			);
+			const { renderToReadableStream } =
+				await import('./renderToReadableStream');
 			const resolvedPage = await resolvePageComponent();
 
 			// Inline per-page compiled CSS so scoped styles ship in the

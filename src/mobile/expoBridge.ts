@@ -108,11 +108,7 @@ export type AbsoluteExpoBridgeEvent = {
 	format: typeof ABSOLUTE_EXPO_BRIDGE_FORMAT;
 	kind: 'event';
 	event:
-		| 'ready'
-		| 'navigation'
-		| 'auth.principal'
-		| 'sync.socket'
-		| 'sync.wake';
+		'ready' | 'navigation' | 'auth.principal' | 'sync.socket' | 'sync.wake';
 	path: string;
 	payload?: Record<string, unknown>;
 };

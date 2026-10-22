@@ -104,10 +104,16 @@ const collectAngularCoreShapes = async (
 		while ((match = ANGULAR_CORE_IMPORT_RE.exec(text)) !== null) {
 			const specifier = match[1] ?? match[2] ?? '';
 			if (!specifier) continue;
-			const shape = classifySpecifier(specifier, artifact.path, serverOutDir);
+			const shape = classifySpecifier(
+				specifier,
+				artifact.path,
+				serverOutDir
+			);
 			if (!shape) continue;
 			const key =
-				shape.kind === 'bare' ? 'bare' : `resolved:${shape.canonicalPath}`;
+				shape.kind === 'bare'
+					? 'bare'
+					: `resolved:${shape.canonicalPath}`;
 			let set = shapesToArtifacts.get(key);
 			if (!set) {
 				set = new Set();
@@ -130,8 +136,11 @@ export const verifyAngularCoreUniqueness = async (
 	const summary: string[] = [];
 	for (const [key, paths] of shapes) {
 		const sample = Array.from(paths).slice(0, 3).join('\n     - ');
-		const more = paths.size > 3 ? `\n     - … and ${paths.size - 3} more` : '';
-		summary.push(`   • ${key} (referenced by ${paths.size} artifact${paths.size === 1 ? '' : 's'}):\n     - ${sample}${more}`);
+		const more =
+			paths.size > 3 ? `\n     - … and ${paths.size - 3} more` : '';
+		summary.push(
+			`   • ${key} (referenced by ${paths.size} artifact${paths.size === 1 ? '' : 's'}):\n     - ${sample}${more}`
+		);
 	}
 	const message =
 		`Server bundle references ${shapes.size} distinct @angular/core resolutions; ` +
@@ -141,7 +150,9 @@ export const verifyAngularCoreUniqueness = async (
 
 	if (throwOnError) {
 		logError(message);
-		throw new Error('Angular core multi-instance detected in server bundle');
+		throw new Error(
+			'Angular core multi-instance detected in server bundle'
+		);
 	}
 	logWarn(message);
 };

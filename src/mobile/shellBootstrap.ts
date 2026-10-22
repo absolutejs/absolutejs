@@ -287,8 +287,7 @@ const commitNavigation = async (
 ) => {
 	if (!hadActivePage) renderStatus('Loading…');
 	let activation:
-		| Awaited<ReturnType<typeof activateAbsoluteMobilePage>>
-		| undefined;
+		Awaited<ReturnType<typeof activateAbsoluteMobilePage>> | undefined;
 	const commit = async () => {
 		await disposeAbsoluteMobilePage();
 		activation = await activateAbsoluteMobilePage(envelope, {

@@ -1,11 +1,5 @@
 export type ChangeFrequency =
-	| 'always'
-	| 'hourly'
-	| 'daily'
-	| 'weekly'
-	| 'monthly'
-	| 'yearly'
-	| 'never';
+	'always' | 'hourly' | 'daily' | 'weekly' | 'monthly' | 'yearly' | 'never';
 
 export type SitemapRouteOverride = {
 	changefreq?: ChangeFrequency;

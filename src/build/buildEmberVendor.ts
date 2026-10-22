@@ -235,10 +235,9 @@ const createEmberResolverPlugin = (
 		]);
 
 		// @embroider/macros: route to the generated shim.
-		build.onResolve(
-			{ filter: /^@embroider\/macros$/ },
-			() => ({ path: macrosShimPath })
-		);
+		build.onResolve({ filter: /^@embroider\/macros$/ }, () => ({
+			path: macrosShimPath
+		}));
 
 		// @ember/*, @glimmer/*, @simple-dom/* — standalone or
 		// ember-source-internal subpath.

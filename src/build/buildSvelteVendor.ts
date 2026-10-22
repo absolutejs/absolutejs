@@ -27,12 +27,10 @@ const isResolvable = (specifier: string) => {
 };
 
 /** Resolve which Svelte specifiers are actually installed */
-const resolveVendorSpecifiers = () =>
-	svelteSpecifiers.filter(isResolvable);
+const resolveVendorSpecifiers = () => svelteSpecifiers.filter(isResolvable);
 
 /** Convert a bare specifier to a safe filename: svelte/internal/client → svelte_internal_client */
-const toSafeFileName = (specifier: string) =>
-	specifier.replace(/\//g, '_');
+const toSafeFileName = (specifier: string) => specifier.replace(/\//g, '_');
 
 /** Build Svelte packages into stable vendor files (no content hash).
  *  Output goes to {buildDir}/svelte/vendor/ with predictable names. */

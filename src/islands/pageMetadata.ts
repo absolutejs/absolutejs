@@ -16,8 +16,7 @@ export type PageIslandMetadata = {
 
 declare global {
 	var __absolutePageIslandMetadata:
-		| Map<string, PageIslandMetadata>
-		| undefined;
+		Map<string, PageIslandMetadata> | undefined;
 }
 
 const pagePatterns: Partial<Record<IslandFramework | 'html' | 'htmx', string>> =

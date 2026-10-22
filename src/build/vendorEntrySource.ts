@@ -60,10 +60,7 @@ export const generateVendorEntrySource = async (specifier: string) => {
 	);
 
 	const localBindings = exportKeys
-		.map(
-			(key, i) =>
-				`const __abs_${i} = __abs_ns[${JSON.stringify(key)}];`
-		)
+		.map((key, i) => `const __abs_${i} = __abs_ns[${JSON.stringify(key)}];`)
 		.join('\n');
 	const reExportClause =
 		exportKeys.length > 0

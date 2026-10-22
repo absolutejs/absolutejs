@@ -69,9 +69,8 @@ export const getApplyMetadataModule = async (encodedId: string) => {
 	// endpoint is hit directly by the browser too (via the injected
 	// `__ng_hmr_load` listener) and that path has only the encoded
 	// id — so we re-detect here.
-	const { resolveOwningComponents } = await import(
-		'./resolveOwningComponents'
-	);
+	const { resolveOwningComponents } =
+		await import('./resolveOwningComponents');
 	const owners = resolveOwningComponents({
 		changedFilePath: componentFilePath,
 		userAngularRoot: dirname(componentFilePath)

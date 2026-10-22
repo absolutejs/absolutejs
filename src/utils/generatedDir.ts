@@ -19,11 +19,7 @@
 import { join } from 'node:path';
 
 export type GeneratedFramework =
-	| 'angular'
-	| 'vue'
-	| 'svelte'
-	| 'react'
-	| 'ember';
+	'angular' | 'vue' | 'svelte' | 'react' | 'ember';
 
 const GENERATED_DIR_NAME = 'generated';
 const ABSOLUTE_CACHE_DIR_NAME = '.absolutejs';
