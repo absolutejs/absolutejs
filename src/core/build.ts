@@ -1915,7 +1915,7 @@ const buildUnlocked = async ({
 						root: dirname(source),
 						target: 'bun',
 						throw: false,
-						tsconfig: './tsconfig.json'
+						...projectTsconfig()
 					});
 					if (!result.success) {
 						outputLogs(result.logs);
@@ -2472,7 +2472,7 @@ const buildUnlocked = async ({
 								sourcemap: isDev ? 'inline' : 'none',
 								target: 'bun',
 								throw: false,
-								tsconfig: './tsconfig.json'
+								...projectTsconfig()
 							},
 							resolveBunBuildOverride(bunBuildConfig, 'server')
 						)
@@ -2539,7 +2539,7 @@ const buildUnlocked = async ({
 								splitting: true,
 								target: 'browser',
 								throw: false,
-								tsconfig: './tsconfig.json'
+								...projectTsconfig()
 							},
 							resolveBunBuildOverride(
 								bunBuildConfig,
@@ -2570,7 +2570,7 @@ const buildUnlocked = async ({
 								splitting: !isDev,
 								target: 'browser',
 								throw: false,
-								tsconfig: './tsconfig.json'
+								...projectTsconfig()
 							},
 							resolveBunBuildOverride(
 								bunBuildConfig,
@@ -2627,7 +2627,7 @@ const buildUnlocked = async ({
 								splitting: !isDev,
 								target: 'browser',
 								throw: false,
-								tsconfig: './tsconfig.json'
+								...projectTsconfig()
 							},
 							resolveBunBuildOverride(
 								bunBuildConfig,
@@ -3493,6 +3493,12 @@ const buildUnlocked = async ({
 		tailwindChanged: tailwindResult?.cssChanged ?? false
 	};
 };
+
+/* Bun.build reads `tsconfig` from Bun 1.4.3 on (earlier it ignored the option)
+ * and fails the build when the file is missing. Name the project's tsconfig only
+ * when there is one; otherwise Bun finds the nearest one itself, as before. */
+const projectTsconfig = () =>
+	existsSync(resolve('tsconfig.json')) ? { tsconfig: './tsconfig.json' } : {};
 
 export const build = async (config: BuildConfig) => {
 	const projectRoot = cwd();
