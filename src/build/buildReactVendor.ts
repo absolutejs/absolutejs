@@ -1,4 +1,5 @@
 import { existsSync, mkdirSync } from 'node:fs';
+import { importFromProject } from './importFromProject';
 import { join, resolve } from 'node:path';
 import { rm } from 'node:fs/promises';
 import { build as bunBuild } from 'bun';
@@ -103,7 +104,7 @@ const generateEntrySource = async (specifier: string) => {
 		return `export * from '${reactRefreshRuntimePath}';\n`;
 	}
 
-	const mod = await import(specifier);
+	const mod = await importFromProject(specifier);
 	const exportNames = Object.keys(mod).filter(
 		(key) => key !== 'default' && key !== '__esModule'
 	);

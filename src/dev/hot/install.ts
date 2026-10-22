@@ -1,6 +1,7 @@
 import { resolve } from 'node:path';
 import { loadConfig } from '../../utils/loadConfig';
 import { installHotResources } from '../hotResources';
+import { workspacePackageDirs } from '../../build/workspacePackages';
 import { installHotModulePlugin } from './plugin';
 
 /* Turn on backend HMR for this dev process (see docs/BACKEND_HMR.md):
@@ -47,6 +48,7 @@ export const startBackendHmr = async (entryPath: string) => {
 		configPath,
 		entryPath,
 		excludedDirs: await configuredDirectories(configPath),
+		extraRoots: workspacePackageDirs(process.cwd()),
 		root: process.cwd()
 	});
 	globalThis.__absoluteBackendHmr = installed;

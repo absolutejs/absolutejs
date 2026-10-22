@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs';
 import { basename, extname, isAbsolute, join, resolve } from 'node:path';
+import { decodeSrcPath } from './srcPath';
 import type {
 	BuildConfig,
 	DevPageEntry,
@@ -92,7 +93,9 @@ const probeDirForName = ({ dir, framework }: PageProbeDir, name: string) => {
 
 const resolveSourcePath = (keyOrPath: string) => {
 	const stripped = keyOrPath.startsWith(SRC_URL_PREFIX)
-		? (keyOrPath.slice(SRC_URL_PREFIX.length).split('?')[0] ?? '')
+		? decodeSrcPath(
+				keyOrPath.slice(SRC_URL_PREFIX.length).split('?')[0] ?? ''
+			)
 		: keyOrPath;
 
 	return isAbsolute(stripped) ? stripped : resolve(stripped);

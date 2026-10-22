@@ -25,6 +25,10 @@ type HotPluginOptions = {
 	/** Directories whose files are never managed (framework pages, build
 	 *  output, assets). */
 	excludedDirs: string[];
+	/** The app's own workspace packages: source outside `root` that the
+	 *  server imports, edited in place like the app's own files instead of
+	 *  restarting the server. */
+	extraRoots?: string[];
 };
 
 type Analysis = HotModuleAnalysis | HotModuleRejection;
@@ -83,10 +87,13 @@ export const isHotManaged = (path: string) => {
 	if (!state) return false;
 	const file = realPath(path);
 	if (!SOURCE.test(file)) return false;
-	if (!file.startsWith(`${state.root}${sep}`)) return false;
+	const root = [state.root, ...(state.extraRoots ?? [])].find((candidate) =>
+		file.startsWith(`${candidate}${sep}`)
+	);
+	if (root === undefined) return false;
 	if (file.startsWith(`${ABSOLUTE_ROOT}${sep}src${sep}`)) return false;
 	if (file.startsWith(`${ABSOLUTE_ROOT}${sep}dist${sep}`)) return false;
-	if (GENERATED.test(file.slice(state.root.length))) return false;
+	if (GENERATED.test(file.slice(root.length))) return false;
 	if (TEST_FILE.test(file)) return false;
 	if (file === state.configPath) return false;
 	if (isAbsoluteServerEntryCopyPath(file)) return false;
@@ -212,6 +219,9 @@ export const installHotModulePlugin = async (options: HotPluginOptions) => {
 		configPath: realPath(resolve(options.configPath)),
 		entryPath: realPath(resolve(options.entryPath)),
 		excludedDirs: options.excludedDirs.map((dir) => realPath(resolve(dir))),
+		extraRoots: (options.extraRoots ?? [])
+			.map((dir) => realPath(resolve(dir)))
+			.filter((dir) => dir !== root),
 		root
 	};
 	shared.installed = installed;
@@ -248,9 +258,14 @@ export const installHotModulePlugin = async (options: HotPluginOptions) => {
 
 	return true;
 };
-export const managedFilter = (options: HotPluginOptions & { root: string }) => {
+/* One root's managed files: its sources, minus generated output, tests,
+ * the framework's own code, excluded directories and the config. */
+const managedPattern = (
+	root: string,
+	options: Pick<HotPluginOptions, 'configPath' | 'excludedDirs'>
+) => {
 	const under = (dir: string) => {
-		const rel = relative(options.root, dir);
+		const rel = relative(root, dir);
 		if (rel === '' || rel.startsWith('..')) return undefined;
 
 		return `(?!${escapeRegex(rel).split(sep).join(SEPARATOR)}(?:${SEPARATOR}|\\?|$))`;
@@ -262,20 +277,26 @@ export const managedFilter = (options: HotPluginOptions & { root: string }) => {
 	]
 		.map(under)
 		.filter((pattern): pattern is string => pattern !== undefined);
-	const config = relative(options.root, options.configPath);
+	const config = relative(root, options.configPath);
 	const configPattern =
 		config && !config.startsWith('..')
 			? `(?!${escapeRegex(config).split(sep).join(SEPARATOR)}(?:\\?|$))`
 			: '';
 
-	return new RegExp(
-		[
-			`^${escapeRegex(options.root)}${SEPARATOR}`,
-			`(?!(?:[^?]*${SEPARATOR})?(?:node_modules|build|dist|generated|compiled|indexes|\\.absolutejs)${SEPARATOR})`,
-			`(?![^?]*(?:\\.(?:spec|test)\\.[cm]?[jt]sx?|${SEPARATOR}__tests__${SEPARATOR}))`,
-			...excluded,
-			configPattern,
-			`[^?]*\\.(?:m?[jt]sx?|mts|cts)(?:\\?.*)?$`
-		].join('')
-	);
+	return [
+		`^${escapeRegex(root)}${SEPARATOR}`,
+		`(?!(?:[^?]*${SEPARATOR})?(?:node_modules|build|dist|generated|compiled|indexes|\\.absolutejs)${SEPARATOR})`,
+		`(?![^?]*(?:\\.(?:spec|test)\\.[cm]?[jt]sx?|${SEPARATOR}__tests__${SEPARATOR}))`,
+		...excluded,
+		configPattern,
+		`[^?]*\\.(?:m?[jt]sx?|mts|cts)(?:\\?.*)?$`
+	].join('');
 };
+
+/** A filter for the app's files and its workspace packages' files. */
+export const managedFilter = (options: HotPluginOptions & { root: string }) =>
+	new RegExp(
+		[options.root, ...(options.extraRoots ?? [])]
+			.map((root) => `(?:${managedPattern(root, options)})`)
+			.join('|')
+	);

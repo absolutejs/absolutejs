@@ -2404,8 +2404,8 @@ const getModuleUrl = async (pageFile: string) => {
 		'../dev/moduleServer'
 	);
 	invalidateModule(pageFile);
-	const rel = relative(process.cwd(), pageFile).replace(/\\/g, '/');
-	const url = `${SRC_URL_PREFIX}${rel}`;
+	const { encodeSrcPath } = await import('../dev/srcPath');
+	const url = `${SRC_URL_PREFIX}${encodeSrcPath(relative(process.cwd(), pageFile))}`;
 	await warmCache(url);
 
 	return url;
