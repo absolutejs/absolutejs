@@ -43,7 +43,7 @@ const ensureRequestStorage = () => {
 export const absoluteRequestContext = new Elysia({
 	name: 'absolutejs-request-context'
 })
-	.request(({ request }) => {
+	.onRequest(({ request }) => {
 		ensureRequestStorage().enterWith({ request });
 	})
 	.as('global');

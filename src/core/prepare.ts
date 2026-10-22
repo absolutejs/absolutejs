@@ -537,7 +537,7 @@ const loadMobileCompatibilityPlugin = async (buildDir: string) => {
 };
 
 const createNotFoundPlugin = () =>
-	new Elysia({ name: 'absolutejs-not-found' }).error(
+	new Elysia({ name: 'absolutejs-not-found' }).onError(
 		'global',
 		NotFound,
 		async () => {
@@ -560,7 +560,7 @@ const createNotFoundPlugin = () =>
  * instead of `undefined`. The plugin returns `undefined` for any
  * other error so the default chain still runs. */
 const createBuildErrorRecoveryPlugin = () =>
-	new Elysia({ name: 'absolutejs-build-error-recovery' }).error(
+	new Elysia({ name: 'absolutejs-build-error-recovery' }).onError(
 		'global',
 		async ({ error }) => {
 			const message =
@@ -707,7 +707,7 @@ const runPrepare = async (configOrPath?: string) => {
 	// `iconfont`) never do, so they correctly fall through to revalidation.
 	const assetCachePlugin = new Elysia({
 		name: 'absolutejs-asset-cache'
-	}).afterHandle('global', ({ request, responseValue }) => {
+	}).onAfterHandle('global', ({ request, responseValue }) => {
 		if (!(responseValue instanceof Response)) return;
 		if (request.method !== 'GET' && request.method !== 'HEAD') return;
 		const { pathname } = new URL(request.url);
@@ -746,7 +746,7 @@ const runPrepare = async (configOrPath?: string) => {
 
 		const prerenderPlugin = new Elysia({
 			name: 'prerendered-pages'
-		}).request(({ request }) => {
+		}).onRequest(({ request }) => {
 			const url = new URL(request.url);
 
 			// Allow bypass for ISR re-render requests
