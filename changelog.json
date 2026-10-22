@@ -5,6 +5,27 @@
 		{
 			"changes": [
 				{
+					"detail": "`absolute fmt` formats with Bun's built-in `bun fmt` (Bun 1.4.4 or newer). It reads the project's existing Prettier configuration (`.prettierrc*`, overrides, `.prettierignore`, `.editorconfig`) and produces the same output as Prettier 3.9, Svelte included, in milliseconds, so it needs no cache. `absolute fmt --check` exits non-zero when files need formatting. On older Bun it says so and points to `absolute prettier`, which stays for projects whose Prettier plugins `bun fmt` doesn't support.",
+					"kind": "added",
+					"summary": "`absolute fmt` formats with bun fmt, using your Prettier config"
+				},
+				{
+					"detail": "Builds named `./tsconfig.json` to Bun.build whether or not the project had one. Bun ignored the option until 1.4.3; from 1.4.3 it reads it and fails with `Cannot find tsconfig file`, so on Bun 1.4.3+ a project without a tsconfig.json could not build, compile or start its dev client. The tsconfig is now named only when it exists; otherwise Bun finds the nearest one itself, as it did before.",
+					"kind": "fixed",
+					"summary": "Projects without a tsconfig.json build on Bun 1.4.3 and newer"
+				},
+				{
+					"detail": "`absolute dev` now selects AbsoluteJS's patched Bun 1.4.4 (`1.4.4+absolute.1`, installed and signature-checked by bvm) for React Fast Refresh. Stock Bun 1.4.4 still ignores `reactFastRefresh` on `Bun.Transpiler` (oven-sh/bun#32919), so React edits keep component state only on the patched build. The patched build now reports its full version as `Bun.version`, and the install check accepts it. Projects on the 1.4.2 patched build are offered the update.",
+					"kind": "changed",
+					"summary": "absolute dev uses the patched Bun 1.4.4 build"
+				}
+			],
+			"date": "2026-10-22",
+			"version": "0.20.0-beta.145"
+		},
+		{
+			"changes": [
+				{
 					"detail": "Elysia 2.0.0-rc.0 renamed every lifecycle hook to its `on` form (request → onRequest, beforeHandle → onBeforeHandle, afterHandle → onAfterHandle, afterResponse → onAfterResponse, error → onError, parse → onParse, transform → onTransform) and removed setup/cleanup in favour of onStart/onStop. The framework now builds, tests and ships against Elysia 2.0.0-rc.0 and the matching @elysia plugins, and requires `elysia ^2.0.0-rc.0`, so it also accepts later release candidates and 2.0.0. It moves with the packages that made the same change: @absolutejs/auth 0.101 and @absolutejs/sync 3, plus pwa, sync-capacitor and sync-expo releases that accept sync 3.",
 					"kind": "breaking",
 					"migration": {
