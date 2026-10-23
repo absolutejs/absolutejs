@@ -6,7 +6,28 @@
 			"changes": [
 				{
 					"kind": "fixed",
+					"summary": "absolute dev hides the detached Windows server console",
+					"symbols": ["PrepareResult", "prepare", "startDevPrebuild"]
+				}
+			],
+			"date": "2026-10-23",
+			"version": "0.20.0-beta.147"
+		},
+		{
+			"changes": [
+				{
+					"kind": "fixed",
 					"summary": "absolute dev no longer opens a detached CMD window on Windows"
+				},
+				{
+					"detail": "The release build records the generated PrepareResult, prepare, and startDevPrebuild declaration surface so the package gate can compare the release deterministically.",
+					"kind": "internal",
+					"summary": "Keep generated prebuild declarations aligned with the published surface",
+					"symbols": [
+						"PrepareResult",
+						"prepare",
+						"startDevPrebuild"
+					]
 				}
 			],
 			"date": "2026-10-23",
