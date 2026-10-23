@@ -34,6 +34,7 @@ import { formatTimestamp } from '../../utils/startupBanner';
 import { bootTimelineChildEnv, markBoot } from '../../utils/bootTimeline';
 import { unrefTimer } from '../../utils/unrefTimer';
 import { createInteractiveHandler } from '../interactive';
+import { devChildSpawnOptions } from '../devSpawn';
 import { resolveDevBunExecutable } from '../patchedBun';
 import { sendTelemetryEvent } from '../telemetryEvent';
 import {
@@ -2037,6 +2038,37 @@ export const dev = async (
 		markBoot('dev child spawn requested');
 		const prescanForSpawn = prescan;
 		prescan = null;
+		const childEnv = {
+			...process.env,
+			...readDotenvFiles(),
+			ABSOLUTE_HOST: resolvedDev.host,
+			// The parent CLI owns this server's registry entry, so the
+			// child's runtime (networking plugin) must not self-register.
+			ABSOLUTE_INSTANCE_MANAGED: '1',
+			ABSOLUTE_PORT: String(port),
+			ABSOLUTE_SERVER_ENTRY: resolvePath(serverEntry),
+			// Only set when the placeholder is actually up here, so
+			// a failed parent bind falls straight back to the
+			// child's own placeholder and its plain (loud) listen.
+			...(parentListener ? { [PARENT_LISTENER_ENV]: '1' } : {}),
+			...bootTimelineChildEnv(),
+			...(prescanForSpawn
+				? { ABSOLUTE_DEV_PRESCAN: prescanForSpawn.path }
+				: {}),
+			...(options.eager ? { ABSOLUTE_DEV_EAGER: '1' } : {}),
+			// The child's stdout is a pipe by construction (this
+			// process prefixes and forwards it), so nothing over
+			// there can tell whether a human is watching. Only this
+			// process can. Interactive-only diagnostics in the child
+			// (the import-cost hint) gate on this.
+			...(process.stdout.isTTY === true ? { ABSOLUTE_DEV_TTY: '1' } : {}),
+			...(mobileConfig ? { ABSOLUTE_MOBILE_PREVIEW: '1' } : {}),
+			FORCE_COLOR: '1',
+			NODE_ENV: 'development',
+			PORT: String(port),
+			...(configPath ? { ABSOLUTE_CONFIG: configPath } : {}),
+			...(httpsEnabled ? { ABSOLUTE_HTTPS: 'true' } : {})
+		};
 		const proc = nodeSpawn(
 			bunExecutable,
 			[
@@ -2053,47 +2085,12 @@ export const dev = async (
 				serverBootstrap
 			],
 			{
-				cwd: process.cwd(),
-				detached: true, // new process group → kill cascades
-				env: {
-					...process.env,
-					...readDotenvFiles(),
-					ABSOLUTE_HOST: resolvedDev.host,
-					// The parent CLI owns this server's registry entry, so the
-					// child's runtime (networking plugin) must not self-register.
-					ABSOLUTE_INSTANCE_MANAGED: '1',
-					ABSOLUTE_PORT: String(port),
-					ABSOLUTE_SERVER_ENTRY: resolvePath(serverEntry),
-					// Only set when the placeholder is actually up here, so
-					// a failed parent bind falls straight back to the
-					// child's own placeholder and its plain (loud) listen.
-					...(parentListener ? { [PARENT_LISTENER_ENV]: '1' } : {}),
-					...bootTimelineChildEnv(),
-					...(prescanForSpawn
-						? { ABSOLUTE_DEV_PRESCAN: prescanForSpawn.path }
-						: {}),
-					...(options.eager ? { ABSOLUTE_DEV_EAGER: '1' } : {}),
-					// The child's stdout is a pipe by construction (this
-					// process prefixes and forwards it), so nothing over
-					// there can tell whether a human is watching. Only this
-					// process can. Interactive-only diagnostics in the child
-					// (the import-cost hint) gate on this.
-					...(process.stdout.isTTY === true
-						? { ABSOLUTE_DEV_TTY: '1' }
-						: {}),
-					...(mobileConfig ? { ABSOLUTE_MOBILE_PREVIEW: '1' } : {}),
-					FORCE_COLOR: '1',
-					NODE_ENV: 'development',
-					PORT: String(port),
-					...(configPath ? { ABSOLUTE_CONFIG: configPath } : {}),
-					...(httpsEnabled ? { ABSOLUTE_HTTPS: 'true' } : {})
-				},
+				...devChildSpawnOptions(process.cwd(), childEnv)
 				// fd 3 is the child's hand-off pipe (see below). Keeping it
 				// off stdout matters: the marker must never reach the
 				// developer's terminal or the instance log, and stdout
 				// chunks coalesce in ways that make stripping one line out
 				// of the forwarded stream unreliable.
-				stdio: ['ignore', 'pipe', 'pipe', 'pipe']
 			}
 		);
 
