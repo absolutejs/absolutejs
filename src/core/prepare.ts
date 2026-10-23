@@ -134,8 +134,9 @@ const loadMobileAssociationPlugin = async (
 	if (!mobile) {
 		return new Elysia({ name: 'absolutejs-mobile-associations-disabled' });
 	}
-	const { createAbsoluteMobileAssociationPlugin } =
-		await import('../mobile/associationFiles');
+	const { createAbsoluteMobileAssociationPlugin } = await import(
+		'../mobile/associationFiles'
+	);
 
 	return createAbsoluteMobileAssociationPlugin(mobile, process.cwd(), {
 		requireAll: true
@@ -317,7 +318,7 @@ const registerIconVersioning = (buildDir: string) => {
 const prepareDev = async (
 	config: Awaited<ReturnType<typeof loadConfig>>,
 	buildDir: string
-) => {
+): Promise<PrepareResult> => {
 	const startupSteps: Array<{ label: string; durationMs: number }> = [];
 	const recordStep = (label: string, startedAt: number) => {
 		const durationMs = performance.now() - startedAt;
@@ -330,8 +331,9 @@ const prepareDev = async (
 
 	let stepStartedAt = performance.now();
 	setBootPhase('patch route registration');
-	const { patchElysiaRouteRegistrationCallsites } =
-		await import('./devRouteRegistrationCallsite');
+	const { patchElysiaRouteRegistrationCallsites } = await import(
+		'./devRouteRegistrationCallsite'
+	);
 	patchElysiaRouteRegistrationCallsites();
 	recordStep('patch route registration', stepStartedAt);
 
@@ -367,8 +369,9 @@ const prepareDev = async (
 	};
 
 	const { setGlobalModuleServer } = await import('../dev/moduleServer');
-	const { createStyleTransformConfig } =
-		await import('../build/stylePreprocessor');
+	const { createStyleTransformConfig } = await import(
+		'../build/stylePreprocessor'
+	);
 	const moduleHandler = createModuleServer({
 		frameworkDirs: {
 			angular: config.angularDirectory,
@@ -446,7 +449,8 @@ const prepareDev = async (
 		config.mobile,
 		false
 	);
-	const absolutejs = new Elysia({ name: 'absolutejs-runtime' })
+	const absolutejs = new Elysia({ name: 'absolutejs-runtime' });
+	absolutejs
 		// Must be first: the inspector's global request/afterResponse hooks
 		// only reach routes compiled after them, so it has to precede the
 		// page/static/user routes (which mount after `.use(absolutejs)`).
@@ -591,7 +595,7 @@ const createBuildErrorRecoveryPlugin = () =>
 		}
 	);
 
-const runPrepare = async (configOrPath?: string) => {
+const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 	const startupSteps: Array<{ label: string; durationMs: number }> = [];
 	const recordStep = (label: string, startedAt: number) => {
 		const durationMs = performance.now() - startedAt;
@@ -778,7 +782,8 @@ const runPrepare = async (configOrPath?: string) => {
 
 		stepStartedAt = performance.now();
 		const { imageOptimizer } = await import('../plugins/imageOptimizer');
-		const absolutejs = new Elysia({ name: 'absolutejs-runtime' })
+		const absolutejs = new Elysia({ name: 'absolutejs-runtime' });
+		absolutejs
 			.use(absoluteRequestContext)
 			.use(mobileAssociationPlugin)
 			.use(mobileCompatibilityPlugin)
@@ -800,7 +805,8 @@ const runPrepare = async (configOrPath?: string) => {
 
 	stepStartedAt = performance.now();
 	const { imageOptimizer } = await import('../plugins/imageOptimizer');
-	const absolutejs = new Elysia({ name: 'absolutejs-runtime' })
+	const absolutejs = new Elysia({ name: 'absolutejs-runtime' });
+	absolutejs
 		.use(absoluteRequestContext)
 		.use(mobileAssociationPlugin)
 		.use(mobileCompatibilityPlugin)
@@ -819,9 +825,13 @@ const runPrepare = async (configOrPath?: string) => {
 	return { absolutejs, manifest };
 };
 
-/** What `prepare()` resolves to — reused by the globalThis declaration of
- *  the in-flight prebuild so the two can never drift. */
-export type PrepareResult = Awaited<ReturnType<typeof runPrepare>>;
+/** Stable framework infrastructure boundary. Internal development and production
+ * routes must not become alternatives in every consumer's application route type.
+ * User routes added after mounting this plugin retain their complete Elysia types. */
+export type PrepareResult = {
+	absolutejs: Elysia;
+	manifest: Record<string, string>;
+};
 
 const resolveConfigKey = (configOrPath?: string) =>
 	resolvePath(
