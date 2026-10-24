@@ -105,16 +105,22 @@ export const createPrecompressedPlugin = async (buildDir: string) => {
 			if (request.method !== 'GET' && request.method !== 'HEAD')
 				return undefined;
 			const { pathname } = new URL(request.url);
-			const available = copies.get(decodeURIComponent(pathname));
+			let decodedPathname: string;
+			try {
+				decodedPathname = decodeURIComponent(pathname);
+			} catch {
+				return new Response('Malformed URL path', { status: 400 });
+			}
+			const available = copies.get(decodedPathname);
 			if (!available) return undefined;
 			const chosen = acceptedEncodings(
 				request.headers.get('accept-encoding')
 			).find(({ encoding }) => available.has(encoding));
 			if (!chosen) return undefined;
-			const original = Bun.file(join(root, pathname));
+			const original = Bun.file(join(root, decodedPathname));
 
 			return new Response(
-				Bun.file(`${join(root, pathname)}${chosen.suffix}`),
+				Bun.file(`${join(root, decodedPathname)}${chosen.suffix}`),
 				{
 					headers: {
 						'cache-control': assetCacheControl(pathname),

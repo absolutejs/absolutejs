@@ -6,6 +6,16 @@
 			"changes": [
 				{
 					"kind": "fixed",
+					"summary": "Reject malformed encoded static paths with HTTP 400 and serve encoded asset filenames consistently."
+				}
+			],
+			"date": "2026-10-24",
+			"version": "0.20.0-beta.150"
+		},
+		{
+			"changes": [
+				{
+					"kind": "fixed",
 					"summary": "Resolve relative CSS imports in Vue development modules using the same compiler path as production builds."
 				}
 			],

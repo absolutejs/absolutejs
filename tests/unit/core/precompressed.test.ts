@@ -110,3 +110,50 @@ describe('precompressed assets', () => {
 		expect(await plain.text()).toBe('uncompressed');
 	});
 });
+
+// Exercise the HTTP boundary: malformed scanner requests must not become 500s,
+// and URL-encoded filenames must resolve to the same indexed file on disk.
+describe('encoded static paths', () => {
+	test('rejects invalid UTF-8 and incomplete escapes without invoking error hooks', async () => {
+		const root = await buildDir();
+		await writePrecompressedAssets(root);
+		const errors: unknown[] = [];
+		const app = new Elysia()
+			.use(await createPrecompressedPlugin(root))
+			.onError(({ error }) => {
+				errors.push(error);
+			});
+		for (const path of ['/..%c0%af..%c0%af.env', '/bad%', '/bad%GG']) {
+			for (const method of ['GET', 'HEAD']) {
+				const response = await app.handle(
+					new Request(`http://localhost${path}`, { method })
+				);
+				expect(response.status).toBe(400);
+			}
+		}
+		expect(errors).toEqual([]);
+	});
+	test('serves encoded filenames and does not decode a second time', async () => {
+		const root = await buildDir();
+		await writeFile(join(root, 'hello world.js'), SCRIPT);
+		await writePrecompressedAssets(root);
+		const app = new Elysia().use(await createPrecompressedPlugin(root));
+		const response = await app.handle(
+			new Request('http://localhost/hello%20world.js', {
+				headers: { 'accept-encoding': 'br' }
+			})
+		);
+		expect(response.status).toBe(200);
+		expect(
+			brotliDecompressSync(
+				new Uint8Array(await response.arrayBuffer())
+			).toString()
+		).toBe(SCRIPT);
+		const unknown = await app.handle(
+			new Request('http://localhost/hello%2520world.js', {
+				headers: { 'accept-encoding': 'br' }
+			})
+		);
+		expect(unknown.status).toBe(404);
+	});
+});
