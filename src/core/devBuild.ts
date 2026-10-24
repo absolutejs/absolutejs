@@ -1,3 +1,4 @@
+import { resolveDevClientDirectory } from '../dev/runtimePaths';
 import { readdir } from 'node:fs/promises';
 import { existsSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -71,8 +72,7 @@ const FRAMEWORK_DIR_KEYS = [
  * relative to this bundle, which is why it is scanned separately from the
  * config-derived directories the CLI's pre-scan covers — the two
  * processes load different bundles. */
-const devClientVendorSourceDir = () =>
-	resolve(import.meta.dir, '../dev/client');
+const devClientVendorSourceDir = resolveDevClientDirectory;
 
 export const collectDepVendorSourceDirs = (config: BuildConfig) => {
 	const configuredDirs = [

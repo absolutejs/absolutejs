@@ -3,20 +3,65 @@
 	"name": "@absolutejs/absolute",
 	"releases": [
 		{
-			"version": "0.20.0-beta.146",
-			"date": "2026-10-23",
 			"changes": [
 				{
+					"kind": "fixed",
+					"summary": "Resolve and scan the shipped HMR runtime in published packages so browser chunks receive valid Sync vendor URLs."
+				}
+			],
+			"date": "2026-10-23",
+			"version": "0.20.0-beta.148"
+		},
+		{
+			"changes": [
+				{
+					"kind": "fixed",
+					"summary": "absolute dev hides the detached Windows server console",
+					"symbols": [
+						"PrepareResult",
+						"prepare",
+						"startDevPrebuild"
+					]
+				}
+			],
+			"date": "2026-10-23",
+			"version": "0.20.0-beta.147"
+		},
+		{
+			"changes": [
+				{
+					"detail": "Register internal routes on the same runtime instance without exposing environment-specific internal route unions. No casts, compiler suppressions, or runtime middleware changes are needed in consumers.",
 					"kind": "fixed",
 					"summary": "Give prepare a stable runtime plugin contract across development and production. Prevent exponential Elysia RC error-response type expansion as applications mount plugins, while preserving the types of application routes.",
 					"symbols": [
 						"prepare",
 						"PrepareResult",
 						"startDevPrebuild"
-					],
-					"detail": "Register internal routes on the same runtime instance without exposing environment-specific internal route unions. No casts, compiler suppressions, or runtime middleware changes are needed in consumers."
+					]
 				}
-			]
+			],
+			"date": "2026-10-23",
+			"version": "0.20.0-beta.146"
+		},
+		{
+			"changes": [
+				{
+					"kind": "fixed",
+					"summary": "absolute dev no longer opens a detached CMD window on Windows"
+				},
+				{
+					"detail": "The release build records the generated PrepareResult, prepare, and startDevPrebuild declaration surface so the package gate can compare the release deterministically.",
+					"kind": "internal",
+					"summary": "Keep generated prebuild declarations aligned with the published surface",
+					"symbols": [
+						"PrepareResult",
+						"prepare",
+						"startDevPrebuild"
+					]
+				}
+			],
+			"date": "2026-10-23",
+			"version": "0.20.0-beta.146"
 		},
 		{
 			"changes": [
@@ -38,37 +83,6 @@
 			],
 			"date": "2026-10-22",
 			"version": "0.20.0-beta.145"
-		},
-		{
-			"changes": [
-				{
-					"kind": "fixed",
-					"summary": "absolute dev hides the detached Windows server console",
-					"symbols": ["PrepareResult", "prepare", "startDevPrebuild"]
-				}
-			],
-			"date": "2026-10-23",
-			"version": "0.20.0-beta.147"
-		},
-		{
-			"changes": [
-				{
-					"kind": "fixed",
-					"summary": "absolute dev no longer opens a detached CMD window on Windows"
-				},
-				{
-					"detail": "The release build records the generated PrepareResult, prepare, and startDevPrebuild declaration surface so the package gate can compare the release deterministically.",
-					"kind": "internal",
-					"summary": "Keep generated prebuild declarations aligned with the published surface",
-					"symbols": [
-						"PrepareResult",
-						"prepare",
-						"startDevPrebuild"
-					]
-				}
-			],
-			"date": "2026-10-23",
-			"version": "0.20.0-beta.146"
 		},
 		{
 			"changes": [

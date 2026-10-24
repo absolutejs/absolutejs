@@ -1,7 +1,7 @@
 import { mkdirSync } from 'node:fs';
 import { isWorkspacePackageSpecifier } from './workspacePackages';
 import { isBuiltin } from 'node:module';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import { rm } from 'node:fs/promises';
 import { build as bunBuild, Glob, type BunPlugin } from 'bun';
 import { generateVendorEntrySource } from './vendorEntrySource';
@@ -143,7 +143,12 @@ const scanDirFiles = async (dir: string) => {
 			glob.scan({ absolute: true, cwd: dir })
 		);
 
-		return all.filter((file) => !isSkippedFile(file));
+		// Exclusions apply inside the requested source root, not to its parents.
+		// Published HMR sources themselves live under node_modules/.../dist.
+		return all.filter(
+			(file) =>
+				!isSkippedFile(`/${relative(dir, file).replaceAll('\\', '/')}`)
+		);
 	} catch {
 		return empty;
 	}

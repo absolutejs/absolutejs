@@ -2038,7 +2038,7 @@ export const dev = async (
 		markBoot('dev child spawn requested');
 		const prescanForSpawn = prescan;
 		prescan = null;
-		const childEnv = {
+		const childEnv: NodeJS.ProcessEnv = {
 			...process.env,
 			...readDotenvFiles(),
 			ABSOLUTE_HOST: resolvedDev.host,
