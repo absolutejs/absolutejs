@@ -2,6 +2,7 @@ import { BASE_36_RADIX, UNFOUND_INDEX } from '../constants';
 import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { basename, dirname, extname, join, resolve, relative } from 'node:path';
 import { decodeSrcPath, encodeSrcPath } from './srcPath';
+import { inlineCssImports } from '../build/inlineCssImports';
 import { importFromProject } from '../build/importFromProject';
 import { resolvePackageImport } from '../build/resolvePackageImport';
 import { addAutoRouterSetupApp } from '../build/vueAutoRouterTransform';
@@ -1098,14 +1099,17 @@ const compileVueStyles = async (
 						filename: filePath,
 						id: `data-v-${componentId}`,
 						scoped: Boolean(style.scoped),
-						source: style.lang
-							? await compileStyleSource(
-									filePath,
-									style.content,
-									style.lang,
-									stylePreprocessors
-								)
-							: style.content,
+						source: inlineCssImports(
+							style.lang
+								? await compileStyleSource(
+										filePath,
+										style.content,
+										style.lang,
+										stylePreprocessors
+									)
+								: style.content,
+							filePath
+						),
 						trim: true
 					}).code
 			)

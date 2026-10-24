@@ -6,6 +6,16 @@
 			"changes": [
 				{
 					"kind": "fixed",
+					"summary": "Resolve relative CSS imports in Vue development modules using the same compiler path as production builds."
+				}
+			],
+			"date": "2026-10-24",
+			"version": "0.20.0-beta.149"
+		},
+		{
+			"changes": [
+				{
+					"kind": "fixed",
 					"summary": "Resolve and scan the shipped HMR runtime in published packages so browser chunks receive valid Sync vendor URLs."
 				}
 			],
