@@ -343,7 +343,7 @@ const configureIosPushNotifications = async (
 ) => {
 	const entitlementsPath = join(
 		config.nativeProjectDirectory,
-		'ios/App/AbsoluteJS.entitlements'
+		'ios/App/App/AbsoluteJS.entitlements'
 	);
 	const entitlements = await optionalSource(entitlementsPath);
 	if (entitlements === null && !enabled) return false;

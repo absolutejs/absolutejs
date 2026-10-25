@@ -91,7 +91,7 @@ describe('native deep-link configuration', () => {
 			'utf8'
 		);
 		const entitlements = await readFile(
-			join(root, 'mobile/ios/App/AbsoluteJS.entitlements'),
+			join(root, 'mobile/ios/App/App/AbsoluteJS.entitlements'),
 			'utf8'
 		);
 		const project = await readFile(
