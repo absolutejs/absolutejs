@@ -172,7 +172,9 @@ const pathExists = async (path: string) => {
 // App.xcodeproj; CocoaPods projects build through App.xcworkspace. Build
 // against whichever exists so `xcodebuild` resolves for both layouts. Used by
 // the simulator debug builds, which always target the Capacitor `App` project.
-export const resolveAbsoluteIosXcodeTarget = async (nativeDirectory: string) => {
+export const resolveAbsoluteIosXcodeTarget = async (
+	nativeDirectory: string
+) => {
 	const workspacePath = join(nativeDirectory, 'App', 'App.xcworkspace');
 	if (await pathExists(workspacePath)) return ['-workspace', workspacePath];
 
@@ -436,9 +438,13 @@ export const resolveAbsoluteIosXcodeProject = async (
 	} else {
 		// Capacitor 8 defaults to Swift Package Manager, which produces only an
 		// .xcodeproj (no .xcworkspace). Build the project directly in that case.
-		const projects = await findAllByExtension(nativeDirectory, '.xcodeproj', {
-			excludedDirectories: new Set(['Pods', 'DerivedData', 'build'])
-		});
+		const projects = await findAllByExtension(
+			nativeDirectory,
+			'.xcodeproj',
+			{
+				excludedDirectories: new Set(['Pods', 'DerivedData', 'build'])
+			}
+		);
 		if (projects.length > 1)
 			throw new TypeError(
 				`iOS release found multiple Xcode projects: ${projects.map((path) => relative(nativeDirectory, path)).join(', ')}.`
