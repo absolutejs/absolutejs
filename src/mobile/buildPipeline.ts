@@ -214,7 +214,19 @@ export const finalizeAbsoluteMobileCompatibilityBuild = async (
 				current,
 				store: compatibilityStore
 			})
-		: [current, ...previous];
+		: // The current build supersedes any prior release with identical
+			// content (same appBuild): keying by appBuild with `current` last
+			// lets it overwrite that entry, so re-promoting older content never
+			// leaves a duplicate appBuild in the retained set (which retain
+			// forbids) or a stale generation as newest.
+			[
+				...new Map(
+					[...previous, current].map((release) => [
+						release.artifact.appBuild,
+						release
+					])
+				).values()
+			];
 	const releasesById = new Map(
 		candidates.map((release) => [release.artifact.releaseId, release])
 	);
