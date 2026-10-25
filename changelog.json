@@ -7,7 +7,10 @@
 				{
 					"detail": "Builds through App.xcworkspace or, for Capacitor 8 projects on Swift Package Manager that have none, App.xcodeproj. Signed IPA archives and exports pass -allowProvisioningUpdates, the CLI resolves its shell module, and production builds leave out the HMR socket so the release audit passes. Entitlements are read and written in ios/App/App, SPM build outputs no longer change the native fingerprint, and the current release stays the newest compatibility generation. By Gene Graves (#87).",
 					"kind": "fixed",
-					"summary": "Build, sign and fingerprint Capacitor 8 iOS apps correctly"
+					"summary": "Build, sign and fingerprint Capacitor 8 iOS apps correctly",
+					"symbols": [
+						"resolveAbsoluteIosXcodeProject"
+					]
 				}
 			],
 			"date": "2026-10-25",
