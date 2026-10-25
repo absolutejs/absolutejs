@@ -168,6 +168,25 @@ const pathExists = async (path: string) => {
 	}
 };
 
+// Capacitor 8 defaults to Swift Package Manager, which only ever produces
+// App.xcodeproj; CocoaPods projects build through App.xcworkspace. Build
+// against whichever exists so `xcodebuild` resolves for both layouts. Used by
+// the simulator debug builds, which always target the Capacitor `App` project.
+export const resolveAbsoluteIosXcodeTarget = async (nativeDirectory: string) => {
+	const workspacePath = join(nativeDirectory, 'App', 'App.xcworkspace');
+	if (await pathExists(workspacePath)) return ['-workspace', workspacePath];
+
+	const projectPath = join(nativeDirectory, 'App', 'App.xcodeproj');
+	if (await pathExists(projectPath)) return ['-project', projectPath];
+
+	throw new TypeError(
+		`Neither App.xcworkspace nor App.xcodeproj exists under ${join(
+			nativeDirectory,
+			'App'
+		)}. Generate the native project with "absolute mobile sync ios".`
+	);
+};
+
 const defaultRun = async (command: string[], options: CommandOptions = {}) => {
 	const process = Bun.spawn(command, {
 		cwd: options.cwd,
@@ -402,16 +421,36 @@ export const resolveAbsoluteIosXcodeProject = async (
 		: await findAllByExtension(nativeDirectory, '.xcworkspace', {
 				excludedDirectories: new Set(['Pods', 'DerivedData', 'build'])
 			});
-	if (workspaces.length !== 1)
+	if (workspaces.length > 1)
 		throw new TypeError(
-			workspaces.length > 1
-				? `iOS release found multiple Xcode workspaces: ${workspaces.map((path) => relative(nativeDirectory, path)).join(', ')}. Pass an explicit workspacePath.`
-				: 'iOS release could not find an Xcode workspace.'
+			`iOS release found multiple Xcode workspaces: ${workspaces.map((path) => relative(nativeDirectory, path)).join(', ')}. Pass an explicit workspacePath.`
 		);
 	const [workspacePath] = workspaces;
-	if (!workspacePath || !(await pathExists(workspacePath)))
-		throw new TypeError('iOS release could not find an Xcode workspace.');
-	if (options.scheme) return { scheme: options.scheme, workspacePath };
+	let target: string[];
+	if (workspacePath && (await pathExists(workspacePath))) {
+		target = ['-workspace', workspacePath];
+	} else if (requestedWorkspace) {
+		throw new TypeError(
+			'iOS release could not find the requested Xcode workspace.'
+		);
+	} else {
+		// Capacitor 8 defaults to Swift Package Manager, which produces only an
+		// .xcodeproj (no .xcworkspace). Build the project directly in that case.
+		const projects = await findAllByExtension(nativeDirectory, '.xcodeproj', {
+			excludedDirectories: new Set(['Pods', 'DerivedData', 'build'])
+		});
+		if (projects.length > 1)
+			throw new TypeError(
+				`iOS release found multiple Xcode projects: ${projects.map((path) => relative(nativeDirectory, path)).join(', ')}.`
+			);
+		const [projectPath] = projects;
+		if (!projectPath || !(await pathExists(projectPath)))
+			throw new TypeError(
+				'iOS release could not find an Xcode workspace or project.'
+			);
+		target = ['-project', projectPath];
+	}
+	if (options.scheme) return { scheme: options.scheme, target };
 	const schemeFiles = await findAllByExtension(nativeDirectory, '.xcscheme', {
 		excludedDirectories: new Set(['Pods', 'DerivedData', 'build'])
 	});
@@ -429,7 +468,7 @@ export const resolveAbsoluteIosXcodeProject = async (
 				: 'iOS release could not find a shared Xcode scheme.'
 		);
 
-	return { scheme: schemes[0], workspacePath };
+	return { scheme: schemes[0], target };
 };
 
 const exportOptions = (
@@ -734,8 +773,7 @@ export const buildAbsoluteIosRelease = async (
 		const archiveExit = await run(
 			[
 				'xcodebuild',
-				'-workspace',
-				xcode.workspacePath,
+				...xcode.target,
 				'-scheme',
 				xcode.scheme,
 				'-configuration',

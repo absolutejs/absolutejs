@@ -322,8 +322,7 @@ export const runAbsoluteIosSimulatorReleaseAcceptance = async (options: {
 		run,
 		[
 			xcodebuild,
-			'-workspace',
-			xcode.workspacePath,
+			...xcode.target,
 			'-scheme',
 			xcode.scheme,
 			'-configuration',
