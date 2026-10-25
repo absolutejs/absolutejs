@@ -782,6 +782,11 @@ export const buildAbsoluteIosRelease = async (
 				'generic/platform=iOS',
 				'-archivePath',
 				archivePath,
+				// Let Xcode create/refresh the managed distribution provisioning
+				// profile against the signed-in account, matching the
+				// dev/simulator path. Without it the archive/export fails with
+				// "No profiles for '<bundle id>' were found".
+				'-allowProvisioningUpdates',
 				...versionArguments,
 				'archive'
 			],
@@ -816,7 +821,8 @@ export const buildAbsoluteIosRelease = async (
 				'-exportPath',
 				exportPath,
 				'-exportOptionsPlist',
-				exportPlist
+				exportPlist,
+				'-allowProvisioningUpdates'
 			],
 			{ cwd: nativeDirectory, env: options.env }
 		);
