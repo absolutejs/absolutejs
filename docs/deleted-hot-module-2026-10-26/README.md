@@ -24,3 +24,8 @@ Formatting after the full unit run changes only layout; the focused regression w
 rerun afterward. The new integration also passed afterward. Logs record the scope.
 Source and selected receipts are committed upstream; the existing trusted-publish
 workflow publishes beta154 on main. Registry publication is verified separately.
+
+Publication verified: workflow40327063015 succeeded, npm exposes beta154 with
+SHA1 7648033d9e4c1fcf0b64c5e44f9c290952db0f08. Registry processing briefly returned
+404 after workflow success. Hello World installed the registry release; its watcher
+restarted onto beta154 and all18 GPU-disabled worker fixtures passed afterward.
