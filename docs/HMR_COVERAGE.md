@@ -558,3 +558,22 @@ dev: {
 Configured framework paths, conventional `src`, `db`, `assets` and `styles` directories, workspace packages, external Angular resources and explicit `watchDirs` remain watched. This option does not exclude reports nested inside those watched source roots. Keep generated evidence outside source directories.
 
 The filesystem regression in `tests/unit/hmr/watchScope.test.ts` verifies that writes to excluded root-level docs/artifacts stay out of the rebuild queue while React, shared-source and explicitly added paths still notify the watcher. It also verifies unchanged default discovery and explicit opt-in for a previously unconfigured directory.
+
+### Dependency installation and root manifests
+
+The development watcher always attaches one **non-recursive** project-root
+watcher for `package.json`, `bun.lock`, `bun.lockb`, `package-lock.json`,
+`pnpm-lock.yaml` and `yarn.lock`. Their changes enter the normal restart pipeline
+because dependency resolution can change without an imported source file changing.
+This remains active when `dev.autoWatchDirectories` is false.
+
+Watching the containing directory survives atomic replacement, deletion and later
+creation of a lockfile. Recovery checks only these six entries after coalesced
+rename events; it does not recursively watch docs, asset candidates or
+`node_modules`, and reads metadata rather than manifest/credential contents.
+Recovery timers are cleared with the watcher. Content deduplication remains the
+responsibility of the existing change queue.
+
+This covers installs that change a manifest or lockfile. Mutating an installed
+package in place while leaving both unchanged is still outside this contract;
+packages should be released and upgraded instead of carrying installed patches.

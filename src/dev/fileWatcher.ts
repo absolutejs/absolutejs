@@ -200,6 +200,73 @@ export const addFileWatchers = (
 	});
 };
 
+/** Dependency installation changes resolution even when no source file changes.
+ * Watch only the root directory entry stream, never its descendants. Watching the
+ * directory also survives package managers replacing/deleting a manifest inode. */
+const watchRootDependencies = (
+	state: HMRState,
+	onFileChange: (filePath: string) => void
+) => {
+	const root = process.cwd();
+	const names = [
+		'package.json',
+		'bun.lock',
+		'bun.lockb',
+		'package-lock.json',
+		'pnpm-lock.yaml',
+		'yarn.lock'
+	];
+	const fingerprint = (name: string) => {
+		try {
+			const value = statSync(join(root, name));
+
+			return value.isFile()
+				? `${value.ino}:${value.size}:${value.mtimeMs}:${value.ctimeMs}`
+				: null;
+		} catch {
+			return null;
+		}
+	};
+	const previous = new Map(names.map((name) => [name, fingerprint(name)]));
+	const scan = () => {
+		for (const name of names) {
+			const next = fingerprint(name);
+			if (next === previous.get(name)) continue;
+			previous.set(name, next);
+			onFileChange(join(root, name).replace(/\\/g, '/'));
+		}
+	};
+	const timers = new Map<number, ReturnType<typeof setTimeout>>();
+	const recover = (delay: number) => {
+		if (timers.has(delay)) return;
+		const timer = setTimeout(() => {
+			timers.delete(delay);
+			scan();
+		}, delay);
+		timers.set(delay, timer);
+		unrefTimer(timer);
+	};
+	const watcher = watch(root, { recursive: false }, (event, filename) => {
+		if (!filename) {
+			scan();
+
+			return;
+		}
+		if (names.includes(filename)) scan();
+		// Some Linux atomic renames report only the temporary source filename.
+		// Six stat calls per coalesced recovery, not a recursive directory walk.
+		if (event === 'rename') {
+			recover(25);
+			recover(100);
+		}
+	});
+	watcher.once('close', () => {
+		for (const timer of timers.values()) clearTimeout(timer);
+		timers.clear();
+	});
+	state.watchers.push(watcher);
+};
+
 /* Set up file watching for all configured directories
    This handles the "watch files" problem */
 export const startFileWatching = (
@@ -207,6 +274,7 @@ export const startFileWatching = (
 	config: BuildConfig,
 	onFileChange: (filePath: string) => void
 ) => {
+	watchRootDependencies(state, onFileChange);
 	const watchPaths = getWatchPaths(config, state.resolvedPaths);
 	const stylesDir = state.resolvedPaths?.stylesDir;
 
