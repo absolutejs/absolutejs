@@ -1,0 +1,18 @@
+bun test v1.4.4+absolute.1 (38afee6c8)
+
+tests/unit/hmr/dependencyWatch.test.ts:
+(pass) dependency manifests and lockfiles remain watched without recursive root watching [282.62ms]
+
+tests/unit/hmr/watchScope.test.ts:
+(pass) opt out of automatic root directories while retaining explicit and source roots [237.34ms]
+
+tests/unit/dev/restartScope.test.ts:
+(pass) changeNeedsRestart > documents and test files never restart the server [0.48ms]
+(pass) changeNeedsRestart > code restarts the server only when this process loaded it [0.40ms]
+(pass) changeNeedsRestart > config read at startup still restarts the server [0.10ms]
+(pass) changeNeedsRestart > by default it asks the running process what it loaded [0.93ms]
+
+ 6 pass
+ 0 fail
+ 37 expect() calls
+Ran 6 tests across 3 files. [581.00ms]

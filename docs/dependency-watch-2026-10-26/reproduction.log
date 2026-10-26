@@ -1,0 +1,23 @@
+bun test v1.4.4+absolute.1 (38afee6c8)
+
+tests/unit/hmr/dependencyWatch.test.ts:
+10 |   const config={dev:{autoWatchDirectories:false},reactDirectory:'src/react'};
+11 |   const state=createHMRState(config),changes:string[]=[];
+12 |   const waitFor=async(file:string)=>{
+13 |     const deadline=Date.now()+2000;
+14 |     while(!changes.includes(join(root,file))&&Date.now()<deadline)await Bun.sleep(10);
+15 |     expect(changes).toContain(join(root,file));
+                         ^
+error: expect(received).toContain(expected)
+
+Expected to contain: "/tmp/absolute-dependency-watch-w6t4rL/package.json"
+Received: []
+
+      at <anonymous> (/home/alexkahn/alex/absolutejs-watch-release/tests/unit/hmr/dependencyWatch.test.ts:15:21)
+      at async <anonymous> (/home/alexkahn/alex/absolutejs-watch-release/tests/unit/hmr/dependencyWatch.test.ts:24:11)
+(fail) dependency manifests and lockfiles remain watched without recursive root watching [2011.83ms]
+
+ 0 pass
+ 1 fail
+ 1 expect() calls
+Ran 1 test across 1 file. [2.09s]

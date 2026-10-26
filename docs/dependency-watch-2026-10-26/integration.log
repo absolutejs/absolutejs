@@ -1,0 +1,12 @@
+bun test v1.4.4+absolute.1 (38afee6c8)
+
+tests/integration/hmr/lifecycle/dev-watch-dirs.test.ts:
+(pass) dev.watchDirs extra paths fire HMR > edit inside a `dev.watchDirs` path triggers the file watcher [3878.95ms]
+
+tests/integration/hmr/lifecycle/dependency-restart.test.ts:
+(pass) a root dependency manifest edit reaches the dev restart pipeline [3902.68ms]
+
+ 2 pass
+ 0 fail
+ 1 expect() calls
+Ran 2 tests across 2 files. [9.54s]
