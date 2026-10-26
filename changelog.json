@@ -6,6 +6,16 @@
 			"changes": [
 				{
 					"kind": "fixed",
+					"summary": "Keep backend hot reload alive when a managed module is deleted or moved"
+				}
+			],
+			"date": "2026-10-26",
+			"version": "0.20.0-beta.154"
+		},
+		{
+			"changes": [
+				{
+					"kind": "fixed",
 					"summary": "Restart development after root dependency manifest and lockfile changes"
 				}
 			],

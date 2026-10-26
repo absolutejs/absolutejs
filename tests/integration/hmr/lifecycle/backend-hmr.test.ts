@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { resolve } from 'node:path';
+import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { startDevServer, type DevServer } from '../../../helpers/devServer';
 import { createFile, mutateFile, restoreAllFiles } from '../../../helpers/file';
 
@@ -211,5 +212,26 @@ describe('editing server code updates the running server in place', () => {
 		);
 		await waitFor('greeting', 'GREETING_THREE');
 		expect(restarted()).toBe(false);
+	}, 30_000);
+	test('deleting a managed module preserves the server and recreation updates it', async () => {
+		const target = file('greeting.ts');
+		const original = readFileSync(target, 'utf8');
+		const pid = await get('pid');
+		try {
+			rmSync(target);
+			await Bun.sleep(800);
+			expect(await get('greeting')).toBe('GREETING_THREE');
+			expect(await get('pid')).toBe(pid);
+			writeFileSync(
+				target,
+				original.replace('GREETING_THREE', 'GREETING_RECREATED')
+			);
+			await waitFor('greeting', 'GREETING_RECREATED');
+			expect(await get('pid')).toBe(pid);
+			expect(await get('boots')).toBe('1');
+			expect(restarted()).toBe(false);
+		} finally {
+			writeFileSync(target, original);
+		}
 	}, 30_000);
 });

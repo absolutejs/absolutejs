@@ -1,0 +1,2328 @@
+$ bun test --max-concurrency 1 tests/unit
+bun test v1.4.4+absolute.1 (38afee6c8)
+
+tests/unit/android-ui-readiness.test.ts:
+(pass) requires three healthy launcher samples separated by settling intervals [0.76ms]
+(pass) does not dismiss an ANR or accept an obscured launcher [0.43ms]
+(pass) rejects an ANR that appears after the first healthy sample [0.18ms]
+
+tests/unit/android-proof-builds.test.ts:
+[release-data] Building capacitor before emulator startup
+[release-data] Building expo before emulator startup
+(pass) prepares both validated artifacts without invoking emulator or ADB commands [27.36ms]
+[release-data] Building capacitor before emulator startup
+[release-data] Building expo before emulator startup
+(pass) builds separate authenticated fixtures without changing anonymous fixture selection [28.00ms]
+[release-data] Building capacitor before emulator startup
+[release-data] Building capacitor before emulator startup
+(pass) does not add the Capacitor platform again when retrying either fixture [35.57ms]
+[release-data] Building capacitor before emulator startup
+[release-data] Building expo before emulator startup
+(pass) does not declare the build phase complete when the second engine fails [19.42ms]
+
+tests/unit/android-offline-test-transport.test.ts:
+(pass) offline acceptance removes the listener and closes existing streams only on the selected device [0.78ms]
+(pass) offline acceptance stops if its reverse listener cannot be removed [0.18ms]
+
+tests/unit/androidTestTransport.test.ts:
+(pass) transport override is opt-in and preserves surrounding configuration [0.52ms]
+(pass) transport override adds a missing property with a line boundary [0.07ms]
+(pass) transport override rejects unsupported values and duplicate properties [0.31ms]
+
+tests/unit/android-ui-snapshot.test.ts:
+(pass) zero-exit dump failures never read an old XML file and retries are bounded [1.17ms]
+(pass) a fresh acknowledged capture can recover after idle acquisition fails [0.53ms]
+(pass) rejects malformed XML even when the dump is acknowledged [0.23ms]
+
+tests/unit/android-network-ready.test.ts:
+(pass) requires the active default network to be currently connected [3.44ms]
+(pass) historical connected events cannot satisfy readiness [0.44ms]
+
+tests/unit/android-ui-failure.test.ts:
+(pass) identifies system ANR controls without treating app error text as an ANR [0.36ms]
+
+tests/unit/androidTestCores.test.ts:
+(pass) diagnostic CPU selection preserves the four-core default [0.17ms]
+(pass) diagnostic CPU selection rejects ambiguous or unsupported values [0.27ms]
+
+tests/unit/authenticated-release-proof.test.ts:
+[@absolutejs/auth] No audit sink configured (pass `audit` or `webhooks`). Privileged flows (impersonation, role/permission changes, sign-out) will run WITHOUT an audit trail.
+(pass) authenticated release proof uses real PKCE, bearer Sync, atomic receipts and account filters [2860.06ms]
+
+tests/unit/release-proof-backend.test.ts:
+(pass) release proof uses the real Sync engine and counts actual writes without deduplicating evidence [1047.68ms]
+
+tests/unit/android-avd-identity.test.ts:
+(pass) owned-emulator identity tolerates Windows ADB console line endings but not other devices [0.41ms]
+
+tests/unit/android-diagnostic.test.ts:
+(pass) captures binary diagnostics and contains capture/write failures [6.71ms]
+
+tests/unit/android-cpu-settling.test.ts:
+(pass) requires three consecutive low-pressure samples after startup load settles [0.70ms]
+(pass) sustained load fails within a bounded number of samples [0.99ms]
+(pass) missing and malformed pressure readings cannot satisfy readiness [0.52ms]
+
+tests/unit/android-test-graphics.test.ts:
+(pass) test graphics preserves the default unless explicitly overridden [0.44ms]
+(pass) Vulkan isolation is explicit, independent of GPU mode, and rejects arbitrary flags [0.23ms]
+
+tests/unit/plugins/lazyPlugin.test.ts:
+(pass) lazyPlugin: prefix > rejects a prefix that cannot scope anything [0.58ms]
+(pass) lazyPlugin: prefix > matches the prefix itself and everything under it [5.22ms]
+(pass) lazyPlugin: prefix > does not claim a sibling path that merely shares the prefix string [4.95ms]
+(pass) lazyPlugin: prefix > normalises a trailing slash [1.35ms]
+(pass) lazyPlugin: prefix > answers 404 for a path under the prefix the plugin does not own [6.79ms]
+(pass) lazyPlugin: loading > shares a single in-flight import across concurrent first requests [22.96ms]
+(pass) lazyPlugin: loading > does not re-import on later requests [1.92ms]
+(pass) lazyPlugin: loading > surfaces a load failure as an error instead of hanging [1.66ms]
+(pass) lazyPlugin: loading > retries after a failed load so a fixed module is picked up [3.36ms]
+(pass) lazyPlugin: module shapes > resolves a plugin instance [2.83ms]
+(pass) lazyPlugin: module shapes > resolves a default export [1.17ms]
+(pass) lazyPlugin: module shapes > resolves a namespace with one plugin export [1.24ms]
+(pass) lazyPlugin: module shapes > resolves a factory taking args [1.27ms]
+(pass) lazyPlugin: module shapes > resolves an async factory [2.79ms]
+(pass) lazyPlugin: module shapes > names the exports when a namespace is ambiguous [1.67ms]
+(pass) lazyPlugin: dispatch > forwards method, path parameters, body and headers [3.47ms]
+(pass) lazyPlugin: dispatch > a prefetch request warms the plugin like any other [2.46ms]
+(pass) lazyPlugin: composition > mounts through the real .use(), so the app owns the routes [5.32ms]
+(pass) lazyPlugin: composition > a plugin registered after the lazy one still resolves [2.02ms]
+(pass) lazyPlugin: eager fallback > eager: true composes at .use() time with no placeholder routes [1.97ms]
+(pass) lazyPlugin: eager fallback > production defaults to eager [0.87ms]
+(pass) lazyPlugin: eager fallback > development defaults to lazy [2.14ms]
+
+tests/unit/plugins/headFallback.test.ts:
+(pass) HEAD fallback > HEAD answers with the GET route status and headers, and no body [4.99ms]
+(pass) HEAD fallback > an app's own HEAD route wins [1.13ms]
+
+tests/unit/plugins/devtoolsJson.test.ts:
+(pass) normalizeDevtoolsWorkspaceRoot > returns the original path by default [0.43ms]
+(pass) normalizeDevtoolsWorkspaceRoot > rewrites WSL paths to UNC form for Chrome on Windows [0.27ms]
+(pass) normalizeDevtoolsWorkspaceRoot > rewrites Docker Desktop paths to UNC form [0.13ms]
+(pass) normalizeDevtoolsWorkspaceRoot > does not rewrite an existing UNC path for Docker Desktop [0.07ms]
+(pass) resolveDevtoolsUuidCachePath > uses the default cache path under the build directory [0.11ms]
+(pass) resolveDevtoolsUuidCachePath > uses a custom cache path when provided [0.07ms]
+(pass) devtoolsJson > persists a generated UUID to a custom cache path [7.00ms]
+
+tests/unit/core/precompressed.test.ts:
+(pass) acceptedEncodings > prefers brotli, falls back to gzip, honours q=0 [0.71ms]
+(pass) precompressed assets > the build writes brotli and gzip copies only where they pay [25.00ms]
+(pass) precompressed assets > the server sends a copy the browser accepts, and otherwise falls through [48.70ms]
+(pass) encoded static paths > rejects invalid UTF-8 and incomplete escapes without invoking error hooks [31.36ms]
+(pass) encoded static paths > serves encoded filenames and does not decode a second time [15.43ms]
+
+tests/unit/core/prerender.test.ts:
+(pass) prerender > only caches HTML responses as pre-rendered pages [52.73ms]
+
+tests/unit/core/requestContext.test.ts:
+(pass) Absolute request context > keeps concurrent request chains isolated [2.82ms]
+(pass) Absolute request context > propagates through routes registered after the Absolute plugin [2.80ms]
+
+tests/unit/core/spaPageHandlersNotFound.test.ts:
+(pass) SPA page handlers > return HTTP 404 before rendering an unmatched SPA shell [11.15ms]
+
+tests/unit/core/wrapPageHandlerWithStreamingSlots.test.ts:
+(pass) wrapPageHandlerWithStreamingSlots > auto-applies registered streaming slots to handler responses [17.49ms]
+
+tests/unit/core/devBuild.test.ts:
+(pass) dev dependency vendor sources > includes browser runtime imports alongside application sources [4347.63ms]
+(pass) published dist bundle discovers Sync runtime vendors [115.78ms]
+(pass) published dist/cli bundle discovers Sync runtime vendors [133.52ms]
+(pass) published dist/dev bundle discovers Sync runtime vendors [74.72ms]
+
+tests/unit/core/pageHandlers.test.ts:
+(pass) static page handlers > handleHTMLPageRequest rejects abs-stream-slot markup [3.92ms]
+(pass) static page handlers > handleHTMLPageRequest applies explicit streaming slots through handler options [5.22ms]
+(pass) static page handlers > handleHTMXPageRequest serves plain HTMX pages without static streaming sidecars [3.11ms]
+(pass) static page handlers > handleHTMXPageRequest lowers abs-htmx-stream-slot into native htmx markup [2.77ms]
+(pass) static page handlers > handleHTMXPageRequest rejects abs-stream-slot markup [1.21ms]
+(pass) static page handlers > HTML pages snapshot SSR text before lazy islands hydrate [2.46ms]
+(pass) static page handlers > HTMX pages snapshot SSR text before lazy islands hydrate [1.99ms]
+
+tests/unit/core/pageResponseCache.test.ts:
+(pass) withPageCacheHeaders > stamps an HTML shell with no-cache + an ETag [0.52ms]
+(pass) withPageCacheHeaders > returns 304 with empty body when If-None-Match matches [0.30ms]
+(pass) withPageCacheHeaders > serves a fresh 200 when the content (ETag) changed [0.19ms]
+(pass) withPageCacheHeaders > streaming responses get no-cache, no ETag, marker stripped [0.17ms]
+(pass) withPageCacheHeaders > bufferStreamForEtag buffers a streamed page into an ETagged 200 [0.16ms]
+(pass) withPageCacheHeaders > bufferStreamForEtag lets a streamed page revalidate to 304 [0.19ms]
+(pass) withPageCacheHeaders > non-HTML responses pass through untouched [0.10ms]
+(pass) withPageCacheHeaders > redirects (no content-type) pass through untouched [0.08ms]
+
+tests/unit/core/routeAssets.test.ts:
+(pass) routeAssets > reads stylesheet hrefs out of a document head [0.49ms]
+(pass) routeAssets > handles a bare head fragment and an absent head [0.07ms]
+(pass) routeAssets > reads and decodes the title [0.88ms]
+
+tests/unit/core/islandPageContext.test.ts:
+(pass) injectIslandPageContextStream > injects into head when hasIslands is true [1.72ms]
+(pass) injectIslandPageContextStream > auto-detect mode injects before first island tag [0.90ms]
+(pass) injectIslandPageContextStream > returns unchanged stream when hasIslands is false [0.22ms]
+
+tests/unit/core/responseEnhancers.test.ts:
+(pass) withStreamingSlots > accepts a promised response and preserves response metadata [0.99ms]
+(pass) withStreamingSlots > collects registered slots during render and appends patches [0.93ms]
+(pass) withStreamingSlots > uses global and per-call policy when enhancing a response [2.61ms]
+
+tests/unit/core/prerenderLifecycle.test.ts:
+(pass) prerender overrides inherited live mode without poisoning normal runtime [163.00ms]
+
+tests/unit/hmr/moduleVersionTracker.test.ts:
+(pass) moduleVersionTracker > creates empty tracker [0.27ms]
+(pass) moduleVersionTracker > incrementModuleVersion sets version and returns it [0.25ms]
+(pass) moduleVersionTracker > incrementModuleVersion increments on subsequent calls [0.11ms]
+(pass) moduleVersionTracker > different modules get different versions [0.08ms]
+(pass) moduleVersionTracker > incrementModuleVersions updates multiple at once [0.39ms]
+(pass) moduleVersionTracker > serializeModuleVersions converts to plain object [0.31ms]
+(pass) moduleVersionTracker > serializeModuleVersions returns empty object for empty tracker [0.07ms]
+
+tests/unit/hmr/browserArtifactsWatcher.test.ts:
+(pass) browser recordings and atomic trace writes never enter the rebuild queue [257.32ms]
+
+tests/unit/hmr/syncDevtools.test.ts:
+(pass) native Sync devtools > renders redacted diagnostics and retries a retained operation [74.94ms]
+
+tests/unit/hmr/transformCache.test.ts:
+(pass) transformCache.invalidate > clears the changed file and bumps its version [0.94ms]
+(pass) transformCache.invalidate > cascades to direct importers (depth 1) [0.50ms]
+(pass) transformCache.invalidate > cascades through transitive importers (depth ≥ 2) [0.25ms]
+(pass) transformCache.invalidate > bumps invalidationVersion for every transitive importer [0.12ms]
+(pass) transformCache.invalidate > handles diamond dependencies without double-counting [0.07ms]
+(pass) transformCache.invalidate > tolerates import cycles [0.29ms]
+(pass) transformCache.invalidate > only bumps versions on the touched subgraph [0.10ms]
+
+tests/unit/hmr/hmrTiming.test.ts:
+(pass) HMR client timing > distinguishes web and native Capacitor targets [0.59ms]
+(pass) HMR client timing > prefers the deterministic native transport marker [0.16ms]
+(pass) HMR client timing > identifies Expo WebView targets independently from Capacitor [0.16ms]
+(pass) HMR client timing > identifies the browser mobile preview independently from web [0.11ms]
+(pass) HMR client timing > reports target and server/client timing without application identity [0.79ms]
+(pass) HMR client timing > records an apply for deterministic automation without a websocket [0.17ms]
+(pass) HMR client timing > retains a bounded history so overlapping applies remain observable [1.29ms]
+(pass) HMR client timing > restores bounded apply history after a same-tab fallback reload [0.98ms]
+(pass) HMR client timing > restores the legacy single-apply storage representation [0.34ms]
+
+tests/unit/hmr/domState.test.ts:
+(pass) saveDOMState + restoreDOMState roundtrip > preserves text input value [14.89ms]
+(pass) saveDOMState + restoreDOMState roundtrip > preserves checkbox checked state [2.65ms]
+(pass) saveDOMState + restoreDOMState roundtrip > preserves radio button selection [5.55ms]
+(pass) saveDOMState + restoreDOMState roundtrip > preserves textarea value [5.63ms]
+(pass) saveDOMState + restoreDOMState roundtrip > preserves single select value [18.56ms]
+(pass) saveDOMState + restoreDOMState roundtrip > preserves multiple select values [8.31ms]
+(pass) saveDOMState + restoreDOMState roundtrip > preserves details open state [6.61ms]
+(pass) saveDOMState + restoreDOMState roundtrip > preserves contenteditable text [3.79ms]
+(pass) saveDOMState + restoreDOMState roundtrip > tracks focused element by id [5.69ms]
+(pass) saveDOMState + restoreDOMState roundtrip > tracks focused element by name [2.18ms]
+(pass) saveDOMState + restoreDOMState roundtrip > tracks focused element by index [6.11ms]
+(pass) saveDOMState + restoreDOMState roundtrip > restores focus by id [7.11ms]
+(pass) saveDOMState + restoreDOMState roundtrip > restores focus by name [5.15ms]
+(pass) saveDOMState + restoreDOMState roundtrip > restores focus by index [3.66ms]
+(pass) saveDOMState + restoreDOMState roundtrip > handles empty root element [1.37ms]
+(pass) saveDOMState + restoreDOMState roundtrip > handles null/invalid snapshot gracefully [2.05ms]
+(pass) saveDOMState + restoreDOMState roundtrip > finds elements by name fallback when id is absent [2.54ms]
+(pass) saveFormState + restoreFormState > saves and restores form with named text input [22.41ms]
+(pass) saveFormState + restoreFormState > saves and restores checkbox in form [7.80ms]
+(pass) saveFormState + restoreFormState > saves and restores radio group with __radio__ prefix [14.55ms]
+(pass) saveFormState + restoreFormState > saves and restores standalone inputs [1.81ms]
+(pass) saveFormState + restoreFormState > handles multiple forms on page [4.68ms]
+(pass) saveFormState + restoreFormState > forms without id use form-{index} key [3.79ms]
+(pass) saveFormState + restoreFormState > returns empty object when no forms or standalone inputs exist [1.61ms]
+(pass) saveScrollState + restoreScrollState > saves current window scroll position [1.19ms]
+(pass) saveScrollState + restoreScrollState > calls window.scrollTo on restore [0.40ms]
+(pass) saveScrollState + restoreScrollState > handles zero scroll values [0.40ms]
+
+tests/unit/hmr/dependencyGraph.test.ts:
+(pass) addFileToGraph > adds file with no imports [1.60ms]
+(pass) addFileToGraph > adds file with relative import [1.29ms]
+(pass) addFileToGraph > skips nonexistent files without error [0.56ms]
+(pass) removeFileFromGraph > removes file and its edges [2.19ms]
+(pass) removeFileFromGraph > handles removing file not in graph [0.11ms]
+(pass) getAffectedFiles > returns the changed file itself [0.35ms]
+(pass) getAffectedFiles > returns dependent files transitively [1.92ms]
+(pass) getAffectedFiles > handles files with no dependents [0.46ms]
+(pass) extractDependencies > extracts imports from TypeScript files [0.35ms]
+(pass) extractDependencies > skips external package imports [0.39ms]
+(pass) extractDependencies > returns empty for nonexistent file [0.10ms]
+(pass) extractDependencies > extracts HTML stylesheet links [0.65ms]
+
+tests/unit/hmr/moduleMapper.test.ts:
+(pass) mapSourceFileToManifestKeys > maps react page to Index and CSS keys [0.72ms]
+(pass) mapSourceFileToManifestKeys > maps svelte page to name, Index, and CSS keys [0.15ms]
+(pass) mapSourceFileToManifestKeys > maps vue page to name, Index, and CSS keys [0.10ms]
+(pass) mapSourceFileToManifestKeys > maps angular page to name and Index keys [0.56ms]
+(pass) mapSourceFileToManifestKeys > returns empty for html/htmx [0.07ms]
+(pass) mapSourceFileToManifestKeys > maps asset CSS files to CSS key [0.16ms]
+(pass) mapSourceFileToManifestKeys > falls back to path heuristics without resolvedPaths [0.09ms]
+(pass) groupModuleUpdatesByFramework > groups updates by framework [0.28ms]
+(pass) groupModuleUpdatesByFramework > returns empty map for no updates [0.04ms]
+
+tests/unit/hmr/reconnect.test.ts:
+(pass) dev client reconnect > backs off from half a second to ten, for half an hour [0.12ms]
+(pass) dev client reconnect > a first connection has nothing to have missed [0.09ms]
+(pass) dev client reconnect > the same server with no newer update keeps the page [0.13ms]
+(pass) dev client reconnect > an update sent while away, or a restarted server, reloads [0.06ms]
+(pass) dev client reconnect > a server that does not say when it started counts as restarted [0.02ms]
+
+tests/unit/hmr/dependencyWatch.test.ts:
+(pass) dependency manifests and lockfiles remain watched without recursive root watching [266.22ms]
+
+tests/unit/hmr/watchScope.test.ts:
+(pass) opt out of automatic root directories while retaining explicit and source roots [233.75ms]
+
+tests/unit/hmr/cssUtils.test.ts:
+(pass) CSS HMR completion > keeps the old stylesheet until its replacement loads [32.11ms]
+67 |                 referrerPolicy: options?.referrerPolicy
+68 |             }
+69 |         });
+70 |         const response = await fetch.send();
+71 |         if (!response.ok) {
+72 |             throw new this.window.DOMException(`Failed to perform request to "${new URL(url, this.window.location.href).href}". Status ${response.status} ${response.statusText}.`);
+                       ^
+DOMException: Failed to perform request to "http://localhost/indexes/unavailable.css". Status 503 .
+      at fetch (/home/alexkahn/alex/absolutejs-watch-release/node_modules/happy-dom/lib/fetch/ResourceFetch.js:72:19)
+      at async #loadStyleSheet (/home/alexkahn/alex/absolutejs-watch-release/node_modules/happy-dom/lib/nodes/html-link-element/HTMLLinkElement.js:383:44)
+
+67 |                 referrerPolicy: options?.referrerPolicy
+68 |             }
+69 |         });
+70 |         const response = await fetch.send();
+71 |         if (!response.ok) {
+72 |             throw new this.window.DOMException(`Failed to perform request to "${new URL(url, this.window.location.href).href}". Status ${response.status} ${response.statusText}.`);
+                       ^
+DOMException: Failed to perform request to "http://localhost/indexes/unavailable.css?t=1793019045705". Status 503 .
+      at fetch (/home/alexkahn/alex/absolutejs-watch-release/node_modules/happy-dom/lib/fetch/ResourceFetch.js:72:19)
+      at async #loadStyleSheet (/home/alexkahn/alex/absolutejs-watch-release/node_modules/happy-dom/lib/nodes/html-link-element/HTMLLinkElement.js:383:44)
+
+67 |                 referrerPolicy: options?.referrerPolicy
+68 |             }
+69 |         });
+70 |         const response = await fetch.send();
+71 |         if (!response.ok) {
+72 |             throw new this.window.DOMException(`Failed to perform request to "${new URL(url, this.window.location.href).href}". Status ${response.status} ${response.statusText}.`);
+                       ^
+DOMException: Failed to perform request to "http://localhost/indexes/unavailable.css?t=1793019045705&retry=1793019045710". Status 503 .
+      at fetch (/home/alexkahn/alex/absolutejs-watch-release/node_modules/happy-dom/lib/fetch/ResourceFetch.js:72:19)
+      at async #loadStyleSheet (/home/alexkahn/alex/absolutejs-watch-release/node_modules/happy-dom/lib/nodes/html-link-element/HTMLLinkElement.js:383:44)
+
+(pass) CSS HMR completion > preserves the old stylesheet when replacement loading fails [15.00ms]
+(pass) CSS HMR completion > retries one transient stylesheet loading failure [16.87ms]
+67 |                 referrerPolicy: options?.referrerPolicy
+68 |             }
+69 |         });
+70 |         const response = await fetch.send();
+71 |         if (!response.ok) {
+72 |             throw new this.window.DOMException(`Failed to perform request to "${new URL(url, this.window.location.href).href}". Status ${response.status} ${response.statusText}.`);
+                       ^
+DOMException: Failed to perform request to "http://localhost/indexes/deleted.abc123.css". Status 404 .
+      at fetch (/home/alexkahn/alex/absolutejs-watch-release/node_modules/happy-dom/lib/fetch/ResourceFetch.js:72:19)
+      at async #loadStyleSheet (/home/alexkahn/alex/absolutejs-watch-release/node_modules/happy-dom/lib/nodes/html-link-element/HTMLLinkElement.js:383:44)
+
+67 |                 referrerPolicy: options?.referrerPolicy
+68 |             }
+69 |         });
+70 |         const response = await fetch.send();
+71 |         if (!response.ok) {
+72 |             throw new this.window.DOMException(`Failed to perform request to "${new URL(url, this.window.location.href).href}". Status ${response.status} ${response.statusText}.`);
+                       ^
+DOMException: Failed to perform request to "http://localhost/indexes/deleted.abc123.css?t=1793019045732". Status 404 .
+      at fetch (/home/alexkahn/alex/absolutejs-watch-release/node_modules/happy-dom/lib/fetch/ResourceFetch.js:72:19)
+      at async #loadStyleSheet (/home/alexkahn/alex/absolutejs-watch-release/node_modules/happy-dom/lib/nodes/html-link-element/HTMLLinkElement.js:383:44)
+
+(pass) CSS HMR completion > disables a stylesheet that 404s instead of refetching it on every update [11.40ms]
+67 |                 referrerPolicy: options?.referrerPolicy
+68 |             }
+69 |         });
+70 |         const response = await fetch.send();
+71 |         if (!response.ok) {
+72 |             throw new this.window.DOMException(`Failed to perform request to "${new URL(url, this.window.location.href).href}". Status ${response.status} ${response.statusText}.`);
+                       ^
+DOMException: Failed to perform request to "http://localhost/indexes/restored.abc123.css". Status 404 .
+      at fetch (/home/alexkahn/alex/absolutejs-watch-release/node_modules/happy-dom/lib/fetch/ResourceFetch.js:72:19)
+      at async #loadStyleSheet (/home/alexkahn/alex/absolutejs-watch-release/node_modules/happy-dom/lib/nodes/html-link-element/HTMLLinkElement.js:383:44)
+
+67 |                 referrerPolicy: options?.referrerPolicy
+68 |             }
+69 |         });
+70 |         const response = await fetch.send();
+71 |         if (!response.ok) {
+72 |             throw new this.window.DOMException(`Failed to perform request to "${new URL(url, this.window.location.href).href}". Status ${response.status} ${response.statusText}.`);
+                       ^
+DOMException: Failed to perform request to "http://localhost/indexes/restored.abc123.css?t=1793019045743". Status 404 .
+      at fetch (/home/alexkahn/alex/absolutejs-watch-release/node_modules/happy-dom/lib/fetch/ResourceFetch.js:72:19)
+      at async #loadStyleSheet (/home/alexkahn/alex/absolutejs-watch-release/node_modules/happy-dom/lib/nodes/html-link-element/HTMLLinkElement.js:383:44)
+
+(pass) CSS HMR completion > re-enables a gone stylesheet once the manifest names a new file [8.65ms]
+67 |                 referrerPolicy: options?.referrerPolicy
+68 |             }
+69 |         });
+70 |         const response = await fetch.send();
+71 |         if (!response.ok) {
+72 |             throw new this.window.DOMException(`Failed to perform request to "${new URL(url, this.window.location.href).href}". Status ${response.status} ${response.statusText}.`);
+                       ^
+DOMException: Failed to perform request to "http://localhost/indexes/limited.abc123.css". Status 429 .
+      at fetch (/home/alexkahn/alex/absolutejs-watch-release/node_modules/happy-dom/lib/fetch/ResourceFetch.js:72:19)
+      at async #loadStyleSheet (/home/alexkahn/alex/absolutejs-watch-release/node_modules/happy-dom/lib/nodes/html-link-element/HTMLLinkElement.js:383:44)
+
+67 |                 referrerPolicy: options?.referrerPolicy
+68 |             }
+69 |         });
+70 |         const response = await fetch.send();
+71 |         if (!response.ok) {
+72 |             throw new this.window.DOMException(`Failed to perform request to "${new URL(url, this.window.location.href).href}". Status ${response.status} ${response.statusText}.`);
+                       ^
+DOMException: Failed to perform request to "http://localhost/indexes/limited.abc123.css?t=1793019045752". Status 429 .
+      at fetch (/home/alexkahn/alex/absolutejs-watch-release/node_modules/happy-dom/lib/fetch/ResourceFetch.js:72:19)
+      at async #loadStyleSheet (/home/alexkahn/alex/absolutejs-watch-release/node_modules/happy-dom/lib/nodes/html-link-element/HTMLLinkElement.js:383:44)
+
+67 |                 referrerPolicy: options?.referrerPolicy
+68 |             }
+69 |         });
+70 |         const response = await fetch.send();
+71 |         if (!response.ok) {
+72 |             throw new this.window.DOMException(`Failed to perform request to "${new URL(url, this.window.location.href).href}". Status ${response.status} ${response.statusText}.`);
+                       ^
+DOMException: Failed to perform request to "http://localhost/indexes/limited.abc123.css?t=1793019045752&retry=1793019045755". Status 429 .
+      at fetch (/home/alexkahn/alex/absolutejs-watch-release/node_modules/happy-dom/lib/fetch/ResourceFetch.js:72:19)
+      at async #loadStyleSheet (/home/alexkahn/alex/absolutejs-watch-release/node_modules/happy-dom/lib/nodes/html-link-element/HTMLLinkElement.js:383:44)
+
+(pass) CSS HMR completion > backs off a stylesheet after a transient failure [8.65ms]
+(pass) CSS HMR completion > does not refetch unrelated cross-origin stylesheets [3.95ms]
+
+tests/unit/hmr/angularHmrInjection.test.ts:
+(pass) Angular HMR client acknowledgement injection > records the shared native apply contract before sending its tier ack [1.48ms]
+
+tests/unit/hmr/fileHashTracker.test.ts:
+(pass) computeFileHash > returns a number for an existing file [0.48ms]
+(pass) computeFileHash > returns -1 for nonexistent file [0.07ms]
+(pass) computeFileHash > returns same hash for same content [0.26ms]
+(pass) computeFileHash > returns different hash for different content [0.14ms]
+(pass) hasFileChanged > returns true for first-time file (no previous hash) [0.48ms]
+(pass) hasFileChanged > returns false when hash matches previous [0.13ms]
+(pass) hasFileChanged > returns true when hash differs from previous [0.05ms]
+(pass) hasFileChanged > normalizes paths with backslashes [0.04ms]
+(pass) predatesProcess > an unhashed file last written before the process started [0.62ms]
+(pass) predatesProcess > a file already hashed is never a baseline [0.37ms]
+(pass) predatesProcess > a missing file is not a baseline [0.11ms]
+
+tests/unit/hmr/webSocket.test.ts:
+(pass) handleClientConnect > adds client to connected set [1.00ms]
+(pass) handleClientConnect > sends manifest message on connect [2.02ms]
+(pass) handleClientConnect > sends connected message after manifest [0.25ms]
+(pass) handleClientDisconnect > removes client from connected set [0.15ms]
+(pass) handleClientDisconnect > handles disconnect for non-connected client [0.11ms]
+(pass) broadcastToClients > sends message to all connected clients [0.52ms]
+(pass) broadcastToClients > adds timestamp to broadcast messages [0.18ms]
+(pass) broadcastToClients > removes clients whose send throws [0.24ms]
+(pass) handleHMRMessage > responds to ping with pong [0.50ms]
+(pass) handleHMRMessage > handles Buffer messages [0.13ms]
+(pass) handleHMRMessage > ignores invalid JSON [0.09ms]
+(pass) handleHMRMessage > ignores unknown message types [0.06ms]
+(pass) handleHMRMessage > handles ready message without error [0.11ms]
+(pass) handleHMRMessage > tracks the declared native client target for diagnostics [0.06ms]
+(pass) handleHMRMessage > tracks Expo native WebViews without collapsing them into web [0.05ms]
+(pass) handleHMRMessage > tracks mobile preview separately from ordinary browser clients [0.04ms]
+(pass) handleHMRMessage > labels native HMR application timing with its server/client split [1.98ms]
+(pass) handleHMRMessage > labels preview HMR timing independently from web and native devices [0.81ms]
+(pass) handleHMRMessage > correlates delayed client timing with the update that produced it [0.84ms]
+(pass) handleHMRMessage > ignores malformed HMR application timing [0.15ms]
+(pass) handleHMRMessage > logs native fallback reload outcomes without client error details [0.62ms]
+(pass) handleHMRMessage > rejects unknown HMR application outcomes [0.16ms]
+(pass) Elysia per-event socket wrappers > close removes the client registered on open [0.18ms]
+(pass) Elysia per-event socket wrappers > repeated messages count one connection once [0.22ms]
+
+tests/unit/hmr/rebuildHandler.test.ts:
+(pass) rebuild-complete client routing > keeps assets changes on the stylesheet HMR path [0.48ms]
+(pass) rebuild-complete client routing > keeps styles changes on the stylesheet HMR path [0.04ms]
+(pass) rebuild-complete client routing > keeps tailwind changes on the stylesheet HMR path [0.01ms]
+(pass) island full-reload client routing > does not reload a framework outside the affected page set [0.30ms]
+
+tests/unit/hmr/clientManager.test.ts:
+(pass) createHMRState > creates state with all required fields [0.39ms]
+(pass) createHMRState > stores config reference [0.18ms]
+(pass) createHMRState > resolves build paths from config [0.18ms]
+(pass) incrementSourceFileVersion > starts at 1 for new file [0.17ms]
+(pass) incrementSourceFileVersion > increments on subsequent calls [0.08ms]
+(pass) incrementSourceFileVersion > tracks versions independently per file [0.06ms]
+(pass) incrementSourceFileVersions > increments multiple files at once [0.83ms]
+
+tests/unit/hmr/pathUtils.test.ts:
+(pass) detectFramework > detects react from resolved paths [0.54ms]
+(pass) detectFramework > detects svelte from resolved paths [0.10ms]
+(pass) detectFramework > detects vue from resolved paths [0.12ms]
+(pass) detectFramework > detects angular from resolved paths [0.09ms]
+(pass) detectFramework > detects html from resolved paths [0.09ms]
+(pass) detectFramework > detects htmx from resolved paths [0.08ms]
+(pass) detectFramework > detects styles directory [0.07ms]
+(pass) detectFramework > detects assets directory [0.17ms]
+(pass) detectFramework > falls back to extension-based detection without resolved paths [0.19ms]
+(pass) detectFramework > falls back to path heuristics without resolved paths [0.12ms]
+(pass) detectFramework > returns ignored for build and generated paths [0.10ms]
+(pass) detectFramework > returns unknown for unrecognized files [0.08ms]
+(pass) shouldIgnorePath > ignores build directories [0.06ms]
+(pass) shouldIgnorePath > ignores generated directories [0.03ms]
+(pass) shouldIgnorePath > ignores node_modules [0.02ms]
+(pass) shouldIgnorePath > ignores .git directory [0.02ms]
+(pass) shouldIgnorePath > ignores .log files [0.07ms]
+(pass) shouldIgnorePath > ignores .tmp files [0.12ms]
+(pass) shouldIgnorePath > ignores configured mobile native and bundle output trees [0.23ms]
+(pass) shouldIgnorePath > allows styles directory when configured [0.19ms]
+(pass) shouldIgnorePath > allows source files [0.08ms]
+(pass) getWatchPaths > returns paths for configured frameworks [15.01ms]
+(pass) getWatchPaths > watches entire react directory [4.07ms]
+(pass) getWatchPaths > skips unconfigured frameworks [4.93ms]
+(pass) getWatchPaths > includes assets directory when configured [6.37ms]
+(pass) browser test artifacts > ignores test-results creation and contents on Unix and Windows [0.67ms]
+(pass) browser test artifacts > ignores playwright-report creation and contents on Unix and Windows [0.33ms]
+(pass) browser test artifacts > ignores blob-report creation and contents on Unix and Windows [0.34ms]
+(pass) browser test artifacts > ignores .playwright-mcp creation and contents on Unix and Windows [0.27ms]
+(pass) browser test artifacts > ignores .playwright-artifacts-0 creation and contents on Unix and Windows [0.15ms]
+(pass) browser test artifacts > keeps actual test source, similarly named files, and application screenshots watchable [0.19ms]
+
+tests/unit/vue/resolveGeneratedVueModulePath.test.ts:
+(pass) resolveGeneratedVueModulePath > keeps the exact manifest asset when stale siblings exist [4.63ms]
+(pass) resolveGeneratedVueModulePath > uses the newest sibling when an HMR manifest path was pruned [4.34ms]
+
+tests/unit/vue/pageHandlerRouteData.test.ts:
+(pass) handleVuePageRequest route data > lists the head stylesheets and the client entry [3.67ms]
+(pass) handleVuePageRequest route data > an SSR-only page reports no client entry [0.78ms]
+
+tests/unit/vue/link.test.ts:
+(pass) Vue <Link> > prefetches on hover / pointerdown and routes through the page router [1419.91ms]
+
+tests/unit/vue/browserTranslation.test.ts:
+(pass) browser translation hydration > restores translated text after root hydration without replacing elements [6.05ms]
+(pass) browser translation hydration > wraps lazy hydration and preserves the strategy teardown [3.92ms]
+(pass) browser translation hydration > does not hide an ordinary client render change [1.36ms]
+(pass) browser translation hydration > restores translated text when a framework replaces the rendered nodes [2.66ms]
+(pass) browser translation hydration > preserves translated human-readable attributes without changing URLs or field values [3.19ms]
+(pass) browser translation hydration > unwraps only inserted text-only font trees before hydration and preserves their translation [7.33ms]
+(pass) browser translation hydration > does not flatten authored font elements or new interactive markup [5.07ms]
+(pass) browser translation hydration > does not overwrite attribute changes made by the client while hydrating [1.33ms]
+
+tests/unit/vue/pageHandlerHydration.test.ts:
+(pass) handleVuePageRequest hydration > renders the same multi-root app shape the client hydrates [704.69ms]
+
+tests/unit/vue/pageHandlerStreaming.test.ts:
+(pass) handleVuePageRequest streaming > captures SSR text before loading the Vue client module [22.93ms]
+(pass) handleVuePageRequest streaming > returns a 404 when an SPA router marks the request as unmatched [5.95ms]
+[Vue warn]: Unhandled error during execution of render function 
+  at <FailingChild> 
+  at <AsyncComponentWrapper> 
+  at <FailingPage>
+(pass) handleVuePageRequest streaming > returns a 500 instead of committing a partial document when ordinary SSR fails asynchronously [10.43ms]
+(pass) handleVuePageRequest streaming > injects runtime and appends patches for registered StreamSlot components [28.57ms]
+(pass) handleVuePageRequest streaming > renders framework-level SuspenseSlot fallback and resolved slot content [20.18ms]
+
+tests/unit/utils/unrefTimer.test.ts:
+(pass) unrefTimer detaches server timers and ignores browser handles [0.21ms]
+
+tests/unit/utils/cleanup.test.ts:
+(pass) framework cleanup > removes legacy Angular intermediates without removing source [16.19ms]
+
+tests/unit/utils/loadConfig.test.ts:
+(pass) loadConfig > loads example config from path [4.68ms]
+(pass) loadConfig > config paths point to existing directories [0.57ms]
+(pass) loadConfig > returns buildDirectory [0.65ms]
+
+tests/unit/utils/buildDirectoryLock-cleanup.test.ts:
+(pass) buildDirectoryLock — exit-handler cleanup > SIGINT to a process holding the lock removes the lock file [113.02ms]
+
+tests/unit/utils/bootTimeline.test.ts:
+(pass) bootIntervalBetween > measures the gap between two marks of one boot [0.59ms]
+(pass) bootIntervalBetween > ignores an end mark recorded before the window opened [0.14ms]
+(pass) bootIntervalBetween > uses the last start mark, so a hot re-evaluation wins [0.11ms]
+(pass) bootIntervalBetween > is null when the end mark never came [0.05ms]
+(pass) bootIntervalBetween > is null when neither mark was recorded [0.05ms]
+(pass) bootIntervalBetween > is null when the end mark is out of time order [0.04ms]
+
+tests/unit/utils/streamingSlots.test.ts:
+(pass) streamingSlots > injects runtime tag into head of a stream [1.01ms]
+(pass) streamingSlots > injects runtime tag into body of a stream when requested [0.63ms]
+(pass) streamingSlots > streams slot patches in resolution order (out-of-order) [34.41ms]
+(pass) streamingSlots > renders placeholder and patch tags [0.85ms]
+(pass) streamingSlots > renders syntactically valid inline runtime and patch scripts [3.49ms]
+(pass) streamingSlots > supports a runtime prelude script before the slot runtime [0.20ms]
+(pass) streamingSlots > keeps angular-defer payloads queued until a consumer handles them [2.35ms]
+(pass) streamingSlots > patches vue-suspense payloads once and waits for the consumer takeover [1.62ms]
+(pass) streamingSlots > appends patches before closing tags when base stream finishes first [21.30ms]
+(pass) streamingSlots > keeps fallback when a slot times out and no errorHtml is set [11.51ms]
+(pass) streamingSlots > renders errorHtml when a slot times out [11.86ms]
+(pass) streamingSlots > uses global policy defaults for slot timeout and fallback/error html [6.78ms]
+(pass) streamingSlots > drops slots above maxSlotsPerResponse and reports an error [3.31ms]
+(pass) streamingSlots > enforces maxSlotHtmlSizeBytes before patching a slot [1.70ms]
+(pass) streamingSlots > supports temporary policy scope helper [3.02ms]
+(pass) streamingSlots > emits metric events for prepared and patched slots [1.66ms]
+(pass) streamingSlots > merges onSlotMetric from policy and call options [1.83ms]
+(pass) streamingSlots > emits metric events when a slot is dropped [1.62ms]
+(pass) streamingSlots > emits timeout metric event when slot resolution exceeds timeout [2.22ms]
+(pass) streamingSlots > emits size_exceeded metric event [1.46ms]
+(pass) streamingSlots > unwraps Angular SafeValue objects before rendering [0.83ms]
+
+tests/unit/utils/spaRouteCss.test.ts:
+(pass) resolveSpaChildCss > resolves all child CSS paths from the SPA manifest directory [6.92ms]
+
+tests/unit/utils/spaRouteManifest.test.ts:
+(pass) SPA route manifest > matches static, dynamic, optional, and wildcard routes [1.91ms]
+(pass) SPA route manifest > only applies a manifest to its framework and page [0.63ms]
+
+tests/unit/utils/buildDirectoryLock-orphan.test.ts:
+(pass) buildDirectoryLock — orphan PID detection > acquires successfully when an existing lock points at a dead PID [9.02ms]
+
+tests/unit/utils/jsonLd.test.ts:
+(pass) jsonLd > wraps with @context [0.49ms]
+(pass) jsonLd > handles array of schemas [0.24ms]
+(pass) jsonLd > uses a Safari-compatible object for an empty schema array [0.07ms]
+(pass) jsonLd > Article with full properties [0.14ms]
+(pass) jsonLd > BlogPosting subtype [0.04ms]
+(pass) jsonLd > Product with offers and rating [0.15ms]
+(pass) jsonLd > Product with multiple offers [0.07ms]
+(pass) jsonLd > BreadcrumbList [0.07ms]
+(pass) jsonLd > FAQPage [0.09ms]
+(pass) jsonLd > Event [0.14ms]
+(pass) jsonLd > Recipe [0.15ms]
+(pass) jsonLd > VideoObject [0.07ms]
+(pass) jsonLd > HowTo [0.07ms]
+(pass) jsonLd > LocalBusiness [0.09ms]
+(pass) jsonLd > SoftwareApplication [0.22ms]
+(pass) jsonLd > JobPosting [0.45ms]
+(pass) jsonLd > Person [0.13ms]
+(pass) jsonLd > WebSite with search action [0.08ms]
+(pass) jsonLd > Review standalone [0.08ms]
+(pass) jsonLd > Organization with full details [0.11ms]
+(pass) jsonLd > multiple schemas on one page (Article + BreadcrumbList + Organization) [0.17ms]
+(pass) jsonLd > produces valid JSON that can be parsed [0.07ms]
+(pass) jsonLd > outputs valid script tag format [0.06ms]
+
+tests/unit/utils/getDurationString.test.ts:
+(pass) getDurationString > formats minute-scale durations as minutes and seconds [0.26ms]
+
+tests/unit/utils/loadConfig-edge.test.ts:
+(pass) loadConfig edge cases > loads config from explicit path [0.45ms]
+(pass) loadConfig edge cases > loads config from ABSOLUTE_CONFIG env var [0.45ms]
+(pass) loadConfig edge cases > throws for non-existent config file [0.38ms]
+(pass) loadConfig edge cases > throws for config file that exports nothing [1.96ms]
+
+tests/unit/utils/cleanStaleOutputs.test.ts:
+(pass) cleanStaleOutputs > removes root chunks the current build did not emit [12.15ms]
+(pass) cleanStaleOutputs > leaves non-content-addressed files alone [10.45ms]
+
+tests/unit/utils/generateHeadElement.test.ts:
+(pass) generateHeadElement > generates head with defaults [0.25ms]
+(pass) generateHeadElement > uses custom title [0.15ms]
+(pass) generateHeadElement > uses custom description [0.05ms]
+(pass) generateHeadElement > includes single CSS path [0.15ms]
+(pass) generateHeadElement > includes multiple CSS paths [0.07ms]
+(pass) generateHeadElement > includes font preconnect when font provided [0.12ms]
+(pass) generateHeadElement > omits font when not provided [0.07ms]
+(pass) generateHeadElement > uses custom icon [0.21ms]
+(pass) generateHeadElement > omits CSS link when no cssPath [0.06ms]
+(pass) generateHeadElement preload + speculation rules > emits preload and modulepreload links next to the preconnect block [0.29ms]
+(pass) generateHeadElement preload + speculation rules > emits a speculationrules script with prerender and prefetch lists [0.29ms]
+(pass) generateHeadElement preload + speculation rules > drops empty speculation rules and escapes < in URLs [0.28ms]
+(pass) generateHeadElement preload + speculation rules > omits preload and speculation output when neither is configured [0.11ms]
+
+tests/unit/utils/cleanup-readonly.test.ts:
+(pass) generated cleanup on a read-only source tree > accepts an absent legacy generated directory [4.79ms]
+(pass) generated cleanup on a read-only source tree > still rejects an existing directory that cannot be removed [18.27ms]
+
+tests/unit/utils/streamingSlotMetricSink.test.ts:
+(pass) streamingSlotMetricSink > includes route and metadata and emits reported metrics [0.71ms]
+(pass) streamingSlotMetricSink > filters by includeTypes and excludeTypes [0.18ms]
+(pass) streamingSlotMetricSink > skips all events when sampleRate is 0 [0.10ms]
+(pass) streamingSlotMetricSink > reports async transport errors to onError [6.32ms]
+(pass) streamingSlotMetricSink > no-op when no onReport is provided [0.38ms]
+
+tests/unit/dev/moduleServer.browserGlobals.test.ts:
+(pass) createModuleServer browser globals > folds a require guard to the browser branch, never to a bare require [10.33ms]
+(pass) createModuleServer browser globals > resolves a free require check to false in application code [4.55ms]
+(pass) createModuleServer browser globals > leaves local, parameter and property `require` bindings alone [6.71ms]
+(pass) createModuleServer browser globals > still inlines process.env.NODE_ENV for the browser [5.72ms]
+(pass) createModuleServer browser globals > still transpiles application TypeScript [3.69ms]
+
+tests/unit/dev/importCostDeferability.test.ts:
+(pass) import-cost static safety check > a bare import is never deferrable [14.12ms]
+(pass) import-cost static safety check > bindings used only inside function bodies are deferrable [24.91ms]
+(pass) import-cost static safety check > a binding called at module scope is not deferrable [2.24ms]
+(pass) import-cost static safety check > a binding used in a decorator is not deferrable [5.65ms]
+(pass) import-cost static safety check > a method decorator on a top-level class is not deferrable [8.21ms]
+(pass) import-cost static safety check > a class field initializer is not deferrable [4.61ms]
+(pass) import-cost static safety check > type-only imports never load and are reported as such [8.95ms]
+(pass) import-cost static safety check > a value import used only in type position is still deferrable [4.24ms]
+(pass) import-cost static safety check > a re-exported binding is not deferrable [2.75ms]
+(pass) import-cost static safety check > an `export … from` is a runtime import that cannot move [0.57ms]
+(pass) import-cost static safety check > a property named like the import does not count as a use [4.05ms]
+(pass) import-cost static safety check > a class inside a function defers its decorators with it [4.51ms]
+(pass) import-cost static safety check > a use inside a parameter default is deferred to call time [2.67ms]
+(pass) import-cost static safety check > the entry line number comes back for each import [1.50ms]
+
+tests/unit/dev/serverEntryCopies.test.ts:
+(pass) server entry copy ownership > extracts owners from bootstrap and reload copies [0.34ms]
+(pass) server entry copy ownership > does not claim malformed or unrelated files [0.20ms]
+(pass) server entry copy ownership > cleans copies owned by the new process PID [0.27ms]
+(pass) server entry copy ownership > cleans dead owners but preserves live foreign owners [0.08ms]
+(pass) server entry copy ownership > preserves unowned matching-prefix files [0.03ms]
+(pass) isMissingAbsoluteServerEntryCopyError > matches a missing framework-owned snapshot [0.12ms]
+(pass) isMissingAbsoluteServerEntryCopyError > does not hide a missing application dependency [0.04ms]
+(pass) isMissingAbsoluteServerEntryCopyError > requires an Error and the exact snapshot path [0.04ms]
+
+tests/unit/dev/moduleServer.reactRefreshProbe.test.ts:
+(pass) React Fast Refresh probe > agrees with the running Bun [0.46ms]
+
+tests/unit/dev/generated-server-watch.test.ts:
+(pass) generated snapshot detection handles recursive and Windows watch paths [0.16ms]
+(pass) nested snapshots do not trigger HMR or atomic recovery; real edits still do [205.30ms]
+
+tests/unit/dev/atomic-write-temp-patterns.test.ts:
+(pass) isAtomicWriteTemp > matches `.tmp` suffix [0.20ms]
+(pass) isAtomicWriteTemp > matches `.tmp.` substring (Prettier intermediate) [0.06ms]
+(pass) isAtomicWriteTemp > matches `~` suffix (Emacs/Vim/IDE backup) [0.03ms]
+(pass) isAtomicWriteTemp > matches `.#` prefix (Emacs lockfile) [0.03ms]
+(pass) isAtomicWriteTemp > matches AbsoluteJS sibling entry copies [0.08ms]
+(pass) isAtomicWriteTemp > matches `sed<random>` (sed -i in-place tmp) [0.77ms]
+(pass) isAtomicWriteTemp > does NOT match `sed` standalone (too short to be sed-tmp) [0.08ms]
+(pass) isAtomicWriteTemp > matches `4913` (vim preflight write probe) [0.02ms]
+(pass) isAtomicWriteTemp > does NOT match a real source filename [0.06ms]
+(pass) isAtomicWriteTemp > does NOT match dotfiles that ARE source (not lockfiles) [0.03ms]
+(pass) isAtomicWriteTemp > matches `4913` exactly (not as substring) [0.03ms]
+
+tests/unit/dev/assetStore.chunks.test.ts:
+(pass) asset store shared chunks > populateAssetStore loads manifest chunk keys and never evicts chunks [3.87ms]
+(pass) asset store shared chunks > cleanStaleAssets drops chunk entries whose file left the disk [4.11ms]
+
+tests/unit/dev/assetStore.mime.test.ts:
+(pass) PDF documents are served for browser viewing [0.34ms]
+
+tests/unit/dev/importCostGraph.test.ts:
+(pass) import-cost module graph > static edges come from re-scanning the loaded sources [2.31ms]
+(pass) import-cost module graph > a module nothing imports is attributed to whoever was evaluating [0.39ms]
+(pass) import-cost module graph > a dependency left uninstrumented is flagged, not silently dropped [1.28ms]
+(pass) import-cost module graph > the root itself never gets an inferred importer [0.10ms]
+(pass) import-cost graph on a directory with no sources > a missing file yields no edges rather than throwing [0.68ms]
+
+tests/unit/dev/moduleServer.svelte.test.ts:
+(pass) createModuleServer Svelte transforms > lowers #await blocks in dev client modules [892.14ms]
+(pass) createModuleServer Svelte transforms > uses configured preprocessors for Svelte style blocks [692.47ms]
+(pass) createModuleServer Svelte transforms > uses configured preprocessors for Vue style blocks [466.16ms]
+
+tests/unit/dev/import-rethrow.test.ts:
+(pass) sequential import() of a throwing module rejects with the same error every time [8.89ms]
+
+tests/unit/dev/earlyListener.test.ts:
+(pass) early dev listener > answers HTML, JSON and plain-text clients with 503 + Retry-After while building [78.21ms]
+(pass) early dev listener > rejects websocket upgrades cleanly instead of crashing [47.63ms]
+(pass) early dev listener > release frees the port synchronously for the real server [78.92ms]
+(pass) early dev listener > a busy port never throws — the placeholder just stays unbound [41.15ms]
+(pass) early dev listener > buildingResponse content negotiation is header-driven [0.57ms]
+
+tests/unit/dev/moduleServer.vueStyles.test.ts:
+(pass) Vue development CSS imports > inlines nested component styles and scopes imported selectors after a reload [28.74ms]
+
+tests/unit/dev/idleScheduler.test.ts:
+(pass) runWhenIdle > runs every task and reports the count [1.62ms]
+(pass) runWhenIdle > waits while the server is busy and resumes when it goes idle [0.60ms]
+(pass) runWhenIdle > a permanently busy server still makes progress after maxPauseMs [0.35ms]
+(pass) runWhenIdle > cancel stops the run without draining the remaining tasks [0.86ms]
+(pass) runWhenIdle > yields between every launch, not just between batches [0.75ms]
+(pass) runWhenIdle > a batch can be interrupted partway through [0.93ms]
+(pass) runWhenIdle > a busy signal stops the rest of the batch from launching [0.69ms]
+(pass) prioritiseByDependencies > puts entry sources and their transitive imports first [0.35ms]
+(pass) prioritiseByDependencies > keeps the original order when nothing has been built yet [0.07ms]
+(pass) prioritiseByDependencies > ignores entry sources and dependencies outside the file set [0.09ms]
+(pass) prioritiseByDependencies > survives an import cycle [0.17ms]
+(pass) dependencyOrderedSequence > re-prioritises when a page is built mid-run [0.62ms]
+(pass) dependencyOrderedSequence > yields every file exactly once with no entries [0.14ms]
+
+tests/unit/dev/lazyPages.test.ts:
+(pass) lazy page registry: key → source mapping > derives the PascalCase manifest name from the source file [0.07ms]
+(pass) lazy page registry: key → source mapping > strips one known suffix, longest first [0.28ms]
+(pass) lazy page registry: key → source mapping > resolves every manifest key shape of a page to its source [0.57ms]
+(pass) lazy page registry: key → source mapping > prefers an exact page name over a stripped suffix [0.14ms]
+(pass) lazy page registry: key → source mapping > resolves page source paths and /@src/ URLs [0.20ms]
+(pass) lazy page registry: key → source mapping > returns undefined for unknown keys and empty input [0.08ms]
+(pass) lazy page registry: key → source mapping > ignores generated helper entries and refreshes in place [0.25ms]
+(pass) lazy page registry: key → source mapping > falls back to a filesystem probe for pages created after the last scan [3.49ms]
+(pass) lazy page registry: key → source mapping > a page counts as built once its primary key is in the manifest [0.41ms]
+(pass) on-demand page builder: dedupe > concurrent requests for one page share a single build [1.01ms]
+(pass) on-demand page builder: dedupe > different pages each get their own build [0.48ms]
+(pass) on-demand page builder: dedupe > a finished build is not reused — the next warm runs again [0.42ms]
+(pass) on-demand page builder: dedupe > a throwing build resolves false and clears the in-flight slot [0.30ms]
+
+tests/unit/dev/serverEntryPolling.test.ts:
+(pass) server-entry polling fallback > observes a missed write and stops cleanly [87.24ms]
+
+tests/unit/dev/importCostHint.test.ts:
+(pass) import-cost hint: what it measures > is the window between the two boot marks [0.14ms]
+(pass) import-cost hint: what it measures > is null when the boot recorded no such window [0.04ms]
+(pass) import-cost hint: when it fires > fires on a slow, interactive boot [0.38ms]
+(pass) import-cost hint: when it fires > exactly at the threshold counts as slow [0.08ms]
+(pass) import-cost hint: when it stays silent > a fast boot [0.07ms]
+(pass) import-cost hint: when it stays silent > a boot that recorded nothing [0.03ms]
+(pass) import-cost hint: when it stays silent > the flag is already on [0.04ms]
+(pass) import-cost hint: when it stays silent > a bun --hot re-evaluation [0.03ms]
+(pass) import-cost hint: when it stays silent > --eager [0.03ms]
+(pass) import-cost hint: when it stays silent > CI [0.03ms]
+(pass) import-cost hint: when it stays silent > a non-interactive stdout [1.77ms]
+(pass) import-cost hint: when it stays silent > explicitly silenced, however slow the boot was [0.06ms]
+(pass) import-cost hint: when it stays silent > silencing beats every other reason to fire [0.03ms]
+(pass) import-cost hint: the force override > fires through a pipe, in CI, with --eager [0.03ms]
+(pass) import-cost hint: the force override > does not force past the threshold — the number has to be real [0.03ms]
+(pass) import-cost hint: the force override > does not force past the flag already being on [0.02ms]
+(pass) import-cost hint: threshold override > unset falls back to the default [0.11ms]
+(pass) import-cost hint: threshold override > a number is taken as milliseconds [0.05ms]
+(pass) import-cost hint: threshold override > nonsense falls back rather than disabling the hint [0.04ms]
+(pass) import-cost hint: the line > names the measured cost and the flag, on one line [0.06ms]
+(pass) import-cost hint: the line > claims no saving [0.02ms]
+
+tests/unit/dev/importCostInstrument.test.ts:
+(pass) import-cost source transform > line numbers survive the transform [0.60ms]
+(pass) import-cost source transform > the enter call goes after a shebang and a directive prologue [0.18ms]
+(pass) import-cost source transform > a "use client" banner keeps its place [0.09ms]
+(pass) import-cost source transform > a file with no trailing newline still closes its span [0.09ms]
+(pass) import-cost source transform > the calls are optional so a bundle that swallows them is inert [0.15ms]
+(pass) import-cost source transform > loaders follow the extension [0.10ms]
+(pass) import-cost instrumentation scope > app sources are instrumented [0.43ms]
+(pass) import-cost instrumentation scope > CommonJS packages are left alone [0.11ms]
+(pass) import-cost instrumentation scope > .mjs is ESM wherever it lives, .cjs never is [0.04ms]
+(pass) import-cost instrumentation scope > declared ESM packages are instrumented [0.03ms]
+(pass) import-cost instrumentation scope > a CommonJS build inside an ESM package is excluded [0.03ms]
+(pass) import-cost instrumentation scope > an ESM package's own dependencies are somebody else's package [0.02ms]
+(pass) import-cost self times > parse time lands on the module being parsed, overhead on nobody [0.62ms]
+(pass) import-cost self times > a parent body excludes the children evaluated before it [0.23ms]
+(pass) import-cost self times > a nested span (CommonJS require, awaited dynamic import) is subtracted [0.13ms]
+(pass) import-cost self times > a module that never exits is counted, not silently dropped [0.12ms]
+(pass) import-cost self times > an empty log produces zeroes rather than NaN [0.09ms]
+
+tests/unit/dev/restartScope.test.ts:
+(pass) changeNeedsRestart > documents and test files never restart the server [0.26ms]
+(pass) changeNeedsRestart > code restarts the server only when this process loaded it [0.16ms]
+(pass) changeNeedsRestart > config read at startup still restarts the server [0.13ms]
+(pass) changeNeedsRestart > by default it asks the running process what it loaded [0.71ms]
+
+tests/unit/dev/importCostDominators.test.ts:
+(pass) import-cost dominators > reachability covers the whole graph from the root [0.34ms]
+(pass) import-cost dominators > removing one edge only removes what it alone reached [0.05ms]
+(pass) import-cost dominators > a shared module is dominated by neither of its importers [0.35ms]
+(pass) import-cost dominators > a module the root reaches independently is never attributed [0.15ms]
+(pass) import-cost dominators > savings sum only the dominated modules, never the shared ones [1.69ms]
+(pass) import-cost dominators > deferring every import together removes the shared module too [0.14ms]
+(pass) import-cost dominators > the combined saving exceeds the sum of the per-import savings [0.34ms]
+(pass) import-cost dominators > an import whose module never loaded claims nothing [0.16ms]
+(pass) import-cost dominators > two imports of the same module save nothing on their own [0.19ms]
+
+tests/unit/dev/srcPath.test.ts:
+(pass) /@src/ paths for files outside the app folder > a file inside the app keeps its path [0.10ms]
+(pass) /@src/ paths for files outside the app folder > steps out of the app survive a browser, and come back [0.15ms]
+(pass) /@src/ paths for files outside the app folder > only leading steps are steps; Windows separators are normalised [0.06ms]
+
+tests/unit/dev/devCert.test.ts:
+(pass) development HTTPS certificates > keeps loopback identities and adds safe LAN hosts once [0.91ms]
+(pass) development HTTPS certificates > rejects values that cannot be certificate identities [0.27ms]
+
+tests/unit/dev/moduleServer.importRewrite.test.ts:
+(pass) createModuleServer import rewriting > does not stub the word "from" inside JSX string children [6.20ms]
+
+tests/unit/dev/stubBindings.test.ts:
+(pass) importedBindingNames > reads the names a plain named import asks for [0.11ms]
+(pass) importedBindingNames > an alias keeps the source name, which is what must be exported [0.04ms]
+(pass) importedBindingNames > spans a multi-line clause [0.03ms]
+(pass) importedBindingNames > a default import needs no named exports [0.02ms]
+(pass) importedBindingNames > a namespace import needs no named exports [0.02ms]
+(pass) importedBindingNames > a default plus named import still reports the named ones [0.02ms]
+(pass) importedBindingNames > drops an inline type specifier [0.02ms]
+(pass) importedBindingNames > ignores anything that is not an identifier [0.06ms]
+(pass) importedBindingNames > a bare side-effect import asks for nothing [0.02ms]
+(pass) importedBindingNames > re-exports are covered too [0.04ms]
+
+tests/unit/svelte/pageHandlerStreaming.test.ts:
+(pass) handleSveltePageRequest streaming > injects runtime and appends patches for registered StreamSlot components [182.65ms]
+(pass) handleSveltePageRequest streaming > injects runtime and appends patches for lowered #await blocks [88.60ms]
+
+tests/unit/svelte/lowerAwaitSlotSyntax.test.ts:
+(pass) lowerSvelteAwaitSlotSyntax > rewrites raw await blocks to AwaitSlot component usage [0.15ms]
+(pass) lowerSvelteAwaitSlotSyntax > returns unchanged source when no await block is present [0.03ms]
+(pass) lowerSvelteAwaitSlotSyntax > trims outer whitespace from lowered fallback and resolved markup [0.05ms]
+
+tests/unit/cli/findFreePort.test.ts:
+(pass) findFreePort > releases the reservation before returning the assigned port [334.99ms]
+
+tests/unit/cli/devSpawn.test.ts:
+(pass) absolute dev child spawn options > keeps detached process groups hidden on Windows [0.28ms]
+
+tests/unit/cli/lintProof.test.ts:
+(pass) lint proof > accepts only the exact source, command, and lint toolchain [141.72ms]
+(pass) lint proof > excludes the proof itself from the source tree [144.00ms]
+(pass) lint proof > requires a valid attestation from the configured trusted key [249.21ms]
+(pass) lint proof > fails closed on an unsigned proof when a trusted key is required [166.00ms]
+(pass) lint proof > scopes the attested tree to the files the lint command covers [210.96ms]
+(pass) lint proof > still attests the whole tree for an unrecognized lint command [106.67ms]
+(pass) lint proof > refuses to read a private signing key from the repository [65.07ms]
+
+tests/unit/cli/elysiaOpenApiTypeboxPlugin.test.ts:
+(pass) Elysia OpenAPI TypeBox resolver > bundles the published beta generator without package-local dependencies [74.22ms]
+
+tests/unit/cli/workspaceStartupTeardown.test.ts:
+(pass) startWorkspaceOrShutDown > starts cleanly and shuts nothing down [0.51ms]
+(pass) startWorkspaceOrShutDown > tears down the services it already started when one never becomes ready [0.34ms]
+(pass) startWorkspaceOrShutDown > reports why startup failed before tearing down [0.23ms]
+(pass) startWorkspaceOrShutDown > a non-Error rejection still reports something usable [0.16ms]
+(pass) startWorkspaceOrShutDown > waits for shutdown to finish before reporting failure [0.27ms]
+
+tests/unit/cli/typeGraphCoherence.test.ts:
+(pass) Elysia type graph coherence > accepts one physical package identity across consumers [14.29ms]
+(pass) Elysia type graph coherence > inspects the invoked workspace package and ancestor install root [19.75ms]
+(pass) Elysia type graph coherence > finds peer-context duplicates and aligns root overrides [26.47ms]
+
+tests/unit/cli/eslintConfig.test.ts:
+(pass) repository ESLint configuration > ignores disposable sharded test worktrees [2674.79ms]
+
+tests/unit/cli/staleProcesses.test.ts:
+(pass) only this project's own AbsoluteJS server counts as stale [0.53ms]
+(pass) an unrelated listener on the port is left running and reported [578.86ms]
+
+tests/unit/cli/bunCheck.test.ts:
+(pass) bun check gating > needs Bun 1.4.3 or later [3.52ms]
+(pass) bun check gating > ABSOLUTE_TYPECHECK_CHECKER=tsc keeps tsc [0.11ms]
+(pass) bun check gating > asks for source excerpts only when a person is watching [0.23ms]
+(pass) bun check gating > passes a positive thread cap through and ignores anything else [0.19ms]
+(pass) bun check fingerprint > is stable for an unchanged program [18.54ms]
+(pass) bun check fingerprint > changes when a checked file is edited [6.83ms]
+(pass) bun check fingerprint > changes when the program gains a file [3.56ms]
+(pass) bun check fingerprint > changes when a tsconfig in the extends chain changes [4.99ms]
+(pass) bun check fingerprint > changes with the Bun version [6.87ms]
+(pass) bun check fingerprint > is null when the listing names no files [5.88ms]
+
+tests/unit/cli/serverBundleExternals.test.ts:
+(pass) server bundle externals > applies user externals consistently to production server bundles [0.59ms]
+(pass) server bundle externals > bundles configured framework runtimes and externalizes absent ones [0.27ms]
+(pass) optional peers > leaves an optional peer the app did not install external [17.74ms]
+(pass) optional peers > bundles an optional peer installed at the project root [20.94ms]
+(pass) optional peers > bundles an optional peer linked beside its dependency [19.13ms]
+(pass) optional peers > never treats a required peer, or other packages, as optional [0.30ms]
+
+tests/unit/cli/workspaceServicePort.test.ts:
+(pass) workspace service port resolution > does not assign the app default port to portless command services [0.34ms]
+(pass) workspace service port resolution > honors an explicit command service port [0.14ms]
+(pass) workspace service port resolution > keeps the default port for AbsoluteJS application services [0.11ms]
+
+tests/unit/cli/compile.test.ts:
+(pass) compile asset embedding > embeds public generated CSS assets [0.25ms]
+(pass) compile asset embedding > skips internal .generated directories [0.10ms]
+
+tests/unit/cli/eslint.test.ts:
+(pass) ESLint cache contract > keeps unchanged green and known-problem cache entries hot [16.99ms]
+(pass) ESLint cache contract > invalidates on installed lint toolchain changes [15.60ms]
+(pass) ESLint cache contract > keeps the cache across rule edits but not new plugin imports [14.18ms]
+(pass) ESLint cache contract > uses content checks and respects explicit cache controls [0.71ms]
+(pass) ESLint cache contract > replays unchanged failures and fully checks changed files [2379.32ms]
+(pass) ESLint cache contract > fingerprints direct installed lint package versions without source files [15.76ms]
+(pass) ESLint cache contract > produces portable fingerprints across checkout directories [9.40ms]
+
+tests/unit/cli/devErrorHints.test.ts:
+(pass) dev server boot diagnostics > explains Bun Node-API ESM import failures [0.13ms]
+(pass) dev server boot diagnostics > ignores unrelated stderr [0.03ms]
+
+tests/unit/cli/eslintChunked.test.ts:
+(pass) parseChunkedArgs > separates runner flags, eslint passthrough, and glob positionals [1.00ms]
+(pass) parseChunkedArgs > bare --changed leaves the base to upstream resolution [0.19ms]
+(pass) gitChangedFiles > keeps the first-sorted unstaged file — leading porcelain whitespace is significant [107.31ms]
+(pass) gitChangedFiles > includes untracked files and rename targets [198.02ms]
+(pass) gitVisibleFiles > sees tracked and untracked files but respects .gitignore [96.73ms]
+(pass) upstreamRef > returns null when no upstream is configured [53.62ms]
+(pass) ruleSummary > ranks rule ids by finding count [0.88ms]
+(pass) resolveLintSet via eslintChunked inputs > gitVisibleFiles still lists worktree-deleted tracked files (the runner must filter them) [66.94ms]
+
+tests/unit/cli/prettier.test.ts:
+(pass) Prettier CLI targeting > preserves explicit files and directories without workspace expansion [0.34ms]
+(pass) Prettier CLI targeting > does not mistake option values for positional targets [0.12ms]
+
+tests/unit/cli/styleModuleShim.test.ts:
+(pass) stylesheet declarations come after every CSS-module declaration [2.11ms]
+
+tests/unit/cli/db.test.ts:
+(pass) db quoteIdent > wraps identifiers and escapes embedded quotes [0.19ms]
+(pass) db chunkRows > splits rows into fixed-size chunks [0.20ms]
+(pass) db chunkRows > empty input yields no chunks [0.04ms]
+(pass) db encodeValue > null and undefined collapse to null [0.15ms]
+(pass) db encodeValue > json columns bind the parsed value [0.05ms]
+(pass) db encodeValue > scalars pass through untouched [0.14ms]
+(pass) db conflictClause > upserts non-key columns keyed by the primary key [0.33ms]
+(pass) db conflictClause > a table with no primary key does nothing on conflict [0.05ms]
+(pass) db conflictClause > a key-only join table does nothing on conflict [0.33ms]
+(pass) db dependencyOrder > restores parents before the rows that reference them [0.65ms]
+(pass) db dependencyOrder > keeps every table even when foreign keys form a cycle [0.11ms]
+
+tests/unit/cli/patchedBun.test.ts:
+(pass) finding bvm > names the platform package the way @absolutejs/bvm does [0.29ms]
+(pass) finding bvm > finds the binary npm installed with AbsoluteJS [7.90ms]
+(pass) when absolute dev offers the patched Bun > offers only on stock Bun, interactively, in a React project [1.01ms]
+(pass) when absolute dev offers the patched Bun > never replaces a newer Bun with the older patched one [0.43ms]
+(pass) when absolute dev offers the patched Bun > honors "Don't ask again" and "Ask me later" [0.35ms]
+(pass) when absolute dev offers the patched Bun > reads the answer [0.30ms]
+(pass) when absolute dev offers the patched Bun > remembers the choice in ~/.absolutejs [3.00ms]
+(pass) installing the patched Bun with bvm > asks bvm for exactly the pinned patched version [0.65ms]
+(pass) installing the patched Bun with bvm > fails clearly without bvm or when bvm refuses the download [0.16ms]
+(pass) installing the patched Bun with bvm > uninstalls a build that fails its probe [1.27ms]
+Moving AbsoluteJS's patched Bun to bvm (Bun 1.4.4+absolute.1).
+(pass) installing the patched Bun with bvm > moves an install from ~/.absolutejs/bun onto bvm [3.24ms]
+
+tests/unit/cli/typecheckImportAdvice.test.ts:
+(pass) serverEntryPaths > falls back to the default entry for a service that names none [0.46ms]
+(pass) serverEntryPaths > honours an explicit entry [0.13ms]
+(pass) serverEntryPaths > deduplicates services that share an entry [0.08ms]
+(pass) serverEntryPaths > skips a project with no server entry on disk [0.06ms]
+(pass) deferrableEntryImports > keeps only what is deferrable in shape [5.40ms]
+(pass) deferrableEntryImports > leaves type-only imports out — they never load [3.92ms]
+(pass) the advice it prints > says nothing at all when there is nothing to say [0.20ms]
+(pass) the advice it prints > the unasked-for summary is short and points at the measurement [0.18ms]
+(pass) the advice it prints > the listing names each import and its line [0.26ms]
+(pass) the advice it prints > the listing says it reports shape, not cost, and does not fail [0.07ms]
+(pass) the advice it prints > claims no saving anywhere [0.08ms]
+(pass) the advice it prints > an entry with nothing deferrable says so rather than staying silent [0.03ms]
+
+tests/unit/cli/workspaceBuildDirectory.test.ts:
+(pass) workspace build directory warnings > detects absolute services that resolve to the same build directory [1.10ms]
+(pass) workspace build directory warnings > ignores different resolved build directories [0.18ms]
+
+tests/unit/cli/dbEngines.test.ts:
+(pass) db engine detection > maps URL schemes to engine families [0.61ms]
+(pass) db engine detection > a schemeless URL is SQLite when the ORM config says so [0.07ms]
+(pass) db engine detection > refuses MongoDB and Gel with a clear message [0.31ms]
+(pass) db engine detection > refuses an unknown scheme listing the supported ones [0.09ms]
+(pass) db engine detection > an explicit SQL URL wins over a MongoDB ORM config [0.07ms]
+(pass) db engine detection > reads the drizzle dialect and the prisma provider [7.40ms]
+(pass) db engine detection > resolves SQLite paths and never invents a missing file [3.07ms]
+(pass) db statement shapes > identifier quoting per dialect [0.32ms]
+(pass) db statement shapes > chunk size respects the bind-parameter limit [0.22ms]
+(pass) db statement shapes > postgres skips generated columns and overrides identity [0.75ms]
+(pass) db statement shapes > sqlite uses positional parameters with the same upsert [0.32ms]
+(pass) db statement shapes > mysql upserts with the row alias or VALUES() [0.50ms]
+(pass) db statement shapes > mysql key-only tables skip duplicates without insert ignore [0.15ms]
+(pass) db statement shapes > sql server merges on the key with typed casts and identity insert [1.04ms]
+(pass) db statement shapes > sql server keyless tables insert plainly [0.14ms]
+(pass) db statement shapes > sql server column types keep length, precision and scale [0.41ms]
+(pass) db statement shapes > parses both SQL Server URL forms [1.24ms]
+(pass) db value encoding > binary round-trips through the Buffer JSON shape [0.30ms]
+(pass) db value encoding > postgres arrays become array literals [0.38ms]
+(pass) db value encoding > mysql stringifies JSON and rewrites ISO datetimes [0.47ms]
+(pass) db value encoding > sqlite binds booleans as integers and bytes as Uint8Array [0.37ms]
+(pass) db value encoding > sql server keeps wide integers exact and drops the UTC suffix [0.42ms]
+(pass) db value encoding > driver rows normalize big integers and byte containers [0.92ms]
+(pass) db value encoding > JSON text from text-JSON engines is parsed for JSON columns [0.35ms]
+
+tests/unit/client/islandStore.test.ts:
+(pass) island stores > creates a zustand-style store with state and actions [4.95ms]
+(pass) island stores > hydrates store state from SSR snapshot [1.01ms]
+(pass) island stores > preserves client-created store state when SSR initializes later [0.46ms]
+(pass) island stores > subscribes to selected store state [0.51ms]
+(pass) island stores > reads selected store state [0.21ms]
+
+tests/unit/client/prefetch.test.ts:
+(pass) prefetch guards > prefetches same-origin documents with same-origin credentials [10.21ms]
+(pass) prefetch guards > honours the global opt-out window.__ABSOLUTE_PREFETCH__ = false [0.67ms]
+(pass) prefetch guards > does nothing when Save-Data or a 2g connection is reported [0.62ms]
+(pass) prefetch guards > does nothing when prefers-reduced-data matches [0.76ms]
+(pass) prefetch guards > isPrefetchableHref rejects external, hash and non-http targets [0.61ms]
+(pass) prefetch cache > dedupes repeated prefetches of the same URL [1.46ms]
+(pass) prefetch cache > consumePrefetch hands back the response once [1.13ms]
+(pass) prefetch cache > keeps at most 16 entries and aborts the evicted fetch [3.90ms]
+(pass) prefetch cache > limits in-flight prefetches to two and drains the queue in order [1.68ms]
+(pass) prefetch cache > a failed fetch resolves to a status-0 response instead of rejecting [0.91ms]
+(pass) prefetch kinds > data prefetch sends the route-data Accept header and caches a 404 as no data [4.29ms]
+(pass) prefetch kinds > data prefetch keeps a matching route-data response [5.37ms]
+(pass) prefetch kinds > data prefetch warms the modules and CSS the envelope names [14.50ms]
+(pass) prefetch kinds > a malformed route-data body is ignored, not thrown [2.01ms]
+(pass) prefetch kinds > route prefetch warms the document and the route data together [2.03ms]
+(pass) prefetch kinds > module prefetch injects one modulepreload link per href [5.72ms]
+(pass) prefetch kinds > module prefetch respects a modulepreload already in the document [3.37ms]
+(pass) speculation rules > injects an immediate prerender rule, deduped by URL [7.36ms]
+(pass) speculation rules > caps live rules at two, dropping the oldest [10.65ms]
+(pass) speculation rules > no-ops when the browser lacks speculation rules support [1.37ms]
+(pass) triggers > hover prefetch is debounced and cancellable [655.09ms]
+(pass) triggers > an explicit hover kind overrides the route default [303.25ms]
+(pass) triggers > viewport observation shares one IntersectionObserver and prefetches on intersect [10.44ms]
+(pass) mode defaults > defaults to viewport in production and hover under the dev server [1.04ms]
+(pass) mode defaults > treats an injected HMR client script as development [2.47ms]
+
+tests/unit/angular/pageHandlerTypes.test.ts:
+(pass) Angular page handler types > typechecks requestContext against the caller-supplied Ctx generic [38825.43ms]
+
+tests/unit/angular/httpTransferCache.test.ts:
+(pass) Angular HTTP transfer cache options > skips requests with the AbsoluteJS transfer-cache header [0.42ms]
+(pass) Angular HTTP transfer cache options > preserves Angular transfer-cache options and user filters [0.24ms]
+
+tests/unit/angular/angularSsrIsolation.test.ts:
+(pass) Angular SSR dependency isolation > uses a distinct project-local runtime directory [19.30ms]
+(pass) Angular SSR dependency isolation > links each runtime only to its own project dependencies [58.66ms]
+(pass) Angular SSR dependency isolation > rejects a pre-existing dependency link to another project [14.46ms]
+
+tests/unit/angular/lowerDeferSyntax.test.ts:
+(pass) lowerAngularDeferSyntax > rewrites @defer blocks to abs-defer-slot placeholders [6.46ms]
+(pass) lowerAngularDeferSyntax > returns unchanged template when no defer block is present [0.09ms]
+(pass) lowerAngularDeferSyntax > handles interpolation braces inside deferred markup [1.03ms]
+(pass) lowerAngularDeferSyntax > escapes literal @defer text outside of defer blocks [0.10ms]
+(pass) lowerAngularDeferSyntax > escapes multiple literal @defer occurrences without duplication [0.07ms]
+
+tests/unit/angular/pageHandlerStreaming.test.ts:
+(pass) handleAngularPageRequest streaming > injects runtime and appends patches for registered StreamSlot components [688.75ms]
+(pass) handleAngularPageRequest streaming > injects runtime and appends patches for lowered @defer blocks [222.99ms]
+(pass) handleAngularPageRequest streaming > provides Angular request-scoped tokens during SSR [121.66ms]
+(pass) handleAngularPageRequest streaming > uses noop animation providers for legacy Angular animations during SSR [232.00ms]
+(pass) handleAngularPageRequest streaming > waits for async Angular route resolvers before serializing SSR HTML [266.81ms]
+(pass) handleAngularPageRequest streaming > provides deterministic Angular render values for SSR [77.05ms]
+(pass) handleAngularPageRequest streaming > uses page module providers as the canonical Angular provider model [44.70ms]
+(pass) handleAngularPageRequest streaming > honors Angular route-level providers during SSR [156.82ms]
+(pass) handleAngularPageRequest streaming > renders lazy Angular route components imported from external packages [88.17ms]
+(pass) handleAngularPageRequest streaming > turns Angular route guard redirects into HTTP redirects during SSR [81.08ms]
+(pass) handleAngularPageRequest streaming > renders Angular Material components and dialog overlay during SSR [831.69ms]
+(pass) handleAngularPageRequest streaming > renders Angular CDK layout observers during SSR [47.10ms]
+(pass) handleAngularPageRequest streaming > renders Angular forms and locale-aware common pipes during SSR [304.10ms]
+(pass) handleAngularPageRequest streaming > renders Angular NgOptimizedImage during SSR [90.16ms]
+(pass) handleAngularPageRequest streaming > runs Angular HttpClient interceptors during SSR [35.63ms]
+(pass) handleAngularPageRequest streaming > renders lazy Angular route children during SSR [79.59ms]
+(pass) handleAngularPageRequest streaming > renders Angular DOCUMENT, Title, and Meta services during SSR [32.70ms]
+
+tests/unit/react/pageHandlerRouteData.test.tsx:
+(pass) handleReactPageRequest route data > answers with props + the client entry without rendering [1.60ms]
+(pass) handleReactPageRequest route data > reads the request off the Elysia context like the page path does [1.25ms]
+
+tests/unit/react/link.test.tsx:
+(pass) React <Link> > renders an anchor with the href and forwards attributes [46.12ms]
+(pass) React <Link> > pointerdown prefetches the target document immediately [13.39ms]
+(pass) React <Link> > hover prefetches after the debounce window [326.38ms]
+(pass) React <Link> > prefetch="none" never fetches [405.91ms]
+(pass) React <Link> > external hrefs are never prefetched [16.20ms]
+(pass) React <Link> > outside a router a click is a plain navigation [28.13ms]
+(pass) React <Link> > inside UniversalRouter a matched route navigates client-side [79.47ms]
+(pass) React <Link> > inside UniversalRouter modifier clicks and unmatched hrefs pass through [16.65ms]
+
+tests/unit/react/pageHandlerMobile.test.tsx:
+(pass) handleReactPageRequest mobile representation > returns props without executing server rendering [3.05ms]
+(pass) handleReactPageRequest mobile representation > uses runtime request context without changing the route call [2.75ms]
+
+tests/unit/react/browserTranslation.test.tsx:
+(pass) React browser translation hydration > keeps browser-translated text without a hydration mismatch [33.61ms]
+
+tests/unit/react/pageHandlerCrossFrameworkImports.test.tsx:
+(pass) handleReactPageRequest across source framework imports > keeps React slot registration working after other framework source entrypoints are imported [173.96ms]
+
+tests/unit/react/jsxRuntimeCompat.test.ts:
+(pass) React native JSX runtime compatibility > marks only the native html root as hydration-safe [1.22ms]
+(pass) React native JSX runtime compatibility > preserves normal web hydration diagnostics [0.27ms]
+
+tests/unit/react/componentsBarrel.test.ts:
+(pass) react/components barrel > re-exports the prefetching Link and its hook [0.11ms]
+(pass) react/components barrel > reaches Link without pulling react-router in [2.08ms]
+
+tests/unit/react/pageHandlerStreaming.test.tsx:
+(pass) handleReactPageRequest streaming > injects runtime and appends patches for registered StreamSlot components [26.71ms]
+(pass) handleReactPageRequest streaming > renders framework-level SuspenseSlot fallback and resolved content [25.91ms]
+
+tests/unit/react/headPreload.test.tsx:
+(pass) React Head preload + speculation rules > renders preload, modulepreload and speculationrules tags [10.10ms]
+(pass) React Head preload + speculation rules > renders nothing extra without preload or speculation rules [1.68ms]
+
+tests/unit/mobile/updateRollout.test.ts:
+(pass) mobile update rollout > parses the anonymous update identity and assigns a stable cohort [0.69ms]
+(pass) mobile update rollout > rejects user identifiers and malformed runtime values at the boundary [0.21ms]
+
+tests/unit/mobile/compatibilityDispatcher.test.ts:
+(pass) mobile compatibility dispatcher > dispatches a retained client to its archived producer [18.89ms]
+(pass) mobile compatibility dispatcher > lets the current release continue through normal route handling [15.24ms]
+(pass) mobile compatibility dispatcher > owns Capacitor backend CORS without opening arbitrary origins [10.97ms]
+(pass) mobile compatibility dispatcher > returns an update envelope after a client leaves retention [3.27ms]
+(pass) mobile compatibility dispatcher > does not dispatch a valid page bundle onto an unrelated URL [9.52ms]
+
+tests/unit/mobile/shellPush.test.ts:
+(pass) native shell push lifecycle > recovers from a prior account installation without exposing provider identity [1.96ms]
+(pass) native shell push lifecycle > removes the server installation before clearing local identity [0.54ms]
+(pass) native shell push lifecycle > re-enables an already granted capability after sign-in without prompting [1.95ms]
+
+tests/unit/mobile/iosConformance.test.ts:
+(pass) iOS native conformance log bridge > parses iOS-target HMR timing without source identity [0.81ms]
+(pass) iOS native conformance log bridge > waits only for output appended after the test begins [108.89ms]
+
+tests/unit/mobile/updateRuntime.test.ts:
+(pass) mobile update runtime fingerprint > requires a new Expo native binary for the embedded asset host [2.93ms]
+(pass) mobile update runtime fingerprint > is deterministic and changes across every native/data boundary [1.20ms]
+(pass) mobile update runtime fingerprint > excludes trusted-server deployment wiring from the native ABI [3.67ms]
+(pass) mobile update runtime fingerprint > excludes the compatibility history store from the native ABI [0.98ms]
+
+tests/unit/mobile/shellObservability.test.ts:
+(pass) mobile shell observability > reports redacted framework-neutral release context to the trusted server [21.65ms]
+(pass) mobile shell observability > stays absent unless the application configures a destination [0.21ms]
+
+tests/unit/mobile/nativeDeviceCapabilities.test.ts:
+(pass) native device capability projection > projects the modern iOS system-bars controller setting idempotently [67.92ms]
+(pass) native device capability projection > rejects an incompatible user-owned iOS status-bar setting [21.31ms]
+(pass) native device capability projection > provisions native push plumbing and validates the Firebase application identity [26.94ms]
+(pass) native device capability projection > rejects a Firebase config for a different Android application before projection [6.57ms]
+(pass) native device capability projection > generates idempotent iOS descriptions without unnecessary Android permissions [9.96ms]
+(pass) native device capability projection > projects foreground location requirements idempotently on both platforms [19.46ms]
+(pass) native device capability projection > projects notification display permission without exact-alarm access [7.69ms]
+(pass) native device capability projection > generates and targets the required iOS privacy manifest idempotently [18.19ms]
+
+tests/unit/mobile/shellNativeObservability.test.ts:
+(pass) native observability drain > redacts and acknowledges bounded native reports only after accepted delivery [4.93ms]
+(pass) native observability drain > retains reports when the trusted relay rejects delivery [0.97ms]
+
+tests/unit/mobile/syncRemediation.test.ts:
+(pass) mobile Sync remediation bridge > shares the latest framework-neutral bridge and restores nesting [0.62ms]
+
+tests/unit/mobile/expoDevController.test.ts:
+(pass) Expo development controller > coordinates one Metro server and both native development builds [0.83ms]
+(pass) Expo development controller > requires a development CA for HTTPS origins [0.18ms]
+(pass) Expo development controller > can own Metro while native iOS executes on a Remote Mac [0.17ms]
+(pass) Expo development controller > uses an externally tunneled Metro without starting a second server [0.36ms]
+(pass) Expo development controller > builds and closes against an externally managed Metro session [13.90ms]
+(pass) Expo development controller > rebuilds native inputs without replacing the managed Metro process [12.54ms]
+(pass) Expo development controller > recovers from a stale Metro port and preserves the replacement across native rebuilds [4.93ms]
+(pass) Expo development controller > isolates replacement Metro ports across concurrent sessions [3.05ms]
+(pass) Expo development controller > mirrors Expo Android builds onto the Windows host from WSL [4.22ms]
+(pass) Expo development controller > builds and launches an installable Expo Android release from WSL [2.55ms]
+(pass) Expo development controller > builds and launches an installable Expo iOS Simulator release [3.91ms]
+(pass) Expo development controller > discovers the iOS Simulator that Expo boots for a first release [1.13ms]
+(pass) Expo development controller > parses only available booted Expo iOS Simulators [0.22ms]
+(pass) Expo development controller > restarts a local Android development client on the managed Metro URL [1.21ms]
+(pass) Expo development controller > trusts and relaunches the booted iOS Simulator for HTTPS [3.89ms]
+(pass) Expo development controller > serves physical iOS enrollment only for the session [2.75ms]
+
+tests/unit/mobile/webMobileBoundary.test.ts:
+(pass) web / mobile boundary > the HMR client only reaches the mobile preview through a dev-server URL [0.28ms]
+(pass) web / mobile boundary > importing the preview client leaves fetch untouched until it is installed [20.68ms]
+(pass) web / mobile boundary > the served preview client shares vendored packages with page code [43.65ms]
+(pass) web / mobile boundary > finalizeAbsoluteMobilePage ignores browser requests before reading compatibility [0.44ms]
+
+tests/unit/mobile/shellSync.test.ts:
+(pass) provisions account-bound native durability and lifecycle without page wiring [10.25ms]
+(pass) configures native background sync only after foreground schema preparation [6.52ms]
+(pass) does not configure native background sync when schema preparation fails [3.07ms]
+(pass) reports only typed schema failure evidence from native migration errors [3.48ms]
+(pass) does not expose a locked partition and clears native work while signed out [2.86ms]
+
+tests/unit/mobile/shellExpoDevices.test.ts:
+(pass) Expo embedded-web providers > routes provider-neutral haptics through the native bridge [1.84ms]
+(pass) Expo embedded-web providers > reconstructs a standard Response from native GET transport [1.27ms]
+(pass) Expo embedded-web providers > does not silently fall back when the native bridge is absent [0.29ms]
+
+tests/unit/mobile/iosPhysicalDeviceTransport.test.ts:
+(pass) physical iOS development transport > validates device selectors and LAN hosts before commands are built [0.52ms]
+(pass) physical iOS development transport > relays raw device traffic to the loopback SSH tunnel [79.14ms]
+
+tests/unit/mobile/iosDeviceAcceptance.test.ts:
+(pass) physical iOS acceptance > uses devicectl without requesting a physical screenshot [0.26ms]
+(pass) physical iOS acceptance > validates installation, relaunches, and waits for HMR [0.96ms]
+(pass) physical iOS acceptance > returns a share-safe device failure [0.14ms]
+
+tests/unit/mobile/ciPromotionAudit.test.ts:
+(pass) mobile CI promotion audit > parses only the requested sanitized workflow identity [1.47ms]
+(pass) mobile CI promotion audit > selects only the exact correlated run during concurrent promotions [2.05ms]
+(pass) mobile CI promotion audit > keeps format-1 promotion context readable for retained audits [0.33ms]
+(pass) mobile CI promotion audit > replays build, certification, promotion and local audit without credentials [107.98ms]
+(pass) mobile CI promotion audit > rejects a publication receipt bound to another release [88.41ms]
+
+tests/unit/mobile/ciWorkflow.test.ts:
+(pass) mobile GitHub Actions workflow > generates Android and iOS build and publishing CI for Expo [29.92ms]
+(pass) mobile GitHub Actions workflow > generates Expo iOS-only CI when Android is not configured [3.48ms]
+(pass) mobile GitHub Actions workflow > generates parseable, protected build and publishing jobs [254.86ms]
+(pass) mobile GitHub Actions workflow > emits only configured platform jobs and omits store credentials by default [26.68ms]
+(pass) mobile GitHub Actions workflow > is idempotent and refuses to overwrite a different workflow [17.98ms]
+(pass) mobile GitHub Actions workflow > rejects path traversal and secret-expression injection [3.45ms]
+(pass) mobile GitHub Actions workflow > exposes a redacted deterministic CLI result [1903.23ms]
+
+tests/unit/mobile/androidTestReport.test.ts:
+(pass) Android native test report > redacts native credential-shaped values from local evidence [0.12ms]
+(pass) Android native test report > uses the shared report contract without fabricating manual results [4.17ms]
+(pass) Android native test report > records generated schema failure, rollback, and recovery evidence [0.96ms]
+(pass) Android native test report > records sanitized installed-upgrade and compatibility evidence [0.55ms]
+(pass) Android native test report > classifies a physical target and preserves a sanitized failure [0.30ms]
+(pass) Android native test report > records immutable Expo release installation and offline relaunch evidence [0.82ms]
+
+tests/unit/mobile/expoCodeSigning.test.ts:
+(pass) Expo code-signing provisioning > generates a matching certificate while keeping private material outside the project [1378.69ms]
+(pass) Expo code-signing provisioning > refuses to place private keys in the application [2.41ms]
+(pass) Expo code-signing provisioning > explains how to install the signing package when the application lacks it [5.56ms]
+
+tests/unit/mobile/shellAuth.test.ts:
+(pass) Absolute mobile auth links > delivers a native OAuth callback only once when launch and live links overlap [12.84ms]
+(pass) Absolute mobile auth links > suppresses a later live delivery after the launch callback is consumed [0.72ms]
+(pass) Absolute mobile auth links > continues delivering distinct authorization callbacks [3.88ms]
+(pass) Absolute mobile auth links > suppresses a callback across process boundaries only after authentication commits it [1.44ms]
+
+tests/unit/mobile/expoUpdate.test.ts:
+(pass) Expo production update artifact > captures and validates both platform launch bundles and shared assets [11.48ms]
+(pass) Expo production update artifact > rejects metadata that escapes the immutable export [2.93ms]
+
+tests/unit/mobile/client.test.ts:
+(pass) mobile page client activation > installs props and client-render mode before loading an embedded page [1.07ms]
+(pass) mobile page client activation > disposes the previous framework and awaits the next mount [0.66ms]
+(pass) mobile page client activation > disposes each framework exactly once across A to B to A navigation [0.42ms]
+(pass) mobile page client activation > returns update metadata without loading executable code [0.32ms]
+(pass) mobile page client activation > rejects malformed props before consulting the local page registry [0.29ms]
+
+tests/unit/mobile/expoBridge.test.ts:
+(pass) Expo bridge protocol > accepts an allowlisted device request [1.72ms]
+(pass) Expo bridge protocol > accepts typed Sync bridge methods only on format 3 [0.97ms]
+(pass) Expo bridge protocol > rejects unknown methods, origins disguised as paths, and oversized data [0.71ms]
+(pass) Expo bridge protocol > creates mutually exclusive success and error responses [0.47ms]
+(pass) Expo bridge protocol > allows only bounded production-style GET transport headers [0.55ms]
+(pass) Expo bridge protocol > allows bounded authenticated HTTP and typed Auth operations [0.40ms]
+
+tests/unit/mobile/artifactStore.test.ts:
+(pass) mobile compatibility artifact store > uses the @absolutejs/blob-compatible shape for remote history [5.27ms]
+(pass) mobile compatibility artifact store > atomically writes, lists, reads, and deletes a release [20.36ms]
+(pass) mobile compatibility artifact store > carries the current release and two prior producers forward [24.25ms]
+(pass) mobile compatibility artifact store > rejects producer bytes that do not match release metadata [6.98ms]
+(pass) mobile compatibility artifact store > rejects unsafe release identifiers before resolving a path [4.93ms]
+(pass) mobile compatibility artifact store > loads a blob store module and keeps history across fresh checkouts [28.27ms]
+(pass) mobile compatibility artifact store > uses an exported release-history store as it is [20.89ms]
+(pass) mobile compatibility artifact store > rejects a module that does not export a store [4.08ms]
+
+tests/unit/mobile/iosUpgradeConformance.test.ts:
+(pass) Expo iOS installed-app upgrade conformance > parses installed bundle metadata without exposing plist contents [0.26ms]
+(pass) Expo iOS installed-app upgrade conformance > rejects malformed metadata and the wrong bundle [0.10ms]
+(pass) Expo iOS installed-app upgrade conformance > inspects app/data containers and installed Info.plist [0.45ms]
+(pass) Expo iOS installed-app upgrade conformance > accepts a replacement with stable data and increasing build number [0.18ms]
+(pass) Expo iOS installed-app upgrade conformance > rejects identity, data, and build-number regressions [0.11ms]
+
+tests/unit/mobile/updateServer.test.ts:
+(pass) trusted mobile update server > generates explicit local and durable adapter modules without secrets [0.76ms]
+(pass) trusted mobile update server > requires and executes an active verifier for durable storage [8.89ms]
+(pass) trusted mobile update server > writes safely and refuses accidental replacement [4.23ms]
+(pass) trusted mobile update server > loads marked registries and rejects unmarked server code [7.29ms]
+(pass) trusted mobile update server > auto-mounts in development and blocks local storage in production [23.29ms]
+
+tests/unit/mobile/navigationLifecycle.test.ts:
+(pass) mobile navigation lifecycle > aborts an older load and commits only the latest destination [12.08ms]
+(pass) mobile navigation lifecycle > serializes document commits when a newer request arrives mid-commit [1.13ms]
+(pass) mobile navigation lifecycle > cancels Back-during-load without entering the commit boundary [0.71ms]
+(pass) mobile navigation lifecycle > reports load and commit failures separately [7.13ms]
+
+tests/unit/mobile/androidWebView.test.ts:
+(pass) Android WebView debugger discovery > prefers the socket owned by the application process [0.97ms]
+(pass) Android WebView debugger discovery > deduplicates sockets and excludes unrelated fallbacks [0.86ms]
+
+tests/unit/mobile/androidConformance.test.ts:
+(pass) Android native conformance > builds a loopback route with a deterministic native target [0.77ms]
+(pass) Android native conformance > verifies route content, target, socket, and overlay state [4.12ms]
+(pass) Android native conformance > can navigate through the page so a controlled native WebView observes it [0.52ms]
+(pass) Android native conformance > can inspect a route already opened by the native router [3.02ms]
+(pass) Android native conformance > waits for a newer matching native apply acknowledgement [0.82ms]
+
+tests/unit/mobile/releaseCertification.test.ts:
+(pass) mobile release certification > resolves the strongest configured promotion policy [0.77ms]
+(pass) mobile release certification > certifies, persists, and re-verifies exact Android installed evidence [58.42ms]
+(pass) mobile release certification > keeps Simulator evidence below device and store policy [33.32ms]
+(pass) mobile release certification > accepts archive-equivalent device proof and lets store proof satisfy every iOS tier [16.91ms]
+(pass) mobile release certification > rejects edited release identity and automated acceptance results [7.86ms]
+(pass) mobile release certification > rejects impossible iOS evidence-strength combinations [3.81ms]
+(pass) mobile release certification > invalidates certification after runtime, version, or embedded build changes [9.75ms]
+(pass) mobile release certification > detects certification JSON tampering through its content digest [16.07ms]
+(pass) mobile release certification > keeps evidence and output paths inside the project [2.77ms]
+(pass) mobile release certification > renders only bounded release and evidence facts [3.44ms]
+
+tests/unit/mobile/branding.test.ts:
+Unable to generate assets: fixture failure
+(pass) mobile branding > rejects an upstream zero-exit error even when template artwork exists [204.73ms]
+(pass) mobile branding > normalizes paths, colors, defaults, and rejects unsafe inputs [74.21ms]
+(pass) mobile branding > validates bounded source images and creates a stable non-secret manifest [98.31ms]
+(pass) mobile branding > projects the shared source contract into Expo config and managed inputs [132.83ms]
+(pass) mobile branding > wraps the pinned Capacitor generator and adds modern native variants [488.72ms]
+(pass) mobile branding > tracks platform-specific generation without declaring unfinished work ready [545.21ms]
+
+tests/unit/mobile/pushDeepLinks.test.ts:
+(pass) push notification deep links > opens a tapped notification’s link inside the app [0.90ms]
+(pass) push notification deep links > ignores links outside the configured hosts and scheme [0.29ms]
+(pass) push notification deep links > leaves action buttons and notifications without a link alone [0.13ms]
+(pass) push notification deep links > does nothing when the app does not use push [0.11ms]
+
+tests/unit/mobile/androidServiceReadiness.test.ts:
+(pass) Android offline service readiness > waits for delayed telephony without mutating network settings [2.32ms]
+(pass) Android offline service readiness > fails closed when services never register, even with a zero exit status [0.43ms]
+(pass) Android offline service readiness > does not accept a failed command containing ready text [0.28ms]
+
+tests/unit/mobile/releasePublisher.test.ts:
+(pass) native release publisher modules > prepares and verifies an App Store Connect TestFlight release [7.95ms]
+(pass) native release publisher modules > publishes the exact Android release through a project-local registry [10.13ms]
+(pass) native release publisher modules > requires a retained certification receipt for a gated publication [10.13ms]
+(pass) native release publisher modules > forwards portable verification and requires trusted provenance [7.24ms]
+(pass) native release publisher modules > rejects registry modules outside the application project [2.59ms]
+(pass) native release publisher modules > rejects missing publisher shape and mismatched release identities [7.50ms]
+(pass) native release publisher modules > forwards and verifies a committed Google Play release intent [3.52ms]
+
+tests/unit/mobile/certificationVerification.test.ts:
+(pass) mobile certification verification > creates and round-trips a bounded GitHub Sigstore envelope [7.13ms]
+(pass) mobile certification verification > reads only bounded project-local bundle objects [2.49ms]
+(pass) mobile certification verification > rejects mutable or incomplete GitHub identities [0.40ms]
+
+tests/unit/mobile/nativePackages.test.ts:
+(pass) repairs stale Devices and Sync adapters, not just missing packages [8.04ms]
+(pass) matching native versions are idempotent and missing installs are repaired [19.40ms]
+(pass) accepts hoisted packages but rejects stale or malformed nearer installations [32.73ms]
+(pass) provisioned Capacitor versions match installed framework dependencies and peer contracts [2.55ms]
+(pass) Sync and the application resolve one Devices runtime pair [0.25ms]
+(pass) Expo shell pins share the tested Devices core and satisfy adapter peers [0.86ms]
+
+tests/unit/mobile/routeData.test.ts:
+(pass) web route data > serves the route envelope for the route-data Accept header [0.77ms]
+(pass) web route data > is cacheable and revalidates a prefetched copy with a 304 [1.06ms]
+(pass) web route data > a different body produces a different ETag [0.45ms]
+(pass) web route data > carries the handler status through [0.59ms]
+(pass) web route data > is GET only [0.21ms]
+(pass) web route data > needs no client identity headers and no development mode [0.26ms]
+(pass) web route data > leaves ordinary browser requests to the page renderer [0.08ms]
+(pass) web route data > does not disturb the mobile page media type [0.46ms]
+[Route] Failed to produce route data for Broken: 177 | 				pageId: 'Broken',
+178 | 				representations: [
+179 | 					{
+180 | 						contract: 'broken@1',
+181 | 						mapProps: () => {
+182 | 							throw new Error('boom');
+                       ^
+error: boom
+      at mapProps (/home/alexkahn/alex/absolutejs-watch-release/tests/unit/mobile/routeData.test.ts:182:18)
+      at finalizeAbsoluteRouteData (/home/alexkahn/alex/absolutejs-watch-release/src/mobile/pageProtocol.ts:593:45)
+      at finalizeAbsoluteMobilePage (/home/alexkahn/alex/absolutejs-watch-release/src/mobile/pageProtocol.ts:640:20)
+      at <anonymous> (/home/alexkahn/alex/absolutejs-watch-release/tests/unit/mobile/routeData.test.ts:174:20)
+
+(pass) web route data > reports a representation failure as a route error envelope [0.88ms]
+(pass) web route data > defaults assets to an empty stylesheet list [0.36ms]
+
+tests/unit/mobile/nativeReleaseReadiness.test.ts:
+(pass) Capacitor Android release readiness projection > generates and idempotently registers the Java plugin [14.39ms]
+(pass) Capacitor Android release readiness projection > injects an existing Kotlin lifecycle without changing its syntax [14.25ms]
+(pass) Capacitor Android release readiness projection > does not project into Expo applications [10.43ms]
+(pass) Capacitor iOS release readiness projection > generates and idempotently registers the bridged plugin [16.06ms]
+
+tests/unit/mobile/releaseCertificationCli.test.ts:
+(pass) mobile certify CLI > creates and verifies a content-addressed Android certification without loading app config [6427.11ms]
+
+tests/unit/mobile/staticDocument.test.ts:
+(pass) mobile static documents > rewrites root-relative form and HTMX requests to the deployed backend [0.99ms]
+(pass) mobile static documents > strips executable and cross-origin behavior from server fragments [49.01ms]
+(pass) mobile static documents > uses a deterministic SHA-256 integrity identity [0.83ms]
+(pass) mobile static documents > installs a trusted document without destroying shell listeners [32.98ms]
+
+tests/unit/mobile/nativeDeepLinks.test.ts:
+(pass) native deep-link configuration > generates idempotent Android and iOS declarations [33.00ms]
+(pass) native deep-link configuration > refuses to replace a custom iOS entitlements file [7.13ms]
+
+tests/unit/mobile/mobileInspect.test.ts:
+(pass) mobile project inspection > reports a validated redacted mobile project inventory [38.97ms]
+(pass) mobile project inspection > reports missing and invalid bundles without throwing [33.60ms]
+(pass) mobile project inspection > rejects an embedded page modified after the manifest was signed [22.19ms]
+
+tests/unit/mobile/iosNativeWatcher.test.ts:
+(pass) iOS native input watcher > classifies both supported AbsoluteJS config filenames [0.28ms]
+(pass) iOS native input watcher > coalesces a native edit into one fingerprinted rebuild request [34.71ms]
+
+tests/unit/mobile/androidNativeWatcher.test.ts:
+(pass) Android native input watcher > classifies root files that can change native projection [0.26ms]
+(pass) Android native input watcher > coalesces a native edit into one fingerprinted rebuild request [39.04ms]
+
+tests/unit/mobile/emulatorCli.test.ts:
+(pass) mobile emulator CLI > lists remote Macs without requiring a project config [1465.19ms]
+(pass) mobile emulator CLI > refuses a guided install without a TTY or explicit approval [877.87ms]
+(pass) mobile emulator CLI > keeps JSON mode read-only [1602.67ms]
+(pass) mobile emulator CLI > prints only the redacted release compliance contract in JSON mode [9730.80ms]
+(pass) mobile emulator CLI > validates an Android conformance port before inspecting the SDK [762.41ms]
+(pass) mobile emulator CLI > requires an explicit immutable release before Expo Android acceptance [806.98ms]
+(pass) mobile emulator CLI > requires an explicit immutable release before iOS acceptance [1009.60ms]
+(pass) mobile emulator CLI > validates an iOS conformance port before inspecting Xcode [961.33ms]
+(pass) mobile emulator CLI > requires a Remote Mac profile name before preparing an iOS release [907.43ms]
+(pass) mobile emulator CLI > validates native release module flags before building Android [885.77ms]
+(pass) mobile emulator CLI > requires an explicit Google Play track before building Android [950.09ms]
+(pass) mobile emulator CLI > requires an explicit external group before TestFlight review [824.42ms]
+
+tests/unit/mobile/ciPromotionLedger.test.ts:
+(pass) mobile CI promotion ledger > persists a bounded non-secret operation before dispatch [30.54ms]
+(pass) mobile CI promotion ledger > advances atomically and refuses identity rollback [61.80ms]
+(pass) mobile CI promotion ledger > lists newest operations and rejects incomplete recovered state [24.39ms]
+(pass) mobile CI promotion ledger > rejects replacement, traversal, oversized and malformed records [23.68ms]
+(pass) mobile CI promotion ledger > resumes an ambiguous accepted dispatch without dispatching again [2350.60ms]
+
+tests/unit/mobile/config.test.ts:
+(pass) mobile config normalization > requires exact installed/store evidence for production promotion by default [1.42ms]
+(pass) mobile config normalization > pins mobile observability to the trusted production origin [1.22ms]
+(pass) mobile config normalization > validates Expo code-signing certificates as native runtime input [685.22ms]
+(pass) mobile config normalization > normalizes a signed update channel without accepting private material [2.31ms]
+(pass) mobile config normalization > normalizes the Capacitor app without a route list [0.66ms]
+(pass) mobile config normalization > validates the explicit iOS marketing version [0.50ms]
+(pass) mobile config normalization > derives a native callback scheme from appId [0.15ms]
+(pass) mobile config normalization > rejects a remote production WebView and ambiguous app identity [0.13ms]
+(pass) mobile config normalization > allows HTTP only for an emulator loopback backend [1.48ms]
+(pass) mobile config normalization > rejects unsafe hosts and malformed signing identities [0.32ms]
+(pass) mobile config normalization > normalizes the experimental Expo shell and explicit native routes [0.67ms]
+(pass) mobile config normalization > normalizes parameterized and terminal-wildcard Expo native routes [0.47ms]
+(pass) mobile config normalization > rejects unsafe Expo native route ownership [1.53ms]
+
+tests/unit/mobile/expoEmbeddedAssets.test.ts:
+(pass) Expo embedded asset host generation > registers the supported WebView extension idempotently and fails closed on unknown templates [1.91ms]
+(pass) Expo embedded asset host generation > keeps reserved asset misses offline and restricts file exposure [0.25ms]
+(pass) Expo embedded asset host generation > installs an origin-scoped bridge before scripts and removes it with the view [0.10ms]
+
+tests/unit/mobile/adaptiveShell.test.ts:
+(pass) mobile adaptive shell > publishes native layout state without styling author content [27.78ms]
+(pass) mobile adaptive shell > restores the contract after a static document replaces head and html attributes [10.27ms]
+(pass) mobile adaptive shell > does not subtract keyboard height twice when VisualViewport already resized [6.43ms]
+
+tests/unit/mobile/androidRelease.test.ts:
+(pass) Android production releases > builds a signed immutable AAB with deployment-friendly metadata [31.89ms]
+(pass) Android production releases > builds Expo output with the same immutable release contract and production environment [14.94ms]
+(pass) Android production releases > fingerprints an Expo Android project for automatic version codes [18.06ms]
+(pass) Android production releases > builds Expo production AABs in a Windows-local mirror from WSL [22.74ms]
+(pass) Android production releases > fails closed when the Windows Expo production build fails [8.77ms]
+(pass) Android production releases > verifies WSL Expo output with Windows jarsigner paths [24.81ms]
+(pass) Android production releases > rejects unsigned output by default and labels an explicit unsigned build [18.49ms]
+(pass) Android production releases > signs CI output without putting passwords in command arguments [15.87ms]
+(pass) Android production releases > injects an automatically prepared Google Play version code into Gradle and metadata [21.52ms]
+(pass) Android production releases > keeps custom output inside the project [12.02ms]
+
+tests/unit/mobile/uiPrimitives.test.ts:
+(pass) mobile UI primitives > installs opt-in layout styles and synchronizes semantic tab links [10.40ms]
+(pass) mobile UI primitives > publishes navigation direction and restores UI after document replacement [8.03ms]
+(pass) mobile UI primitives > opens an accessible sheet and consumes back before navigation [15.38ms]
+(pass) mobile UI primitives > reads progressive link intents without replacing anchor semantics [2.14ms]
+
+tests/unit/mobile/releaseArtifact.test.ts:
+(pass) mobile compatibility release artifacts > is deterministic regardless of metadata ordering [1.00ms]
+(pass) mobile compatibility release artifacts > hashes equivalent generated prop schemas identically [0.39ms]
+(pass) mobile compatibility release artifacts > retains exactly the current release plus two previous generations [0.76ms]
+(pass) mobile compatibility release artifacts > resolves an installed app to its retained producer and page [0.43ms]
+(pass) mobile compatibility release artifacts > requires an app update only after its release leaves retention [0.44ms]
+(pass) mobile compatibility release artifacts > rejects a page bundle that was not signed into the retained release [0.28ms]
+(pass) mobile compatibility release artifacts > round-trips optional page styles and rejects incomplete style metadata [0.63ms]
+
+tests/unit/mobile/nativeObservability.test.ts:
+(pass) native process observability projection > idempotently provisions and removes the iOS MetricKit bridge [19.02ms]
+(pass) native process observability projection > generates a bounded Android ApplicationExitInfo outbox [16.44ms]
+(pass) native process observability projection > injects an existing Kotlin lifecycle without duplicating it [11.63ms]
+
+tests/unit/mobile/deviceCapabilities.test.ts:
+(pass) device capability discovery > finds value imports, aliases, namespaces, and re-exports deterministically [14.66ms]
+(pass) device capability discovery > ignores type-only imports and test sources [6.82ms]
+(pass) device capability discovery > discovers imports inside Vue and Svelte script blocks [13.22ms]
+(pass) device capability discovery > requires the exact installed provider version [8.65ms]
+(pass) device capability discovery > rejects executable or unpinned provider metadata [6.82ms]
+(pass) device capability discovery > parses declarative native requirements and rejects unknown purposes [8.49ms]
+
+tests/unit/mobile/expoProject.test.ts:
+(pass) experimental Expo project > does not report bridge installation as rendered content [37.40ms]
+(pass) experimental Expo project > embeds the configured Expo code-signing root and metadata [738.32ms]
+(pass) experimental Expo project > generates a CNG shell with explicit native ownership and web catch-all [51.06ms]
+(pass) experimental Expo project > removes only generated native observability files when disabled [37.37ms]
+(pass) experimental Expo project > prunes only stale AbsoluteJS-managed native route wrappers [41.80ms]
+(pass) experimental Expo project > materializes a Metro-safe opaque asset map preserving web paths [63.07ms]
+(pass) experimental Expo project > provisions detected provider-neutral device capabilities and Expo plugins [32.72ms]
+(pass) experimental Expo project > automatically provisions native-owned Expo Auth and secure HTTP [29.90ms]
+(pass) experimental Expo project > provisions Expo push registration only through native Auth [39.11ms]
+(pass) experimental Expo project > rebinds the generated Sync bridge after login and isolates account transitions [43.79ms]
+(pass) experimental Expo project > resets account runtime without requiring or activating an OTA update [34.79ms]
+(pass) experimental Expo project > provisions one native-owned Sync store for WebView, native routes, and background work [35.67ms]
+(pass) experimental Expo project > configures Expo Updates with the generated AbsoluteJS runtime identity [34.04ms]
+(pass) experimental Expo project > does not adopt a populated custom directory without force [14.17ms]
+
+tests/unit/mobile/devDeviceAdapter.test.ts:
+(pass) native development device adapter > generates the same detected capability layer used by mobile bundles [2504.37ms]
+(pass) native development device adapter > bundles a browser-loadable module from project dependencies [2188.31ms]
+(pass) native development device adapter > uses the Expo bridge provider without importing Capacitor [2.09ms]
+(pass) native development device adapter > automatically installs Expo Auth in live WebView routes [4054.86ms]
+
+tests/unit/mobile/pageProtocol.test.ts:
+(pass) mobile page protocol > ignores ordinary browser requests [0.22ms]
+(pass) mobile page protocol > serves current typed props to native routes only in development [0.65ms]
+(pass) mobile page protocol > fails closed on the header-light native representation in production [0.30ms]
+(pass) mobile page protocol > selects the newest server representation understood by an older app [0.59ms]
+(pass) mobile page protocol > requires an update after the app runtime leaves the retained window [0.32ms]
+(pass) mobile page protocol > requires an update when no retained page contract is compatible [0.46ms]
+(pass) mobile page protocol > returns a typed invalid request instead of falling back to HTML [0.33ms]
+(pass) mobile page protocol > rejects a page identity mismatch before negotiating props [0.61ms]
+(pass) mobile page protocol > uses the exact contract selected for an archived producer [0.77ms]
+
+tests/unit/mobile/buildRelease.test.ts:
+(pass) automatic mobile compatibility release build > uses the finalized Elysia route and generated framework contracts [21748.50ms]
+(pass) automatic mobile compatibility release build > keeps every supported framework compatible through N+2 and fails closed at N+3 [32262.78ms]
+
+tests/unit/mobile/mobilePreview.test.ts:
+(pass) mobile preview > renders an isolated first-class runtime controller [0.49ms]
+(pass) mobile preview > mounts preview resources only for mobile-enabled development [6.17ms]
+(pass) mobile preview > rejects invalid preview telemetry [3.36ms]
+
+tests/unit/mobile/iosSimulatorController.test.ts:
+(pass) iOS simulator development controller > parses stable simctl runtime, device type, and device identities [3.71ms]
+(pass) iOS simulator development controller > fingerprints native inputs but excludes copied web assets [17.65ms]
+iOS native inputs changed or the installed app is stale; rebuilding.
+iOS simulator connected with the embedded bundle and backend on port 3034 in 11.56ms (native build installed).
+iOS startup: Capacitor sync 1.35ms, dev config 0.29ms, fingerprint 2.74ms, simulator 0.50ms, device ready 1.97ms, app check 1.13ms, Xcode 3.98ms, install 2.25ms, launch 0.08ms.
+iOS native inputs changed or the installed app is stale; rebuilding.
+iOS simulator connected with the embedded bundle and backend on port 3034 in 6.79ms (native build installed).
+iOS startup: Capacitor sync 0.51ms, dev config 0.13ms, fingerprint 2.02ms, simulator 0.16ms, device ready 1.75ms, app check 0.94ms, Xcode 1.27ms, install 1.98ms, launch 0.05ms.
+(pass) iOS simulator development controller > launches and invalidates an embedded bundle without projecting a development URL [29.66ms]
+iOS native inputs changed or the installed app is stale; rebuilding.
+iOS simulator connected with HMR on port 3000 in 10.20ms (native build installed).
+iOS startup: Capacitor sync 1.05ms, dev config 3.95ms, fingerprint 1.57ms, simulator 0.25ms, device ready 1.18ms, app check 0.34ms, Xcode 1.98ms, install 1.41ms, launch 0.05ms.
+iOS native app is unchanged on IOS-UDID-1; skipped Xcode build and install.
+iOS simulator connected with HMR on port 3000 in 7.59ms (native cache hit).
+iOS startup: Capacitor sync 0.84ms, dev config 4.03ms, fingerprint 2.20ms, simulator 0.42ms, device ready 1.42ms, app check 0.63ms, launch 0.20ms.
+iOS app relaunched on the selected simulator.
+(pass) iOS simulator development controller > builds, installs, launches, caches, and restores the dev projection [46.95ms]
+iOS native inputs changed or the installed app is stale; rebuilding.
+iOS simulator connected with HMR on port 3001 in 11.79ms (native build installed).
+iOS startup: Capacitor sync 1.27ms, dev config 4.22ms, fingerprint 1.72ms, simulator 0.25ms, device ready 1.35ms, app check 0.41ms, Xcode 4.16ms, install 0.10ms, launch 0.02ms.
+(pass) iOS simulator development controller > repairs an interrupted development projection [18.06ms]
+Installed the AbsoluteJS development CA into this iOS Simulator trust store.
+iOS native inputs changed or the installed app is stale; rebuilding.
+iOS simulator connected with HMR on port 3041 in 15.13ms (native build installed).
+iOS startup: Capacitor sync 0.77ms, dev config 6.92ms, fingerprint 2.55ms, simulator 0.37ms, device ready 1.67ms, app check 0.54ms, Xcode 4.70ms, install 0.11ms, launch 0.04ms.
+(pass) iOS simulator development controller > installs the existing development CA for HTTPS [23.12ms]
+(pass) iOS simulator development controller > builds, installs, launches, logs, and restores a physical device over LAN HTTPS [22.33ms]
+(pass) iOS simulator development controller > redacts credentials and parses native severity [1.90ms]
+
+tests/unit/mobile/expoAndroidQuality.test.ts:
+(pass) Expo Android quality measurements > parses Android launch and memory output without device identifiers [0.81ms]
+(pass) Expo Android quality measurements > parses labels and density-normalized touch bounds from UIAutomator [0.44ms]
+(pass) Expo Android quality measurements > calculates a nearest-rank percentile deterministically [0.13ms]
+
+tests/unit/mobile/androidReleaseAcceptance.test.ts:
+(pass) Android installed release acceptance > revalidates immutable release bytes and rejects path escape [5.79ms]
+(pass) Android installed release acceptance > requires approval before provisioning pinned Bundletool [2.37ms]
+(pass) Android installed release acceptance > installs Expo and Capacitor APK sets and proves two offline embedded boots [28.67ms]
+
+tests/unit/mobile/materializedBundle.test.ts:
+(pass) materialized mobile compatibility bundle > writes an atomic pointer to immutable retained producers [15.87ms]
+(pass) materialized mobile compatibility bundle > rejects inputs that have not already been reduced to retention [2.79ms]
+
+tests/unit/mobile/shellExpoSync.test.ts:
+(pass) provisions WebView Sync through a single native-owned principal [5.80ms]
+
+tests/unit/mobile/brandingConformance.test.ts:
+(pass) branding conformance artwork > rejects blank screenshots without claiming semantic visual correctness [103.91ms]
+(pass) branding conformance artwork > is deterministic and changes pixels between revisions [502.73ms]
+(pass) branding conformance artwork > ignores lossless encoding changes but includes dimensions [27.83ms]
+(pass) branding conformance artwork > rejects invalid packaged image data [6.49ms]
+(pass) branding conformance artwork > ignores only invisible RGB, not alpha or visible color changes [25.16ms]
+
+tests/unit/mobile/syncSchema.test.ts:
+(pass) generated AbsoluteJS Sync schema metadata > uses the app v1 baseline for sites without a package manifest [2.80ms]
+(pass) generated AbsoluteJS Sync schema metadata > composes the app and installed packs deterministically [12.36ms]
+(pass) generated AbsoluteJS Sync schema metadata > rejects executable or incomplete package migration metadata [6.40ms]
+(pass) generated AbsoluteJS Sync schema metadata > rejects unknown policy fields and unprotected private data [6.11ms]
+
+tests/unit/mobile/navigationState.test.ts:
+(pass) mobile navigation state > round-trips typed history entries and rejects unrelated state [1.93ms]
+(pass) mobile navigation state > restores form, focus, selection, disclosure, and scroll state [31.55ms]
+(pass) mobile navigation state > never captures credential, one-time-code, or opted-out values [8.86ms]
+(pass) mobile navigation state > resets a new route to the top and focuses its semantic heading [7.20ms]
+
+tests/unit/mobile/nativeBackgroundSync.test.ts:
+(pass) idempotently provisions iOS background processing for Auth + Sync apps [12.25ms]
+
+tests/unit/mobile/nativeUpdates.test.ts:
+(pass) native mobile update recovery > idempotently installs the iOS boot watchdog and recovery guard [11.95ms]
+(pass) native mobile update recovery > generates and removes an idempotent Android watchdog plugin [22.59ms]
+(pass) native mobile update recovery > injects an existing Kotlin MainActivity without changing its lifecycle syntax [11.70ms]
+
+tests/unit/mobile/capacitorBundle.test.ts:
+(pass) Capacitor local web bundle > keys private mobile sourcemaps by immutable app and page hashes [7.23ms]
+(pass) Capacitor local web bundle > ships the signed page bundle and excludes the server producer [144.64ms]
+(pass) Capacitor local web bundle > embeds every completed client framework and defers Ember [56.70ms]
+
+tests/unit/mobile/remoteMacProtocol.test.ts:
+(pass) remote Mac protocol > quotes every one-shot remote command argument [0.54ms]
+(pass) remote Mac protocol > discovers the Remote Mac LAN address without persisting it [0.33ms]
+(pass) remote Mac protocol > pairs a verified Mac without storing credentials [10.59ms]
+(pass) remote Mac protocol > rejects SSH option and shell injection [0.50ms]
+(pass) remote Mac protocol > rejects unsafe manually edited profiles and a root workspace [3.82ms]
+(pass) remote Mac protocol > uses an isolated project identity and an atomic cache-preserving sync [3.45ms]
+(pass) remote Mac protocol > builds a self-contained content-addressable agent artifact [756.92ms]
+(pass) remote Mac protocol > allocates build numbers locally and retrieves remote releases through the agent protocol [13.69ms]
+(pass) remote Mac protocol > runs immutable installed-release evidence on a paired Mac [8.52ms]
+(pass) remote Mac protocol > coordinates release ownership with token-guarded leases [3.73ms]
+(pass) remote Mac protocol > inspects caches and cleans only abandoned staging state [2.66ms]
+(pass) remote Mac protocol > releases ownership and kills the remote process when cancelled [4.11ms]
+(pass) remote Mac protocol > drives a remote session over the versioned event stream and reverse tunnel [10.22ms]
+(pass) remote Mac protocol > drives Expo iOS through the shared agent with Bun and Metro tunnels [5.08ms]
+
+tests/unit/mobile/updatePublisher.test.ts:
+(pass) mobile update publisher boundary > validates publish, promotion, and rollback receipts [30.84ms]
+(pass) mobile update publisher boundary > rejects a provider receipt for another immutable release [0.67ms]
+(pass) mobile update publisher boundary > validates storage accounting and collection reports [1.72ms]
+(pass) mobile update publisher boundary > validates fleet health identity and bounded counters [0.78ms]
+(pass) mobile update publisher boundary > validates rollout inspection and operator lifecycle receipts [2.08ms]
+(pass) mobile update publisher boundary > explains how to upgrade a registry without lifecycle methods [0.16ms]
+
+tests/unit/mobile/transport.test.ts:
+(pass) mobile canonical transport > targets the deployed backend with the embedded page identity [0.61ms]
+(pass) mobile canonical transport > maps only configured HTTPS and custom-scheme deep links [0.15ms]
+(pass) mobile canonical transport > routes embedded and production-origin links without capturing external links [0.16ms]
+
+tests/unit/mobile/expoNativeWatcher.test.ts:
+(pass) Expo native input watcher > classifies only application inputs that can change the native projection [0.25ms]
+(pass) Expo native input watcher > fingerprints native modules and config plugins but not Metro-owned routes [21.14ms]
+(pass) Expo native input watcher > coalesces a native module edit into one rebuild request [35.61ms]
+
+tests/unit/mobile/updateClient.test.ts:
+(pass) mobile update client > downloads verified assets into an atomic staging transaction [7.04ms]
+(pass) mobile update client > reuses only locally cached files that match the signed target digest [1.97ms]
+(pass) mobile update client > downloads a signed file when the local reuse candidate is corrupt [2.77ms]
+(pass) mobile update client > fails closed and aborts staging on incompatible or corrupt updates [2.82ms]
+(pass) mobile update client > does not redownload a release quarantined by the native watchdog [1.12ms]
+(pass) mobile update client > resumes a persistent partial file with a verified HTTP range [5.06ms]
+(pass) mobile update client > restarts a partial file when the server returns a full response [2.21ms]
+(pass) mobile update client > verifies and reuses a completed file from persistent staging [1.41ms]
+(pass) mobile update client > keeps streamed checkpoints after interruption and resumes next attempt [5.99ms]
+(pass) mobile update client > bounds parallel asset downloads [20.40ms]
+(pass) mobile update client > carries the server capability into sanitized health reports [2.58ms]
+(pass) mobile update client > reports transfer failure without replacing the update error [1.63ms]
+
+tests/unit/mobile/iosReleaseAcceptance.test.ts:
+(pass) iOS installed Release acceptance > builds, installs, and relaunches source-equivalent Simulator evidence [39.21ms]
+(pass) iOS installed Release acceptance > installs the same-archive registered-device export with confirmed offline evidence [17.60ms]
+(pass) iOS installed Release acceptance > proves Apple-processed TestFlight evidence without reinstalling the App Store IPA [7.92ms]
+(pass) iOS installed Release acceptance > rejects physical acceptance without explicit offline confirmation [12.98ms]
+
+tests/unit/mobile/iosTestReport.test.ts:
+(pass) iOS partner test report > redacts credentials, URL query values, and exact coordinates [0.41ms]
+(pass) iOS partner test report > keeps manual checks incomplete instead of fabricating passes [1.27ms]
+(pass) iOS partner test report > records observable physical checks without retaining a device identifier [0.72ms]
+(pass) iOS partner test report > classifies iOS release exactness and offline evidence honestly [0.40ms]
+(pass) iOS partner test report > writes matching Markdown and machine-readable reports [5.47ms]
+
+tests/unit/mobile/shellHttp.test.ts:
+(pass) mobile shell HTTP runtime > routes ordinary page requests through the installed native Auth fetch [2.93ms]
+(pass) mobile shell HTTP runtime > rejects a cross-origin URL before invoking the native provider [0.52ms]
+
+tests/unit/mobile/releaseDoctor.test.ts:
+(pass) finds the governing dependency lock at a workspace root [36.41ms]
+(pass) does not accept an unrelated ancestor dependency lock [18.12ms]
+(pass) resolves hoisted packages only from a governing workspace [9.21ms]
+(pass) mobile release doctor > verifies Expo code-signing metadata and embedded certificate [756.70ms]
+(pass) mobile release doctor > passes a production-safe Expo Android projection [64.59ms]
+(pass) mobile release doctor > passes a production-safe Expo iOS CNG projection [81.06ms]
+(pass) mobile release doctor > rejects modified Expo archive integrity metadata [91.57ms]
+(pass) mobile release doctor > rejects a modified Expo embedded asset [61.73ms]
+(pass) mobile release doctor > rejects Expo Android release manifests containing development trust [60.15ms]
+(pass) mobile release doctor > passes a production-safe Android projection [28.00ms]
+(pass) mobile release doctor > verifies the generated Android update watchdog against release config [35.90ms]
+(pass) mobile release doctor > verifies the generated Android native observability collector [34.95ms]
+(pass) mobile release doctor > rejects an unprovisioned native capability [23.48ms]
+(pass) mobile release doctor > rejects a packaged page whose bytes no longer match its signed hash [21.58ms]
+(pass) mobile release doctor > rejects ranged or drifted Capacitor release dependencies [23.27ms]
+(pass) mobile release doctor > fails explicit Android debugging and warns about exported components [26.40ms]
+(pass) mobile release doctor > emits a redacted CI compliance projection [26.83ms]
+(pass) mobile release doctor > rejects a missing iOS privacy projection for a detected capability [42.59ms]
+(pass) mobile release doctor > rejects leaked live reload, cleartext, HMR, and an active journal [32.98ms]
+(pass) mobile release doctor > rejects an invalid generated offline schema plan [29.13ms]
+(pass) mobile release doctor > reports the effective local data protection policy [31.07ms]
+(pass) mobile release doctor > validates iOS production transport and rejects leaked development settings [70.67ms]
+
+tests/unit/mobile/updateProtocol.test.ts:
+(pass) mobile update artifacts > builds a signed immutable file inventory and verifies it [33.14ms]
+(pass) mobile update artifacts > rejects metadata and file-list tampering [17.87ms]
+
+tests/unit/mobile/androidEmulatorController.test.ts:
+(pass) Android emulator development controller > fingerprints native inputs while excluding the live web bundle [31.34ms]
+(pass) Android emulator development controller > includes the embedded web bundle in production-preview fingerprints [32.09ms]
+(pass) Android emulator development controller > invalidates when a resolved Capacitor native dependency changes [16.36ms]
+Android native inputs changed or the installed app is stale; rebuilding.
+Android emulator connected (emulator-5554) with HMR on port 3029 in 18.06ms (native build installed).
+Android startup: Capacitor sync 1.60ms, dev config 6.74ms, fingerprint 4.85ms, emulator 1.67ms, device ready 0.48ms, ADB reverse 2.57ms, package check 1.10ms, Gradle 0.18ms, install 2.97ms, launch 0.73ms.
+Android native inputs changed or the installed app is stale; rebuilding.
+Android emulator connected (emulator-5554) with HMR on port 3030 in 12.88ms (native build installed).
+Android startup: Capacitor sync 1.07ms, dev config 5.98ms, fingerprint 3.37ms, emulator 0.13ms, device ready 0.05ms, ADB reverse 2.94ms, package check 0.58ms, Gradle 0.15ms, install 1.90ms, launch 0.07ms.
+Android native inputs changed or the installed app is stale; rebuilding.
+Android emulator connected (emulator-5554) with HMR on port 3030 in 12.98ms (native build installed).
+Android startup: Capacitor sync 0.44ms, dev config 5.45ms, fingerprint 4.22ms, emulator 0.08ms, device ready 0.05ms, ADB reverse 4.03ms, package check 0.64ms, Gradle 0.10ms, install 2.11ms, launch 0.09ms.
+(pass) Android emulator development controller > skips Gradle and installation only for the matching installed native app [90.42ms]
+Android native inputs changed or the installed app is stale; rebuilding.
+Android emulator connected (emulator-5554) with HMR on port 3028 in 10.16ms (native build installed).
+Android startup: Capacitor sync 0.59ms, dev config 3.60ms, fingerprint 3.09ms, emulator 0.31ms, device ready 0.05ms, ADB reverse 2.72ms, package check 0.63ms, Gradle 0.11ms, install 2.08ms, launch 0.08ms.
+Android native inputs changed or the installed app is stale; rebuilding.
+Android emulator connected (emulator-5554) with HMR on port 3028 in 6.94ms (native build installed).
+Android startup: Capacitor sync 0.40ms, dev config 1.40ms, fingerprint 3.10ms, emulator 0.07ms, device ready 0.03ms, ADB reverse 2.94ms, package check 0.40ms, Gradle 0.05ms, install 1.60ms, launch 0.05ms.
+(pass) Android emulator development controller > rebuilds when the package was replaced outside AbsoluteJS [36.10ms]
+(pass) Android emulator development controller > rebuilds native inputs without restarting the dev server controller [45.44ms]
+(pass) Android emulator development controller > categorizes logcat lines and redacts auth material [1.19ms]
+(pass) Android emulator development controller > only selects ADB devices that are ready [0.07ms]
+Android HMR is using HTTPS; AbsoluteJS is projecting the local development CA into this debug app only.
+Android native inputs changed or the installed app is stale; rebuilding.
+Android device connected (R58M123) with HMR on port 3040 in 18.70ms (native build installed).
+Android startup: Capacitor sync 0.92ms, dev config 11.07ms, fingerprint 3.51ms, device selection 0.26ms, device ready 0.05ms, LAN transport 3.14ms, package check 0.54ms, Gradle 0.13ms, install 2.53ms, launch 0.05ms.
+(pass) Android emulator development controller > uses LAN HTTPS for a selected physical device and restores debug trust [42.10ms]
+Android native inputs changed or the installed app is stale; rebuilding.
+Android emulator connected (emulator-5554) with HMR on port 3030 in 14.16ms (native build installed).
+Android startup: Capacitor sync 1.13ms, dev config 4.68ms, fingerprint 3.50ms, emulator 0.09ms, device ready 0.04ms, ADB reverse 3.32ms, package check 0.61ms, Gradle 0.08ms, install 3.27ms, launch 0.09ms, logs 0.82ms.
+Android app relaunched on emulator-5554.
+(pass) Android emulator development controller > connects an existing managed emulator and restores native config [35.86ms]
+Android native inputs changed or the installed app is stale; rebuilding.
+Android emulator connected (emulator-5554) with the embedded bundle and backend on port 3033 in 12.68ms (native build installed).
+Android startup: Capacitor sync 1.23ms, dev config 5.16ms, fingerprint 3.89ms, emulator 0.22ms, device ready 0.06ms, ADB reverse 3.48ms, package check 0.51ms, Gradle 0.06ms, install 1.86ms, launch 0.10ms.
+(pass) Android emulator development controller > launches an embedded bundle without replacing its Capacitor URL [57.45ms]
+Android native inputs changed or the installed app is stale; rebuilding.
+Android emulator connected (emulator-5554) with HMR on port 3031 in 13.26ms (native build installed).
+Android startup: Capacitor sync 0.99ms, dev config 4.83ms, fingerprint 3.09ms, emulator 0.10ms, device ready 0.04ms, ADB reverse 2.84ms, package check 0.59ms, Gradle 1.65ms, install 2.17ms, launch 0.05ms.
+(pass) Android emulator development controller > uses Windows Gradle and APK paths when developing through WSL [28.32ms]
+Android native inputs changed or the installed app is stale; rebuilding.
+Android app installation lost its ADB transport; reconnecting and retrying once.
+(pass) Android emulator development controller > restores production-safe native config when startup fails [30.16ms]
+Android native inputs changed or the installed app is stale; rebuilding.
+Android app installation lost its ADB transport; reconnecting and retrying once.
+Android emulator connected (emulator-5554) with HMR on port 3033 in 13.20ms (native build installed).
+Android startup: Capacitor sync 0.82ms, dev config 4.00ms, fingerprint 5.28ms, emulator 0.16ms, device ready 0.21ms, ADB reverse 4.81ms, package check 0.38ms, Gradle 0.09ms, install 2.60ms, launch 0.12ms.
+(pass) Android emulator development controller > reconnects and retries once when Android installation loses ADB [42.75ms]
+
+tests/unit/mobile/androidUpgradeConformance.test.ts:
+(pass) Android installed-app upgrade conformance > parses the stable package identity and build version [0.30ms]
+(pass) Android installed-app upgrade conformance > proves replace install, app-private state, retention, and rollback [3.66ms]
+(pass) Android installed-app upgrade conformance > rejects an install that resets the application identity [0.57ms]
+(pass) Android installed-app upgrade conformance > requires complete identity and monotonic version evidence [0.38ms]
+
+tests/unit/mobile/emulatorInstaller.test.ts:
+(pass) mobile emulator installer > presents a reproducible Android installation plan [0.52ms]
+(pass) mobile emulator installer > uses an existing Android SDK instead of creating a duplicate [0.09ms]
+(pass) mobile emulator installer > installs SDK packages, accepts licenses, and provisions one AVD [5.06ms]
+(pass) mobile emulator installer > does not recreate an existing AbsoluteJS AVD [1.06ms]
+(pass) mobile emulator installer > runs the Windows Android toolchain through WSL interop [0.96ms]
+(pass) mobile emulator installer > refuses command-line tools whose checksum does not match [1.02ms]
+(pass) mobile emulator installer > does not offer an iOS installation on non-macOS hosts [0.12ms]
+
+tests/unit/mobile/shellExpoAuth.test.ts:
+(pass) Expo embedded-web Auth provider > keeps credentials native while exposing typed Auth and HTTP operations [3.70ms]
+
+tests/unit/mobile/associationFiles.test.ts:
+(pass) mobile association files > builds Apple and Android documents from normalized signing identity [0.86ms]
+(pass) mobile association files > serves extensionless AASA and assetlinks JSON without redirects [3.05ms]
+(pass) mobile association files > mounts association documents in the production prepare runtime [34.01ms]
+(pass) mobile association files > writes a deployment-ready well-known tree for every host [19.71ms]
+(pass) mobile association files > replaces only an owned output tree so removed platforms cannot leave stale trust [13.51ms]
+(pass) mobile association files > requires platform signing identities for release publication [0.84ms]
+(pass) mobile association files > refuses to replace an output directory it does not own [12.95ms]
+(pass) mobile association files > externally verifies every host without following redirects [2.02ms]
+(pass) mobile association files > rejects redirected hosted association files [0.75ms]
+
+tests/unit/mobile/emulatorDoctor.test.ts:
+(pass) mobile emulator doctor > detects macOS, Windows, Linux, and WSL hosts [0.57ms]
+(pass) mobile emulator doctor > discovers a configured Android SDK without invoking native tools [2.77ms]
+(pass) mobile emulator doctor > recognizes a Windows-host adb bridge from WSL [0.76ms]
+(pass) mobile emulator doctor > reports actionable missing tool failures [0.54ms]
+(pass) mobile emulator doctor > requires an available iOS Simulator runtime, not only Xcode [1.17ms]
+
+tests/unit/mobile/nativeAuth.test.ts:
+(pass) automatic mobile auth provisioning > activates only when the project declares @absolutejs/auth [4.91ms]
+(pass) automatic mobile auth provisioning > keeps mobile bundles auth-free when the package is absent [2.06ms]
+(pass) automatic mobile auth provisioning > derives a stable public client and runtime declaration [0.64ms]
+(pass) automatic mobile auth provisioning > installs and removes the server provisioning declaration [2.56ms]
+
+tests/unit/mobile/iosRelease.test.ts:
+(pass) iOS production releases > archives and exports a signed immutable IPA with automatic build identity [37.20ms]
+(pass) iOS production releases > requires macOS, a marketing version, and signing by default [32.24ms]
+(pass) iOS production releases > exports an optional registered-device IPA from the same archive [37.27ms]
+(pass) iOS production releases > discovers Expo CNG workspaces and schemes without Capacitor paths [34.74ms]
+(pass) iOS production releases > rejects ambiguous or out-of-project Xcode selection [11.88ms]
+(pass) iOS production releases > verifies remotely produced IPAs before immutable import [9.15ms]
+(pass) iOS release push entitlement > accepts a push app signed for the production APNs environment [26.65ms]
+(pass) iOS release push entitlement > refuses a push app still signed for the development environment [27.16ms]
+(pass) iOS release push entitlement > does not inspect apps that do not use push [26.34ms]
+
+tests/unit/mobile/capacitorProject.test.ts:
+(pass) Capacitor project config > owns webDir and custom native source paths without a remote server URL [5.62ms]
+(pass) native initialization supports empty bundles and retries without overwriting app assets [10.58ms]
+
+tests/unit/migrate/substitutions.test.ts:
+(pass) planSubstitutions > suggests a first-party equivalent for a declared dependency [0.39ms]
+(pass) planSubstitutions > never suggests a package missing from the catalog [0.17ms]
+(pass) planSubstitutions > ignores dependencies the project does not have [0.15ms]
+(pass) planSubstitutions > reports where the dependency is actually imported [0.10ms]
+(pass) planSubstitutions > a declared but unimported dependency is still reported [0.05ms]
+(pass) planSubstitutions > the most-used dependency is ranked first [0.52ms]
+(pass) planSubstitutions > callers can supply their own rules [0.14ms]
+(pass) planSubstitutions > every default rule points at an @absolutejs package [0.33ms]
+
+tests/unit/migrate/detectStack.test.ts:
+(pass) detectStack > a dependency alone is enough to be confident [1.09ms]
+(pass) detectStack > a config file alone is a hint, not a verdict [0.34ms]
+(pass) detectStack > dependency and config together outrank either alone [0.41ms]
+(pass) detectStack > vite never outranks the framework built on top of it [0.20ms]
+(pass) detectStack > vite still wins when it is the only thing present [0.08ms]
+(pass) detectStack > two equally-scored stacks lower confidence instead of coin-flipping [0.30ms]
+(pass) detectStack > an unrecognisable repo admits it instead of guessing [0.14ms]
+(pass) detectStack > an existing AbsoluteJS project is recognised as one [0.09ms]
+(pass) detectStack > nested config paths are matched by filename [0.10ms]
+
+tests/unit/build/bunStringRawUnicodePlugin.test.ts:
+(pass) Bun String.raw Unicode workaround > rewrites Unicode raw segments while preserving escapes and substitutions [3.63ms]
+(pass) Bun String.raw Unicode workaround > leaves ASCII-only raw templates alone [0.11ms]
+(pass) Bun String.raw Unicode workaround > keeps target-bun output semantically equal to the source [13.26ms]
+
+tests/unit/build/compileVueWorkerPool.test.ts:
+(pass) compileVue on the build worker pool > pooled output is byte-for-byte the inline output [2011.87ms]
+(pass) compileVue on the build worker pool > a single-page rebuild stays on the main thread while the pool is cold [32.64ms]
+
+tests/unit/build/workspacePackages.test.ts:
+(pass) the app's own workspace packages > a linked package is the app's source; an installed one is not [0.97ms]
+(pass) the app's own workspace packages > their folders are watched; installed and missing ones are not [0.49ms]
+(pass) the app's own workspace packages > an app with no readable package.json has none [0.15ms]
+
+tests/unit/build/scanVueSsrOnlyPages.test.ts:
+(pass) vue ssr-only page scanning > reads the literal manifest key of a client:none page [2.94ms]
+(pass) vue ssr-only page scanning > memoised scans see a page that becomes ssr-only after the first scan [2.98ms]
+(pass) vue ssr-only page scanning > memoised scans see a page that stops being ssr-only [2.24ms]
+(pass) vue ssr-only page scanning > memoised scans reuse the parse of a file whose stamp is unchanged [1.85ms]
+(pass) vue ssr-only page scanning > memoised scans never trust the stamp of a just-written file [3.72ms]
+(pass) vue ssr-only page scanning > memoised scans see a newly added ssr-only registration file [2.17ms]
+
+tests/unit/build/workerReferences.test.ts:
+(pass) worker reference scanning > does not promote test-only URL references into browser entries [6.26ms]
+(pass) worker reference scanning > memoised scans still see a worker reference added after the first scan [11.50ms]
+(pass) worker reference scanning > memoised scans still see a newly created worker target [3.06ms]
+(pass) worker reference scanning > memoised scans drop a worker reference removed after the first scan [3.00ms]
+
+tests/unit/build/rewriteReactImports.test.ts:
+(pass) rewriteReactImports — every real jsx-runtime import is vendored > minified named import (prod jsx) [2.92ms]
+(pass) rewriteReactImports — every real jsx-runtime import is vendored > dev jsxDEV import [2.77ms]
+(pass) rewriteReactImports — every real jsx-runtime import is vendored > shared-chunk import preceded by a source-path banner comment [1.61ms]
+(pass) rewriteReactImports — every real jsx-runtime import is vendored > side-effect and re-export forms [8.94ms]
+(pass) rewriteReactImports — every real jsx-runtime import is vendored > specifier separated from `from` by a block comment [2.59ms]
+(pass) rewriteReactImports — every real jsx-runtime import is vendored > import after a template with a regex-in-interpolation is vendored [3.06ms]
+(pass) rewriteReactImports — never rewrites specifier TEXT (no false positives) > React's dev error-message template is left untouched [2.12ms]
+(pass) rewriteReactImports — never rewrites specifier TEXT (no false positives) > import-like text inside a rendered code sample (template) is preserved [2.05ms]
+(pass) rewriteReactImports — never rewrites specifier TEXT (no false positives) > import-like text inside a plain string is preserved [1.39ms]
+(pass) rewriteReactImports — never rewrites specifier TEXT (no false positives) > a bare specifier used as a data value (not an import) is preserved [1.36ms]
+(pass) maskLiterals — content-gated string masking > a bare specifier string is not masked [0.21ms]
+(pass) maskLiterals — content-gated string masking > a string whose text could be misread as an import IS masked [0.19ms]
+
+tests/unit/build/rewriteClientOutputs.test.ts:
+(pass) rewriteClientContent — each family in isolation > react family: real imports vendored, masked text untouched [6.23ms]
+(pass) rewriteClientContent — each family in isolation > vendor family: no sweep, so a spaced `require` stays bare [2.57ms]
+(pass) rewriteClientContent — each family in isolation > refresh globals: stubs prepended exactly once [0.53ms]
+(pass) rewriteClientContent — each family in isolation > url references: mapped targets rewritten, unmapped left alone [0.87ms]
+(pass) rewriteClientContent — each family in isolation > non-JS outputs only get the url family [0.34ms]
+(pass) rewriteClientContent — all families together > matches the expected output [1.09ms]
+(pass) rewriteClientContent — all families together > matches the legacy four-pass pipeline [4.98ms]
+(pass) rewriteClientContent — all families together > is idempotent [1.10ms]
+(pass) precheck skip > returns the same string instance when no family can match [0.44ms]
+(pass) precheck skip > a candidate substring is required, not sufficient [0.20ms]
+(pass) precheck skip > rewriteClientOutputs neither rewrites nor touches a skipped file [28.63ms]
+(pass) reduceVendorPaths > drops entries the react family already maps identically [0.26ms]
+(pass) reduceVendorPaths > a covered vendor family is a no-op after the react family [1.85ms]
+(pass) rewriteSpecifiers — combined regex equals the per-specifier passes > with sweep: union regex == legacy main + sweep [1.63ms]
+(pass) rewriteSpecifiers — combined regex equals the per-specifier passes > without sweep: combined regex == legacy per-specifier loop [4.12ms]
+(pass) rewriteSpecifiers — combined regex equals the per-specifier passes > sweeping pass == legacy main + sweep, non-sweeping == legacy main [1.11ms]
+(pass) rewriteClientOutputs — file level > writes rewritten outputs and tolerates a missing file [1.45ms]
+(pass) rewriteClientOutputs — file level > no families → nothing is read [0.26ms]
+(pass) rewriteClientOutputs — file level > rewriteUrlReferencesInContent skips content without URL( [0.05ms]
+
+tests/unit/build/vueAutoRouterTransform.test.ts:
+(pass) addAutoRouterSetupApp > reports an unmatched initial server route as not found [0.28ms]
+(pass) addAutoRouterSetupApp > reloads unmatched client routes through the server 404 handler [0.07ms]
+
+tests/unit/build/resolveBuildMode.test.ts:
+(pass) resolveBuildDevelopmentMode > explicit production overrides an ambient development environment [0.08ms]
+(pass) resolveBuildDevelopmentMode > explicit development overrides an ambient production environment [0.02ms]
+(pass) resolveBuildDevelopmentMode > falls back to NODE_ENV when a caller does not provide a mode [0.02ms]
+(pass) resolveBuildDevelopmentMode > uses production Vue flags for an explicit production build [0.08ms]
+
+tests/unit/build/parseVueSpaRoutes.test.ts:
+(pass) parseVueSpaRoutes > does not pair a redirect path with the next route component [0.80ms]
+(pass) parseVueSpaRoutes > supports component before path and template string literals [1.08ms]
+
+tests/unit/build/pwa.test.ts:
+(pass) AbsoluteJS PWA build integration > materializes one shared bootstrap, manifest, and Sync worker [139.26ms]
+(pass) AbsoluteJS PWA build integration > rejects worker and manifest paths that can leave the public boundary [3.49ms]
+(pass) AbsoluteJS PWA build integration > auto-provisions trusted Web Push when the portable capability is imported [50.98ms]
+(pass) AbsoluteJS PWA build integration > fails the build with setup guidance instead of silently disabling Web Push [2.06ms]
+(pass) AbsoluteJS PWA build integration > injects the static-page bootstrap once before head closes [0.29ms]
+
+tests/unit/build/compileAngularJITDefer.test.ts:
+(pass) compileAngularFileJIT defer lowering > lowers inline template @defer blocks [46.43ms]
+(pass) compileAngularFileJIT defer lowering > preserves and augments existing imports array with DeferSlotComponent [60.56ms]
+(pass) compileAngularFileJIT defer lowering > lowers templateUrl @defer blocks [83.26ms]
+(pass) compileAngularFileJIT defer lowering > compiles absolute local component imports and inlines their resources [17.17ms]
+(pass) compileAngularFileJIT defer lowering > compiles tsconfig path alias component imports and inlines their resources [19.33ms]
+(pass) compileAngularFileJIT defer lowering > ignores commented-out templateUrl when an inline template is present [10.56ms]
+(pass) compileAngularFileJIT defer lowering > reports missing styleUrl resources before Angular SSR fetches them [9.56ms]
+(pass) compileAngularFileJIT defer lowering > evaluates @defer interpolation expressions in resolved HTML [52.80ms]
+(pass) compileAngularFileJIT defer lowering > compiles Less styleUrl resources in AOT builds [3055.49ms]
+(pass) compileAngularFileJIT defer lowering > compiles Stylus styleUrl resources in AOT builds [2413.35ms]
+(pass) compileAngularFileJIT defer lowering > generated client bootstrap defers streaming slot flush until after hydration [4747.51ms]
+
+tests/unit/build/workerPool.test.ts:
+(pass) resolveBuildWorkerCount > ABSOLUTE_BUILD_WORKERS overrides the machine default [0.28ms]
+(pass) resolveBuildWorkerCount > falls back to at least two workers, at most eight, on nonsense [0.32ms]
+(pass) resolveBuildWorkerEntry > a source checkout runs the .ts entry [0.86ms]
+(pass) resolveBuildWorkerEntry > code running from dist/ prefers the bundled entry [0.91ms]
+(pass) resolveBuildWorkerEntry > outside the package there is no entry (pool runs inline) [0.11ms]
+(pass) build worker pool > round-trips a job through a worker [13.18ms]
+(pass) build worker pool > propagates a job failure with the worker stack [29.87ms]
+(pass) build worker pool > size 0 and 1 run every job inline on the main thread [2.08ms]
+(pass) build worker pool > a missing worker entry runs inline [0.33ms]
+(pass) build worker pool > small batches stay inline until the pool is warm [17.88ms]
+(pass) build worker pool > terminates idle workers after the idle timeout [302.14ms]
+(pass) build worker pool > records per-worker busy time and pool utilisation [147.74ms]
+(pass) build worker pool > affinity keeps a key on one worker without starving the queue [65.23ms]
+(pass) build worker pool > shutdown waits for in-flight jobs and tears the workers down [97.91ms]
+(pass) build worker pool > the published dist entry runs as a worker [57.28ms]
+
+tests/unit/build/vueCompileCache.test.ts:
+(pass) vue compile cache > survives a restart, invalidates on child and type-dependency edits [136.12ms]
+(pass) vue compile cache > never caches components with external style dependencies [14.25ms]
+(pass) vue compile cache > ABSOLUTE_COMPILE_CACHE=0 opts out entirely [40.19ms]
+
+tests/unit/build/islandEntries.test.ts:
+(pass) loadIslandRegistryBuildInfo > extracts Svelte island entries without importing raw .svelte files [7.42ms]
+(pass) loadIslandRegistryBuildInfo > recognizes aliased registry helper imports [7.44ms]
+(pass) loadIslandRegistryBuildInfo > recognizes namespace registry helper imports [2.49ms]
+(pass) loadIslandRegistry > returns a static registry for Svelte islands without executing the registry module [2.59ms]
+
+tests/unit/build/toPascal.test.ts:
+(pass) toPascal > capitalizes single word [0.08ms]
+(pass) toPascal > converts kebab-case [0.17ms]
+(pass) toPascal > converts snake_case [0.05ms]
+(pass) toPascal > handles already PascalCase [0.03ms]
+(pass) toPascal > handles mixed separators [0.04ms]
+(pass) toPascal > strips non-alphanumeric characters when separators present [0.03ms]
+(pass) toPascal > handles leading/trailing whitespace with separator [0.03ms]
+(pass) toPascal > handles empty string [0.02ms]
+(pass) toPascal > handles single character [0.09ms]
+(pass) toPascal > handles multiple consecutive separators [0.06ms]
+(pass) toPascal > handles real framework page names [0.09ms]
+(pass) toKebab > converts camelCase [0.04ms]
+(pass) toKebab > converts PascalCase [0.02ms]
+(pass) toKebab > handles already kebab-case [0.02ms]
+(pass) toScreamingSnake > converts camelCase [0.07ms]
+(pass) toScreamingSnake > converts PascalCase [0.03ms]
+
+tests/unit/build/rewriteImportsPlugin.test.ts:
+(pass) rewriteImportsPlugin > rewrites bare specifier `from "rxjs"` to vendor URL [0.90ms]
+(pass) rewriteImportsPlugin > rewrites side-effect and dynamic imports too [0.51ms]
+(pass) rewriteImportsPlugin > longer specifiers replaced before their prefixes [0.27ms]
+(pass) rewriteImportsPlugin > rewriteVendorDirectories tolerates ENOENT race [5.10ms]
+(pass) rewriteImportsPlugin > fixMissingReExportNamespacesInContent injects missing import * as [0.98ms]
+(pass) rewriteImportsPlugin > fixMissingReExportNamespacesInContent leaves content alone when ident is already imported [0.11ms]
+
+tests/unit/build/injectVueComposableTracking.test.ts:
+(pass) findTopLevelStatementEnd > stops at the `;` that ends the column-0 statement [1.37ms]
+(pass) findTopLevelStatementEnd > handles a statement terminated at end of file [0.11ms]
+(pass) findTopLevelStatementEnd > returns -1 when no terminator is found [0.03ms]
+(pass) injectVueComposableTrackingIntoContent > leaves output without composables untouched [0.54ms]
+(pass) injectVueComposableTrackingIntoContent > wraps each composable with its own source-derived module id [0.53ms]
+(pass) injectVueComposableTrackingIntoContent > is not confused by quotes in comments, regex literals or templates [0.40ms]
+(pass) injectVueComposableTrackingIntoContent > wrapped composables run and restore ref values across a reload [1.28ms]
+(pass) injectVueComposableTrackingIntoContent > skips a composable whose statement end cannot be located [0.17ms]
+(pass) resolveVueComposableModuleId > maps generated client helpers back to their source under vueDir [2.85ms]
+(pass) collectVueHmrOutputPaths > follows chunk imports transitively and skips unrelated chunks [1.76ms]
+(pass) collectVueHmrOutputPaths > returns the page bundles alone when there are no chunks [0.20ms]
+(pass) collectVueHmrOutputPaths > isSharedChunkPath matches Bun chunk names only [0.08ms]
+(pass) injectVueComposableTracking (file) > rewrites the file in place and reports the resolved ids [1.86ms]
+
+tests/unit/build/bunBuildConfig.test.ts:
+(pass) bunBuild config overrides > resolves shorthand config as the pass default [0.83ms]
+(pass) bunBuild config overrides > merges default and pass-specific config with pass-specific values winning [0.20ms]
+(pass) bunBuild config overrides > strips reserved fields at runtime before merging [0.12ms]
+(pass) bunBuild config overrides > merges plugins, external, banner, and define without dropping Absolute-owned values [0.34ms]
+(pass) bunBuild config overrides > passes special-care scalar options through to Bun config [0.13ms]
+(pass) bunBuild config overrides > root bunBuild config is not mistaken for a workspace config [0.06ms]
+(pass) generateManifest with custom Bun naming output > handles emitted files that omit Bun hash from the filename [1.10ms]
+(pass) generateManifest with custom Bun naming output > handles emitted files with object naming subdirectories [0.17ms]
+
+tests/unit/build/serverExternals.test.ts:
+(pass) packageNameOf > extracts the package from bare and scoped specifiers [0.31ms]
+(pass) createDevServerExternalResolver > externalizes resolvable prebuilt node_modules packages [2.81ms]
+(pass) createDevServerExternalResolver > leaves relative, absolute, private and protocol specifiers to Bun [0.20ms]
+(pass) createDevServerExternalResolver > does not externalize unresolvable packages [0.17ms]
+(pass) createDevServerExternalResolver > keeps packages shipping .vue / .svelte files next to the entry bundled [0.40ms]
+(pass) createDevServerExternalResolver > judges multi-adapter packages per resolved subpath [0.67ms]
+(pass) createDevServerExternalResolver > keeps packages with a svelte export condition bundled [0.39ms]
+(pass) createDevServerExternalResolver > keeps unbuilt TypeScript entries bundled [0.21ms]
+(pass) createDevServerExternalResolver > keeps a nested duplicate bundled when the importer resolves elsewhere [0.45ms]
+(pass) createDevServerExternalResolver > keeps workspace symlinks (real path outside node_modules) bundled [0.21ms]
+(pass) createDevServerExternalResolver > honours the bundleDependencies allowlist patterns [1.11ms]
+(pass) createDevServerExternalsPlugin > Bun.build keeps external packages as bare imports and inlines the rest [14.46ms]
+
+tests/unit/build/compileSvelte.test.ts:
+(pass) compileSvelte > disables hydration for await-based Svelte pages [205.85ms]
+
+tests/unit/build/vendorCache.test.ts:
+(pass) computeVendorCacheKey > is stable for the same inputs and order-independent [0.60ms]
+(pass) computeVendorCacheKey > changes when the lockfile changes [0.14ms]
+(pass) computeVendorCacheKey > changes when the framework version changes [0.12ms]
+(pass) computeVendorCacheKey > changes when the runtime version changes [0.07ms]
+(pass) computeVendorCacheKey > changes when the source dirs changes [0.30ms]
+(pass) computeVendorCacheKey > changes when the specifier set changes [0.08ms]
+(pass) computeVendorCacheKey > changes when the vendor dirs changes [0.04ms]
+(pass) readLockfileHash > is null without a lockfile, so the cache stays off [5.07ms]
+(pass) readLockfileHash > tracks the lockfile contents [2.22ms]
+(pass) save/restore round trip > restores the vendor directories and the payload [32.72ms]
+(pass) save/restore round trip > an unknown key is a miss, not an error [3.68ms]
+(pass) save/restore round trip > a cache entry missing one of its directories is a miss [13.73ms]
+(pass) save/restore round trip > does not overwrite an existing entry for the same key [8.80ms]
+
+tests/unit/build/patchRefreshGlobals.test.ts:
+(pass) patchRefreshGlobals > prepends stubs to chunk with bare $RefreshReg$ call [6.36ms]
+(pass) patchRefreshGlobals > prepends stubs to chunk with bare $RefreshSig$ call [6.83ms]
+(pass) patchRefreshGlobals > skips files without $RefreshReg$ or $RefreshSig$ [3.62ms]
+(pass) patchRefreshGlobals > skips files already patched [2.92ms]
+(pass) patchRefreshGlobals > skips non-js files [6.82ms]
+(pass) patchRefreshGlobals > patches multiple files in parallel [6.00ms]
+(pass) reactFastRefresh build output > Bun.build with reactFastRefresh + splitting produces $RefreshReg$ calls that need patching [18.80ms]
+
+tests/unit/build/generateReactIndexesMobile.test.ts:
+(pass) generated React mobile entry > client-renders data envelopes instead of hydrating absent server markup [8.78ms]
+(pass) generated React mobile entry > generates a dev remount hook for Bun builds without Fast Refresh transforms [6.24ms]
+
+tests/unit/build/stylePreprocessor.test.ts:
+(pass) stylePreprocessor > runs configured PostCSS plugins for plain and preprocessed CSS [94.38ms]
+(pass) stylePreprocessor > compiles Sass, SCSS, Less, and Stylus source to CSS [500.37ms]
+(pass) stylePreprocessor > preserves Bun CSS module exports and :export values for module preprocessor imports [74.61ms]
+(pass) stylePreprocessor > resolves configured aliases and rebases urls from imported styles [83.08ms]
+(pass) stylePreprocessor > applies configured additional data and load paths [31.69ms]
+(pass) stylePreprocessor > applies configured options inside Bun style plugin builds [30.27ms]
+(pass) stylePreprocessor > applies PostCSS inside Bun style plugin builds [14.62ms]
+(pass) stylePreprocessor > scans style entrypoints and skips CSS module files [17.62ms]
+
+tests/unit/build/buildDepVendor.test.ts:
+(pass) computeDepVendorPaths > does not vendor dependencies imported only by test files [13.82ms]
+(pass) computeDepVendorPaths > does not vendor AbsoluteJS package entrypoints [6.36ms]
+(pass) computeDepVendorPaths > does not vendor Node builtins imported by application source [20.50ms]
+(pass) computeDepVendorPaths > walks through CJS dev/prod wrappers to find deep bare imports [10.24ms]
+(pass) computeDepVendorPaths > @-scoped specs get an underscore prefix to avoid collision [400.02ms]
+
+tests/unit/build/maskLiteralsEquivalence.test.ts:
+(pass) maskLiterals — equivalent to the character-by-character scanner > framework sources (src/**/*.ts) [910.97ms]
+(pass) maskLiterals — equivalent to the character-by-character scanner > framework tests and example app [2211.86ms]
+(pass) maskLiterals — equivalent to the character-by-character scanner > vendor bundles (react, react-dom, vue, svelte, rxjs, angular) [4209.77ms]
+(pass) maskLiterals — equivalent to the character-by-character scanner > hand-picked edge cases [1.10ms]
+(pass) maskLiterals — equivalent to the character-by-character scanner > seeded fuzz over tokenizer-relevant characters [225.68ms]
+
+tests/unit/build/angularLinkerPlugin.test.ts:
+(pass) angularLinkerPlugin > processes node_modules packages and skips app source [0.22ms]
+
+tests/unit/build/validateSafePath.test.ts:
+(pass) validateSafePath > allows simple relative paths [0.59ms]
+(pass) validateSafePath > allows nested paths [0.21ms]
+(pass) validateSafePath > blocks directory traversal with ../ [0.15ms]
+(pass) validateSafePath > blocks directory traversal with encoded paths [0.07ms]
+(pass) validateSafePath > blocks bare .. path [0.05ms]
+(pass) validateSafePath > allows paths that contain .. but resolve within base [0.04ms]
+(pass) validateSafePath > allows absolute paths within base directory [0.03ms]
+
+tests/unit/build/compileTailwind.test.ts:
+(pass) compileTailwind > generates Tailwind utilities with Bun native plugin [168.67ms]
+(pass) compileTailwind > runs PostCSS after native Tailwind generation [40.57ms]
+(pass) compileTailwind > reports whether the emitted CSS changed [48.79ms]
+
+tests/unit/build/vuePackageOutputs.test.ts:
+(pass) package Vue components, nested components and helpers keep separate browser and server outputs [392.14ms]
+(pass) generated source identities reject escaped or malformed paths [0.32ms]
+
+tests/unit/build/scanAngularHandlerCalls.test.ts:
+(pass) scanAngularHandlerCalls > ignores framework-owned hot-reload entry copies [3.05ms]
+
+tests/unit/build/chainInlineSourcemapsWorkerPool.test.ts:
+(pass) chainBundleInlineSourcemaps on the build worker pool > worker-chained bundles equal main-thread-chained bundles and drop sourcesContent [134.24ms]
+(pass) chainBundleInlineSourcemaps on the build worker pool > sourcesContent can be kept on request [21.12ms]
+(pass) chainBundleInlineSourcemaps on the build worker pool > a bundle without an inline map is left alone [14.53ms]
+(pass) chainBundleInlineSourcemaps on the build worker pool > a small batch runs inline while the pool is cold [15.59ms]
+
+tests/unit/build/maskLiterals.test.ts:
+(pass) import rewriter — real imports still rewrite > static named import (double quotes) [0.68ms]
+(pass) import rewriter — real imports still rewrite > default import (single quotes) [0.24ms]
+(pass) import rewriter — real imports still rewrite > side-effect + dynamic import [0.17ms]
+(pass) import rewriter — does NOT touch non-code spans > specifier inside a template-literal code sample is preserved [0.30ms]
+(pass) import rewriter — does NOT touch non-code spans > specifier inside a // comment is preserved [0.16ms]
+(pass) import rewriter — does NOT touch non-code spans > specifier inside a /* */ comment is preserved [0.15ms]
+(pass) import rewriter — does NOT touch non-code spans > mixed: real import rewritten, sample in same file preserved [0.20ms]
+(pass) import rewriter — does NOT touch non-code spans > template with ${} interpolation: sample preserved, code intact [0.16ms]
+(pass) import rewriter — does NOT touch non-code spans > specifier inside a plain (non-template) data string is preserved [0.21ms]
+(pass) import rewriter — does NOT touch non-code spans > real import specifiers next to data strings still rewrite [0.15ms]
+(pass) import rewriter — does NOT touch non-code spans > regex literal containing quotes does not derail a later real import [0.13ms]
+(pass) import rewriter — does NOT touch non-code spans > regex-with-quote inside a template interpolation does not swallow a later import [0.19ms]
+(pass) maskLiterals round-trip > restore(masked) reproduces the source exactly [0.16ms]
+(pass) maskLiterals round-trip > masked text has no leftover from/import inside the sample [0.11ms]
+
+tests/unit/build/compileVue.test.ts:
+(pass) compileVue > resolves prop types re-exported from a directory index [27.98ms]
+(pass) compileVue > copies helpers that are only re-exported (export { } from, export * from) [21.49ms]
+(pass) compileVue > compiles Vue components referenced only by literal dynamic imports [20.12ms]
+(pass) compileVue > SSR-renders setup state from a dynamically imported Vue component after the production server bundle [280.23ms]
+(pass) compileVue > resolves inherited props from imported TypeScript interfaces [23.32ms]
+(pass) compileVue > adds streaming slot hydration pending handling to client bootstrap [10.01ms]
+(pass) compileVue > fresh-mounts routed SPA pages instead of hydrating SSR shell [42.70ms]
+
+tests/unit/build/staticIslandPages.test.ts:
+(pass) transformCurrentStaticPageHtml > returns plain static html without requiring an island registry [0.66ms]
+(pass) transformCurrentStaticPageHtml > lowers abs-stream-slot tags into streaming placeholders [0.27ms]
+(pass) transformCurrentStaticPageHtml > lowers abs-htmx-stream-slot tags into native htmx markup [0.22ms]
+
+tests/unit/build/buildAngularVendor.test.ts:
+(pass) buildAngularVendor > does not vendor Angular build-time packages into the browser vendor [26.78ms]
+
+tests/unit/build/vendorNestedDiscovery.test.ts:
+(pass) vendor discovery through a non-hoisted dependency > finds a specifier only a nested package imports [2.81ms]
+(pass) vendor discovery through a non-hoisted dependency > does not offer the nested package itself as a vendor entry [3.62ms]
+(pass) vendor discovery through a non-hoisted dependency > skips what is already vendored [2.95ms]
+
+tests/unit/dev/hot/backendHmr.test.ts:
+(pass) backend HMR > boots with every module evaluated once, cycles intact [0.31ms]
+[hmr] server: ../../../../tmp/absolute-backend-hmr-H7VQkS/handler.ts updated in 383ms
+(pass) backend HMR > a function edit re-runs only its module [389.62ms]
+(pass) backend HMR > a class kept unchanged keeps instanceof working [0.08ms]
+[hmr] server: ../../../../tmp/absolute-backend-hmr-H7VQkS/plugin.ts updated in 32ms (also re-ran: ../../../../tmp/absolute-backend-hmr-H7VQkS/entry.ts)
+(pass) backend HMR > a factory edit re-runs only the importer statements that called it [34.77ms]
+(pass) backend HMR > module `let` state survives its module re-running [11.25ms]
+[hmr] stopped 1 interval started by replaced code in ../../../../tmp/absolute-backend-hmr-H7VQkS/entry.ts
+(pass) backend HMR > re-running a timer statement stops the replaced timer [345.89ms]
+(pass) backend HMR > work started by a request is not stopped by an edit [267.16ms]
+[hmr] server: ../../../../tmp/absolute-backend-hmr-H7VQkS/handler.ts failed to update; the previous version keeps serving.
+2 | export const getValue = __absH.k("v:getValue",()=>(=> () => `v2:${pool.id}`));
+                                                       ^
+error: Unexpected =>
+    at /tmp/absolute-backend-hmr-H7VQkS/handler.ts?absolute-hot=2:2:52
+[hmr] server: ../../../../tmp/absolute-backend-hmr-H7VQkS/handler.ts updated in 4ms
+(pass) backend HMR > a broken edit keeps the previous version; the fix applies [17.27ms]
+[hmr] server: ../../../../tmp/absolute-backend-hmr-H7VQkS/handler.ts failed to update; the previous version keeps serving.
+1 | import { pool } from './db';
+2 | export const getValue = () => `v2:${pool.id}`;
+3 | export class Thing { kind = 'thing'; }
+4 | setTimeout(() => { globalThis.__hotTest.leaked = 1; }, 100);
+5 | throw new Error('boom');
+                                  ^
+error: boom
+      at <anonymous> (/tmp/absolute-backend-hmr-H7VQkS/handler.ts?absolute-hot=4:5:31)
+      at run (node:async_hooks:144:29)
+      at owned (/home/alexkahn/alex/absolutejs-watch-release/src/dev/hot/runtime.ts:194:18)
+      at r (/home/alexkahn/alex/absolutejs-watch-release/src/dev/hot/runtime.ts:259:4)
+      at /tmp/absolute-backend-hmr-H7VQkS/handler.ts?absolute-hot=4:5:8
+
+[hmr] server: ../../../../tmp/absolute-backend-hmr-H7VQkS/handler.ts updated in 2ms
+(pass) backend HMR > a version that throws is rolled back, timers included [209.04ms]
+(pass) backend HMR > the server entry is left to its own watcher [0.39ms]
+(pass) backend HMR > the same source twice is applied once [0.30ms]
+[hmr] server: ../../../../tmp/absolute-backend-hmr-H7VQkS/handler.ts failed to update; the previous version keeps serving.
+188 | 	if (path === entry) return { status: 'entry' };
+189 | 	if (!moduleRecord(path) || !isHotManaged(path))
+190 | 		return { status: 'unmanaged' };
+191 | 	let source: string;
+192 | 	try {
+193 | 		source = readFileSync(path, 'utf-8');
+                 ^
+ENOENT: no such file or directory, open '/tmp/absolute-backend-hmr-H7VQkS/handler.ts'
+    path: "/tmp/absolute-backend-hmr-H7VQkS/handler.ts",
+ syscall: "open",
+   errno: -2,
+    code: "ENOENT"
+
+      at <anonymous> (/home/alexkahn/alex/absolutejs-watch-release/src/dev/hot/reload.ts:193:12)
+
+[hmr] server: ../../../../tmp/absolute-backend-hmr-H7VQkS/handler.ts failed to update; the previous version keeps serving.
+188 | 	if (path === entry) return { status: 'entry' };
+189 | 	if (!moduleRecord(path) || !isHotManaged(path))
+190 | 		return { status: 'unmanaged' };
+191 | 	let source: string;
+192 | 	try {
+193 | 		source = readFileSync(path, 'utf-8');
+                 ^
+ENOENT: no such file or directory, open '/tmp/absolute-backend-hmr-H7VQkS/handler.ts'
+    path: "/tmp/absolute-backend-hmr-H7VQkS/handler.ts",
+ syscall: "open",
+   errno: -2,
+    code: "ENOENT"
+
+      at <anonymous> (/home/alexkahn/alex/absolutejs-watch-release/src/dev/hot/reload.ts:193:12)
+
+[hmr] server: ../../../../tmp/absolute-backend-hmr-H7VQkS/handler.ts updated in 35ms
+[hmr] server: ../../../../tmp/absolute-backend-hmr-H7VQkS/handler.ts updated in 29ms
+(pass) backend HMR > queued deletion events keep serving and a recreated module still updates [70.62ms]
+(pass) backend HMR > a barrel re-exporting with inline `type` specifiers loads [5.49ms]
+[hmr] server: ../../../../tmp/absolute-backend-hmr-H7VQkS/handler.ts updated in 24ms
+[hmr] server: ../../../../tmp/absolute-backend-hmr-H7VQkS/handler.ts updated in 39ms
+(pass) backend HMR > a second copy of the runtime, as in another bundle, applies edits [69.36ms]
+[hmr] server: ../../../../tmp/absolute-backend-hmr-H7VQkS/handler.ts updated in 33ms
+[hmr] server: ../../../../tmp/absolute-backend-hmr-H7VQkS/plugin.ts updated in 29ms
+(pass) backend HMR > a new export is importable by a later edit [72.28ms]
+
+tests/unit/dev/hot/managedFilter.test.ts:
+(pass) files the backend hot runtime manages > the app and its workspace packages, not what surrounds them [0.35ms]
+(pass) files the backend hot runtime manages > generated output, tests, excluded dirs and the config stay unmanaged [0.12ms]
+
+tests/unit/svelte/router/hashMode.test.ts:
+(pass) hashPathnameOf > no hash returns root [0.22ms]
+(pass) hashPathnameOf > bare "#" returns root [0.03ms]
+(pass) hashPathnameOf > "#/" returns root [0.03ms]
+(pass) hashPathnameOf > "#/foo" returns "/foo" [0.04ms]
+(pass) hashPathnameOf > nested path "#/foo/bar" [0.02ms]
+(pass) hashPathnameOf > tolerates "#foo" (no slash after hash) [0.02ms]
+(pass) hashPathnameOf > tolerates leading double slashes [0.02ms]
+(pass) hashPathnameOf > preserves query-style suffix in the hash as part of pathname [0.02ms]
+(pass) hashPathnameOf > ignores the document pathname [0.02ms]
+(pass) buildHashHref > root pathname produces "#/" [0.05ms]
+(pass) buildHashHref > single segment [0.02ms]
+(pass) buildHashHref > multi-segment path [0.02ms]
+(pass) buildHashHref > strips leading slashes [0.02ms]
+(pass) hashMode round-trip > build then extract returns the same routable pathname [0.15ms]
+
+tests/unit/svelte/router/prefetchCache.test.ts:
+(pass) svelte router prefetchCache > re-exports the shared framework-neutral prefetch primitive [0.08ms]
+(pass) svelte router prefetchCache > scheduleHoverPrefetch is a no-op handle without a window [0.15ms]
+
+tests/unit/svelte/router/matchPath.test.ts:
+(pass) compilePattern > static-only path scores by static-segment count [0.40ms]
+(pass) compilePattern > param segment scores lower than static [0.08ms]
+(pass) compilePattern > optional param penalizes the param weight by 1 [0.03ms]
+(pass) compilePattern > wildcard scores lowest [0.04ms]
+(pass) compilePattern > mixed pattern adds segment scores [0.03ms]
+(pass) compilePattern > trailing/leading slashes do not affect score [0.04ms]
+(pass) matchPattern — static paths > exact match succeeds with empty params [0.25ms]
+(pass) matchPattern — static paths > mismatched static segment fails [0.04ms]
+(pass) matchPattern — static paths > extra path segments fail (no implicit trailing wildcard) [0.03ms]
+(pass) matchPattern — static paths > missing path segments fail [0.03ms]
+(pass) matchPattern — static paths > root path matches "/" and "" [0.05ms]
+(pass) matchPattern — static paths > trailing slashes on input pathname are tolerated [0.03ms]
+(pass) matchPattern — param paths > single :param extracts value [0.18ms]
+(pass) matchPattern — param paths > multiple :params extract correctly [0.12ms]
+(pass) matchPattern — param paths > :param does not match across segments [0.09ms]
+(pass) matchPattern — param paths > :param matches a value containing dashes/dots [0.22ms]
+(pass) matchPattern — optional params > optional :param? present yields the value [0.34ms]
+(pass) matchPattern — optional params > optional :param? missing yields undefined [0.08ms]
+(pass) matchPattern — optional params > optional :param? at end allows shorter pathname to match [0.04ms]
+(pass) matchPattern — wildcards > lone wildcard matches anything (root included) [0.05ms]
+(pass) matchPattern — wildcards > wildcard captures rest of path including slashes [0.09ms]
+(pass) matchPattern — wildcards > wildcard with no remaining segments yields empty wildcard [0.04ms]
+(pass) matchPattern — wildcards > wildcard combined with param earlier in path [0.06ms]
+(pass) comparePatterns — specificity ranking > higher score sorts first [0.08ms]
+(pass) comparePatterns — specificity ranking > equal score: earlier declaration index wins [0.03ms]
+(pass) comparePatterns — specificity ranking > static prefix beats parameterised at same length [0.07ms]
+(pass) comparePatterns — specificity ranking > most static segments wins among similar shapes [0.03ms]
+(pass) comparePatterns — specificity ranking > static beats wildcard at same depth [0.03ms]
+(pass) joinBasepath > empty basepath returns pattern with leading slash [0.08ms]
+(pass) joinBasepath > basepath without trailing slash joined to pattern with leading slash [0.02ms]
+(pass) joinBasepath > basepath with trailing slash is normalized [0.02ms]
+(pass) joinBasepath > pattern without leading slash is joined cleanly [0.02ms]
+(pass) joinBasepath > root pattern under basepath returns the basepath [0.02ms]
+(pass) joinBasepath > empty basepath + root pattern returns "/" [0.01ms]
+(pass) joinBasepath > multiple slashes are not duplicated [0.03ms]
+(pass) joinBasepath > nested basepath stacking — caller chains joinBasepath [0.03ms]
+
+tests/unit/svelte/router/extractRouteParams.test.ts:
+(pass) ExtractRouteParams (compile-time type tests) > static path → Record<string, never> [0.02ms]
+(pass) ExtractRouteParams (compile-time type tests) > root "/" → Record<string, never> [0.01ms]
+(pass) ExtractRouteParams (compile-time type tests) > single :param → { id: string } [0.01ms]
+(pass) ExtractRouteParams (compile-time type tests) > multiple :params → { id, postId } [0.01ms]
+(pass) ExtractRouteParams (compile-time type tests) > optional :param? → { id: string | undefined }
+(pass) ExtractRouteParams (compile-time type tests) > mixed required + optional [0.01ms]
+(pass) ExtractRouteParams (compile-time type tests) > lone wildcard → { wildcard: string }
+(pass) ExtractRouteParams (compile-time type tests) > static prefix + wildcard tail → { wildcard: string } [0.01ms]
+(pass) ExtractRouteParams (compile-time type tests) > param + wildcard combo [0.01ms]
+(pass) ExtractRouteParams (compile-time type tests) > non-literal `string` falls back to Record<string, string> [0.01ms]
+
+tests/unit/svelte/router/pushState.test.ts:
+(pass) pushState / replaceState — no window (SSR) > pushState is a no-op when window is undefined [0.61ms]
+(pass) pushState / replaceState — no window (SSR) > replaceState is a no-op when window is undefined [0.06ms]
+(pass) pushState — with window > pushState calls window.history.pushState and updates page state [0.19ms]
+(pass) pushState — with window > pushState resolves a relative URL against window.location.href [0.04ms]
+(pass) pushState — with window > pushState handles absolute URLs [0.03ms]
+(pass) replaceState — with window > replaceState calls window.history.replaceState and updates page state [0.07ms]
+
+ 1528 pass
+ 0 fail
+ 19401 expect() calls
+Ran 1528 tests across 269 files. [221.35s]

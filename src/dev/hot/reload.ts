@@ -20,7 +20,8 @@ export type ServerChangeOutcome =
 
 type ExportMeta = HotModuleAnalysis['exports'];
 type Advanced =
-	{ ok: true; changed: Set<string> } | { ok: false; error: unknown };
+	| { ok: true; changed: Set<string> }
+	| { ok: false; error: unknown };
 type Pending = { module: string; changed: Set<string> };
 type Propagation = { modules: string[]; entryAffected: boolean; steps: number };
 
@@ -188,7 +189,17 @@ const apply = async (
 	if (path === entry) return { status: 'entry' };
 	if (!moduleRecord(path) || !isHotManaged(path))
 		return { status: 'unmanaged' };
-	const source = readFileSync(path, 'utf-8');
+	let source: string;
+	try {
+		source = readFileSync(path, 'utf-8');
+	} catch (error) {
+		// Atomic saves, deletes and moves can remove a watched module before
+		// its queued event runs. Nothing has advanced yet; retain the serving
+		// version and let subsequent edits retry through the same queue.
+		reportFailure(path, error);
+
+		return { error, status: 'failed' };
+	}
 	// Watchers report the same save more than once (atomic renames, the
 	// rename-recovery scan): an unchanged source is already applied.
 	if (moduleRecord(path)?.source === source) return { status: 'unchanged' };

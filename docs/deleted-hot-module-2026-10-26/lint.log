@@ -1,0 +1,6 @@
+
+/home/alexkahn/alex/absolutejs-watch-release/tests/unit/dev/hot/backendHmr.test.ts
+  37:5  warning  `entryTag` is a trivial rename of another binding. Use the original at the consumer instead — duplicate aliases drift when one side is updated and the other isn't  absolute/no-trivial-alias
+
+✖ 1 problem (0 errors, 1 warning)
+

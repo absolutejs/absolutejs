@@ -1,0 +1,2 @@
+$ bun run scripts/verifyPublishedClientBundle.ts
+Published client bundle keeps 4 optional framework modules behind dynamic chunks.

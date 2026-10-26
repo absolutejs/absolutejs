@@ -1,0 +1,2 @@
+$ bun run src/cli/index.ts typecheck --config example/absolute.config.ts
+[32m✓[0m Typecheck passed

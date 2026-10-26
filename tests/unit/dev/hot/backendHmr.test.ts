@@ -241,6 +241,33 @@ describe('backend HMR', () => {
 		expect(outcome.status).toBe('unchanged');
 	});
 
+	test('queued deletion events keep serving and a recreated module still updates', async () => {
+		const name = 'handler.ts';
+		const original = await Bun.file(path(name)).text();
+		const before = call('value');
+		try {
+			rmSync(path(name));
+			const outcomes = await Promise.all([
+				applyServerChange(path(name), entry),
+				applyServerChange(path(name), entry)
+			]);
+			expect(outcomes.map((outcome) => outcome.status)).toEqual([
+				'failed',
+				'failed'
+			]);
+			expect(call('value')).toBe(before);
+			expect(counter('pools')).toBe(1);
+			write(name, original.replace('`v2:', '`recovered:'));
+			const recovered = await applyServerChange(path(name), entry);
+			expect(recovered.status).toBe('applied');
+			expect(call('value')).toBe('recovered:1');
+		} finally {
+			write(name, original);
+			await applyServerChange(path(name), entry);
+		}
+		expect(call('value')).toBe(before);
+	});
+
 	test('a barrel re-exporting with inline `type` specifiers loads', async () => {
 		write(
 			'types.ts',

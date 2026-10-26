@@ -1,0 +1,85 @@
+bun test v1.4.4+absolute.1 (38afee6c8)
+
+tests/unit/dev/hot/backendHmr.test.ts:
+(pass) backend HMR > boots with every module evaluated once, cycles intact [1.73ms]
+[hmr] server: ../../../../tmp/absolute-backend-hmr-kiQDzY/handler.ts updated in 11ms
+(pass) backend HMR > a function edit re-runs only its module [18.14ms]
+(pass) backend HMR > a class kept unchanged keeps instanceof working [0.04ms]
+[hmr] server: ../../../../tmp/absolute-backend-hmr-kiQDzY/plugin.ts updated in 6ms (also re-ran: ../../../../tmp/absolute-backend-hmr-kiQDzY/entry.ts)
+(pass) backend HMR > a factory edit re-runs only the importer statements that called it [10.05ms]
+(pass) backend HMR > module `let` state survives its module re-running [18.23ms]
+[hmr] stopped 1 interval started by replaced code in ../../../../tmp/absolute-backend-hmr-kiQDzY/entry.ts
+(pass) backend HMR > re-running a timer statement stops the replaced timer [333.77ms]
+(pass) backend HMR > work started by a request is not stopped by an edit [263.05ms]
+[hmr] server: ../../../../tmp/absolute-backend-hmr-kiQDzY/handler.ts failed to update; the previous version keeps serving.
+2 | export const getValue = __absH.k("v:getValue",()=>(=> () => `v2:${pool.id}`));
+                                                       ^
+error: Unexpected =>
+    at /tmp/absolute-backend-hmr-kiQDzY/handler.ts?absolute-hot=2:2:52
+[hmr] server: ../../../../tmp/absolute-backend-hmr-kiQDzY/handler.ts updated in 4ms
+(pass) backend HMR > a broken edit keeps the previous version; the fix applies [12.95ms]
+[hmr] server: ../../../../tmp/absolute-backend-hmr-kiQDzY/handler.ts failed to update; the previous version keeps serving.
+1 | import { pool } from './db';
+2 | export const getValue = () => `v2:${pool.id}`;
+3 | export class Thing { kind = 'thing'; }
+4 | setTimeout(() => { globalThis.__hotTest.leaked = 1; }, 100);
+5 | throw new Error('boom');
+                                  ^
+error: boom
+      at <anonymous> (/tmp/absolute-backend-hmr-kiQDzY/handler.ts?absolute-hot=4:5:31)
+      at run (node:async_hooks:144:29)
+      at owned (/home/alexkahn/alex/absolutejs-watch-release/src/dev/hot/runtime.ts:194:18)
+      at r (/home/alexkahn/alex/absolutejs-watch-release/src/dev/hot/runtime.ts:259:4)
+      at /tmp/absolute-backend-hmr-kiQDzY/handler.ts?absolute-hot=4:5:8
+
+[hmr] server: ../../../../tmp/absolute-backend-hmr-kiQDzY/handler.ts updated in 2ms
+(pass) backend HMR > a version that throws is rolled back, timers included [215.22ms]
+(pass) backend HMR > the server entry is left to its own watcher [0.21ms]
+(pass) backend HMR > the same source twice is applied once [0.13ms]
+[hmr] server: ../../../../tmp/absolute-backend-hmr-kiQDzY/handler.ts failed to update; the previous version keeps serving.
+189 | 	if (path === entry) return { status: 'entry' };
+190 | 	if (!moduleRecord(path) || !isHotManaged(path))
+191 | 		return { status: 'unmanaged' };
+192 | 	let source: string;
+193 | 	try {
+194 | 		source = readFileSync(path, 'utf-8');
+                 ^
+ENOENT: no such file or directory, open '/tmp/absolute-backend-hmr-kiQDzY/handler.ts'
+    path: "/tmp/absolute-backend-hmr-kiQDzY/handler.ts",
+ syscall: "open",
+   errno: -2,
+    code: "ENOENT"
+
+      at <anonymous> (/home/alexkahn/alex/absolutejs-watch-release/src/dev/hot/reload.ts:194:12)
+
+[hmr] server: ../../../../tmp/absolute-backend-hmr-kiQDzY/handler.ts failed to update; the previous version keeps serving.
+189 | 	if (path === entry) return { status: 'entry' };
+190 | 	if (!moduleRecord(path) || !isHotManaged(path))
+191 | 		return { status: 'unmanaged' };
+192 | 	let source: string;
+193 | 	try {
+194 | 		source = readFileSync(path, 'utf-8');
+                 ^
+ENOENT: no such file or directory, open '/tmp/absolute-backend-hmr-kiQDzY/handler.ts'
+    path: "/tmp/absolute-backend-hmr-kiQDzY/handler.ts",
+ syscall: "open",
+   errno: -2,
+    code: "ENOENT"
+
+      at <anonymous> (/home/alexkahn/alex/absolutejs-watch-release/src/dev/hot/reload.ts:194:12)
+
+[hmr] server: ../../../../tmp/absolute-backend-hmr-kiQDzY/handler.ts updated in 2ms
+[hmr] server: ../../../../tmp/absolute-backend-hmr-kiQDzY/handler.ts updated in 1ms
+(pass) backend HMR > queued deletion events keep serving and a recreated module still updates [9.06ms]
+(pass) backend HMR > a barrel re-exporting with inline `type` specifiers loads [9.52ms]
+[hmr] server: ../../../../tmp/absolute-backend-hmr-kiQDzY/handler.ts updated in 4ms
+[hmr] server: ../../../../tmp/absolute-backend-hmr-kiQDzY/handler.ts updated in 3ms
+(pass) backend HMR > a second copy of the runtime, as in another bundle, applies edits [17.66ms]
+[hmr] server: ../../../../tmp/absolute-backend-hmr-kiQDzY/handler.ts updated in 2ms
+[hmr] server: ../../../../tmp/absolute-backend-hmr-kiQDzY/plugin.ts updated in 5ms
+(pass) backend HMR > a new export is importable by a later edit [18.05ms]
+
+ 15 pass
+ 0 fail
+ 48 expect() calls
+Ran 15 tests across 1 file. [1.56s]

@@ -1,0 +1,14 @@
+bun test v1.4.4+absolute.1 (38afee6c8)
+
+tests/integration/hmr/lifecycle/backend-hmr.test.ts:
+(pass) editing server code updates the running server in place > a handler edit is served quickly, re-running nothing else [537.71ms]
+(pass) editing server code updates the running server in place > module state survives an edit to its own module [47.27ms]
+(pass) editing server code updates the running server in place > a plugin edit rebuilds the app, not the rest of the entry [175.98ms]
+(pass) editing server code updates the running server in place > an interval edit replaces the interval instead of adding one [1435.63ms]
+(pass) editing server code updates the running server in place > a broken edit keeps the last version serving; the fix applies [847.00ms]
+(pass) editing server code updates the running server in place > deleting a managed module preserves the server and recreation updates it [865.57ms]
+
+ 6 pass
+ 0 fail
+ 25 expect() calls
+Ran 6 tests across 1 file. [10.24s]
