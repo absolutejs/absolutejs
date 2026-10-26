@@ -237,19 +237,21 @@ const collectPositiveWatchRoots = (
 	// already gates against `node_modules`, `build`, `.absolutejs`,
 	// `.git`, etc.; we additionally skip dot-directories and the
 	// already-included framework roots.
-	try {
-		const entries = readdirSync(cwd, { withFileTypes: true });
-		for (const entry of entries) {
-			if (!entry.isDirectory()) continue;
-			if (entry.name.startsWith('.')) continue;
-			const abs = normalizePath(resolve(cwd, entry.name));
-			if (roots.includes(abs)) continue;
-			if (shouldIgnorePath(abs, resolved)) continue;
-			roots.push(abs);
+	if (config.dev?.autoWatchDirectories !== false) {
+		try {
+			const entries = readdirSync(cwd, { withFileTypes: true });
+			for (const entry of entries) {
+				if (!entry.isDirectory()) continue;
+				if (entry.name.startsWith('.')) continue;
+				const abs = normalizePath(resolve(cwd, entry.name));
+				if (roots.includes(abs)) continue;
+				if (shouldIgnorePath(abs, resolved)) continue;
+				roots.push(abs);
+			}
+		} catch {
+			// Best-effort — fall back to the canonical list above if
+			// the project root isn't readable for some reason.
 		}
-	} catch {
-		// Best-effort — fall back to the canonical list above if
-		// the project root isn't readable for some reason.
 	}
 
 	// User-supplied extra dirs from absolute.config.ts → dev.watchDirs.

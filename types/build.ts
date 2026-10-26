@@ -580,11 +580,15 @@ export type BaseBuildConfig = {
 		// Enable HTTPS for HTTP/2 multiplexing (faster HMR on import-heavy components)
 		// (env: ABSOLUTE_HTTPS, default false).
 		https?: boolean;
-		/** Extra directories to add to the dev file watcher's positive
-		 *  include list. Anything outside the configured framework dirs,
-		 *  conventional source dirs (`src/`, `db/`, `assets/`, `styles/`),
-		 *  and these `watchDirs` is implicitly ignored. */
+		/** Extra directories to watch in addition to framework, conventional source
+		 *  and workspace package directories. */
 		watchDirs?: string[];
+		/** Automatically watch other non-hidden project-root directories (default true).
+		 * Set false to keep reports and offline asset candidates out of HMR.
+		 * Framework, conventional source, workspace, Angular resource and explicit
+		 * watchDirs paths remain watched. This is not an exclusion for nested files
+		 * inside those source roots. */
+		autoWatchDirectories?: boolean;
 		/** DEV ONLY. Server-side (SSR) page bundles leave resolvable
 		 *  `node_modules` packages as bare imports instead of inlining them —
 		 *  the dev server resolves one shared copy at request time, which

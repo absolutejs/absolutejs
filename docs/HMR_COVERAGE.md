@@ -543,3 +543,18 @@ and exposes deterministic completion signals
 `waitForOutput(/\[abs:restart\]/)`, content-cause-filtered
 `style-update`, etc.) so the suite avoids sleep-based polling
 everywhere.
+
+## Controlling project-root discovery
+
+`dev.autoWatchDirectories` defaults to `true`, retaining automatic discovery of non-hidden project-root directories. For projects that write diagnostics, reports or offline asset candidates beside their source, set it to `false`:
+
+```ts
+dev: {
+  autoWatchDirectories: false,
+  watchDirs: ['public', 'shared']
+}
+```
+
+Configured framework paths, conventional `src`, `db`, `assets` and `styles` directories, workspace packages, external Angular resources and explicit `watchDirs` remain watched. This option does not exclude reports nested inside those watched source roots. Keep generated evidence outside source directories.
+
+The filesystem regression in `tests/unit/hmr/watchScope.test.ts` verifies that writes to excluded root-level docs/artifacts stay out of the rebuild queue while React, shared-source and explicitly added paths still notify the watcher. It also verifies unchanged default discovery and explicit opt-in for a previously unconfigured directory.
