@@ -6,6 +6,16 @@
 			"changes": [
 				{
 					"kind": "fixed",
+					"summary": "Preserve literal percent-encoded module paths when serving current and retained compiled assets"
+				}
+			],
+			"date": "2026-10-27",
+			"version": "0.20.0-beta.157"
+		},
+		{
+			"changes": [
+				{
+					"kind": "fixed",
 					"summary": "Retain bounded versioned browser asset graphs across compiled deployments, including matching vendor modules and encoded filenames"
 				}
 			],

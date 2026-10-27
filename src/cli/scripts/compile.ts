@@ -1154,7 +1154,7 @@ const server = Bun.serve({
 		let assetPath: string;
 		try { assetPath = decodeURIComponent(url.pathname); }
 		catch { return new Response("Malformed asset path", { status: 400 }); }
-		const embedded = ASSETS[assetPath];
+		const embedded = ASSETS[url.pathname] ?? ASSETS[assetPath];
 		if (embedded) {
 			return new Response(Bun.file(embedded), {
 				headers: {
@@ -1167,7 +1167,7 @@ const server = Bun.serve({
 		}
 
 		if (url.pathname.startsWith("/_absolute/assets/")) {
-			const retained = await archivedAsset?.(assetPath);
+			const retained = await archivedAsset?.(url.pathname) ?? await archivedAsset?.(assetPath);
 			if (retained) return new Response(retained, { headers: {
 				"content-type": getMime(url.pathname),
 				"cache-control": "public, max-age=31536000, immutable",

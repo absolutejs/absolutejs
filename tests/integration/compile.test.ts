@@ -1541,6 +1541,13 @@ CMD ["/app/compiled-server"]
 		const archive = await makeTempDir('absolute-shared-asset-archive');
 		const runs: string[] = [];
 		for (const label of ['first-release', 'second-release']) {
+			await mkdir(join(fixtureRoot, 'public/literal%2F'), {
+				recursive: true
+			});
+			await writeFile(
+				join(fixtureRoot, 'public/literal%2F/probe.js'),
+				`export const value = ${JSON.stringify(label)};`
+			);
 			await writeFile(
 				join(fixtureRoot, 'vue/worker.ts'),
 				`self.onmessage = () => self.postMessage(${JSON.stringify(label)});`
@@ -1615,6 +1622,12 @@ CMD ["/app/compiled-server"]
 			)?.[0];
 			if (!oldPrefix)
 				throw new Error('Missing versioned client entrypoint');
+			const literalAsset = `${oldPrefix}/literal%2F/probe.js`;
+			const currentLiteral = await fetch(
+				`http://localhost:${port}${literalAsset}`
+			);
+			expect(currentLiteral.status).toBe(200);
+			expect(await currentLiteral.text()).toContain('first-release');
 			const cdp = await browser.page
 				.context()
 				.newCDPSession(browser.page);
@@ -1623,6 +1636,11 @@ CMD ["/app/compiled-server"]
 			});
 			await stopProcess(first);
 			const second = await startCompiledServer(secondRun, port, env);
+			const retainedLiteral = await fetch(
+				`http://localhost:${port}${literalAsset}`
+			);
+			expect(retainedLiteral.status).toBe(200);
+			expect(await retainedLiteral.text()).toContain('first-release');
 			const encodedAsset = await fetch(
 				`http://localhost:${port}${oldPrefix}/retained%20logo.svg`
 			);
