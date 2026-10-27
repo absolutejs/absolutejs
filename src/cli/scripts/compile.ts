@@ -934,6 +934,8 @@ ${routeEntries}
 // ── MIME types ──────────────────────────────────────────────────
 const MIME: Record<string, string> = {
 	".js": "application/javascript; charset=utf-8",
+	".mjs": "application/javascript; charset=utf-8",
+	".wasm": "application/wasm",
 	".css": "text/css; charset=utf-8",
 	".html": "text/html; charset=utf-8",
 	".json": "application/json",
@@ -1149,7 +1151,10 @@ const server = Bun.serve({
 		if (page) return servePage(page);
 
 		// Check for embedded asset
-		const embedded = ASSETS[url.pathname];
+		let assetPath: string;
+		try { assetPath = decodeURIComponent(url.pathname); }
+		catch { return new Response("Malformed asset path", { status: 400 }); }
+		const embedded = ASSETS[assetPath];
 		if (embedded) {
 			return new Response(Bun.file(embedded), {
 				headers: {
@@ -1162,7 +1167,7 @@ const server = Bun.serve({
 		}
 
 		if (url.pathname.startsWith("/_absolute/assets/")) {
-			const retained = await archivedAsset?.(url.pathname);
+			const retained = await archivedAsset?.(assetPath);
 			if (retained) return new Response(retained, { headers: {
 				"content-type": getMime(url.pathname),
 				"cache-control": "public, max-age=31536000, immutable",
@@ -1489,8 +1494,8 @@ const compileUnlocked = async (
 	const totalStart = performance.now();
 
 	rmSync(join(resolvedOutdir, '_absolute', 'assets'), {
-		recursive: true,
-		force: true
+		force: true,
+		recursive: true
 	});
 
 	// ── Step 1: Build assets ────────────────────────────────────

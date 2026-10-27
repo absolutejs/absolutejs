@@ -1542,6 +1542,10 @@ CMD ["/app/compiled-server"]
 		const runs: string[] = [];
 		for (const label of ['first-release', 'second-release']) {
 			await writeFile(
+				join(fixtureRoot, 'public/retained logo.svg'),
+				`<svg><!--${label}--></svg>`
+			);
+			await writeFile(
 				join(fixtureRoot, 'vue/deferred.ts'),
 				`import { ref } from 'vue'; export const value = ref(${JSON.stringify(label)}).value;`
 			);
@@ -1567,8 +1571,13 @@ CMD ["/app/compiled-server"]
 			runs.push(runRoot);
 		}
 		const port = await getAvailablePort();
-		const env = { ABSOLUTE_ASSET_ARCHIVE_DIR: archive };
-		const first = await startCompiledServer(runs[0]!, port, env);
+		const env: Record<string, string> = {
+			ABSOLUTE_ASSET_ARCHIVE_DIR: archive
+		};
+		const [firstRun, secondRun] = runs;
+		if (!firstRun || !secondRun)
+			throw new Error('Missing compiled release');
+		const first = await startCompiledServer(firstRun, port, env);
 		const browser = await openPage(`http://localhost:${port}`);
 		try {
 			await browser.page.waitForFunction(
@@ -1578,6 +1587,15 @@ CMD ["/app/compiled-server"]
 			);
 			const errors: string[] = [];
 			browser.page.on('pageerror', (error) => errors.push(error.message));
+			const scriptUrl = await browser.page
+				.locator('script[src*="/_absolute/assets/"]')
+				.first()
+				.getAttribute('src');
+			const oldPrefix = scriptUrl?.match(
+				/\/_absolute\/assets\/[a-f0-9]{64}/
+			)?.[0];
+			if (!oldPrefix)
+				throw new Error('Missing versioned client entrypoint');
 			const cdp = await browser.page
 				.context()
 				.newCDPSession(browser.page);
@@ -1585,7 +1603,16 @@ CMD ["/app/compiled-server"]
 				value: true
 			});
 			await stopProcess(first);
-			const second = await startCompiledServer(runs[1]!, port, env);
+			const second = await startCompiledServer(secondRun, port, env);
+			const encodedAsset = await fetch(
+				`http://localhost:${port}${oldPrefix}/retained%20logo.svg`
+			);
+			expect(encodedAsset.status).toBe(200);
+			expect(await encodedAsset.text()).toContain('first-release');
+			const malformedAsset = await fetch(
+				`http://localhost:${port}${oldPrefix}/%E0%A4%A`
+			);
+			expect(malformedAsset.status).toBe(400);
 			await cdp.send('Emulation.setScriptExecutionDisabled', {
 				value: false
 			});
