@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import ts from 'typescript';
 import {
 	existsSync,
 	readdirSync,
@@ -6,16 +7,76 @@ import {
 	mkdirSync,
 	writeFileSync
 } from 'node:fs';
-import { dirname, join, relative, resolve } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import {
 	compileSpecifierRewriter,
-	rewriteContentSpecifiers
+	rewriteContentSpecifiers,
+	type SpecifierRewriter
 } from './specifierRewriter';
+
+type AssetUrlEdit = { end: number; start: number; value: string };
+const assetUrlEdit = (
+	node: ts.Node,
+	tree: ts.SourceFile,
+	urls: Record<string, string>
+) => {
+	if (
+		!ts.isNewExpression(node) ||
+		!ts.isIdentifier(node.expression) ||
+		node.expression.text !== 'URL'
+	)
+		return undefined;
+	const [path, base] = node.arguments ?? [];
+	if (
+		!path ||
+		!ts.isStringLiteral(path) ||
+		base?.getText(tree) !== 'import.meta.url' ||
+		!urls[path.text]
+	)
+		return undefined;
+	const edit: AssetUrlEdit = {
+		end: path.end,
+		start: path.getStart(tree),
+		value: JSON.stringify(urls[path.text])
+	};
+
+	return edit;
+};
+
+// Compiler-generated worker/WASM references use URL constructors rather than
+// imports. Parse expressions so example strings and comments remain untouched.
+const rewriteAssetUrlConstructors = (
+	source: string,
+	urls: Record<string, string>
+) => {
+	if (!/\bnew\s+URL\s*\(/u.test(source)) return source;
+	const tree = ts.createSourceFile(
+		'client.js',
+		source,
+		ts.ScriptTarget.Latest,
+		true,
+		ts.ScriptKind.JS
+	);
+	const edits: AssetUrlEdit[] = [];
+	const visit = (node: ts.Node) => {
+		const edit = assetUrlEdit(node, tree, urls);
+		if (edit) edits.push(edit);
+		ts.forEachChild(node, visit);
+	};
+	visit(tree);
+
+	return edits
+		.sort((left, right) => right.start - left.start)
+		.reduce(
+			(text, edit) =>
+				text.slice(0, edit.start) + edit.value + text.slice(edit.end),
+			source
+		);
+};
 
 export const CLIENT_GRAPH_PREFIX = '/_absolute/assets/';
 
-// Only browser assets belong in a retained graph. Never copy runtime modules,
-// build metadata, source maps, source files or generated server bundles.
+// Do not retain runtime metadata, source maps or generated server modules.
 export const isClientGraphAsset = (path: string) => {
 	const parts = path.split('/');
 	if (
@@ -32,6 +93,7 @@ export const isClientGraphAsset = (path: string) => {
 	)
 		return false;
 	if (/^(?:react|vue|svelte|angular|ember)\/pages\//.test(path)) return false;
+
 	return /\.(?:js|mjs|css|wasm|woff2?|ttf|otf|png|jpe?g|svg|gif|webp|avif|ico)$/.test(
 		path
 	);
@@ -40,61 +102,114 @@ export const isClientGraphAsset = (path: string) => {
 const filesIn = (root: string): string[] =>
 	readdirSync(root, { withFileTypes: true }).flatMap((entry) => {
 		const path = join(root, entry.name);
-		return entry.isDirectory()
-			? filesIn(path)
-			: entry.isFile()
-				? [path]
-				: [];
+		if (entry.isDirectory()) return filesIn(path);
+		if (entry.isFile()) return [path];
+
+		return [];
 	});
 
+const readBuildManifest = (directory: string) => {
+	const path = join(directory, 'manifest.json');
+	const manifest: unknown = existsSync(path)
+		? JSON.parse(readFileSync(path, 'utf8'))
+		: {};
+	if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest))
+		throw new Error('Invalid build manifest');
+
+	return manifest;
+};
+
+const withinDirectory = (directory: string, path: string) => {
+	const rel = relative(directory, path);
+
+	return rel !== '' && !isAbsolute(rel) && rel.split(/[\\/]/u)[0] !== '..';
+};
+
+const localServerDependencies = (
+	file: string,
+	directory: string,
+	scanner: Bun.Transpiler
+) => {
+	if (!existsSync(file) || !/\.m?js$/.test(file)) return [];
+
+	return scanner
+		.scanImports(readFileSync(file, 'utf8'))
+		.filter((dependency) => dependency.path.startsWith('.'))
+		.map((dependency) => resolve(dirname(file), dependency.path))
+		.filter((path) => withinDirectory(directory, path));
+};
+
+const collectServerGraph = (directory: string, manifest: object) => {
+	const serverFiles = new Set(
+		Object.values(manifest).filter(
+			(value): value is string =>
+				typeof value === 'string' && withinDirectory(directory, value)
+		)
+	);
+	const pending = [...serverFiles];
+	const scanner = new Bun.Transpiler({ loader: 'js' });
+	for (let index = 0; index < pending.length; index++) {
+		const file = pending[index];
+		if (!file) continue;
+		const children = localServerDependencies(
+			file,
+			directory,
+			scanner
+		).filter((path) => !serverFiles.has(path));
+		children.forEach((path) => serverFiles.add(path));
+		pending.push(...children);
+	}
+
+	return serverFiles;
+};
+
+const rewriteCssUrls = (source: string, urls: Record<string, string>) =>
+	source.replace(
+		/url\(\s*(["']?)(\/[^\s)'"?#]+)([^)'"\s]*)\1\s*\)/g,
+		(match, quote: string, path: string, suffix: string) =>
+			urls[path] ? `url(${quote}${urls[path]}${suffix}${quote})` : match
+	);
+
+const rewriteGraphAsset = (
+	file: string,
+	rewriter: SpecifierRewriter,
+	urls: Record<string, string>
+) => {
+	const bytes = readFileSync(file);
+	if (/\.m?js$/.test(file))
+		return rewriteAssetUrlConstructors(
+			rewriteContentSpecifiers(bytes.toString(), rewriter, {
+				sweep: true
+			}),
+			urls
+		);
+	if (file.endsWith('.css')) return rewriteCssUrls(bytes.toString(), urls);
+
+	return bytes;
+};
+
+const rewriteManifest = (directory: string, urls: Record<string, string>) => {
+	const path = join(directory, 'manifest.json');
+	if (!existsSync(path)) return;
+	const manifest = readBuildManifest(directory);
+	for (const [key, value] of Object.entries(manifest)) {
+		if (typeof value !== 'string' || !urls[value]) continue;
+		Reflect.set(manifest, key, urls[value]);
+	}
+	writeFileSync(path, JSON.stringify(manifest, null, '\t'));
+};
+
 /** Namespace the complete browser graph, including stable vendor filenames.
- * Relative imports stay relative within the same graph. Only known asset URLs
- * in module specifiers and CSS URLs change; application strings/API URLs do not.
- * Original URLs remain current-release aliases for public assets and SW scopes.
+ * Relative imports stay within the graph. Original URLs remain current-release
+ * aliases; application strings, API paths and SW registration scopes stay intact.
  */
 export const prepareCompiledClientGraph = (
 	directory: string,
 	serverBundle: string,
 	publicDirectory?: string
 ) => {
-	const manifestPath = join(directory, 'manifest.json');
-	const originalManifest: unknown = existsSync(manifestPath)
-		? JSON.parse(readFileSync(manifestPath, 'utf8'))
-		: {};
-	if (
-		!originalManifest ||
-		typeof originalManifest !== 'object' ||
-		Array.isArray(originalManifest)
-	)
-		throw new Error('Invalid build manifest');
-	const serverFiles = new Set(
-		Object.values(originalManifest).filter(
-			(value): value is string =>
-				typeof value === 'string' &&
-				value.startsWith(resolve(directory) + '/')
-		)
-	);
-	// Exclude the transitive SSR module graph too, not just manifest entrypoints.
-	// Server-only chunks can contain private application code.
-	const pendingServer = [...serverFiles];
-	const scanner = new Bun.Transpiler({ loader: 'js' });
-	for (let i = 0; i < pendingServer.length; i++) {
-		const file = pendingServer[i];
-		if (!file || !existsSync(file) || !/\.m?js$/.test(file)) continue;
-		for (const dependency of scanner.scanImports(
-			readFileSync(file, 'utf8')
-		)) {
-			if (!dependency.path.startsWith('.')) continue;
-			const target = resolve(dirname(file), dependency.path);
-			if (
-				!target.startsWith(resolve(directory) + '/') ||
-				serverFiles.has(target)
-			)
-				continue;
-			serverFiles.add(target);
-			pendingServer.push(target);
-		}
-	}
+	const manifest = readBuildManifest(directory);
+	const serverFiles = collectServerGraph(directory, manifest);
 	const publicFiles = new Set(
 		publicDirectory && existsSync(publicDirectory)
 			? filesIn(publicDirectory).map((path) =>
@@ -103,18 +218,19 @@ export const prepareCompiledClientGraph = (
 			: []
 	);
 	const clientEntries = new Set(
-		Object.values(originalManifest)
+		Object.values(manifest)
 			.filter(
 				(value): value is string =>
 					typeof value === 'string' &&
 					value.startsWith('/') &&
-					!value.startsWith(resolve(directory) + '/')
+					!withinDirectory(directory, value)
 			)
 			.map((value) => value.slice(1))
 	);
 	const files = filesIn(directory)
 		.filter((path) => {
 			const name = relative(directory, path).replace(/\\/g, '/');
+
 			return (
 				name !== serverBundle &&
 				!serverFiles.has(path) &&
@@ -128,12 +244,11 @@ export const prepareCompiledClientGraph = (
 		})
 		.sort();
 	const hash = createHash('sha256');
-	for (const file of files) {
+	for (const file of files)
 		hash.update(relative(directory, file))
 			.update('\0')
 			.update(readFileSync(file))
 			.update('\0');
-	}
 	const id = hash.digest('hex');
 	const prefix = `${CLIENT_GRAPH_PREFIX}${id}`;
 	const urls: Record<string, string> = Object.create(null);
@@ -143,45 +258,17 @@ export const prepareCompiledClientGraph = (
 	}
 	const rewriter = compileSpecifierRewriter(urls);
 	for (const file of files) {
-		const rel = relative(directory, file);
-		const destination = join(directory, prefix.slice(1), rel);
+		const destination = join(
+			directory,
+			prefix.slice(1),
+			relative(directory, file)
+		);
 		mkdirSync(dirname(destination), { recursive: true });
-		let bytes: string | Buffer = readFileSync(file);
-		if (/\.m?js$/.test(file)) {
-			bytes = rewriteContentSpecifiers(bytes.toString(), rewriter, {
-				sweep: true
-			});
-		} else if (file.endsWith('.css')) {
-			bytes = bytes
-				.toString()
-				.replace(
-					/url\(\s*(["']?)(\/[^\s)'"?#]+)([^)'"\s]*)\1\s*\)/g,
-					(match, quote: string, path: string, suffix: string) =>
-						urls[path]
-							? `url(${quote}${urls[path]}${suffix}${quote})`
-							: match
-				);
-		}
+		const bytes = rewriteGraphAsset(file, rewriter, urls);
 		writeFileSync(destination, bytes);
-		// The aliases also import the namespaced vendors. Keep API strings and
-		// service-worker registration URLs intact.
 		writeFileSync(file, bytes);
 	}
-	if (existsSync(manifestPath)) {
-		const manifest: unknown = JSON.parse(
-			readFileSync(manifestPath, 'utf8')
-		);
-		if (
-			!manifest ||
-			typeof manifest !== 'object' ||
-			Array.isArray(manifest)
-		)
-			throw new Error('Invalid build manifest');
-		for (const [key, value] of Object.entries(manifest)) {
-			if (typeof value === 'string' && urls[value])
-				Reflect.set(manifest, key, urls[value]);
-		}
-		writeFileSync(manifestPath, JSON.stringify(manifest, null, '\t'));
-	}
+	rewriteManifest(directory, urls);
+
 	return id;
 };

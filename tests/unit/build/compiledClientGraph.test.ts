@@ -70,3 +70,18 @@ test('does not retain transitive server chunks, maps, metadata or unrelated runt
 	}
 	expect(await Bun.file(join(directory, '_absolute/assets', id, 'chunk-client.js')).exists()).toBe(true);
 });
+
+test('worker URL constructors stay in the graph without rewriting example text or comments', async () => {
+	const directory = await temporary();
+	await mkdir(join(directory, 'workers'), { recursive: true });
+	await Bun.write(join(directory, 'workers/task.js'), 'self.postMessage("ready");');
+	const example = `new URL('/workers/task.js', import.meta.url)`;
+	await Bun.write(join(directory, 'chunk-client.js'), `export const worker = new URL('/workers/task.js', import.meta.url);\nexport const example = ${JSON.stringify(example)};\n// ${example}`);
+	await Bun.write(join(directory, 'manifest.json'), JSON.stringify({ HomeIndex: '/chunk-client.js' }));
+	const id = prepareCompiledClientGraph(directory, 'server.js');
+	const content = await Bun.file(join(directory, '_absolute/assets', id, 'chunk-client.js')).text();
+	expect(content).toContain(`new URL("/_absolute/assets/${id}/workers/task.js", import.meta.url)`);
+	expect(content).toContain(`export const example = ${JSON.stringify(example)};`);
+	expect(content).toContain(`// ${example}`);
+	expect(await Bun.file(join(directory, '_absolute/assets', id, 'workers/task.js')).exists()).toBe(true);
+});

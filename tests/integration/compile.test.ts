@@ -1531,16 +1531,20 @@ CMD ["/app/compiled-server"]
 			home
 				.replace(
 					'<PackagePicker />',
-					'<PackagePicker /><button id="load-later" @click="loadLater">{{ later }}</button>'
+					'<PackagePicker /><button id="load-later" @click="loadLater">{{ later }}</button><p id="worker-reply">{{ workerReply }}</p>'
 				)
 				.replace(
 					'const count = ref(0);',
-					"const later = ref('Load later'); const loadLater = async () => { later.value = (await import('../deferred')).value; };\nconst count = ref(0);"
+					"const later = ref('Load later'); const workerReply = ref(''); const loadLater = async () => { later.value = (await import('../deferred')).value; const worker = new Worker(new URL('../worker.ts', import.meta.url), { type: 'module' }); worker.onmessage = (event) => { workerReply.value = event.data; worker.terminate(); }; worker.postMessage('go'); };\nconst count = ref(0);"
 				)
 		);
 		const archive = await makeTempDir('absolute-shared-asset-archive');
 		const runs: string[] = [];
 		for (const label of ['first-release', 'second-release']) {
+			await writeFile(
+				join(fixtureRoot, 'vue/worker.ts'),
+				`self.onmessage = () => self.postMessage(${JSON.stringify(label)});`
+			);
 			await writeFile(
 				join(fixtureRoot, 'public/retained logo.svg'),
 				`<svg><!--${label}--></svg>`
@@ -1620,7 +1624,9 @@ CMD ["/app/compiled-server"]
 			await browser.page.waitForFunction(
 				() =>
 					document.querySelector('#load-later')?.textContent ===
-					'first-release'
+						'first-release' &&
+					document.querySelector('#worker-reply')?.textContent ===
+						'first-release'
 			);
 			expect(errors).toEqual([]);
 			await browser.page.reload();
@@ -1633,7 +1639,9 @@ CMD ["/app/compiled-server"]
 			await browser.page.waitForFunction(
 				() =>
 					document.querySelector('#load-later')?.textContent ===
-					'second-release'
+						'second-release' &&
+					document.querySelector('#worker-reply')?.textContent ===
+						'second-release'
 			);
 			expect(errors).toEqual([]);
 			await stopProcess(second);

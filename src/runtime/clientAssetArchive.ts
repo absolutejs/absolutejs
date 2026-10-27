@@ -124,6 +124,7 @@ const listGraphs = async (directory: string, now: number) => {
 			const path = join(directory, entry.name);
 			if (/^\.pending-[a-f0-9-]+$/.test(entry.name)) {
 				await cleanAbandonedStage(path, now);
+
 				return;
 			}
 			if (!GRAPH_ID.test(entry.name)) return;
