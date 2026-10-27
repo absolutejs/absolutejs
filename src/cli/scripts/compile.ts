@@ -1,4 +1,5 @@
 import { env } from 'bun';
+import { prepareCompiledClientGraph } from '../../build/compiledClientGraph';
 import { createExternalAssetPlugin } from '../../build/externalAssetPlugin';
 import { maskLiterals } from '../../build/maskLiterals';
 import { loadIslandRegistryBuildInfo } from '../../build/islandEntries';
@@ -894,6 +895,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 // ws.data.*). Wiring it into Bun.serve below is what lets compiled servers
 // serve .ws() routes — without it every upgrade falls through to a 404.
 import { buildGlobalWSHandler } from "elysia/ws";
+import { createClientAssetArchive } from ${JSON.stringify([resolve(import.meta.dir, '../../runtime/clientAssetArchive.ts'), resolve(import.meta.dir, '../runtime/clientAssetArchive.js')].find((path) => existsSync(path)))};
 
 const SERVER_MODULE = (runtimeDir: string) => import(pathToFileURL(join(runtimeDir, ${JSON.stringify(serverBundleName)})).href);
 const RUNTIME_BUILD_ID = ${JSON.stringify(runtimeBuildId)};
@@ -1112,6 +1114,13 @@ const getRuntimeFetch = () => {
 	return runtimeFetchPromise;
 };
 
+let archivedAsset: ((path: string) => Promise<Blob | undefined>) | undefined;
+try {
+	archivedAsset = await createClientAssetArchive(ASSETS);
+} catch (error) {
+	console.error("[compile] Client asset retention unavailable:", error);
+}
+
 const server = Bun.serve({
 	port,
 	idleTimeout,
@@ -1144,7 +1153,7 @@ const server = Bun.serve({
 		if (embedded) {
 			return new Response(Bun.file(embedded), {
 				headers: {
-					"cache-control": isFingerprintedAsset(url.pathname)
+					"cache-control": url.pathname.startsWith("/_absolute/assets/") || isFingerprintedAsset(url.pathname)
 						? "public, max-age=31536000, immutable"
 						: "public, max-age=0, must-revalidate",
 					"content-type": getMime(url.pathname),
@@ -1152,6 +1161,15 @@ const server = Bun.serve({
 			});
 		}
 
+		if (url.pathname.startsWith("/_absolute/assets/")) {
+			const retained = await archivedAsset?.(url.pathname);
+			if (retained) return new Response(retained, { headers: {
+				"content-type": getMime(url.pathname),
+				"cache-control": "public, max-age=31536000, immutable",
+				"x-content-type-options": "nosniff"
+			} });
+			return new Response("Asset release no longer available. Refresh to load the current release.", { status: 404, headers: { "cache-control": "no-store" } });
+		}
 		const runtimeFetch = await getRuntimeFetch();
 		if (runtimeFetch) return runtimeFetch(request);
 
@@ -1470,6 +1488,11 @@ const compileUnlocked = async (
 
 	const totalStart = performance.now();
 
+	rmSync(join(resolvedOutdir, '_absolute', 'assets'), {
+		recursive: true,
+		force: true
+	});
+
 	// ── Step 1: Build assets ────────────────────────────────────
 	const buildStart = performance.now();
 	process.stdout.write(cliTag('\x1b[36m', 'Building assets'));
@@ -1498,6 +1521,12 @@ const compileUnlocked = async (
 
 	console.log(
 		` \x1b[2m(${getDurationString(performance.now() - buildStart)})\x1b[0m`
+	);
+
+	prepareCompiledClientGraph(
+		resolvedOutdir,
+		`${entryName}.js`,
+		buildConfig.publicDirectory
 	);
 
 	// ── Step 2: Bundle production server ────────────────────────

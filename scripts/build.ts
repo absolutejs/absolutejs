@@ -150,6 +150,7 @@ const withBuildLock = async (action: () => Promise<void>) => {
 };
 
 const SERVER_ENTRY_POINTS = [
+	'src/runtime/clientAssetArchive.ts',
 	'src/index.ts',
 	'src/build.ts',
 	'src/angular/index.ts',

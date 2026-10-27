@@ -1522,6 +1522,99 @@ CMD ["/app/compiled-server"]
 		await stopProcess(proc);
 	}, 300_000);
 
+	test('old Vue tabs load delayed chunks after a compiled release replacement', async () => {
+		const fixtureRoot = await prepareFixtureRoot(VUE_FIXTURE_DIR);
+		const homePath = join(fixtureRoot, 'vue/pages/Home.vue');
+		const home = await Bun.file(homePath).text();
+		await writeFile(
+			homePath,
+			home
+				.replace(
+					'<PackagePicker />',
+					'<PackagePicker /><button id="load-later" @click="loadLater">{{ later }}</button>'
+				)
+				.replace(
+					'const count = ref(0);',
+					"const later = ref('Load later'); const loadLater = async () => { later.value = (await import('../deferred')).value; };\nconst count = ref(0);"
+				)
+		);
+		const archive = await makeTempDir('absolute-shared-asset-archive');
+		const runs: string[] = [];
+		for (const label of ['first-release', 'second-release']) {
+			await writeFile(
+				join(fixtureRoot, 'vue/deferred.ts'),
+				`import { ref } from 'vue'; export const value = ref(${JSON.stringify(label)}).value;`
+			);
+			await runProcess(
+				[
+					'bun',
+					CLI_ENTRY,
+					'compile',
+					'server.ts',
+					'--outdir',
+					'build',
+					'--outfile',
+					'compiled-server'
+				],
+				{ cwd: fixtureRoot, timeoutMs: 180_000 }
+			);
+			const runRoot = await makeTempDir('absolute-graph-run');
+			await copyFile(
+				join(fixtureRoot, 'compiled-server'),
+				join(runRoot, 'compiled-server')
+			);
+			await chmod(join(runRoot, 'compiled-server'), 0o755);
+			runs.push(runRoot);
+		}
+		const port = await getAvailablePort();
+		const env = { ABSOLUTE_ASSET_ARCHIVE_DIR: archive };
+		const first = await startCompiledServer(runs[0]!, port, env);
+		const browser = await openPage(`http://localhost:${port}`);
+		try {
+			await browser.page.waitForFunction(
+				() =>
+					document.querySelector('#vue-client-ready')?.textContent ===
+					'VUE_CLIENT_READY'
+			);
+			const errors: string[] = [];
+			browser.page.on('pageerror', (error) => errors.push(error.message));
+			const cdp = await browser.page
+				.context()
+				.newCDPSession(browser.page);
+			await cdp.send('Emulation.setScriptExecutionDisabled', {
+				value: true
+			});
+			await stopProcess(first);
+			const second = await startCompiledServer(runs[1]!, port, env);
+			await cdp.send('Emulation.setScriptExecutionDisabled', {
+				value: false
+			});
+			await browser.page.click('#load-later');
+			await browser.page.waitForFunction(
+				() =>
+					document.querySelector('#load-later')?.textContent ===
+					'first-release'
+			);
+			expect(errors).toEqual([]);
+			await browser.page.reload();
+			await browser.page.waitForFunction(
+				() =>
+					document.querySelector('#vue-client-ready')?.textContent ===
+					'VUE_CLIENT_READY'
+			);
+			await browser.page.click('#load-later');
+			await browser.page.waitForFunction(
+				() =>
+					document.querySelector('#load-later')?.textContent ===
+					'second-release'
+			);
+			expect(errors).toEqual([]);
+			await stopProcess(second);
+		} finally {
+			await browser.close();
+		}
+	}, 420_000);
+
 	test('serves Vue pages and conventions from a copied executable', async () => {
 		const fixtureRoot = await compileVueFixture();
 
