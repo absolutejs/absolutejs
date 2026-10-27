@@ -12,7 +12,7 @@
 		"@absolutejs/bvm": "^0.1.1",
 		"@absolutejs/deploy": "0.27.0",
 		"@absolutejs/devices": "0.7.1",
-		"@absolutejs/devices-capacitor": "0.8.0",
+		"@absolutejs/devices-capacitor": "0.8.1",
 		"@absolutejs/http": "0.0.1",
 		"@absolutejs/pwa": "0.16.3",
 		"@capacitor/browser": "8.0.4",
@@ -39,7 +39,7 @@
 		"@absolutejs/manifest": "0.9.0",
 		"@absolutejs/scoped-state": "0.2.2",
 		"@absolutejs/sync": "3.0.0",
-		"@absolutejs/sync-capacitor": "0.9.4",
+		"@absolutejs/sync-capacitor": "0.9.5",
 		"@absolutejs/sync-expo": "0.0.5",
 		"@angular/animations": "21.2.6",
 		"@angular/cdk": "21.2.6",
@@ -563,7 +563,7 @@
 			]
 		}
 	},
-	"version": "0.20.0-beta.154",
+	"version": "0.20.0-beta.155",
 	"workspaces": [
 		"tests/fixtures/*",
 		"tests/fixtures/_packages/*"

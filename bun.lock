@@ -10,7 +10,7 @@
         "@absolutejs/bvm": "^0.1.1",
         "@absolutejs/deploy": "0.27.0",
         "@absolutejs/devices": "0.7.1",
-        "@absolutejs/devices-capacitor": "0.8.0",
+        "@absolutejs/devices-capacitor": "0.8.1",
         "@absolutejs/http": "0.0.1",
         "@absolutejs/pwa": "0.16.3",
         "@capacitor/browser": "8.0.4",
@@ -36,7 +36,7 @@
         "@absolutejs/manifest": "0.9.0",
         "@absolutejs/scoped-state": "0.2.2",
         "@absolutejs/sync": "3.0.0",
-        "@absolutejs/sync-capacitor": "0.9.4",
+        "@absolutejs/sync-capacitor": "0.9.5",
         "@absolutejs/sync-expo": "0.0.5",
         "@angular/animations": "21.2.6",
         "@angular/cdk": "21.2.6",
@@ -212,9 +212,9 @@
       "dependencies": {
         "@absolutejs/auth": "0.101.0",
         "@absolutejs/devices": "0.7.0",
-        "@absolutejs/devices-capacitor": "0.8.0",
+        "@absolutejs/devices-capacitor": "0.8.1",
         "@absolutejs/sync": "3.0.0",
-        "@absolutejs/sync-capacitor": "0.9.4",
+        "@absolutejs/sync-capacitor": "0.9.5",
         "@capacitor-community/sqlite": "8.1.1",
         "@capacitor/android": "8.5.0",
         "@capacitor/app": "8.1.1",
@@ -235,7 +235,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@absolutejs/devices": "0.7.0",
-        "@absolutejs/devices-capacitor": "0.8.0",
+        "@absolutejs/devices-capacitor": "0.8.1",
         "@capacitor/android": "8.5.0",
         "@capacitor/app": "8.1.1",
         "@capacitor/browser": "8.0.4",
@@ -414,7 +414,7 @@
 
     "@absolutejs/devices": ["@absolutejs/devices@0.7.1", "", {}, "sha512-DKNxkho6BGmdf0/tLnteXCYd3FYzCKFWvnLyk9oTSzqB0zGR1lOiFWHuErW5CrFxCK/iKVLDL+8Wx5W6H+1IZQ=="],
 
-    "@absolutejs/devices-capacitor": ["@absolutejs/devices-capacitor@0.8.0", "", { "dependencies": { "@capacitor/app": "^8.0.0", "@capacitor/browser": "^8.0.0", "@capacitor/network": "^8.0.0", "@capacitor/preferences": "^8.0.0" }, "peerDependencies": { "@absolutejs/devices": "^0.7.0", "@capacitor/camera": ">=8.1 <9", "@capacitor/clipboard": ">=8 <9", "@capacitor/core": ">=8 <9", "@capacitor/file-viewer": ">=2 <3", "@capacitor/filesystem": ">=8.1 <9", "@capacitor/geolocation": ">=8.2 <9", "@capacitor/haptics": ">=8 <9", "@capacitor/keyboard": ">=8 <9", "@capacitor/local-notifications": ">=8.2 <8.3", "@capacitor/push-notifications": ">=8.1 <9", "@capacitor/share": ">=8 <9" }, "optionalPeers": ["@capacitor/camera", "@capacitor/clipboard", "@capacitor/file-viewer", "@capacitor/filesystem", "@capacitor/geolocation", "@capacitor/haptics", "@capacitor/keyboard", "@capacitor/local-notifications", "@capacitor/push-notifications", "@capacitor/share"] }, "sha512-OGwf6eGnmKiYZy9uQ7spRw5MsOmTpRPDJT7Qy6f81UqlmmT7gTSODFezqVVfBOH8+NKlwGQpdpwq8ZSya0e20g=="],
+    "@absolutejs/devices-capacitor": ["@absolutejs/devices-capacitor@0.8.1", "", { "dependencies": { "@capacitor/app": "^8.0.0", "@capacitor/browser": "^8.0.0", "@capacitor/network": "^8.0.0", "@capacitor/preferences": "^8.0.0" }, "peerDependencies": { "@absolutejs/devices": "^0.7.0", "@capacitor/camera": ">=8.1 <9", "@capacitor/clipboard": ">=8 <9", "@capacitor/core": ">=8 <9", "@capacitor/file-viewer": ">=2 <3", "@capacitor/filesystem": ">=8.1 <9", "@capacitor/geolocation": ">=8.2 <9", "@capacitor/haptics": ">=8 <9", "@capacitor/keyboard": ">=8 <9", "@capacitor/local-notifications": ">=8.2 <8.3", "@capacitor/push-notifications": ">=8.1 <9", "@capacitor/share": ">=8 <9" }, "optionalPeers": ["@capacitor/camera", "@capacitor/clipboard", "@capacitor/file-viewer", "@capacitor/filesystem", "@capacitor/geolocation", "@capacitor/haptics", "@capacitor/keyboard", "@capacitor/local-notifications", "@capacitor/push-notifications", "@capacitor/share"] }, "sha512-CZBsF4rYVsKLNhGcdKuddfc2LPpR9VnLqHxDm0mImq25TEjSKxzmdHyCqcqW0BD2tkF/DjcQPAmIHlyNQ6B7dQ=="],
 
     "@absolutejs/devices-expo": ["@absolutejs/devices-expo@0.0.12", "", { "dependencies": { "@react-native-async-storage/async-storage": "2.2.0", "expo-application": "~57.0.2", "expo-device": "~57.0.1", "expo-linking": "~57.0.8", "expo-localization": "~57.0.1", "expo-network": "~57.0.1" }, "peerDependencies": { "@absolutejs/devices": "^0.7.0", "expo": ">=57 <58", "expo-clipboard": ">=57 <58", "expo-document-picker": ">=57 <58", "expo-file-system": ">=57 <58", "expo-haptics": ">=57 <58", "expo-image-manipulator": ">=57 <58", "expo-image-picker": ">=57 <58", "expo-location": ">=57 <58", "expo-navigation-bar": ">=57 <58", "expo-notifications": ">=57 <58", "expo-sharing": ">=57 <58", "expo-status-bar": ">=57 <58", "react-native": ">=0.86 <0.87" }, "optionalPeers": ["expo-clipboard", "expo-document-picker", "expo-file-system", "expo-haptics", "expo-image-manipulator", "expo-image-picker", "expo-location", "expo-navigation-bar", "expo-notifications", "expo-sharing", "expo-status-bar"] }, "sha512-5gp54JSZfrvgs8HOagE1lqbqjsnwUWg4nLrgXCNkzSXwLd7kU4d37USM5itPRRZt8BG99qbl+XG6dQDPji8z6g=="],
 
@@ -460,7 +460,7 @@
 
     "@absolutejs/sync": ["@absolutejs/sync@3.0.0", "", { "dependencies": { "@absolutejs/manifest": "^0.9.0", "@absolutejs/telemetry": ">=0.2.0 <0.4.0", "@sinclair/typebox": "^0.34.0" }, "peerDependencies": { "@absolutejs/isolated-jsc": ">=0.12.2 <0.13.0", "@angular/core": ">=21.2.18 <22", "@elysia/cron": "^2.0.0-rc.0", "@modelcontextprotocol/sdk": ">=1.29.0 <2", "@tanstack/db": ">=0.6.16 <0.7", "drizzle-orm": ">=1.0.0-rc.4 <2", "elysia": "^2.0.0-rc.0", "react": ">=19.2.8 <20", "svelte": ">=5.56.7 <6", "vue": ">=3.5.40 <4" }, "optionalPeers": ["@absolutejs/isolated-jsc", "@angular/core", "@elysia/cron", "@modelcontextprotocol/sdk", "@tanstack/db", "drizzle-orm", "elysia", "react", "svelte", "vue"] }, "sha512-mBIUUICEDTqsg9lTq0BHpk113YGeIvJnAEHBAcRt0X8h2M9fnQgkcfbzGDWNk8t2i6T6kxmvrfzSFJz1+kBwlw=="],
 
-    "@absolutejs/sync-capacitor": ["@absolutejs/sync-capacitor@0.9.4", "", { "dependencies": { "@noble/ciphers": "^2.3.0" }, "peerDependencies": { "@absolutejs/devices": ">=0.2.0 <0.4.0 || ^0.7.0", "@absolutejs/devices-capacitor": ">=0.3.1 <0.5.0 || ^0.8.0", "@absolutejs/sync": ">=2.29.0 <4", "@capacitor-community/sqlite": ">=8.1.1 <9", "@capacitor/core": ">=8 <9" } }, "sha512-5FyKn3UviGJdbiJfdvAnmnlgcUu9tU8g0GMc7gDcpHGYr0lEfqB5hv8UV28lGGl2AML6mNXcr6+tnEaCYAb06A=="],
+    "@absolutejs/sync-capacitor": ["@absolutejs/sync-capacitor@0.9.5", "", { "dependencies": { "@noble/ciphers": "^2.3.0" }, "peerDependencies": { "@absolutejs/devices": ">=0.2.0 <0.4.0 || ^0.7.0", "@absolutejs/devices-capacitor": ">=0.3.1 <0.5.0 || ^0.8.0", "@absolutejs/sync": ">=2.29.0 <4", "@capacitor-community/sqlite": ">=8.1.1 <9", "@capacitor/core": ">=8 <9" } }, "sha512-IfJVQTNmh8PJXGNDFAHGjW805Jm81X31WTzjbChTcZYvsYeLqjlM76LLSIsTU1AFmC1Cw9mZ3EbC39dGMeAK2A=="],
 
     "@absolutejs/sync-expo": ["@absolutejs/sync-expo@0.0.5", "", { "dependencies": { "@noble/ciphers": "^2.3.0" }, "peerDependencies": { "@absolutejs/sync": ">=2.31.0 <4", "expo-background-task": ">=57 <58", "expo-crypto": ">=57 <58", "expo-network": ">=57 <58", "expo-secure-store": ">=57 <58", "expo-sqlite": ">=57 <58", "expo-task-manager": ">=57 <58", "react-native": ">=0.86 <0.87" } }, "sha512-EYjfCcGS1WSSVeYysJeEVGImaK0Jqrll1dio+LVBZvPUkgopbPErNHIWL0YB3EpeTC2ihsFePXB5Ts0TWBSwCQ=="],
 
@@ -2728,8 +2728,6 @@
 
     "@absolutejs/fixture-capacitor-android-release/@absolutejs/devices": ["@absolutejs/devices@0.7.0", "", {}, "sha512-yRMk/Fvyiv/n7btoDmS2YNos3uZ4URxpV6zsJ71bZaFVCR/rqwma1rhonluj15yBMWUhhwWF3jb2avfEZynzWw=="],
 
-    "@absolutejs/fixture-compile-dependency-assets/@absolutejs/absolute": ["@absolutejs/absolute@root:", {}],
-
     "@absolutejs/fixture-compile-dependency-assets/compile-asset-package": ["compile-asset-package@file:tests/fixtures/_packages/compile-asset-package", {}],
 
     "@absolutejs/handoff/@absolutejs/manifest": ["@absolutejs/manifest@0.7.2", "", { "peerDependencies": { "@sinclair/typebox": ">=0.34.0 <0.35.0" }, "bin": { "absolute-manifest": "dist/cli.js" } }, "sha512-NSVzC4yHbH+n+WCNdWYrpbc+3k5rOfO4X85Ku9VCP8teRaa2VEibp29Cyvg9rQARUGaQjGGTz+l+APqM0+odxg=="],
@@ -3117,8 +3115,6 @@
     "xml2js/sax": ["sax@1.6.0", "", {}, "sha512-6R3J5M4AcbtLUdZmRv2SygeVaM7IhrLXu9BmnOGmmACak8fiUtOsYNWUS4uK7upbmHIBbLBeFeI//477BKLBzA=="],
 
     "xml2js/xmlbuilder": ["xmlbuilder@11.0.1", "", {}, "sha512-fDlsI/kFEx7gLvbecc0/ohLG50fugQp8ryHzMTuW9vSa1GJ0XYWKnhsUx7oie3G98+r56aTQIUB4kht42R3JvA=="],
-
-    "@absolutejs/fixture-compile-dependency-assets/@absolutejs/absolute/compile-asset-package": ["compile-asset-package@workspace:tests/fixtures/_packages/compile-asset-package"],
 
     "@azure/identity/open/define-lazy-prop": ["define-lazy-prop@3.0.0", "", {}, "sha512-N+MeXYoqr3pOgn8xfyRPREN7gHakLYjhsHhWGT3fWAiL4IkAt0iDw14QiiEm2bE30c5XX5q0FtAA3CK5f9/BUg=="],
 
