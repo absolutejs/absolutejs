@@ -14,7 +14,7 @@ Do not share it across unrelated applications. Read-only or full storage logs a
 server-side error and disables historical serving; current embedded assets still work.
 
 Startup cleanup retains the current graph and up to two prior graphs, with a combined
-512 MiB budget and seven-day age limit for prior graphs. Publication exceeding the
+512 MiB budget and seven-day grace period for prior graphs, measured from replacement rather than initial creation. Reactivating a graph during rollback resets its retirement state. Publication exceeding the
 budget fails without damaging previously published graphs. Abandoned staging directories
 older than seven days are removed. No old server process is required. Missing or expired
 versions return an uncached 404, allowing the application's existing explicit update UI

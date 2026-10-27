@@ -85,3 +85,21 @@ test('worker URL constructors stay in the graph without rewriting example text o
 	expect(content).toContain(`// ${example}`);
 	expect(await Bun.file(join(directory, '_absolute/assets', id, 'workers/task.js')).exists()).toBe(true);
 });
+
+test('a long-running release gets its grace period when replaced, including rollback', async () => {
+	const archive = await temporary();
+	const first = await build('long running');
+	const second = await build('replacement');
+	const day = 86400000;
+	await createClientAssetArchive(first.assets, archive, 0);
+	const replacement = await createClientAssetArchive(second.assets, archive, 30 * day);
+	expect(await replacement(`${first.prefix}/chunk-lazy.js`)).toBeDefined();
+	const stillRetained = await createClientAssetArchive(second.assets, archive, 36 * day);
+	expect(await stillRetained(`${first.prefix}/chunk-lazy.js`)).toBeDefined();
+	const rollback = await createClientAssetArchive(first.assets, archive, 36 * day);
+	expect(await rollback(`${first.prefix}/chunk-lazy.js`)).toBeDefined();
+	const forwardAgain = await createClientAssetArchive(second.assets, archive, 40 * day);
+	expect(await forwardAgain(`${first.prefix}/chunk-lazy.js`)).toBeDefined();
+	const expired = await createClientAssetArchive(second.assets, archive, 48 * day);
+	expect(await expired(`${first.prefix}/chunk-lazy.js`)).toBeUndefined();
+});

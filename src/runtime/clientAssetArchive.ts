@@ -16,7 +16,12 @@ const MAX_GRAPHS = 3;
 const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_BYTES = 512 * 1024 * 1024;
 
-type GraphManifest = { bytes: number; createdAt: number; paths: string[] };
+type GraphManifest = {
+	bytes: number;
+	createdAt: number;
+	paths: string[];
+	retiredAt?: number;
+};
 type StoredGraph = { id: string; manifest: GraphManifest };
 type AssetEntry = [string, string | Blob];
 const safePath = (path: string) =>
@@ -44,6 +49,12 @@ const readManifest = async (directory: string) => {
 		const createdAt: unknown = Reflect.get(value, 'createdAt');
 		const bytes: unknown = Reflect.get(value, 'bytes');
 		const paths: unknown = Reflect.get(value, 'paths');
+		const retiredAt: unknown = Reflect.get(value, 'retiredAt');
+		if (
+			retiredAt !== undefined &&
+			(typeof retiredAt !== 'number' || !Number.isFinite(retiredAt))
+		)
+			return undefined;
 		if (
 			typeof createdAt !== 'number' ||
 			!Number.isFinite(createdAt) ||
@@ -57,7 +68,12 @@ const readManifest = async (directory: string) => {
 			)
 		)
 			return undefined;
-		const manifest: GraphManifest = { bytes, createdAt, paths };
+		const manifest: GraphManifest = {
+			bytes,
+			createdAt,
+			paths,
+			...(typeof retiredAt === 'number' ? { retiredAt } : {})
+		};
 
 		return manifest;
 	} catch {
@@ -136,6 +152,76 @@ const listGraphs = async (directory: string, now: number) => {
 	return graphs;
 };
 
+const atomicArchiveJson = async (
+	directory: string,
+	target: string,
+	value: unknown
+) => {
+	const temporary = join(directory, `.pending-${randomUUID()}`);
+	await mkdir(temporary);
+	try {
+		const source = join(temporary, 'data.json');
+		await writeFile(source, JSON.stringify(value));
+		await rename(source, target);
+	} finally {
+		await rm(temporary, { force: true, recursive: true });
+	}
+};
+
+const readActiveGraphs = async (directory: string) => {
+	try {
+		const value: unknown = JSON.parse(
+			await readFile(join(directory, 'active.json'), 'utf8')
+		);
+
+		return Array.isArray(value)
+			? value.filter(
+					(id): id is string =>
+						typeof id === 'string' && GRAPH_ID.test(id)
+				)
+			: [];
+	} catch {
+		return [];
+	}
+};
+
+const recordActivation = async (
+	directory: string,
+	current: Set<string>,
+	now: number
+) => {
+	const previous = await readActiveGraphs(directory);
+	await sequentially(
+		previous.filter((id) => !current.has(id)),
+		async (id) => {
+			const path = join(directory, id);
+			const manifest = await readManifest(path);
+			if (!manifest || manifest.retiredAt !== undefined) return;
+			await atomicArchiveJson(directory, join(path, 'graph.json'), {
+				...manifest,
+				retiredAt: now
+			});
+		}
+	);
+	await sequentially([...current], async (id) => {
+		const path = join(directory, id);
+		const manifest = await readManifest(path);
+		if (!manifest || manifest.retiredAt === undefined) return;
+		const active: GraphManifest = {
+			bytes: manifest.bytes,
+			createdAt: manifest.createdAt,
+			paths: manifest.paths
+		};
+		await atomicArchiveJson(directory, join(path, 'graph.json'), active);
+	});
+	await atomicArchiveJson(directory, join(directory, 'active.json'), [
+		...current
+	]);
+};
+
+const retentionTime = (graph: StoredGraph) =>
+	graph.manifest.retiredAt ?? graph.manifest.createdAt;
+
 const collectGraphs = (assets: Record<string, string | Blob>) => {
 	const groups = new Map<string, AssetEntry[]>();
 	for (const [url, file] of Object.entries(assets)) {
@@ -193,17 +279,18 @@ export const createClientAssetArchive = async (
 	await sequentially([...groups], ([id, entries]) =>
 		publishGraph(directory, id, entries, now)
 	);
+	await recordActivation(directory, new Set(groups.keys()), now);
 	const graphs = await listGraphs(directory, now);
 	graphs.sort(
 		(a, b) =>
 			Number(groups.has(b.id)) - Number(groups.has(a.id)) ||
-			b.manifest.createdAt - a.manifest.createdAt
+			retentionTime(b) - retentionTime(a)
 	);
 	let bytes = 0;
 	let count = 0;
 	const retained = new Map<string, Set<string>>();
 	await sequentially(graphs, async (graph) => {
-		const expired = now - graph.manifest.createdAt > MAX_AGE_MS;
+		const expired = now - retentionTime(graph) > MAX_AGE_MS;
 		if (
 			!groups.has(graph.id) &&
 			(expired ||
