@@ -135,7 +135,7 @@ const writeAcceptanceApp = async (root: string) => {
 					'react-dom': 'latest'
 				},
 				devDependencies: {
-					typescript: 'latest'
+					typescript: packageJson.peerDependencies.typescript
 				},
 				name: 'absolute-compile-published-beta-acceptance',
 				private: true,
