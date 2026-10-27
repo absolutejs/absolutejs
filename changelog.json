@@ -6,6 +6,16 @@
 			"changes": [
 				{
 					"kind": "fixed",
+					"summary": "Native iOS builds install devices-capacitor 0.8.1 and sync-capacitor 0.9.5, which declare the SwiftPM product names Capacitor 8 asks for"
+				}
+			],
+			"date": "2026-10-26",
+			"version": "0.20.0-beta.155"
+		},
+		{
+			"changes": [
+				{
+					"kind": "fixed",
 					"summary": "Keep backend hot reload alive when a managed module is deleted or moved"
 				}
 			],

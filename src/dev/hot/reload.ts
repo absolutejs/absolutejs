@@ -20,8 +20,7 @@ export type ServerChangeOutcome =
 
 type ExportMeta = HotModuleAnalysis['exports'];
 type Advanced =
-	| { ok: true; changed: Set<string> }
-	| { ok: false; error: unknown };
+	{ ok: true; changed: Set<string> } | { ok: false; error: unknown };
 type Pending = { module: string; changed: Set<string> };
 type Propagation = { modules: string[]; entryAffected: boolean; steps: number };
 

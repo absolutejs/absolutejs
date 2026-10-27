@@ -792,7 +792,7 @@ bun add @absolutejs/absolute@0.20.0-beta.109 \
   @capacitor/cli@8.5.0 \
   @capacitor/ios@8.5.0 \
   @absolutejs/devices@0.7.0 \
-  @absolutejs/devices-capacitor@0.8.0
+  @absolutejs/devices-capacitor@0.8.1
 ```
 
 `absolute mobile init` now offers to install this tested Capacitor/device

@@ -47,8 +47,8 @@ test('repairs stale Devices and Sync adapters, not just missing packages', async
 		)
 	).toEqual([
 		'@absolutejs/devices@0.7.1',
-		'@absolutejs/devices-capacitor@0.8.0',
-		'@absolutejs/sync-capacitor@0.9.4'
+		'@absolutejs/devices-capacitor@0.8.1',
+		'@absolutejs/sync-capacitor@0.9.5'
 	]);
 });
 
@@ -88,7 +88,7 @@ test('matching native versions are idempotent and missing installs are repaired'
 			declared,
 			ABSOLUTE_NATIVE_EXACT_PACKAGES
 		)
-	).toEqual(['@absolutejs/sync-capacitor@0.9.4']);
+	).toEqual(['@absolutejs/sync-capacitor@0.9.5']);
 });
 
 test('accepts hoisted packages but rejects stale or malformed nearer installations', async () => {
@@ -117,7 +117,7 @@ test('accepts hoisted packages but rejects stale or malformed nearer installatio
 	await writeFile(shadow, '{');
 	await expect(
 		assertNativePackageVersions(app, specs, ABSOLUTE_NATIVE_EXACT_PACKAGES)
-	).rejects.toThrow('@absolutejs/sync-capacitor@0.9.4');
+	).rejects.toThrow('@absolutejs/sync-capacitor@0.9.5');
 });
 
 test('provisioned Capacitor versions match installed framework dependencies and peer contracts', async () => {
