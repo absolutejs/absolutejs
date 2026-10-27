@@ -74,6 +74,65 @@ const rewriteAssetUrlConstructors = (
 		);
 };
 
+const referencedAsset = (
+	node: ts.Node,
+	tree: ts.SourceFile,
+	file: string,
+	directory: string
+) => {
+	if (
+		!ts.isNewExpression(node) ||
+		!ts.isIdentifier(node.expression) ||
+		node.expression.text !== 'URL'
+	)
+		return undefined;
+	const [path, base] = node.arguments ?? [];
+	if (
+		!path ||
+		!ts.isStringLiteral(path) ||
+		base?.getText(tree) !== 'import.meta.url'
+	)
+		return undefined;
+
+	return path.text.startsWith('/')
+		? resolve(directory, path.text.slice(1))
+		: resolve(dirname(file), path.text);
+};
+
+// Worker outputs may live at the build root rather than under workers/.
+// Include only files referenced by real URL expressions in the client graph.
+const includeUrlDependencies = (
+	files: string[],
+	directory: string,
+	allowed: Set<string>
+) => {
+	const included = new Set(files);
+	for (let index = 0; index < files.length; index++) {
+		const file = files[index];
+		if (!file || !/\.m?js$/.test(file)) continue;
+		const source = readFileSync(file, 'utf8');
+		if (!/\bnew\s+URL\s*\(/u.test(source)) continue;
+		const tree = ts.createSourceFile(
+			'client.js',
+			source,
+			ts.ScriptTarget.Latest,
+			true,
+			ts.ScriptKind.JS
+		);
+		const visit = (node: ts.Node) => {
+			const target = referencedAsset(node, tree, file, directory);
+			if (target && allowed.has(target) && !included.has(target)) {
+				included.add(target);
+				files.push(target);
+			}
+			ts.forEachChild(node, visit);
+		};
+		visit(tree);
+	}
+
+	return files;
+};
+
 export const CLIENT_GRAPH_PREFIX = '/_absolute/assets/';
 
 // Do not retain runtime metadata, source maps or generated server modules.
@@ -227,7 +286,18 @@ export const prepareCompiledClientGraph = (
 			)
 			.map((value) => value.slice(1))
 	);
-	const files = filesIn(directory)
+	const available = filesIn(directory);
+	const allowed = new Set(
+		available.filter(
+			(path) =>
+				path !== resolve(directory, serverBundle) &&
+				!serverFiles.has(path) &&
+				isClientGraphAsset(
+					relative(directory, path).replace(/\\/g, '/')
+				)
+		)
+	);
+	const files = available
 		.filter((path) => {
 			const name = relative(directory, path).replace(/\\/g, '/');
 
@@ -243,6 +313,7 @@ export const prepareCompiledClientGraph = (
 			);
 		})
 		.sort();
+	includeUrlDependencies(files, directory, allowed).sort();
 	const hash = createHash('sha256');
 	for (const file of files)
 		hash.update(relative(directory, file))

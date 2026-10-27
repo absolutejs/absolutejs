@@ -702,10 +702,10 @@ const buildProdUrlFileMap = (
 			basename(artifact.path).startsWith(`${srcBase}.`)
 		);
 		if (!output) continue;
-		urlFileMap.set(
-			basename(srcPath),
-			`/${relative(buildPath, output.path).replace(/\\/g, '/')}`
-		);
+		const url = `/${relative(buildPath, output.path).replace(/\\/g, '/')}`;
+		urlFileMap.set(basename(srcPath), url);
+		// Bun rewrites TypeScript URL targets to .js in browser output.
+		urlFileMap.set(basename(srcPath).replace(/\.tsx?$/, '.js'), url);
 	}
 
 	return urlFileMap;

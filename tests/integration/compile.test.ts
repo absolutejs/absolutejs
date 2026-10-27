@@ -1591,6 +1591,21 @@ CMD ["/app/compiled-server"]
 			);
 			const errors: string[] = [];
 			browser.page.on('pageerror', (error) => errors.push(error.message));
+			browser.page.on('response', (response) => {
+				if (response.status() >= 400)
+					console.error(
+						'retained graph HTTP failure',
+						response.status(),
+						response.url()
+					);
+			});
+			browser.page.on('console', (message) => {
+				if (message.type() === 'error')
+					console.error(
+						'retained graph browser error',
+						message.text()
+					);
+			});
 			const scriptUrl = await browser.page
 				.locator('script[src*="/_absolute/assets/"]')
 				.first()
