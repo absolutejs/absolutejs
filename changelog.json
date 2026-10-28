@@ -10,6 +10,26 @@
 				}
 			],
 			"date": "2026-10-28",
+			"version": "0.20.0-beta.159"
+		},
+		{
+			"changes": [
+				{
+					"kind": "changed",
+					"summary": "Mobile releases use @absolutejs/deploy 0.33.0, which can record a store-delivered native release by digest and build provenance without storing its bytes; `absolute mobile update provision` installs the same version instead of 0.26.0"
+				}
+			],
+			"date": "2026-10-28",
+			"version": "0.20.0-beta.158"
+		},
+		{
+			"changes": [
+				{
+					"kind": "fixed",
+					"summary": "Deduplicate shared Vue component styles without changing cascade order and invalidate older CSS compile caches"
+				}
+			],
+			"date": "2026-10-28",
 			"version": "0.20.0-beta.158"
 		},
 		{
