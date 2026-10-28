@@ -8,7 +8,7 @@
         "@absolutejs/auth": ">=0.101.0 <1",
         "@absolutejs/beacon": ">=0.7.0-beta.4 <0.8.0",
         "@absolutejs/bvm": "^0.1.1",
-        "@absolutejs/deploy": "0.27.0",
+        "@absolutejs/deploy": "0.33.0",
         "@absolutejs/devices": "0.7.1",
         "@absolutejs/devices-capacitor": "0.8.1",
         "@absolutejs/http": "0.0.1",
@@ -410,7 +410,7 @@
 
     "@absolutejs/changelog": ["@absolutejs/changelog@0.6.0", "", { "dependencies": { "typescript": "^5.8.3" }, "bin": { "absolute-changelog": "dist/cli.js" } }, "sha512-bsCCN7PVubSQ07dcaZgoE8M46QDOYMz9+Idc//bmxZd2KRK2wG7W5jqAIvjotD7mZD/6pVfGyNCxE+VNoYguvA=="],
 
-    "@absolutejs/deploy": ["@absolutejs/deploy@0.27.0", "", { "dependencies": { "google-auth-library": "10.9.0" } }, "sha512-X+c5S5bEgYN0z7tAtcFZhHQwmhnbHArjVGd6fwwy2s60qC/fmv9Jgo+Mg7EuuHIuGIjLUsiKuea5LRcHoxPxyw=="],
+    "@absolutejs/deploy": ["@absolutejs/deploy@0.33.0", "", { "dependencies": { "google-auth-library": "10.9.0" } }, "sha512-0uLKKUSADyOstKkD2N0P/5URJswH3GOpTd8fj9eRfWfz6/WeK4xVD0J5WTJzgOfel6+ehvtgAbR3+LRV7CJfaw=="],
 
     "@absolutejs/devices": ["@absolutejs/devices@0.7.1", "", {}, "sha512-DKNxkho6BGmdf0/tLnteXCYd3FYzCKFWvnLyk9oTSzqB0zGR1lOiFWHuErW5CrFxCK/iKVLDL+8Wx5W6H+1IZQ=="],
 

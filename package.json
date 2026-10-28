@@ -10,7 +10,7 @@
 		"@absolutejs/auth": ">=0.101.0 <1",
 		"@absolutejs/beacon": ">=0.7.0-beta.4 <0.8.0",
 		"@absolutejs/bvm": "^0.1.1",
-		"@absolutejs/deploy": "0.27.0",
+		"@absolutejs/deploy": "0.33.0",
 		"@absolutejs/devices": "0.7.1",
 		"@absolutejs/devices-capacitor": "0.8.1",
 		"@absolutejs/http": "0.0.1",
@@ -563,7 +563,7 @@
 			]
 		}
 	},
-	"version": "0.20.0-beta.157",
+	"version": "0.20.0-beta.158",
 	"workspaces": [
 		"tests/fixtures/*",
 		"tests/fixtures/_packages/*"
