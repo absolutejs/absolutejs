@@ -1,3 +1,4 @@
+import { dedupeCssBlocks } from './dedupeCssBlocks';
 import { vueModuleOutputPath } from './vueModuleOutputPath';
 import { BASE_36_RADIX } from '../constants';
 import { existsSync } from 'node:fs';
@@ -791,10 +792,10 @@ const compileVueFileUncached = async (
 			})
 	);
 
-	const allCss = [
+	const allCss = dedupeCssBlocks([
 		...localCss,
 		...childBuildResults.flatMap((result) => result.cssCodes)
-	];
+	]);
 
 	const cssOutputFile =
 		isEntryPoint && allCss.length

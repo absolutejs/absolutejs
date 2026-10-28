@@ -5,7 +5,7 @@ import { pathToFileURL } from 'node:url';
 import { describe, expect, test } from 'bun:test';
 import { createSSRApp } from 'vue';
 import { renderToString } from 'vue/server-renderer';
-import { compileVue } from '../../../src/build/compileVue';
+import { clearVueHmrCaches, compileVue } from '../../../src/build/compileVue';
 
 const writeTempFile = async (path: string, content: string) => {
 	await Bun.write(path, content);
@@ -360,4 +360,28 @@ export const routes = defineRoutes([
 			await rm(root, { force: true, recursive: true });
 		}
 	});
+});
+
+
+test('shared child CSS is emitted once with the same cascade after a cache restart', async () => {
+	const root = await mkdtemp(join(tmpdir(), 'absolutejs-css-diamond-'));
+	const page = join(root, 'Diamond.vue');
+	try {
+		await Promise.all([
+			writeTempFile(page, `<script setup>import Left from './Left.vue'; import Right from './Right.vue';</script><template><Left /><Right /></template>`),
+			writeTempFile(join(root, 'Left.vue'), `<script setup>import Shared from './Shared.vue';</script><template><Shared /></template><style>.diamond-value { color: green; }</style>`),
+			writeTempFile(join(root, 'Right.vue'), `<script setup>import Shared from './Shared.vue';</script><template><Shared /></template><style>.diamond-value { color: blue; }</style>`),
+			writeTempFile(join(root, 'Shared.vue'), `<template><span class="diamond-value">Shared</span></template><style>.diamond-value { color: red; }</style>`)
+		]);
+		const first = await compileVue([page], root, false);
+		const css = await Bun.file(first.vueCssPaths[0]!).text();
+		expect(css.match(/color: red/g)).toHaveLength(1);
+		expect(css.indexOf('color: red')).toBeGreaterThan(css.indexOf('color: blue'));
+		clearVueHmrCaches();
+		const warm = await compileVue([page], root, false);
+		expect(await Bun.file(warm.vueCssPaths[0]!).text()).toBe(css);
+	} finally {
+		clearVueHmrCaches();
+		await rm(root, { force: true, recursive: true });
+	}
 });
