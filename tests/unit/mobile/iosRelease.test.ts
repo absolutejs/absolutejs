@@ -225,6 +225,91 @@ describe('iOS production releases', () => {
 		expect(release.metadata.engine).toBe('expo');
 	});
 
+	test('takes the scheme from Xcode when the project ships no shared scheme', async () => {
+		// Capacitor 8's Swift Package Manager template: no .xcscheme files and
+		// no workspace beside the project, as a fresh CI checkout has it.
+		const iosRoot = await mkdtemp(join(tmpdir(), 'absolute-ios-schemes-'));
+		roots.push(iosRoot);
+		await mkdir(
+			join(iosRoot, 'App', 'App.xcodeproj', 'project.xcworkspace'),
+			{
+				recursive: true
+			}
+		);
+		const listed: Array<{ command: string[]; cwd?: string }> = [];
+		const xcode =
+			(schemes: string[], exitCode = 0) =>
+			(command: string[], options?: { cwd?: string }) => {
+				listed.push({ command, cwd: options?.cwd });
+
+				return {
+					exitCode,
+					stderr: '',
+					stdout: JSON.stringify({
+						workspace: { name: 'App', schemes }
+					})
+				};
+			};
+		const workspace = join(
+			iosRoot,
+			'App',
+			'App.xcodeproj',
+			'project.xcworkspace'
+		);
+
+		expect(
+			await resolveAbsoluteIosXcodeProject(iosRoot, {
+				capture: xcode(['App', 'CapApp-SPM'])
+			})
+		).toEqual({ scheme: 'App', target: ['-workspace', workspace] });
+		expect(listed[0]).toEqual({
+			command: ['xcodebuild', '-list', '-json', '-workspace', workspace],
+			cwd: iosRoot
+		});
+		expect(
+			(
+				await resolveAbsoluteIosXcodeProject(iosRoot, {
+					capture: xcode(['Pizza'])
+				})
+			).scheme
+		).toBe('Pizza');
+		await expect(
+			resolveAbsoluteIosXcodeProject(iosRoot, {
+				capture: xcode(['Pizza', 'CapApp-SPM'])
+			})
+		).rejects.toThrow(
+			'found Xcode schemes Pizza, CapApp-SPM, none shared or named App'
+		);
+		await expect(
+			resolveAbsoluteIosXcodeProject(iosRoot, { capture: xcode([], 65) })
+		).rejects.toThrow('could not find a shared Xcode scheme');
+		// A shared scheme still wins without asking Xcode.
+		const asked = listed.length;
+		await mkdir(
+			join(iosRoot, 'App', 'App.xcodeproj', 'xcshareddata', 'xcschemes'),
+			{ recursive: true }
+		);
+		await writeFile(
+			join(
+				iosRoot,
+				'App',
+				'App.xcodeproj',
+				'xcshareddata',
+				'xcschemes',
+				'Shared.xcscheme'
+			),
+			'<Scheme />\n'
+		);
+		expect(
+			(
+				await resolveAbsoluteIosXcodeProject(iosRoot, {
+					capture: xcode(['App'])
+				})
+			).scheme
+		).toBe('Shared');
+		expect(listed).toHaveLength(asked);
+	});
+
 	test('rejects ambiguous or out-of-project Xcode selection', async () => {
 		const { config } = await fixture();
 		const iosRoot = join(config.nativeProjectDirectory, 'ios');

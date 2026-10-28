@@ -11,7 +11,15 @@ import {
 	stat,
 	writeFile
 } from 'node:fs/promises';
-import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import {
+	basename,
+	dirname,
+	isAbsolute,
+	join,
+	relative,
+	resolve,
+	sep
+} from 'node:path';
 import type { NormalizedAbsoluteMobileConfig } from './config';
 import {
 	detectAbsoluteMobileHost,
@@ -400,9 +408,53 @@ const findAllByExtension = async (
 	return matches.flat().sort();
 };
 
+// The project an Xcode container belongs to: `App` for `App.xcodeproj`,
+// `App.xcworkspace` and the `project.xcworkspace` inside `App.xcodeproj`.
+const xcodeContainerName = (path: string) => {
+	const name = basename(path);
+	const container =
+		name === 'project.xcworkspace' ? basename(dirname(path)) : name;
+
+	return container.replace(/\.(xcodeproj|xcworkspace)$/, '');
+};
+
+// The schemes Xcode itself reports for a container. Capacitor ships no
+// shared scheme and ignores xcuserdata, so on a fresh checkout (a CI runner)
+// these are the only schemes there are: one Xcode creates for each target,
+// beside one for each local Swift package.
+const listXcodeSchemes = (
+	target: string[],
+	nativeDirectory: string,
+	capture: NonNullable<BuildAbsoluteIosReleaseOptions['capture']>
+) => {
+	const listed = capture(['xcodebuild', '-list', '-json', ...target], {
+		cwd: nativeDirectory
+	});
+	if (listed.exitCode !== 0) return [];
+	try {
+		const parsed: unknown = JSON.parse(listed.stdout);
+		const container = isRecord(parsed)
+			? (parsed.workspace ?? parsed.project)
+			: undefined;
+		const schemes = isRecord(container) ? container.schemes : undefined;
+
+		return Array.isArray(schemes)
+			? schemes.filter(
+					(scheme): scheme is string => typeof scheme === 'string'
+				)
+			: [];
+	} catch {
+		return [];
+	}
+};
+
 export const resolveAbsoluteIosXcodeProject = async (
 	nativeDirectory: string,
-	options: { scheme?: string; workspacePath?: string } = {}
+	options: {
+		capture?: BuildAbsoluteIosReleaseOptions['capture'];
+		scheme?: string;
+		workspacePath?: string;
+	} = {}
 ) => {
 	const requestedWorkspace = options.workspacePath
 		? resolve(nativeDirectory, options.workspacePath)
@@ -467,14 +519,26 @@ export const resolveAbsoluteIosXcodeProject = async (
 			)
 		)
 	];
-	if (schemes.length !== 1 || !schemes[0])
+	if (schemes.length > 1)
 		throw new TypeError(
-			schemes.length > 1
-				? `iOS release found multiple shared Xcode schemes: ${schemes.join(', ')}. Pass an explicit scheme.`
-				: 'iOS release could not find a shared Xcode scheme.'
+			`iOS release found multiple shared Xcode schemes: ${schemes.join(', ')}. Pass an explicit scheme.`
 		);
-
-	return { scheme: schemes[0], target };
+	if (schemes[0]) return { scheme: schemes[0], target };
+	const containerPath = target[1] ?? '';
+	const name = xcodeContainerName(containerPath);
+	const listed = listXcodeSchemes(
+		target,
+		nativeDirectory,
+		options.capture ?? defaultCapture
+	);
+	const scheme =
+		listed.length === 1 ? listed[0] : listed.find((item) => item === name);
+	if (scheme) return { scheme, target };
+	throw new TypeError(
+		listed.length > 0
+			? `iOS release found Xcode schemes ${listed.join(', ')}, none shared or named ${name}. Pass an explicit scheme.`
+			: 'iOS release could not find a shared Xcode scheme.'
+	);
 };
 
 const exportOptions = (
@@ -740,6 +804,7 @@ export const buildAbsoluteIosRelease = async (
 		);
 	const nativeDirectory = join(options.config.nativeProjectDirectory, 'ios');
 	const xcode = await resolveAbsoluteIosXcodeProject(nativeDirectory, {
+		capture: options.capture,
 		scheme: options.scheme,
 		workspacePath: options.workspacePath
 	});
