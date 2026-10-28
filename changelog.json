@@ -26,16 +26,6 @@
 			"changes": [
 				{
 					"kind": "fixed",
-					"summary": "Deduplicate shared Vue component styles without changing cascade order and invalidate older CSS compile caches"
-				}
-			],
-			"date": "2026-10-28",
-			"version": "0.20.0-beta.158"
-		},
-		{
-			"changes": [
-				{
-					"kind": "fixed",
 					"summary": "Preserve literal percent-encoded module paths when serving current and retained compiled assets"
 				}
 			],
