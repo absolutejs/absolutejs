@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import {
+	ABSOLUTE_DEPLOY_VERSION,
 	ABSOLUTE_DEVICES_VERSION,
 	ABSOLUTE_EXPO_DEVICES_VERSION,
 	ABSOLUTE_NATIVE_EXACT_PACKAGES,
@@ -175,4 +176,18 @@ test('Expo shell pins share the tested Devices core and satisfy adapter peers', 
 			manifest.peerDependencies['@absolutejs/devices']
 		)
 	).toBe(true);
+});
+
+test('the CLI installs the same @absolutejs/deploy the framework depends on', async () => {
+	// `absolute mobile` writes release and update records with the framework's
+	// copy; an app module on another version could read a different format.
+	const manifest = JSON.parse(
+		await readFile(
+			resolve(import.meta.dir, '../../../package.json'),
+			'utf8'
+		)
+	);
+	expect(manifest.dependencies['@absolutejs/deploy']).toBe(
+		ABSOLUTE_DEPLOY_VERSION
+	);
 });

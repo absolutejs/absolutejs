@@ -4,6 +4,9 @@ import { dirname, join, resolve } from 'node:path';
 // One tested Devices pair for application provisioning and generated shells.
 export const ABSOLUTE_CAPACITOR_DEVICES_VERSION = '0.8.1';
 export const ABSOLUTE_CAPACITOR_SYNC_VERSION = '0.9.5';
+// The registry `absolute mobile` writes and an app's own release modules must
+// agree on one record format, so the CLI installs exactly the framework's pin.
+export const ABSOLUTE_DEPLOY_VERSION = '0.33.0';
 export const ABSOLUTE_DEVICES_VERSION = '0.7.1';
 export const ABSOLUTE_EXPO_DEVICES_VERSION = '0.0.12';
 export const ABSOLUTE_NATIVE_EXACT_PACKAGES = new Set([

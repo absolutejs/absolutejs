@@ -12,6 +12,7 @@ import { createInterface } from 'node:readline/promises';
 import type { MobileConfig } from '../../../types/build';
 import { installPackages } from '../add/dependencies';
 import {
+	ABSOLUTE_DEPLOY_VERSION,
 	ABSOLUTE_NATIVE_EXACT_PACKAGES,
 	CAPACITOR_PACKAGE_SPECS,
 	CAPACITOR_SYNC_PACKAGE_SPECS,
@@ -2129,7 +2130,7 @@ const provisionMobileUpdate = async (args: string[]) => {
 	const modulePath =
 		valueAfter(args, '--registry') ?? mobile.updateServer.registryModule;
 	const packages = [
-		'@absolutejs/deploy@0.26.0',
+		`@absolutejs/deploy@${ABSOLUTE_DEPLOY_VERSION}`,
 		'@absolutejs/blob@0.5.2',
 		...(requestedStorage === 's3'
 			? [
