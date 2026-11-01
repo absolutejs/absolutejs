@@ -5,6 +5,20 @@
 		{
 			"changes": [
 				{
+					"detail": "A production server imported absolute.config.ts from source at every boot, through `prepare()` and again in the `absolute start --prebuilt` controller. That evaluated the framework's own unbundled package and everything the config imports beside the server bundle that already contains it: the AbsoluteJS docs site's config imported its sitemap routes, which pulled in every docs page, its data and its highlighter, about 735 modules and roughly 70 MB of the server's memory plus 55 MB of the controller's. `absolute start` and `absolute prepare` now write the plain-data fields the runtime reads to `absolute-runtime.json` in the build directory, and a production `prepare()` (with `ABSOLUTE_BUILD_DIR` set, as `absolute start` sets it) and a prebuilt start read that instead of importing the config. A build without the file, from an older framework or another pipeline, loads the config as before. Production `prepare()` also no longer scans and reads every page source at boot for island metadata that only dev rebuilds use.",
+					"kind": "changed",
+					"summary": "Production servers no longer import absolute.config.ts at runtime",
+					"symbols": [
+						"prepare"
+					]
+				}
+			],
+			"date": "2026-11-01",
+			"version": "0.20.0-beta.161"
+		},
+		{
+			"changes": [
+				{
 					"detail": "Capacitor 8 ships no shared Xcode scheme and its .gitignore excludes xcuserdata, so a fresh checkout such as a GitHub Actions runner has no .xcscheme file. `mobile build ios` and the simulator certification failed there with \"iOS release could not find a shared Xcode scheme\"; they only worked on a Mac where opening the project in Xcode had created a user scheme. With no shared scheme, the release now asks Xcode for its schemes (`xcodebuild -list -json`) and uses the only one, or the one named after the project (`App` for Capacitor), beside the scheme for each local Swift package. A shared scheme is still used as before, and an explicit scheme still wins. By Gene Graves.",
 					"kind": "fixed",
 					"summary": "Signed iOS builds find their Xcode scheme on a fresh checkout",
