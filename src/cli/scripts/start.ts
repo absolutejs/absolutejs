@@ -22,6 +22,10 @@ import { createAbsoluteMobileRouteMetadataPlugin } from '../../mobile/routeMetad
 import { installAbsoluteMobileAuthEnvironment } from '../../mobile/nativeAuth';
 import { normalizeAbsoluteMobileConfig } from '../../mobile/config';
 import { loadConfig } from '../../utils/loadConfig';
+import {
+	readProductionRuntime,
+	writeProductionRuntime
+} from '../../core/productionRuntime';
 import { formatTimestamp } from '../../utils/startupBanner';
 import { sendTelemetryEvent } from '../telemetryEvent';
 import { createElysiaOpenApiTypeboxPlugin } from '../elysiaOpenApiTypeboxPlugin';
@@ -369,7 +373,13 @@ export const start = async (
 		resolve(import.meta.dir, '..', '..', '..', 'package.json'),
 		resolve(import.meta.dir, '..', '..', 'package.json')
 	]);
-	const buildConfig = await loadConfig(configPath);
+	// A prebuilt start reads the config its build wrote
+	// (productionRuntime.ts) rather than importing absolute.config.ts,
+	// which also loads everything the config imports into this process.
+	const builtConfig = options.prebuilt
+		? readProductionRuntime(resolvedOutdir)
+		: null;
+	const buildConfig = builtConfig ?? (await loadConfig(configPath));
 	buildConfig.buildDirectory = resolvedOutdir;
 	buildConfig.mode = 'production';
 	if (buildConfig.mobile)
@@ -645,6 +655,8 @@ export const start = async (
 			await rewriteImports([outputPath], angularServerVendorPaths);
 		}
 	}
+
+	writeProductionRuntime(buildConfig, resolvedOutdir);
 
 	if (buildConfig.mobile) {
 		await finalizeAbsoluteMobileCompatibilityBuild({
