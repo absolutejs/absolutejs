@@ -10,6 +10,7 @@ import type { ConventionsMap } from '../../types/conventions';
 import { withOpenApi } from '../plugins/openApiPlugin';
 import { withTelemetry } from '../plugins/telemetryPlugin';
 import { loadConfig } from '../utils/loadConfig';
+import { readProductionRuntime } from './productionRuntime';
 import { setIconVersionResolver } from '../utils/iconVersion';
 import { setCurrentIslandManifest } from './islandPageContext';
 import { absoluteRequestContext } from './requestContext';
@@ -604,11 +605,19 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 	};
 
 	let stepStartedAt = performance.now();
-	const config = await loadConfig(configOrPath);
-	recordStep('load config', stepStartedAt);
-
 	const nodeEnv = process.env['NODE_ENV'];
 	const isDev = nodeEnv === 'development';
+	// A production build carries the config it was built with
+	// (productionRuntime.ts), so the server never imports absolute.config.ts
+	// and everything it pulls in a second time beside its own bundle.
+	const builtDir = process.env.ABSOLUTE_BUILD_DIR;
+	const built =
+		!isDev && builtDir
+			? readProductionRuntime(resolvePath(builtDir))
+			: null;
+	const config = built ?? (await loadConfig(configOrPath));
+	recordStep(built ? 'load built config' : 'load config', stepStartedAt);
+
 	const buildDir = resolvePath(
 		process.env.ABSOLUTE_BUILD_DIR ?? config.buildDirectory ?? 'build'
 	);
@@ -633,8 +642,10 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 			await loadIslandRegistry(config.islands.registry)
 		);
 	}
-	setCurrentPageIslandMetadata(await loadPageIslandMetadata(config));
-	recordStep('load production manifest and island metadata', stepStartedAt);
+	// Page island metadata maps island sources to the pages that use them,
+	// for dev rebuilds only (rebuildTrigger.ts); production never reads it,
+	// and building it scanned and read every page source at each boot.
+	recordStep('load production manifest and island registry', stepStartedAt);
 
 	// Load convention files (error/loading/not-found) for production
 	stepStartedAt = performance.now();

@@ -4,6 +4,7 @@ import {
 	mkdtemp,
 	mkdir,
 	readdir,
+	readFile,
 	rm,
 	writeFile
 } from 'node:fs/promises';
@@ -99,6 +100,22 @@ describe('prebuilt production server startup', () => {
 			prepareExit,
 			`prepare failed:\n${prepareStdout}\n${prepareStderr}`
 		).toBe(0);
+
+		// The build carries the config the server runs with, so neither the
+		// server nor the start controller imports absolute.config.ts (and
+		// everything it imports) again: one that throws on import must not
+		// stop a prebuilt start.
+		const runtime = JSON.parse(
+			await readFile(join(outdir, 'absolute-runtime.json'), 'utf-8')
+		);
+		expect(runtime.config.images.cacheDirectory).toBe(
+			join(runtimeDir, 'image-cache')
+		);
+		expect(runtime.config.buildDirectory).toBeUndefined();
+		await writeFile(
+			runtimeConfigPath,
+			"throw new Error('absolute.config.ts was imported at runtime');\n"
+		);
 
 		await setTreeWritable(outdir, false);
 		serverProcess = Bun.spawn(
