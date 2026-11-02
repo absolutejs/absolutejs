@@ -1,4 +1,4 @@
-import { resolve, join, relative } from 'node:path';
+import { join, parse, relative, resolve } from 'node:path';
 import { existsSync, readFileSync } from 'node:fs';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { parse as parseJsonc } from 'jsonc-parser';
@@ -436,11 +436,18 @@ const writeTypecheckConfig = async (
 		JSON.stringify(
 			{
 				/* TypeScript 7 requires every source file to sit under
-				 * rootDir even when nothing is emitted (TS6059), so a test
-				 * importing a script beside the project failed bun check.
-				 * bun check never emits; only tsc's incremental output
-				 * needs the root pinned. */
-				compilerOptions: checker === 'tsc' ? { rootDir: '..' } : {},
+				 * rootDir even when nothing is emitted (TS6059). Pinned to
+				 * the project, a test importing a script beside the project
+				 * failed bun check; left unset, rootDir defaults to this
+				 * file's directory (.absolutejs) whenever the project's
+				 * tsconfig sets outDir, so every source file failed (the
+				 * docs site: 20 TS6059 errors, 2026-11-01). bun check never
+				 * emits, so its root only has to contain every file it
+				 * reads: the filesystem root does. tsc's incremental output
+				 * still needs the project root. */
+				compilerOptions: {
+					rootDir: checker === 'tsc' ? '..' : parse(resolve('.')).root
+				},
 				exclude: getProjectTypecheckExcludes(),
 				extends: resolve('tsconfig.json'),
 				include: getProjectTypecheckIncludes()
