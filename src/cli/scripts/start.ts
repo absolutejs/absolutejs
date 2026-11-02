@@ -337,6 +337,20 @@ const runPreparedServer = async ({
 
 	process.on('SIGINT', () => cleanup(0));
 	process.on('SIGTERM', () => cleanup(0));
+	/* However this process ends, the server it spawned ends with it. Another
+	 * signal handler can exit first: the build directory lock's releases
+	 * the lock and exits, and it is registered while the build runs, before
+	 * the handlers above, so on SIGTERM cleanup never ran and every
+	 * `absolute start` that had built left its server holding the port
+	 * (the framework's integration runs stranded a dozen, 2026-11-02).
+	 * `exit` listeners run synchronously on any exit, process.exit included. */
+	process.on('exit', () => {
+		try {
+			serverProcess.kill();
+		} catch {
+			/* already exited */
+		}
+	});
 
 	const exitCode = await serverProcess.exited;
 	if (cleaning) return;

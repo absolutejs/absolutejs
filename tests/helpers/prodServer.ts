@@ -13,6 +13,26 @@ export type ProdServer = {
 	kill: () => Promise<void>;
 };
 
+/* Processes whose command line names this build directory: the server
+ * `absolute start` spawned runs `bun run <outdir>/server.js`. */
+const processesUsing = async (outdir: string) => {
+	const pgrep = Bun.spawn(['pgrep', '-f', outdir], {
+		stderr: 'ignore',
+		stdout: 'pipe'
+	});
+	const [output] = await Promise.all([
+		new Response(pgrep.stdout).text(),
+		pgrep.exited
+	]);
+
+	return output
+		.split('\n')
+		.map(Number)
+		.filter(
+			(pid) => Number.isInteger(pid) && pid > 0 && pid !== process.pid
+		);
+};
+
 export const startProdServer = async (port?: number) => {
 	const serverEntry = resolve(PROJECT_ROOT, 'example/server.ts');
 	const configPath = resolve(PROJECT_ROOT, 'example/absolute.config.ts');
@@ -61,9 +81,24 @@ export const startProdServer = async (port?: number) => {
 					// already exited
 				}
 				await buildProc.exited;
+				// Stopping `absolute start` stops the server it spawned. A
+				// server still running from this build is a leak: it outlives
+				// the test and keeps its port (2026-11-02).
+				const survivors = await processesUsing(outdir);
+				survivors.forEach((pid) => {
+					try {
+						process.kill(pid, 'SIGKILL');
+					} catch {
+						// already gone
+					}
+				});
 				await rm(outdir, { force: true, recursive: true }).catch(
 					() => {}
 				);
+				if (survivors.length > 0)
+					throw new Error(
+						`Stopping the production server left ${survivors.length} process(es) from ${outdir} running: ${survivors.join(', ')}`
+					);
 			};
 
 			return {
