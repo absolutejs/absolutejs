@@ -153,6 +153,7 @@ const SERVER_ENTRY_POINTS = [
 	'src/runtime/clientAssetArchive.ts',
 	'src/index.ts',
 	'src/build.ts',
+	'src/tunnel.ts',
 	'src/angular/index.ts',
 	'src/angular/browser.ts',
 	'src/angular/server.ts',

@@ -278,6 +278,10 @@
 			"import": "./dist/svelte/server.js",
 			"types": "./dist/src/svelte/server.d.ts"
 		},
+		"./tunnel": {
+			"import": "./dist/tunnel.js",
+			"types": "./dist/src/tunnel.d.ts"
+		},
 		"./vue": {
 			"browser": "./dist/vue/browser.js",
 			"import": "./dist/vue/index.js",
@@ -553,6 +557,9 @@
 			"svelte/*": [
 				"dist/src/svelte/*"
 			],
+			"tunnel": [
+				"dist/src/tunnel.d.ts"
+			],
 			"vue": [
 				"dist/src/vue/index.d.ts"
 			],
@@ -561,7 +568,7 @@
 			]
 		}
 	},
-	"version": "0.20.0-beta.164",
+	"version": "0.20.0-beta.165",
 	"workspaces": [
 		"tests/fixtures/*",
 		"tests/fixtures/_packages/*"

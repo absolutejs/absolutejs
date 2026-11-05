@@ -8,7 +8,20 @@ import {
 	type TunnelRequestMessage
 } from './protocol';
 
+export type TunnelPublicRoute = {
+	/** Exact, canonical pathname. Queries do not affect route matching. */
+	path: string;
+	/** Exact uppercase HTTP method. */
+	method: string;
+};
+
 type RelayOptions = {
+	/** Optional relay process liveness endpoint; does not assert that the local client is online. */
+	healthPath?: string;
+	/** Restrict public forwarding to these HTTP routes. An empty list denies all.
+	 * When supplied, public WebSockets are disabled. The authenticated control
+	 * channel remains available. Omit to preserve full development tunneling. */
+	publicRoutes?: readonly TunnelPublicRoute[];
 	/** Port the relay listens on (App Platform injects PORT). */
 	port?: number;
 	/** Shared secret the dev client must present (?token=). */
@@ -29,6 +42,33 @@ type PublicSocketData = {
 };
 type SocketData = ControlSocketData | PublicSocketData;
 
+export const parseTunnelPublicRoutes = (value: string) => {
+	const routes: unknown = JSON.parse(value);
+	if (!Array.isArray(routes))
+		throw new Error('Tunnel public routes must be an array');
+
+	return routes.map((route: unknown) => {
+		if (
+			!route ||
+			typeof route !== 'object' ||
+			!('path' in route) ||
+			!('method' in route) ||
+			typeof route.path !== 'string' ||
+			typeof route.method !== 'string' ||
+			!/^[A-Z]+$/.test(route.method) ||
+			!/^\/(?:[A-Za-z0-9_.~-]+\/?)*$/.test(route.path) ||
+			new URL(route.path, 'https://relay.invalid').pathname !==
+				route.path ||
+			route.path === TUNNEL_CONTROL_PATH
+		)
+			throw new Error(
+				'Tunnel public routes require an exact canonical path and uppercase method'
+			);
+
+		return { method: route.method, path: route.path };
+	});
+};
+
 const DEFAULT_RELAY_PORT = 8787;
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 
@@ -47,6 +87,14 @@ const headersToObject = (headers: Headers) => {
  * it. Single-tenant: the shared `token` gates the control channel.
  */
 export const startTunnelRelay = (options: RelayOptions) => {
+	if (options.healthPath !== undefined)
+		parseTunnelPublicRoutes(
+			JSON.stringify([{ method: 'GET', path: options.healthPath }])
+		);
+	const publicRoutes =
+		options.publicRoutes === undefined
+			? undefined
+			: parseTunnelPublicRoutes(JSON.stringify(options.publicRoutes));
 	const port =
 		options.port ?? (Number(process.env.PORT) || DEFAULT_RELAY_PORT);
 	const requestTimeoutMs =
@@ -166,6 +214,13 @@ export const startTunnelRelay = (options: RelayOptions) => {
 		async fetch(request, srv) {
 			const url = new URL(request.url);
 
+			if (
+				options.healthPath &&
+				url.pathname === options.healthPath &&
+				request.method === 'GET'
+			)
+				return new Response(null, { status: 204 });
+
 			// Dev client connects here to open the control channel.
 			if (url.pathname === TUNNEL_CONTROL_PATH) {
 				if (url.searchParams.get('token') !== options.token) {
@@ -179,6 +234,17 @@ export const startTunnelRelay = (options: RelayOptions) => {
 					? undefined
 					: new Response('Upgrade failed', { status: 426 });
 			}
+
+			if (
+				publicRoutes &&
+				(isWebSocketUpgrade(request) ||
+					!publicRoutes.some(
+						(route) =>
+							route.path === url.pathname &&
+							route.method === request.method
+					))
+			)
+				return new Response('Not found', { status: 404 });
 
 			if (!client) {
 				return new Response(

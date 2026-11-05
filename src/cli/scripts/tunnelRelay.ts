@@ -1,4 +1,7 @@
-import { startTunnelRelay } from '../../dev/tunnel/relay';
+import {
+	startTunnelRelay,
+	parseTunnelPublicRoutes
+} from '../../dev/tunnel/relay';
 
 /**
  * `absolute tunnel-relay` — run the public reverse-tunnel relay (typically on a
@@ -6,6 +9,7 @@ import { startTunnelRelay } from '../../dev/tunnel/relay';
  * it with `dev: { tunnel: { relay, token } }`. Reads:
  *   - PORT (App Platform injects this; default 8787)
  *   - ABSOLUTE_TUNNEL_TOKEN (required shared secret)
+ *   - ABSOLUTE_TUNNEL_PUBLIC_ROUTES (optional JSON array of exact {path, method})
  *   - ABSOLUTE_TUNNEL_PUBLIC_URL (optional; the relay's public base URL)
  */
 export const tunnelRelay = () => {
@@ -15,8 +19,12 @@ export const tunnelRelay = () => {
 		process.exit(1);
 	}
 
+	const routes = process.env.ABSOLUTE_TUNNEL_PUBLIC_ROUTES;
 	startTunnelRelay({
+		healthPath: process.env.ABSOLUTE_TUNNEL_HEALTH_PATH,
 		port: Number(process.env.PORT) || undefined,
+		publicRoutes:
+			routes === undefined ? undefined : parseTunnelPublicRoutes(routes),
 		publicUrl: process.env.ABSOLUTE_TUNNEL_PUBLIC_URL,
 		token
 	});
