@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "Production client bundles compiled `process.env.NODE_ENV` as development, because Bun.build does so unless told otherwise, whatever the environment says. React's own vendor build was already fixed, but anything else a page bundled took its development build. That made bundles larger and slower, and could pair a package's development code with production React: the reconciler inside @react-three/fiber reads React's `actQueue`, which production React doesn't have, and threw on absolutejs.ai's billing page. React, other-framework, island and worker client builds now say production in a production build. Development builds are unchanged.",
+					"kind": "fixed",
+					"summary": "Production client bundles use the production build of every package"
+				}
+			],
+			"date": "2026-11-06",
+			"version": "0.20.0-beta.166"
+		},
+		{
+			"changes": [
+				{
 					"kind": "added",
 					"summary": "Expose a server-side tunnel relay entry point with exact callback route restrictions and optional hosting liveness endpoint"
 				}
@@ -300,10 +311,10 @@
 		{
 			"changes": [
 				{
-					"detail": "Elysia 2.0.0-rc.0 renamed every lifecycle hook to its `on` form (request \u2192 onRequest, beforeHandle \u2192 onBeforeHandle, afterHandle \u2192 onAfterHandle, afterResponse \u2192 onAfterResponse, error \u2192 onError, parse \u2192 onParse, transform \u2192 onTransform) and removed setup/cleanup in favour of onStart/onStop. The framework now builds, tests and ships against Elysia 2.0.0-rc.0 and the matching @elysia plugins, and requires `elysia ^2.0.0-rc.0`, so it also accepts later release candidates and 2.0.0. It moves with the packages that made the same change: @absolutejs/auth 0.101 and @absolutejs/sync 3, plus pwa, sync-capacitor and sync-expo releases that accept sync 3.",
+					"detail": "Elysia 2.0.0-rc.0 renamed every lifecycle hook to its `on` form (request → onRequest, beforeHandle → onBeforeHandle, afterHandle → onAfterHandle, afterResponse → onAfterResponse, error → onError, parse → onParse, transform → onTransform) and removed setup/cleanup in favour of onStart/onStop. The framework now builds, tests and ships against Elysia 2.0.0-rc.0 and the matching @elysia plugins, and requires `elysia ^2.0.0-rc.0`, so it also accepts later release candidates and 2.0.0. It moves with the packages that made the same change: @absolutejs/auth 0.101 and @absolutejs/sync 3, plus pwa, sync-capacitor and sync-expo releases that accept sync 3.",
 					"kind": "breaking",
 					"migration": {
-						"instruction": "Upgrade `elysia` and every `@elysia/*` package to 2.0.0-rc.0 or later, `@absolutejs/auth` to 0.101 or later and `@absolutejs/sync` to 3. Then rename lifecycle hooks in your server: request \u2192 onRequest, beforeHandle \u2192 onBeforeHandle, afterHandle \u2192 onAfterHandle, afterResponse \u2192 onAfterResponse, error \u2192 onError, parse \u2192 onParse, transform \u2192 onTransform; replace setup/cleanup with onStart/onStop. The codemod at absolutejs/scripts codemods/elysia-rc-hooks.ts does the renames (run it before upgrading Elysia).",
+						"instruction": "Upgrade `elysia` and every `@elysia/*` package to 2.0.0-rc.0 or later, `@absolutejs/auth` to 0.101 or later and `@absolutejs/sync` to 3. Then rename lifecycle hooks in your server: request → onRequest, beforeHandle → onBeforeHandle, afterHandle → onAfterHandle, afterResponse → onAfterResponse, error → onError, parse → onParse, transform → onTransform; replace setup/cleanup with onStart/onStop. The codemod at absolutejs/scripts codemods/elysia-rc-hooks.ts does the renames (run it before upgrading Elysia).",
 						"manual": true
 					},
 					"summary": "Requires Elysia 2.0.0-rc.0, @absolutejs/auth 0.101 and @absolutejs/sync 3",
@@ -324,7 +335,7 @@
 					"summary": "Browser test recordings and reports no longer restart absolute dev"
 				},
 				{
-					"detail": "An app that imports one of its own workspace packages (`\"@acme/core\": \"workspace:*\"`) did not run under `absolute dev`. With Bun's isolated linker, the default for a workspace, the dev build imported the package from the framework's own folder, could not find it, and the server crash-looped. With the hoisted linker the page rendered but never hydrated: modules outside the app's folder were addressed as `/@src/../\u2026`, which a browser collapses before asking, so they 404ed. Now a package that resolves to source outside node_modules is the app's own code: served and transpiled like the app's files rather than vendored, its folder watched, and an edit to it hot-reloads in place (server and browser) instead of restarting the server or reloading the page. Packages are read from the app's folder, so any dependency only the app declares also works under the isolated linker, and the dev server serves files outside the app folder (a workspace package, a node_modules hoisted to the workspace root) through `/@src/@up/\u2026`. A `dev.watchDirs` entry or a symlink written to work around this is no longer needed.",
+					"detail": "An app that imports one of its own workspace packages (`\"@acme/core\": \"workspace:*\"`) did not run under `absolute dev`. With Bun's isolated linker, the default for a workspace, the dev build imported the package from the framework's own folder, could not find it, and the server crash-looped. With the hoisted linker the page rendered but never hydrated: modules outside the app's folder were addressed as `/@src/../…`, which a browser collapses before asking, so they 404ed. Now a package that resolves to source outside node_modules is the app's own code: served and transpiled like the app's files rather than vendored, its folder watched, and an edit to it hot-reloads in place (server and browser) instead of restarting the server or reloading the page. Packages are read from the app's folder, so any dependency only the app declares also works under the isolated linker, and the dev server serves files outside the app folder (a workspace package, a node_modules hoisted to the workspace root) through `/@src/@up/…`. A `dev.watchDirs` entry or a symlink written to work around this is no longer needed.",
 					"kind": "fixed",
 					"summary": "`absolute dev` runs apps that import their own workspace packages, under Bun's isolated or hoisted linker, with hot reload"
 				},
@@ -363,7 +374,7 @@
 				{
 					"detail": "Production builds bundled React into its vendor files without setting `process.env.NODE_ENV`, so React picked its development build: `react-dom_client.js` was 903 KB, and React ran its development checks in every production page. Production builds now set `process.env.NODE_ENV` to `\"production\"`: 400 KB, 81 KB gzipped. Only whitespace is minified; renaming identifiers or minifying syntax across the split vendor chunks makes Bun emit an export named `__INVALID__REF__`, which stopped compiled executables from hydrating. `absolute dev` is unchanged; Fast Refresh needs the development build.",
 					"kind": "fixed",
-					"summary": "Production builds ship React's production build (react-dom 903 KB \u2192 400 KB, no development checks)"
+					"summary": "Production builds ship React's production build (react-dom 903 KB → 400 KB, no development checks)"
 				},
 				{
 					"detail": "React Fast Refresh updates the components it registered. Editing a module that registers none (a class component, or a `memo`/`forwardRef` wrapper the transpiler does not register) re-ran only that module, and its importer kept rendering the old one, so the edit never showed until a reload. The update now also re-imports the module's importers up to the nearest one that registers a component, so the edit appears and the rest of the page keeps its state.",
@@ -537,7 +548,7 @@
 					"summary": "The dev server starts when a server module re-exports with inline `type` specifiers"
 				},
 				{
-					"detail": "In 0.20.0-beta.129 the published package bundles the dev bootstrap separately from the code that reacts to file changes, and each bundle kept its own copy of the hot runtime's state. The file-change side never saw what the bootstrap had installed, so every server edit was reported as not hot-managed and restarted the server, which is the behaviour backend HMR was meant to remove. The state now lives on `globalThis`, so every bundle shares one runtime. A server edit now updates in place in the published package as well, at about 50\u2013250ms for a handler and about 150\u2013300ms for a plugin or the server entry on a large app.",
+					"detail": "In 0.20.0-beta.129 the published package bundles the dev bootstrap separately from the code that reacts to file changes, and each bundle kept its own copy of the hot runtime's state. The file-change side never saw what the bootstrap had installed, so every server edit was reported as not hot-managed and restarted the server, which is the behaviour backend HMR was meant to remove. The state now lives on `globalThis`, so every bundle shares one runtime. A server edit now updates in place in the published package as well, at about 50–250ms for a handler and about 150–300ms for a plugin or the server entry on a large app.",
 					"kind": "fixed",
 					"summary": "Server edits update in place in the published package instead of restarting"
 				},
@@ -558,7 +569,7 @@
 		{
 			"changes": [
 				{
-					"detail": "Editing a server module in development used to restart the whole server: a second or more of downtime, every open page dropped, every connection, pool, queue worker and in-memory cache rebuilt. Server modules are now updated in place, statement by statement. A save re-runs only the top-level statements whose own text changed, those that use something that changed, and the importer statements that call a changed export; everything else (database pools, workers, caches, `let` state) is kept as it was. React pages and components the server imports for SSR are updated the same way, so the next request renders the edit. A handler edit typically lands in 1\u201350ms with nothing else re-run, and exactly one update is applied per save. What a replaced statement started is stopped before its replacement runs: intervals, timeouts and timer chains (cron libraries included), immediates, `process` listeners, extra `Bun.serve` servers (a fixed port is handed over), workers and `onHotDispose` callbacks. Work started by requests and WebSocket events is never stopped. Rebuilding the Elysia app swaps it onto the running server and runs the old app's `cleanup` and the new app's `setup` hooks, as a stop followed by a listen would. An edit that fails to parse or throws while running keeps the previous version serving, and everything it started is rolled back; the fix applies normally. Set `ABSOLUTE_BACKEND_HMR=0` to restart on server edits as before. See docs/BACKEND_HMR.md.",
+					"detail": "Editing a server module in development used to restart the whole server: a second or more of downtime, every open page dropped, every connection, pool, queue worker and in-memory cache rebuilt. Server modules are now updated in place, statement by statement. A save re-runs only the top-level statements whose own text changed, those that use something that changed, and the importer statements that call a changed export; everything else (database pools, workers, caches, `let` state) is kept as it was. React pages and components the server imports for SSR are updated the same way, so the next request renders the edit. A handler edit typically lands in 1–50ms with nothing else re-run, and exactly one update is applied per save. What a replaced statement started is stopped before its replacement runs: intervals, timeouts and timer chains (cron libraries included), immediates, `process` listeners, extra `Bun.serve` servers (a fixed port is handed over), workers and `onHotDispose` callbacks. Work started by requests and WebSocket events is never stopped. Rebuilding the Elysia app swaps it onto the running server and runs the old app's `cleanup` and the new app's `setup` hooks, as a stop followed by a listen would. An edit that fails to parse or throws while running keeps the previous version serving, and everything it started is rolled back; the fix applies normally. Set `ABSOLUTE_BACKEND_HMR=0` to restart on server edits as before. See docs/BACKEND_HMR.md.",
 					"kind": "added",
 					"summary": "Server code edits in development update the running server in place instead of restarting it",
 					"symbols": [
@@ -602,7 +613,7 @@
 		{
 			"changes": [
 				{
-					"detail": "When a page failed its on-demand build in development, the handler threw `Asset \"<Page>\" not found in manifest.` and left the response to whichever error handler answered first. An app with its own `onError` (most real apps) showed its generic error page, so the actual cause \u2014 a missing import, a syntax error \u2014 was only in the terminal. Page handlers for Vue, React, Svelte, Angular and Ember now return a Build Error page themselves, with the build's own error message, and the page reloads by itself once a rebuild lands or the dev server comes back. AbsoluteJS's fallback error page for missing assets shows the same build error.",
+					"detail": "When a page failed its on-demand build in development, the handler threw `Asset \"<Page>\" not found in manifest.` and left the response to whichever error handler answered first. An app with its own `onError` (most real apps) showed its generic error page, so the actual cause — a missing import, a syntax error — was only in the terminal. Page handlers for Vue, React, Svelte, Angular and Ember now return a Build Error page themselves, with the build's own error message, and the page reloads by itself once a rebuild lands or the dev server comes back. AbsoluteJS's fallback error page for missing assets shows the same build error.",
 					"kind": "fixed",
 					"summary": "A page that fails to build in development shows the real build error and reloads itself once fixed",
 					"symbols": [
@@ -611,7 +622,7 @@
 					]
 				},
 				{
-					"detail": "Any changed file no HMR pipeline handled restarted the dev server, including documentation and test files the server never runs. Each restart dropped every open page for seconds and rebuilt them from nothing. Now documents (`.md`, `.txt`, \u2026) and test files never restart it; code modules restart it only when the running server process has loaded them (a module nothing has imported yet loads fresh on first use); config such as `.env`, `package.json` and `tsconfig.json` still does.",
+					"detail": "Any changed file no HMR pipeline handled restarted the dev server, including documentation and test files the server never runs. Each restart dropped every open page for seconds and rebuilt them from nothing. Now documents (`.md`, `.txt`, …) and test files never restart it; code modules restart it only when the running server process has loaded them (a module nothing has imported yet loads fresh on first use); config such as `.env`, `package.json` and `tsconfig.json` still does.",
 					"kind": "fixed",
 					"summary": "Editing docs, tests or code the server never loaded no longer restarts the dev server"
 				}
@@ -649,7 +660,7 @@
 		{
 			"changes": [
 				{
-					"detail": "The Vue build copies every `.ts` helper a page reaches into its generated tree, but it found them with a regex that only matched `import \u2026 from`. A helper reached only through a re-export (`export { x } from './y'` or `export * from './y'`) was never copied, so the build failed with `Could not resolve: \"./y\"` and every page above it answered 500 in dev. Dependencies are now read with Bun's import scanner, which sees imports, dynamic imports and all three re-export forms; a regex that also covers re-exports is the fallback for source that does not parse.",
+					"detail": "The Vue build copies every `.ts` helper a page reaches into its generated tree, but it found them with a regex that only matched `import … from`. A helper reached only through a re-export (`export { x } from './y'` or `export * from './y'`) was never copied, so the build failed with `Could not resolve: \"./y\"` and every page above it answered 500 in dev. Dependencies are now read with Bun's import scanner, which sees imports, dynamic imports and all three re-export forms; a regex that also covers re-exports is the fallback for source that does not parse.",
 					"kind": "fixed",
 					"summary": "Vue pages that reach a helper through a re-export build again"
 				}
@@ -1067,7 +1078,7 @@
 		{
 			"changes": [
 				{
-					"detail": "The provider-neutral release command now installs the exact Capacitor AAB-derived APK set on the managed emulator, takes both network transports offline, and requires an AbsoluteJS-owned native readiness signal across a cold launch and process relaunch. Bun workspace-hoisted Capacitor executables and package manifests are resolved only through the application\u2019s governing workspace. Reports and telemetry retain only provider, artifact identity, outcome, and bounded timings.",
+					"detail": "The provider-neutral release command now installs the exact Capacitor AAB-derived APK set on the managed emulator, takes both network transports offline, and requires an AbsoluteJS-owned native readiness signal across a cold launch and process relaunch. Bun workspace-hoisted Capacitor executables and package manifests are resolved only through the application’s governing workspace. Reports and telemetry retain only provider, artifact identity, outcome, and bounded timings.",
 					"kind": "added",
 					"summary": "Capacitor Android releases gain installed offline AAB acceptance"
 				}
