@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import {
 	resolveBuildDevelopmentMode,
+	resolveClientDefine,
 	resolveVueFeatureFlags
 } from '../../../src/build/resolveBuildMode';
 
@@ -27,6 +28,28 @@ describe('resolveBuildDevelopmentMode', () => {
 			__VUE_OPTIONS_API__: 'true',
 			__VUE_PROD_DEVTOOLS__: 'false',
 			__VUE_PROD_HYDRATION_MISMATCH_DETAILS__: 'false'
+		});
+	});
+});
+
+describe('resolveClientDefine', () => {
+	test('a production build tells packages it is production', () => {
+		expect(resolveClientDefine(false)).toEqual({
+			'process.env.NODE_ENV': '"production"'
+		});
+	});
+
+	test('a development build leaves the development default alone', () => {
+		expect(resolveClientDefine(true)).toEqual({});
+	});
+
+	test('keeps the defines it was given', () => {
+		expect(resolveClientDefine(false, { __FLAG__: 'true' })).toEqual({
+			__FLAG__: 'true',
+			'process.env.NODE_ENV': '"production"'
+		});
+		expect(resolveClientDefine(true, { __FLAG__: 'true' })).toEqual({
+			__FLAG__: 'true'
 		});
 	});
 });
