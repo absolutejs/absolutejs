@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "CSS imported by JavaScript remained in stale style nodes while style-update only reloaded linked bundles. Refresh source stylesheet modules in place to preserve cascade order, rebuild configured CSS entries when imported partials change outside stylesConfig, and run CSS-only incremental builds. Static asset updates now invalidate matching image and favicon URLs. The dev launcher selects patched Bun 1.4.4+absolute.2. React, CSS, logo, and favicon changes were verified in an open Job Tracker page without navigation.",
+					"kind": "fixed",
+					"summary": "Refresh imported CSS, stylesheet dependencies, and changed image assets during HMR"
+				}
+			],
+			"date": "2026-11-09",
+			"version": "0.20.0-beta.167"
+		},
+		{
+			"changes": [
+				{
 					"detail": "Production client bundles compiled `process.env.NODE_ENV` as development, because Bun.build does so unless told otherwise, whatever the environment says. React's own vendor build was already fixed, but anything else a page bundled took its development build. That made bundles larger and slower, and could pair a package's development code with production React: the reconciler inside @react-three/fiber reads React's `actQueue`, which production React doesn't have, and threw on absolutejs.ai's billing page. React, other-framework, island and worker client builds now say production in a production build. Development builds are unchanged.",
 					"kind": "fixed",
 					"summary": "Production client bundles use the production build of every package"

@@ -818,6 +818,7 @@ export const queueFileChange = async (
 			logHmrUpdate(relative(process.cwd(), filePath));
 			broadcastToClients(state, {
 				data: {
+					assetUrl: webPath,
 					framework: urlPrefix || 'public',
 					manifest: state.manifest,
 					serverDuration: Math.round(performance.now() - startedAt),

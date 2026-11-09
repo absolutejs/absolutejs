@@ -22,12 +22,12 @@ import { createInterface, type Interface } from 'node:readline/promises';
 
 /** The patched build `absolute dev` uses: Bun 1.4.4 + the reactFastRefresh
  *  backport, as bvm names it. From 1.4.4 the build reports this full version
- *  (`1.4.4+absolute.1`) as `Bun.version`; earlier ones reported plain Bun's. */
+ *  (`1.4.4+absolute.2`) as `Bun.version`; earlier ones reported plain Bun's. */
 export const PATCHED_BUN_RELEASE = {
 	bunVersion: '1.4.4',
 	issue: 'https://github.com/oven-sh/bun/issues/32919',
 	repo: 'absolutejs/patched-bun',
-	version: '1.4.4+absolute.1'
+	version: '1.4.4+absolute.2'
 } as const;
 
 type Choice = 'install' | 'later' | 'never';

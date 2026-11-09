@@ -31,7 +31,7 @@ import { handleHTMLUpdate, handleScriptUpdate } from './handlers/html';
 import { handleHTMXUpdate } from './handlers/htmx';
 import { handleSvelteUpdate } from './handlers/svelte';
 import { handleVueUpdate } from './handlers/vue';
-import { reloadCSSStylesheets } from './cssUtils';
+import { reloadCSSStylesheets, refreshStaticAsset } from './cssUtils';
 import {
 	handleFullReload,
 	handleManifest,
@@ -200,6 +200,7 @@ const hmrUpdateTypes = new Set([
 
 type HMRMessage = {
 	data: {
+		assetUrl?: string;
 		affectedFrameworks?: string[];
 		column?: number;
 		error?: string;
@@ -229,6 +230,7 @@ type HMRMessage = {
 };
 
 const handleStylesheetUpdate = (message: HMRMessage) => {
+	if (message.data.assetUrl) refreshStaticAsset(message.data.assetUrl);
 	const clientStart = performance.now();
 	void reloadCSSStylesheets(message.data.manifest ?? {}).then((applied) =>
 		sendAbsoluteHmrTiming({
