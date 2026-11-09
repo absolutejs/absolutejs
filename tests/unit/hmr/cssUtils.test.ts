@@ -2,6 +2,8 @@ import { afterAll, describe, expect, test } from 'bun:test';
 import { GlobalRegistrator } from '@happy-dom/global-registrator';
 import {
 	reloadCSSStylesheets,
+	reloadImportedStylesheets,
+	refreshStaticAsset,
 	swapCSSStylesheet
 } from '../../../src/dev/client/cssUtils';
 
@@ -213,4 +215,70 @@ describe('CSS HMR completion', () => {
 		).toBe(1);
 		expect(external.isConnected).toBe(true);
 	});
+});
+
+describe('JS-imported stylesheet refresh', () => {
+	test('reloads mounted CSS module URLs with fresh versions and preserves node order', async () => {
+		document.head.innerHTML = '';
+		const first = document.createElement('style');
+		first.dataset.hmrSrc = 'http://localhost/@src/src/styles/app.css?v=123';
+		first.textContent = '.probe { color: red }';
+		const override = document.createElement('style');
+		override.textContent = '.probe { color: blue }';
+		document.head.append(first, override);
+		const urls: string[] = [];
+		const load = async (url: string) => {
+			urls.push(url);
+			first.textContent = '.probe { color: green }';
+		};
+		expect(await reloadImportedStylesheets(load)).toBe(true);
+		expect(await reloadImportedStylesheets(load)).toBe(true);
+		expect(urls).toHaveLength(2);
+		expect(urls[0]).not.toBe(urls[1]);
+		expect(new URL(urls[0] ?? '').pathname).toBe(
+			'/@src/src/styles/app.css'
+		);
+		expect(first.nextElementSibling).toBe(override);
+		expect(first.textContent).toContain('green');
+	});
+	test('reports failures and leaves the last good style mounted', async () => {
+		document.head.innerHTML =
+			'<style data-hmr-src="/@src/app.css">body { color: red }</style>';
+		expect(
+			await reloadImportedStylesheets(async () => {
+				throw new Error('unavailable');
+			})
+		).toBe(false);
+		expect(document.head.textContent).toContain('red');
+	});
+	test('never imports off-origin or non-source module URLs', async () => {
+		document.head.innerHTML =
+			'<style data-hmr-src="https://example.com/a.js"></style><style data-hmr-src="/api/action"></style>';
+		let calls = 0;
+		expect(
+			await reloadImportedStylesheets(async () => {
+				calls++;
+			})
+		).toBe(false);
+		expect(calls).toBe(0);
+		document.head.innerHTML = '';
+	});
+});
+
+test('static SVG edits refresh matching images and favicons only', () => {
+	document.head.innerHTML = '<link rel="icon" href="/assets/logo.svg">';
+	document.body.innerHTML =
+		'<img src="/assets/logo.svg?size=64"><img src="/assets/other.svg">';
+	refreshStaticAsset('/assets/logo.svg');
+	expect(document.querySelector('link')?.getAttribute('href')).toContain(
+		'hmr='
+	);
+	expect(document.querySelector('img')?.getAttribute('src')).toContain(
+		'size=64&hmr='
+	);
+	expect(document.querySelectorAll('img')[1]?.getAttribute('src')).toBe(
+		'/assets/other.svg'
+	);
+	document.head.innerHTML = '';
+	document.body.innerHTML = '';
 });

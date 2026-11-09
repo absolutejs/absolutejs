@@ -325,14 +325,76 @@ const updateStylesheetLink = (
 	return replaceStylesheetLink(link, replacementHref);
 };
 
+/** Static asset edits must invalidate mounted image and favicon URLs too. */
+export const refreshStaticAsset = (assetUrl: string) => {
+	const changed = new URL(assetUrl, window.location.href);
+	if (changed.origin !== window.location.origin) return;
+	for (const element of document.querySelectorAll<
+		HTMLImageElement | HTMLLinkElement
+	>('img[src], link[rel~="icon"][href]')) {
+		const attribute = element instanceof HTMLImageElement ? 'src' : 'href';
+		const current = new URL(
+			element.getAttribute(attribute) ?? '',
+			window.location.href
+		);
+		if (
+			current.origin !== changed.origin ||
+			current.pathname !== changed.pathname
+		)
+			continue;
+		current.searchParams.set(
+			'hmr',
+			`${Date.now()}-${++styleReloadSequence}`
+		);
+		element.setAttribute(attribute, current.href);
+	}
+};
+
+/** Refresh CSS imported by JS as well as linked bundles. Update the original
+ * style nodes in place so overrides keep their cascade order. */
+export const reloadImportedStylesheets = async (
+	load: (url: string) => Promise<unknown> = (url) => import(url)
+) => {
+	const styles = Array.from(
+		document.querySelectorAll<HTMLStyleElement>('style[data-hmr-src]')
+	);
+	const results = await Promise.all(
+		styles.map(async (style) => {
+			try {
+				const source = style.dataset.hmrSrc;
+				if (!source) return false;
+				const url = new URL(source, window.location.href);
+				if (
+					url.origin !== window.location.origin ||
+					!url.pathname.startsWith('/@src/')
+				)
+					return false;
+				url.searchParams.set(
+					'hmr',
+					`${Date.now()}-${++styleReloadSequence}`
+				);
+				await load(url.href);
+
+				return true;
+			} catch {
+				return false;
+			}
+		})
+	);
+
+	return results.every(Boolean);
+};
+let styleReloadSequence = 0;
+
 export const reloadCSSStylesheets = (manifest: Record<string, string>) => {
 	const stylesheets = Array.from(
 		document.querySelectorAll('link[rel="stylesheet"]')
 	);
 
-	return Promise.all(
-		stylesheets.map((link) => updateStylesheetLink(link, manifest))
-	).then((results) => results.every(Boolean));
+	return Promise.all([
+		...stylesheets.map((link) => updateStylesheetLink(link, manifest)),
+		reloadImportedStylesheets()
+	]).then((results) => results.every(Boolean));
 };
 
 export const swapCSSStylesheet = (

@@ -1266,12 +1266,13 @@ const handleCssRequest = (filePath: string) => {
 		.replace(/\$/g, '\\$');
 
 	return [
-		`const style = document.createElement('style');`,
+		`const id = ${JSON.stringify(filePath)};`,
+		`const existing = Array.from(document.querySelectorAll('style[data-hmr-id]')).find(el => el.dataset.hmrId === id);`,
+		`const style = existing || document.createElement('style');`,
 		`style.textContent = \`${escaped}\`;`,
-		`style.dataset.hmrId = ${JSON.stringify(filePath)};`,
-		`const existing = document.querySelector(\`style[data-hmr-id="${filePath}"]\`);`,
-		`if (existing) existing.remove();`,
-		`document.head.appendChild(style);`
+		`style.dataset.hmrId = id;`,
+		`style.dataset.hmrSrc = import.meta.url;`,
+		`if (!existing) document.head.appendChild(style);`
 	].join('\n');
 };
 

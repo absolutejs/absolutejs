@@ -1532,10 +1532,13 @@ const buildUnlocked = async ({
 			]
 		: [];
 
-	// CSS entries - entries are the style files themselves
-	const globalCssEntries = isIncremental
-		? filterToIncrementalEntries(allGlobalCssEntries, (entry) => entry)
-		: allGlobalCssEntries;
+	// CSS @import/preprocessor dependencies are not JS graph edges. A changed
+	// partial can live outside stylesConfig, so rebuild the configured style
+	// entries on any style edit rather than serving their previous bytes.
+	const globalCssEntries =
+		!isIncremental || incrementalFiles?.some(isStylePath)
+			? allGlobalCssEntries
+			: filterToIncrementalEntries(allGlobalCssEntries, (entry) => entry);
 
 	// Start HMR client build early — it has no dependency on compile/bunBuild
 	// results and will resolve during the compile phase for free.
@@ -2150,6 +2153,7 @@ const buildUnlocked = async ({
 		nonReactClientEntryPoints.length === 0 &&
 		urlReferencedFiles.length === 0 &&
 		islandClientEntryPoints.length === 0 &&
+		globalCssEntries.length === 0 &&
 		htmxDir === undefined &&
 		htmlDir === undefined
 	) {
