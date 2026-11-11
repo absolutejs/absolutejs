@@ -1081,10 +1081,10 @@ export const workspace = async (
 
 	const killStaleServicePort = (port: number) => {
 		if (port <= 0) {
-			return;
+			return [];
 		}
 
-		killStaleProcesses(port, (message) => {
+		return killStaleProcesses(port, (message) => {
 			addLog('workspace', message, 'warn');
 		});
 	};
@@ -1143,7 +1143,15 @@ export const workspace = async (
 			resolved.service,
 			resolved.env
 		);
-		killStaleServicePort(port);
+		/* Another program still on the service's port would answer its
+		 * readiness probe: the service would show "ready" while every request
+		 * reached someone else's server. It can't serve there, so say so. */
+		const foreign = killStaleServicePort(port);
+		const [holder] = foreign;
+		if (holder)
+			throw new Error(
+				`${name} can't start: port ${port} is held by another program (pid ${holder.pid}${holder.command ? `: ${holder.command.slice(0, 80)}` : ''}). Stop it, or give ${name} another port.`
+			);
 
 		if (
 			isAbsoluteService(resolved.service) &&
