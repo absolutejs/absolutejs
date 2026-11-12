@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "`absolute workspace dev` warned that another program held a service's port, then started the service anyway and probed the port for readiness. The other program answered, so the service showed \"ready\" while every request reached someone else's server, and the service itself exited without saying why. A service whose port another program still holds now refuses to start, naming that program: stop it, or give the service another port.",
+					"kind": "fixed",
+					"summary": "A workspace service never shows ready on a port another program holds"
+				}
+			],
+			"date": "2026-11-12",
+			"version": "0.20.0-beta.169"
+		},
+		{
+			"changes": [
+				{
 					"detail": "A project with Svelte pages but no Vue or Angular installed couldn't build any Svelte page, in dev or with `absolute build`: the non-React client pass failed with `Could not resolve: \"vue\"`, then `@angular/core`, `@angular/platform-browser` and `@angular/compiler`. The Svelte hydration index imports `@absolutejs/absolute/client`, whose island runtime lazily imports a hydrator per framework, and only the React client pass left frameworks the project doesn't have unresolved. The non-React, island and worker client passes, and the dev rebuilds of Svelte and Vue pages, now resolve a framework the project neither configures nor installs to a stub that throws only if that framework's hydrator runs. A bare external wouldn't do: dev island bundles aren't code-split, so Bun hoists the import and the browser can't load the bundle. An installed framework is bundled as before. Verified with a Svelte-only, a Vue-only, and an HTML project with a React island, each in `absolute dev`, `absolute start` and `absolute compile`.",
 					"kind": "fixed",
 					"summary": "Pages build without the frameworks they don't use installed"
