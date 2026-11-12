@@ -33,6 +33,15 @@ import {
 	buildServerBundleExternals,
 	createDevServerExternalsPlugin
 } from '../build/serverExternals';
+import {
+	findBootstrapOutputPath,
+	writeDefaultIslandBootstrap
+} from '../build/islandBootstrap';
+import {
+	createMissingClientFrameworkPlugin,
+	resolveMissingClientFrameworks
+} from '../build/missingClientFrameworks';
+import { ISLAND_BOOTSTRAP_MANIFEST_KEY } from './islandManifest';
 import { scanRouteRegistrations } from '../build/scanRouteRegistrations';
 import { generateSitemap } from '../utils/generateSitemap';
 import type {
@@ -2139,9 +2148,19 @@ const buildUnlocked = async ({
 				entries: [],
 				generatedRoot: join(buildPath, '_island_entries')
 			};
-	const islandClientEntryPoints = islandEntryResult.entries.map(
-		(entry) => entry.entryPath
-	);
+	// `islands: { registry }` alone is enough for islands to hydrate: with no
+	// `islands.bootstrap`, build a default one (startIslands + a manifest
+	// resolver) next to the island chunks. See build/islandBootstrap.ts.
+	const defaultIslandBootstrapPath =
+		islandBuildInfo &&
+		!islandBootstrapPath &&
+		islandEntryResult.entries.length > 0
+			? writeDefaultIslandBootstrap(islandEntryResult.generatedRoot)
+			: undefined;
+	const islandClientEntryPoints = [
+		...islandEntryResult.entries.map((entry) => entry.entryPath),
+		...(defaultIslandBootstrapPath ? [defaultIslandBootstrapPath] : [])
+	];
 
 	// A deferred-page dev build legitimately has no page entries yet; it
 	// still has to run through to the manifest (conventions, CSS, static
@@ -2204,8 +2223,19 @@ const buildUnlocked = async ({
 	// In dev mode, externalize React so imports get rewritten to stable
 	// vendor file paths. If module-level state was lost (Bun --hot
 	// re-evaluated devVendorPaths.ts), recompute and restore it.
+	// React islands need the shared vendor even without React pages: the
+	// islands bootstrap and each island chunk are separate entries, and
+	// without one React instance between them hydration dies on a null hook
+	// dispatcher (`Cannot read properties of null (reading 'useState')`).
+	const usesReactClient =
+		Boolean(reactDir) ||
+		Boolean(
+			islandBuildInfo?.definitions.some(
+				(definition) => definition.framework === 'react'
+			)
+		);
 	let vendorPaths = getDevVendorPaths();
-	if (!vendorPaths && hmr && reactDir) {
+	if (!vendorPaths && hmr && usesReactClient) {
 		const { computeVendorPaths } = await import(
 			'../build/buildReactVendor'
 		);
@@ -2217,7 +2247,7 @@ const buildUnlocked = async ({
 	// React is never externalized and gets inlined into the host page AND every
 	// React island bundle — two+ React copies → "Invalid hook call" / null
 	// dispatcher when islands hydrate. Mirrors the Angular prod block below.
-	if (!hmr && reactDir) {
+	if (!hmr && usesReactClient) {
 		const { buildReactVendor, computeVendorPaths } = await import(
 			'../build/buildReactVendor'
 		);
@@ -2346,6 +2376,9 @@ const buildUnlocked = async ({
 		...(vendorPaths ?? {}),
 		...depVendorPaths
 	};
+	// The React pass has always left every framework runtime bare; with
+	// splitting always on there, each one stays inside its lazy hydrator
+	// chunk, so React bundles never inline an unconfigured framework.
 	const optionalFrameworkClientExternals = buildServerBundleExternals();
 	const nonReactExternalPaths: Record<string, string> = {
 		...reactExternalPaths,
@@ -2353,6 +2386,25 @@ const buildUnlocked = async ({
 		...(vueVendorPaths ?? {}),
 		...(svelteVendorPaths ?? {})
 	};
+	// Every other browser pass (non-React pages, workers, islands) can reach
+	// `@absolutejs/absolute/client`, whose lazy island hydrators import each
+	// framework's runtime. Frameworks the project neither configures nor
+	// installs resolve to throwing stubs instead of failing the pass with
+	// "Could not resolve" — see src/build/missingClientFrameworks.ts.
+	const missingClientFrameworkPlugin = createMissingClientFrameworkPlugin(
+		resolveMissingClientFrameworks({
+			configured: {
+				angular: angularDir,
+				react: reactDir,
+				svelte: svelteDir,
+				vue: vueDir
+			},
+			projectRoot
+		})
+	);
+	const missingClientFrameworkPlugins = missingClientFrameworkPlugin
+		? [missingClientFrameworkPlugin]
+		: [];
 	// Third-party Angular libraries (ngx-markdown, ngx-datatable, etc.)
 	// ship `ɵɵngDeclare*` partials and need linker processing — they're
 	// detected by `collectTransitiveAngularSpecs` and get a vendor/server
@@ -2519,6 +2571,7 @@ const buildUnlocked = async ({
 								naming: `[dir]/[name].[hash].[ext]`,
 								outdir: buildPath,
 								plugins: [
+									...missingClientFrameworkPlugins,
 									stylePreprocessorPlugin,
 									...islandRegistryPlugins,
 									...(angularDir && hmr
@@ -2582,7 +2635,10 @@ const buildUnlocked = async ({
 								minify: !isDev,
 								naming: `[dir]/[name].[hash].[ext]`,
 								outdir: buildPath,
-								plugins: [stylePreprocessorPlugin],
+								plugins: [
+									...missingClientFrameworkPlugins,
+									stylePreprocessorPlugin
+								],
 								root: workerClientRoot,
 								sourcemap: resolveClientSourcemap(
 									sourcemaps,
@@ -2616,6 +2672,7 @@ const buildUnlocked = async ({
 								naming: `[dir]/[name].[hash].[ext]`,
 								outdir: buildPath,
 								plugins: [
+									...missingClientFrameworkPlugins,
 									stylePreprocessorPlugin,
 									...islandRegistryPlugins,
 									...(angularDir && hmr
@@ -3070,6 +3127,21 @@ const buildUnlocked = async ({
 			buildPath
 		)
 	};
+
+	// The server injects the islands bootstrap by a reserved manifest key, so
+	// a configured `islands.bootstrap` gets that key whatever its file name
+	// (it otherwise only has its PascalCased name, e.g. `Bootstrap`).
+	const configuredBootstrapOutput =
+		islandBootstrapPath &&
+		findBootstrapOutputPath({
+			bootstrapPath: islandBootstrapPath,
+			buildPath,
+			outputs: nonReactClientOutputs,
+			passRoot: clientRoot
+		});
+	if (configuredBootstrapOutput) {
+		manifest[ISLAND_BOOTSTRAP_MANIFEST_KEY] = configuredBootstrapOutput;
+	}
 
 	// Server pages (Svelte, Vue, Angular) need absolute file paths for SSR
 	// import(), not web-relative paths. Overwrite with absolute paths.

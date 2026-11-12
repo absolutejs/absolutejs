@@ -15,6 +15,7 @@ import {
 	setVueVendorPaths
 } from './devVendorPaths';
 import type { BuildConfig } from '../../types/build';
+import { isPackageInstalled } from '../build/missingClientFrameworks';
 import {
 	buildReactVendor,
 	computeVendorPaths
@@ -43,6 +44,7 @@ import {
 	readDevPrescan
 } from '../dev/devPrescan';
 import { addFileWatchers, startFileWatching } from '../dev/fileWatcher';
+import { createSvelteDeclarationRefresher } from '../dev/svelteDeclarationRefresher';
 import { getWatchPaths } from '../dev/pathUtils';
 import { cleanStaleAssets, populateAssetStore } from '../dev/assetStore';
 import { drainPendingQueue, queueFileChange } from '../dev/rebuildTrigger';
@@ -510,6 +512,15 @@ export const devBuild = async (config: BuildConfig) => {
 		};
 	}
 
+	// React islands share the React vendor with the islands bootstrap even
+	// without a reactDirectory (see `usesReactClient` in core/build.ts). The
+	// registry isn't loaded yet, so a registry plus an installed React is
+	// enough: building the vendor is cheap and cached.
+	const reactVendorEnabled =
+		Boolean(config.reactDirectory) ||
+		(Boolean(config.islands?.registry) &&
+			isPackageInstalled('react', process.cwd()));
+
 	// Create initial HMR state with config
 	let stepStartedAt = performance.now();
 	const state = createHMRState(config);
@@ -530,7 +541,7 @@ export const devBuild = async (config: BuildConfig) => {
 	// Pre-compute vendor paths so build() can externalize frameworks.
 	// The actual vendor files are built after build() creates the output dir.
 	stepStartedAt = performance.now();
-	if (config.reactDirectory) {
+	if (reactVendorEnabled) {
 		setDevVendorPaths(computeVendorPaths());
 	}
 	if (config.svelteDirectory) {
@@ -705,7 +716,9 @@ export const devBuild = async (config: BuildConfig) => {
 	 * the watcher — the same filters already keep mid-session full
 	 * rebuilds (which also run with live watchers) from self-triggering. */
 	state.isRebuilding = true;
+	const svelteDeclarations = createSvelteDeclarationRefresher(config);
 	startFileWatching(state, config, (filePath: string) => {
+		svelteDeclarations?.onFileChange(filePath);
 		if (state.initialBuildFailed) {
 			void recoverFromColdStartFailure();
 
@@ -732,6 +745,8 @@ export const devBuild = async (config: BuildConfig) => {
 	// start kills boot and leaves the user without live-reload
 	// feedback to find their mistake.
 	let buildResult: Awaited<ReturnType<typeof build>> | null = null;
+	// Debounced, so it runs once the boot build has settled.
+	svelteDeclarations?.refresh();
 	setBootPhase('initial build');
 	try {
 		buildResult = await build({
@@ -839,7 +854,7 @@ export const devBuild = async (config: BuildConfig) => {
 	const { buildDepVendor } = await import('../build/buildDepVendor');
 
 	const activeVendorDirs = [
-		config.reactDirectory ? reactVendorDir : null,
+		reactVendorEnabled ? reactVendorDir : null,
 		config.angularDirectory ? angularVendorDir : null,
 		config.svelteDirectory ? svelteVendorDir : null,
 		config.vueDirectory ? vueVendorDir : null,
@@ -900,7 +915,7 @@ export const devBuild = async (config: BuildConfig) => {
 	// vendor (linker pre-link perf win at prod start time).
 	const buildAllVendors = () =>
 		Promise.all([
-			config.reactDirectory
+			reactVendorEnabled
 				? buildReactVendor(state.resolvedPaths.buildDir)
 				: Promise.resolve(undefined),
 			config.angularDirectory
@@ -990,7 +1005,7 @@ export const devBuild = async (config: BuildConfig) => {
 	// Load the (now-rewritten) vendor files into the in-memory asset store.
 	stepStartedAt = performance.now();
 	await Promise.all([
-		config.reactDirectory
+		reactVendorEnabled
 			? loadVendorFiles(state.assetStore, reactVendorDir, 'react')
 			: Promise.resolve(),
 		config.angularDirectory

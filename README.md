@@ -105,6 +105,87 @@ export const server = new Elysia()
 2. Route handlers (`handleReactPageRequest`, `handleSveltePageRequest`, …) stream HTML and inject scripts/assets based on that manifest.
 3. The static plugin serves all compiled files from `/build`.
 
+### Type-checked Svelte page props
+
+`handleSveltePageRequest<typeof Page>({ props })` checks `props` against the
+component's `$props()` type, like `handleReactPageRequest`. `absolute typecheck`
+generates a declaration per Svelte component with svelte2tsx
+(`bun add -d svelte2tsx`), and `absolute dev` keeps them current. To see the
+same errors in your editor, add the declarations to `rootDirs`:
+
+```jsonc
+// tsconfig.json
+{
+	"compilerOptions": {
+		"rootDirs": [".", ".absolutejs/types/svelte"]
+	}
+}
+```
+
+### Islands on HTML and HTMX pages
+
+Static HTML and HTMX pages can embed components of any framework as islands.
+Register the components once:
+
+```ts
+// src/islands/registry.ts
+import { defineIslandRegistry } from '@absolutejs/absolute/islands';
+import { PriceChart } from './PriceChart'; // React
+import Ticker from './Ticker.svelte';
+
+export const islandRegistry = defineIslandRegistry({
+	react: { PriceChart },
+	svelte: { Ticker }
+});
+```
+
+```ts
+// absolute.config.ts
+export default defineConfig({
+	htmlDirectory: 'src/html',
+	islands: { registry: 'src/islands/registry.ts' },
+	svelteDirectory: 'src/svelte' // needed to compile Svelte islands; same for Vue
+});
+```
+
+Then place islands in a page with `<absolute-island>` (or the `<island>` alias):
+
+```html
+<absolute-island
+	framework="react"
+	component="PriceChart"
+	hydrate="idle"
+	props='{"symbol":"BTC"}'
+></absolute-island>
+```
+
+Islands are server-rendered at build time. With `islands.registry` set, the
+build also generates an islands bootstrap, and `handleHTMLPageRequest` /
+`handleHTMXPageRequest` inject it into any page that contains islands. Each
+island's code loads only when that island hydrates. `hydrate` is `load` (the
+default), `idle`, `visible` (when scrolled into view) or `none` (server HTML
+only, never hydrated).
+
+To run your own client code, point `islands.bootstrap` at a file that calls
+`startIslands`. The file can have any name, and it replaces the generated one:
+
+```ts
+// src/islands/main.ts  →  islands: { registry: '…', bootstrap: 'src/islands/main.ts' }
+import {
+	createIslandManifestResolver,
+	startIslands
+} from '@absolutejs/absolute/client';
+
+startIslands({
+	registry: {},
+	// Loads each island's chunk from the manifest the server injects.
+	resolveComponent: createIslandManifestResolver()
+});
+```
+
+If a page has islands but the build produced no bootstrap, the dev server logs
+a warning instead of serving islands that never hydrate.
+
 ### Installable PWA and offline Sync
 
 Enable the web-app shell once in `absolutejs.config.ts`. AbsoluteJS generates a

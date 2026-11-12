@@ -2716,6 +2716,22 @@ const getClientVendorPaths = async (): Promise<Record<string, string>> => {
 	};
 };
 
+/* Plugins for dev CLIENT page-bundle rebuilds: runtimes of frameworks the
+ * project neither configures nor installs, which the island runtime's lazy
+ * hydrators reference, resolve to throwing stubs — same rule as the initial
+ * build (src/build/missingClientFrameworks.ts). */
+const getMissingClientFrameworkPlugins = async (config: BuildConfig) => {
+	const {
+		createMissingClientFrameworkPlugin,
+		resolveMissingClientFrameworksForConfig
+	} = await import('../build/missingClientFrameworks');
+	const plugin = createMissingClientFrameworkPlugin(
+		resolveMissingClientFrameworksForConfig(config, process.cwd())
+	);
+
+	return plugin ? [plugin] : [];
+};
+
 /* Server externals for dev page-bundle rebuilds — mirrors the initial
  * build's list (src/build/serverExternals.ts). */
 const getServerBundleExternals = async () => {
@@ -3059,6 +3075,7 @@ const runSvelteBundleRebuild = async (
 					naming: '[dir]/[name].[hash].[ext]',
 					outdir: buildDir,
 					plugins: [
+						...(await getMissingClientFrameworkPlugins(config)),
 						createStylePreprocessorPlugin(
 							getStyleTransformConfig(state.config)
 						)
@@ -3261,6 +3278,7 @@ const handleSvelteFastPath = async (
 						naming: '[dir]/[name].[hash].[ext]',
 						outdir: buildDir,
 						plugins: [
+							...(await getMissingClientFrameworkPlugins(config)),
 							createStylePreprocessorPlugin(
 								getStyleTransformConfig(state.config)
 							)
@@ -3496,6 +3514,7 @@ const runVueBundleRebuild = async (
 					naming: '[dir]/[name].[hash].[ext]',
 					outdir: buildDir,
 					plugins: [
+						...(await getMissingClientFrameworkPlugins(config)),
 						createStylePreprocessorPlugin(
 							getStyleTransformConfig(state.config)
 						)

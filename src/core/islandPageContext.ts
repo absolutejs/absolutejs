@@ -1,4 +1,6 @@
-const BOOTSTRAP_MANIFEST_KEY = 'BootstrapClient';
+import { logWarn } from '../utils/logger';
+import { getIslandBootstrapPath } from './islandManifest';
+
 const ISLAND_MARKER = 'data-island="true"';
 const MANIFEST_MARKER = '__ABSOLUTE_MANIFEST__';
 const ISLAND_STATE_MARKER = '__ABS_ISLAND_STATE__';
@@ -10,10 +12,29 @@ declare global {
 		Record<string, Record<string, unknown>> | undefined;
 }
 
+let warnedMissingBootstrap = false;
+
+/* A page with island markers and no bootstrap in the manifest renders its
+ * islands but never hydrates them. Say so once per process outside
+ * production instead of failing silently. */
+const warnIfBootstrapMissing = (manifest: Record<string, string>) => {
+	if (warnedMissingBootstrap || getIslandBootstrapPath(manifest)) return;
+	if (process.env.NODE_ENV === 'production') return;
+	warnedMissingBootstrap = true;
+	logWarn(
+		'A page contains islands, but the build manifest has no islands bootstrap, so they will render without hydrating. Set `islands.registry` in absolute.config.ts (a default bootstrap is generated from it) or point `islands.bootstrap` at a file that calls startIslands().'
+	);
+};
+
+/** @internal Test hook: lets each test observe the one-time warning. */
+export const resetIslandBootstrapWarning = () => {
+	warnedMissingBootstrap = false;
+};
+
 const buildIslandsHeadMarkup = (manifest: Record<string, string>) => {
 	const manifestScript = `<script>window.__ABSOLUTE_MANIFEST__ = ${JSON.stringify(manifest)}</script>`;
 	const islandStateScript = `<script>window.__ABS_ISLAND_STATE__ = ${JSON.stringify(globalThis.__ABS_ISLAND_STATE__ ?? {})}</script>`;
-	const bootstrapPath = manifest[BOOTSTRAP_MANIFEST_KEY];
+	const bootstrapPath = getIslandBootstrapPath(manifest);
 	const bootstrapScript = bootstrapPath
 		? `<script type="module" src="${bootstrapPath}"></script>`
 		: '';
@@ -224,7 +245,8 @@ type IslandMarkerStreamState = {
 // held content untouched so island-free pages don't pull in the runtime.
 const pipeStreamWithIslandMarkerDetection = (
 	stream: ReadableStream<string | Uint8Array>,
-	markup: string
+	markup: string,
+	onIslandsDetected: () => void
 ) => {
 	const encoder = new TextEncoder();
 	const decoder = new TextDecoder();
@@ -247,6 +269,7 @@ const pipeStreamWithIslandMarkerDetection = (
 		if (!held.includes(ISLAND_MARKER)) {
 			return { held, injected: false, pending: '', sawHead: true };
 		}
+		onIslandsDetected();
 		enqueue(controller, `${markup}${held}`);
 
 		return { held: '', injected: true, pending: '', sawHead: true };
@@ -359,6 +382,7 @@ export const injectIslandPageContext = (
 	if (html.includes(MANIFEST_MARKER) || html.includes(ISLAND_STATE_MARKER)) {
 		return html;
 	}
+	warnIfBootstrapMissing(manifest);
 
 	return injectHeadMarkup(html, buildIslandsHeadMarkup(manifest));
 };
@@ -372,13 +396,17 @@ export const injectIslandPageContextStream = (
 	const markup = buildIslandsHeadMarkup(manifest);
 
 	if (options?.hasIslands === true) {
+		warnIfBootstrapMissing(manifest);
+
 		return pipeStreamWithHeadInjection(stream, markup);
 	}
 	if (options?.hasIslands === false) {
 		return stream;
 	}
 
-	return pipeStreamWithIslandMarkerDetection(stream, markup);
+	return pipeStreamWithIslandMarkerDetection(stream, markup, () =>
+		warnIfBootstrapMissing(manifest)
+	);
 };
 export const setCurrentIslandManifest = (manifest: Record<string, string>) => {
 	globalThis.__absoluteManifest = manifest;

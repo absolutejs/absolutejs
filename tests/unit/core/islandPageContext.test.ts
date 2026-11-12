@@ -1,8 +1,11 @@
-import { afterEach, describe, expect, test } from 'bun:test';
+import { afterEach, describe, expect, spyOn, test } from 'bun:test';
 import {
+	injectIslandPageContext,
 	injectIslandPageContextStream,
+	resetIslandBootstrapWarning,
 	setCurrentIslandManifest
 } from '../../../src/core/islandPageContext';
+import * as logger from '../../../src/utils/logger';
 
 const createStream = (chunks: string[]) => {
 	const encoder = new TextEncoder();
@@ -76,5 +79,65 @@ describe('injectIslandPageContextStream', () => {
 		const html = await new Response(injected).text();
 
 		expect(html).toBe(original);
+	});
+});
+
+const ISLAND_PAGE =
+	'<!DOCTYPE html><html><head></head><body><div data-island="true" data-framework="react" data-component="A"></div></body></html>';
+
+describe('islands bootstrap injection', () => {
+	afterEach(() => {
+		resetIslandBootstrapWarning();
+	});
+
+	test('injects the bootstrap under the reserved key, whatever its file name', () => {
+		setCurrentIslandManifest({
+			AbsoluteIslandBootstrap: '/src/islands/startMyIslands.abc.js',
+			StartMyIslands: '/src/islands/startMyIslands.abc.js'
+		});
+
+		expect(injectIslandPageContext(ISLAND_PAGE)).toContain(
+			'<script type="module" src="/src/islands/startMyIslands.abc.js"></script>'
+		);
+	});
+
+	test('still honors a manifest that only has the legacy BootstrapClient key', () => {
+		setCurrentIslandManifest({ BootstrapClient: '/islands/legacy.js' });
+
+		expect(injectIslandPageContext(ISLAND_PAGE)).toContain(
+			'<script type="module" src="/islands/legacy.js"></script>'
+		);
+	});
+
+	test('warns once when a page has islands but no bootstrap', async () => {
+		const warn = spyOn(logger, 'logWarn').mockImplementation(() => {});
+		try {
+			setCurrentIslandManifest({ IslandReactA: '/islands/react/A.js' });
+			const html = injectIslandPageContext(ISLAND_PAGE);
+			injectIslandPageContext(ISLAND_PAGE);
+			await new Response(
+				injectIslandPageContextStream(createStream([ISLAND_PAGE]))
+			).text();
+
+			expect(html).not.toContain('type="module"');
+			expect(warn).toHaveBeenCalledTimes(1);
+			expect(warn.mock.calls[0]?.[0]).toContain('islands bootstrap');
+		} finally {
+			warn.mockRestore();
+		}
+	});
+
+	test('does not warn for pages without islands', () => {
+		const warn = spyOn(logger, 'logWarn').mockImplementation(() => {});
+		try {
+			setCurrentIslandManifest({ IslandReactA: '/islands/react/A.js' });
+			injectIslandPageContext(
+				'<html><head></head><body>plain</body></html>'
+			);
+
+			expect(warn).not.toHaveBeenCalled();
+		} finally {
+			warn.mockRestore();
+		}
 	});
 });

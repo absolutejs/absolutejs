@@ -1,5 +1,16 @@
 import type { IslandFramework } from '../../types/island';
 
+/** Manifest key the server injects as the islands bootstrap script on any
+ *  page with island markers. The build records the configured
+ *  `islands.bootstrap` (whatever its file name) or a generated default under
+ *  it — see build/islandBootstrap.ts. */
+export const ISLAND_BOOTSTRAP_MANIFEST_KEY = 'AbsoluteIslandBootstrap';
+
+/** Key a bootstrap file named `bootstrapClient.*` gets naturally, which is
+ *  all the server used to look for. Still honored for manifests built
+ *  before the reserved key existed. */
+export const LEGACY_ISLAND_BOOTSTRAP_MANIFEST_KEY = 'BootstrapClient';
+
 const toIslandFrameworkSegment = (framework: IslandFramework) =>
 	framework[0]?.toUpperCase() + framework.slice(1);
 
@@ -23,6 +34,9 @@ const collectFrameworkIslands = (
 	return found ? entries : undefined;
 };
 
+export const getIslandBootstrapPath = (manifest: Record<string, string>) =>
+	manifest[ISLAND_BOOTSTRAP_MANIFEST_KEY] ??
+	manifest[LEGACY_ISLAND_BOOTSTRAP_MANIFEST_KEY];
 export const getIslandManifestEntries = (manifest: Record<string, string>) => {
 	const islands: Partial<Record<IslandFramework, Record<string, string>>> =
 		{};

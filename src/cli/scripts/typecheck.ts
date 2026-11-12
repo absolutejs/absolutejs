@@ -21,6 +21,12 @@ import {
 } from './bunCheck';
 import { ANSI_ESCAPE_CODE } from '../../constants';
 import { DEFAULT_SERVER_ENTRY } from '../utils';
+import {
+	generateSvelteDeclarations,
+	SVELTE_DECLARATIONS_ROOT,
+	svelteDeclarationRootDirs,
+	tsconfigHasSvelteDeclarationRoot
+} from '../../build/svelteDeclarations';
 import type {
 	AbsoluteServiceConfig,
 	ServiceConfig
@@ -318,6 +324,29 @@ const getProjectDeclarationIncludes = () =>
 		toGeneratedConfigPath
 	);
 
+/* `rootDirs` for the generated configs once Svelte declarations exist: the
+ * project's own entries (re-anchored on the cache directory) plus the
+ * declaration mirror, so `import type Page from './Page.svelte'` in server
+ * code resolves to its generated `Page.svelte.d.ts`. */
+let svelteDeclarationsReady = false;
+
+const getTypecheckRootDirs = (cacheDir: string) => {
+	if (!svelteDeclarationsReady) return {};
+	const { compilerOptions } = readProjectTsconfig();
+	const projectRootDirs = toStringArray(
+		isRecord(compilerOptions) ? compilerOptions.rootDirs : undefined
+	).map(toGeneratedConfigPath);
+
+	return {
+		rootDirs: [
+			...new Set([
+				...projectRootDirs,
+				...svelteDeclarationRootDirs(resolve('.'), resolve(cacheDir))
+			])
+		]
+	};
+};
+
 const getProjectTypecheckExcludes = () => {
 	const config = readProjectTsconfig();
 	// Naming `exclude` at all turns off tsc's defaults, and one of those
@@ -352,7 +381,8 @@ const buildVueTscCheck = async (cacheDir: string) => {
 		JSON.stringify(
 			{
 				compilerOptions: {
-					rootDir: '..'
+					rootDir: '..',
+					...getTypecheckRootDirs(cacheDir)
 				},
 				exclude: getProjectTypecheckExcludes(),
 				extends: resolve('tsconfig.json'),
@@ -446,7 +476,9 @@ const writeTypecheckConfig = async (
 				 * reads: the filesystem root does. tsc's incremental output
 				 * still needs the project root. */
 				compilerOptions: {
-					rootDir: checker === 'tsc' ? '..' : parse(resolve('.')).root
+					rootDir:
+						checker === 'tsc' ? '..' : parse(resolve('.')).root,
+					...getTypecheckRootDirs(cacheDir)
 				},
 				exclude: getProjectTypecheckExcludes(),
 				extends: resolve('tsconfig.json'),
@@ -629,6 +661,42 @@ const reportImportAdvice = (
 	}
 };
 
+const SVELTE_EDITOR_HINT = `\x1b[33mnote\x1b[0m Svelte page props are type-checked in server files by this command. For the same errors in your editor, add "${SVELTE_DECLARATIONS_ROOT}" to compilerOptions.rootDirs in tsconfig.json: "rootDirs": [".", "${SVELTE_DECLARATIONS_ROOT}"]`;
+
+/* Generates the Svelte component declarations server code is checked
+ * against (build/svelteDeclarations.ts). Unchanged projects reuse the last
+ * output, so this costs a directory stat walk on a warm run. */
+const prepareSvelteDeclarations = async (svelteDirs: string[]) => {
+	const results = await Promise.all(
+		svelteDirs.map((svelteDirectory) =>
+			generateSvelteDeclarations({
+				projectRoot: resolve('.'),
+				svelteDirectory
+			})
+		)
+	);
+	svelteDeclarationsReady = results.some(
+		(result) => result.status !== 'unavailable'
+	);
+	const unavailable = results.find(
+		(result) => result.status === 'unavailable'
+	);
+	if (unavailable?.status === 'unavailable') {
+		const install = unavailable.reason.includes('svelte2tsx')
+			? ' Install it to enable: bun add -d svelte2tsx'
+			: '';
+		console.log(
+			`\x1b[33mnote\x1b[0m Svelte page props in server files are not type-checked: ${unavailable.reason}.${install}`
+		);
+	}
+	const { compilerOptions } = readProjectTsconfig();
+	const editorReady =
+		isRecord(compilerOptions) &&
+		tsconfigHasSvelteDeclarationRoot(compilerOptions.rootDirs);
+	if (svelteDeclarationsReady && !editorReady)
+		console.log(SVELTE_EDITOR_HINT);
+};
+
 export const typecheck = async (configPath?: string) => {
 	const targets = await getTypecheckTargets(configPath);
 
@@ -660,6 +728,7 @@ export const typecheck = async (configPath?: string) => {
 
 	const cacheDir = '.absolutejs';
 	await mkdir(cacheDir, { recursive: true });
+	if (hasSvelte) await prepareSvelteDeclarations(svelteDirs);
 	const checks: Promise<CheckerResult>[] = [];
 
 	// vue-tsc is a superset of tsc — it checks .ts, .tsx, AND .vue files.

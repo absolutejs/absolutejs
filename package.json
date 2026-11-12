@@ -116,6 +116,7 @@
 		"stylus": "0.64.0",
 		"svelte": "5.55.0",
 		"svelte-check": "^4.4.5",
+		"svelte2tsx": "0.7.52",
 		"tailwindcss": "4.1.7",
 		"typescript": "5.9.3",
 		"typescript-eslint": "8.56.1",
@@ -353,6 +354,7 @@
 		"sharp": ">=0.33.0",
 		"stylus": "^0.64.0",
 		"svelte": "^5.35.2",
+		"svelte2tsx": ">=0.7.0 <1",
 		"tailwindcss": "^4.1.0",
 		"typescript": "^5.9.3",
 		"vue": "^3.5.27",
@@ -447,6 +449,9 @@
 			"optional": true
 		},
 		"svelte": {
+			"optional": true
+		},
+		"svelte2tsx": {
 			"optional": true
 		},
 		"tailwindcss": {
