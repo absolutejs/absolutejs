@@ -5,6 +5,30 @@
 		{
 			"changes": [
 				{
+					"detail": "A project with Svelte pages but no Vue or Angular installed couldn't build any Svelte page, in dev or with `absolute build`: the non-React client pass failed with `Could not resolve: \"vue\"`, then `@angular/core`, `@angular/platform-browser` and `@angular/compiler`. The Svelte hydration index imports `@absolutejs/absolute/client`, whose island runtime lazily imports a hydrator per framework, and only the React client pass left frameworks the project doesn't have unresolved. The non-React, island and worker client passes, and the dev rebuilds of Svelte and Vue pages, now resolve a framework the project neither configures nor installs to a stub that throws only if that framework's hydrator runs. A bare external wouldn't do: dev island bundles aren't code-split, so Bun hoists the import and the browser can't load the bundle. An installed framework is bundled as before. Verified with a Svelte-only, a Vue-only, and an HTML project with a React island, each in `absolute dev`, `absolute start` and `absolute compile`.",
+					"kind": "fixed",
+					"summary": "Pages build without the frameworks they don't use installed"
+				},
+				{
+					"detail": "Islands on HTML and HTMX pages server-rendered but never hydrated unless the islands bootstrap file happened to compile to the manifest key `BootstrapClient`, the only key the server looked for. A configured `islands.bootstrap` is now recorded under a reserved manifest key whatever its file name. With only `islands: { registry }` set, the build generates a default bootstrap that loads each island's chunk from the manifest, so no bootstrap file is needed. `createIslandManifestResolver()` defaults to the manifest the server injects. React islands now share one React vendor with the bootstrap even without a `reactDirectory`; before, a separately bundled bootstrap brought a second React and hydration failed on `useState`. A page with islands but no bootstrap now logs a warning outside production. Verified in Chromium: `load`, `idle` and `visible` hydrate, `none` doesn't, and React, Svelte and Vue islands hydrate on HTML and HTMX pages.",
+					"kind": "fixed",
+					"summary": "Static-page islands hydrate with only `islands.registry`, or a bootstrap file of any name",
+					"symbols": [
+						"createIslandManifestResolver"
+					]
+				},
+				{
+					"detail": "`handleSveltePageRequest<typeof Page>({ props })` accepted any props in a server file. Svelte's ambient `*.svelte` module types every import as `LegacyComponentType`, whose props are `Record<string, any>`, and svelte-check only covers the Svelte directory. `absolute typecheck` now generates a declaration per component with svelte2tsx, the engine svelte-check uses, under `.absolutejs/types/svelte/`, and resolves server imports to them through `rootDirs`. A missing prop now fails with TS2741, a wrong type with TS2322 and an unknown prop with TS2353, as for React. `absolute dev` keeps the declarations current as components change. For editor squiggles, add `\"rootDirs\": [\".\", \".absolutejs/types/svelte\"]` to tsconfig.json (typecheck prints this hint when it's missing). The check needs `svelte2tsx` installed (`bun add -d svelte2tsx`), and typecheck says so when it isn't. Unchanged projects reuse the last declarations. Vue pages were already checked by vue-tsc, and Angular's `requestContext` by its `Ctx` generic.",
+					"kind": "fixed",
+					"summary": "Svelte page props are type-checked in server files"
+				}
+			],
+			"date": "2026-11-12",
+			"version": "0.20.0-beta.168"
+		},
+		{
+			"changes": [
+				{
 					"detail": "CSS imported by JavaScript remained in stale style nodes while style-update only reloaded linked bundles. Refresh source stylesheet modules in place to preserve cascade order, rebuild configured CSS entries when imported partials change outside stylesConfig, and run CSS-only incremental builds. Static asset updates now invalidate matching image and favicon URLs. The dev launcher selects patched Bun 1.4.4+absolute.2. React, CSS, logo, and favicon changes were verified in an open Job Tracker page without navigation.",
 					"kind": "fixed",
 					"summary": "Refresh imported CSS, stylesheet dependencies, and changed image assets during HMR"
