@@ -1,5 +1,6 @@
 /* Svelte HMR update handler */
 
+import { applyPageNonce } from '../cspNonce';
 import { SVELTE_CSS_LOAD_TIMEOUT_MS } from '../constants';
 import {
 	saveDOMState,
@@ -33,7 +34,7 @@ const preserveLinkAsInlineStyle = (link: HTMLLinkElement) => {
 			return null;
 		}
 
-		const style = document.createElement('style');
+		const style = applyPageNonce(document.createElement('style'));
 		style.dataset.hmrPreserved = 'true';
 		style.textContent = collectCssRules(sheet);
 		document.head.appendChild(style);
@@ -68,7 +69,7 @@ const preserveAllStylesheets = () => {
 			'head style:not([data-hmr-preserved])'
 		)
 		.forEach((style) => {
-			const clone = document.createElement('style');
+			const clone = applyPageNonce(document.createElement('style'));
 			clone.dataset.hmrPreserved = 'true';
 			clone.textContent = style.textContent;
 			document.head.appendChild(clone);

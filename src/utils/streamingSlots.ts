@@ -1,3 +1,4 @@
+import { nonceAttr } from './cspNonceRef';
 import { getStreamSwapRuntimeScript } from '../client/streamSwap';
 import { BASE_36_RADIX, RANDOM_ID_END_INDEX } from '../constants';
 import { escapeScriptContent } from './escapeScriptContent';
@@ -12,6 +13,22 @@ const STREAMING_RUNTIME_GLOBAL = '__ABS_SLOT_ENQUEUE__';
 const STREAMING_PENDING_GLOBAL = '__ABS_SLOT_PENDING__';
 const STREAM_TAIL_LOOKBEHIND = 128;
 const STREAMING_SLOT_TIMEOUT_MS = 5_000;
+
+/* Slot patch scripts are written between the flushed part of the stream and
+ * the held-back tail, so the flush must not stop inside a tag or inside a
+ * `<script>` element: a patch landing there would corrupt the page's own
+ * inline scripts (`__INITIAL_PROPS__`, server data). Moves the cut back to
+ * the start of an unfinished tag or an unclosed script element. */
+const findSafeFlushIndex = (text: string, cut: number) => {
+	const head = text.slice(0, cut);
+	const openScript = head.lastIndexOf('<script');
+	const scriptCut =
+		openScript > head.lastIndexOf('</script>') ? openScript : cut;
+	const beforeScript = text.slice(0, scriptCut);
+	const openTag = beforeScript.lastIndexOf('<');
+
+	return openTag > beforeScript.lastIndexOf('>') ? openTag : scriptCut;
+};
 const STREAMING_SLOT_MAX_PER_RESPONSE = 128;
 const STREAMING_SLOT_MAX_HTML_BYTES = 64_000;
 
@@ -100,7 +117,8 @@ const createSlotPatchStatement = (
 ) =>
 	`(window.${STREAMING_RUNTIME_GLOBAL}||function(i,p){window.${STREAMING_PENDING_GLOBAL}=window.${STREAMING_PENDING_GLOBAL}||{};window.${STREAMING_PENDING_GLOBAL}[i]=p;})(${JSON.stringify(id)},${JSON.stringify(payload)});`;
 
-const createNonceAttr = (nonce?: string) => (nonce ? ` nonce="${nonce}"` : '');
+// Falls back to the current request's nonce when secureHeaders() is on.
+const createNonceAttr = (nonce?: string) => nonceAttr(nonce);
 
 export const createStreamingSlotId = () =>
 	`${SLOT_ID_PREFIX}${Math.random().toString(BASE_36_RADIX).slice(2, RANDOM_ID_END_INDEX)}`;
@@ -776,10 +794,13 @@ export const appendStreamingSlotPatchesToStream = (
 			return tail;
 		}
 
-		const content = tail.slice(0, tail.length - STREAM_TAIL_LOOKBEHIND);
-		controller.enqueue(encoder.encode(content));
+		const cut = findSafeFlushIndex(
+			tail,
+			tail.length - STREAM_TAIL_LOOKBEHIND
+		);
+		if (cut > 0) controller.enqueue(encoder.encode(tail.slice(0, cut)));
 
-		return tail.slice(-STREAM_TAIL_LOOKBEHIND);
+		return tail.slice(cut);
 	};
 	const finalizeCompletedBaseWinner = (
 		controller: ReadableStreamDefaultController<Uint8Array>,

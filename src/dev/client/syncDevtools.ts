@@ -1,3 +1,4 @@
+import { applyPageNonce } from './cspNonce';
 import {
 	discardSyncRuntimeDeadLetter,
 	inspectSyncRuntime,
@@ -130,7 +131,7 @@ export const installAbsoluteNativeSyncDevtools = (
 	host.id = DEVTOOLS_ID;
 	host.dataset.hmrOverlay = 'true';
 	const root = host.attachShadow({ mode: 'open' });
-	const style = document.createElement('style');
+	const style = applyPageNonce(document.createElement('style'));
 	style.textContent = styles;
 	const trigger = document.createElement('button');
 	trigger.className = 'trigger';

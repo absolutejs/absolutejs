@@ -1,6 +1,7 @@
 import { mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { StaticConfig } from '../../types/build';
+import { renderedNonce, writeRenderedNonce } from './prerenderNonce';
 
 export type PrerenderResult = {
 	/** Map of route path → rendered HTML file path on disk */
@@ -138,6 +139,7 @@ export const rerenderRoute = async (
 		const fileName = routeToFilename(route);
 		const filePath = join(prerenderDir, fileName);
 		await Bun.write(filePath, html);
+		await writeRenderedNonce(filePath, renderedNonce(res));
 		await writeTimestamp(filePath);
 
 		return true;
@@ -184,6 +186,9 @@ const prerenderRoute = async (
 	const fileName = routeToFilename(route);
 	const filePath = join(prerenderDir, fileName);
 	await Bun.write(filePath, html);
+	// Under secureHeaders(), the nonce this render used; serving swaps it
+	// for each request's own (prerenderNonce.ts).
+	await writeRenderedNonce(filePath, renderedNonce(res));
 	await writeTimestamp(filePath);
 	result.routes.set(route, filePath);
 

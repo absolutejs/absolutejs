@@ -1,3 +1,5 @@
+import { escapeScriptContent } from '../utils/escapeScriptContent';
+import { nonceAttr } from '../utils/cspNonceRef';
 import { isDevelopmentRuntime } from '../utils/runtimeMode';
 import type { Component as VueComponent } from 'vue';
 import type { SSRContext } from 'vue/server-renderer';
@@ -43,6 +45,12 @@ import {
 	ABSOLUTE_TELEPORT_TARGET_ID
 } from './teleports';
 import { BROWSER_TRANSLATION_BASELINE_SCRIPT } from '../core/browserTranslation';
+import {
+	createServerDataCollector,
+	SERVER_DATA_CONTEXT_KEY,
+	serializeServerDataScript,
+	throwServerDataFailure
+} from './serverDataPayload';
 
 type VuePageRenderOptions = StreamingSlotEnhancerOptions & {
 	collectStreamingSlots?: boolean;
@@ -147,20 +155,22 @@ const primeVueStream = async (stream: ReadableStream) => {
  *  time (see `injectHMRIntoHTMLFile` in `src/core/build.ts`). The bundle
  *  is built lazily on first SSR-only request and cached for the life of
  *  the dev server. Production builds never call this path. */
-let cachedSsrOnlyHmrShim: Promise<string> | null = null;
+let cachedSsrOnlyHmrBundle: Promise<string> | null = null;
 
-const buildSsrOnlyHmrShim = async () => {
+const loadSsrOnlyHmrBundle = async () => {
 	const { buildHMRClient } = await import('../dev/buildHMRClient');
-	const bundle = await buildHMRClient();
 
-	return `<script>window.__HMR_FRAMEWORK__="vue";</script><script data-hmr-client>${bundle}</script>`;
+	return buildHMRClient();
 };
 
-const getSsrOnlyHmrShim = () => {
-	if (cachedSsrOnlyHmrShim) return cachedSsrOnlyHmrShim;
-	cachedSsrOnlyHmrShim = buildSsrOnlyHmrShim();
+// The bundle is cached; the tags are built per request so each carries
+// that request's CSP nonce.
+const getSsrOnlyHmrShim = async () => {
+	cachedSsrOnlyHmrBundle ??= loadSsrOnlyHmrBundle();
+	const bundle = await cachedSsrOnlyHmrBundle;
+	const nonce = nonceAttr();
 
-	return cachedSsrOnlyHmrShim;
+	return `<script${nonce}>window.__HMR_FRAMEWORK__="vue";</script><script${nonce} data-hmr-client>${bundle}</script>`;
 };
 
 export const handleVuePageRequest = async <Component extends VueComponent>(
@@ -373,13 +383,20 @@ export const handleVuePageRequest = async <Component extends VueComponent>(
 				);
 			}
 
-			const ssrContext: SSRContext = {};
+			// `useServerData` results for this request. Collected on every
+			// render so server markup shows the data; only pages that hydrate
+			// receive the serialized payload.
+			const serverData = createServerDataCollector();
+			const ssrContext: SSRContext = {
+				[SERVER_DATA_CONTEXT_KEY]: serverData
+			};
 			const head = `<!DOCTYPE html><html>${resolvedHeadTag}<body><div id="root">`;
 			const ssrOnlyHmrShim =
 				clientMode === 'none' && isDevelopmentRuntime()
 					? await getSsrOnlyHmrShim()
 					: '';
 			const buildTail = () => {
+				throwServerDataFailure(serverData);
 				// Vue collects SSR Teleport output separately from the page stream.
 				// A dedicated target outside #root gives hydration an unambiguous
 				// first anchor while preserving streaming for the page body.
@@ -389,9 +406,9 @@ export const handleVuePageRequest = async <Component extends VueComponent>(
 
 				return clientMode === 'none'
 					? `</div>${teleportHost}${ssrOnlyHmrShim}</body></html>`
-					: `</div>${teleportHost}<script>${BROWSER_TRANSLATION_BASELINE_SCRIPT}window.__INITIAL_PROPS__=${JSON.stringify(
-							maybeProps ?? {}
-						)}</script><script type="module" src="${resolvedIndexPath}"></script></body></html>`;
+					: `</div>${teleportHost}<script${nonceAttr()}>${BROWSER_TRANSLATION_BASELINE_SCRIPT}window.__INITIAL_PROPS__=${escapeScriptContent(
+							JSON.stringify(maybeProps ?? {})
+						)}</script>${serializeServerDataScript(serverData)}<script${nonceAttr()} type="module" src="${resolvedIndexPath}"></script></body></html>`;
 			};
 
 			// SPA-shell page with a client bundle: ship an EMPTY #root. The client

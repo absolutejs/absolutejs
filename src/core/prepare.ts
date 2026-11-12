@@ -5,7 +5,7 @@ import { basename, join, relative, resolve as resolvePath } from 'node:path';
 import { encodeSrcPath } from '../dev/srcPath';
 import { Elysia, NotFound } from 'elysia';
 import type { staticPlugin } from '@elysia/static';
-import type { MobileConfig } from '../../types/build';
+import type { BuildConfig, MobileConfig } from '../../types/build';
 import type { ConventionsMap } from '../../types/conventions';
 import { withOpenApi } from '../plugins/openApiPlugin';
 import { withTelemetry } from '../plugins/telemetryPlugin';
@@ -29,9 +29,16 @@ import { logStartupTimingBlock } from '../utils/startupTimings';
 import { markBoot } from '../utils/bootTimeline';
 import { logWarn } from '../utils/logger';
 import { deferUntilServing, setBootPhase } from '../dev/bootLifecycle';
-import { assetCacheControl, createPrecompressedPlugin } from './precompressed';
+import {
+	createAssetCachePlugin,
+	createPrecompressedPlugin
+} from './precompressed';
 import { devServerBusy } from '../dev/devActivity';
 import { dependencyOrderedSequence, runWhenIdle } from '../dev/idleScheduler';
+import { productionStaticIgnorePatterns } from './serverOnlyStaticFiles';
+import { getCspNonce } from './cspNonce';
+import { servePrerenderedPage } from './prerenderNonce';
+import { activeSecurityHeadersFor } from '../plugins/secureHeaders';
 
 const MS_PER_SECOND = 1000;
 const DEFAULT_PORT = 3000;
@@ -481,6 +488,7 @@ const prepareDev = async (
 		)
 		.use(hmrPlugin)
 		.use(createBuildErrorRecoveryPlugin())
+		.use(await loadVitalsPlugin(config, true))
 		.use(createNotFoundPlugin());
 	await withOpenApi(absolutejs, config, process.cwd(), true);
 	await withTelemetry(absolutejs, config, process.cwd());
@@ -535,12 +543,28 @@ const loadMobileCompatibilityPlugin = async (buildDir: string) => {
 	return createAbsoluteMobileCompatibilityDispatcher(options);
 };
 
+/* The built-in web vitals endpoint, when `vitals` is on for this mode and
+ * its endpoint is a path on this server (see src/build/vitals.ts). */
+const loadVitalsPlugin = async (config: BuildConfig, isDev: boolean) => {
+	const [{ isVitalsEnabled, resolveVitalsConfig }, { createVitalsPlugin }] =
+		await Promise.all([import('../build/vitals'), import('./vitals')]);
+	if (!config.vitals || !isVitalsEnabled(config.vitals, isDev))
+		return new Elysia({ name: 'absolutejs-vitals-disabled' });
+	const { endpoint } = resolveVitalsConfig(config.vitals);
+
+	return endpoint.startsWith('/')
+		? createVitalsPlugin(endpoint)
+		: new Elysia({ name: 'absolutejs-vitals-remote' });
+};
+
 const createNotFoundPlugin = () =>
 	new Elysia({ name: 'absolutejs-not-found' }).onError(
 		'global',
 		NotFound,
-		async () => {
-			const response = await renderFirstNotFound();
+		async ({ request }) => {
+			const response = await renderFirstNotFound({
+				preferHtmx: request.headers.get('hx-request') === 'true'
+			});
 			if (response) return response;
 
 			return undefined;
@@ -664,9 +688,11 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 
 	stepStartedAt = performance.now();
 	const { staticPlugin } = await import('@elysia/static');
+	const ignorePatterns = productionStaticIgnorePatterns(buildDir, Bun.main);
 	const staticFiles = await mountStaticPlugin(staticPlugin, {
 		alwaysStatic: true,
 		assets: buildDir,
+		ignorePatterns,
 		prefix: '',
 		staticLimit: MAX_STATIC_ROUTE_COUNT
 	});
@@ -699,7 +725,10 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 
 		return file;
 	});
-	const precompressedFiles = await createPrecompressedPlugin(buildDir);
+	const precompressedFiles = await createPrecompressedPlugin(
+		buildDir,
+		ignorePatterns
+	);
 	recordStep('create static plugin', stepStartedAt);
 
 	// Cache policy for static assets. Content-hashed filenames (e.g.
@@ -714,17 +743,7 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 	// A content-hashed filename always mixes letters AND digits in its hash
 	// segment (e.g. `a1b2c3d4`); dictionary-word segments (`generated`, `vue`,
 	// `iconfont`) never do, so they correctly fall through to revalidation.
-	const assetCachePlugin = new Elysia({
-		name: 'absolutejs-asset-cache'
-	}).onAfterHandle('global', ({ request, responseValue }) => {
-		if (!(responseValue instanceof Response)) return;
-		if (request.method !== 'GET' && request.method !== 'HEAD') return;
-		const { pathname } = new URL(request.url);
-		// Only touch real static files (have an extension) — never pages/APIs.
-		if (pathname.endsWith('/') || !/\.[0-9a-z]+$/i.test(pathname)) return;
-		// Replace (not append) whatever blanket policy @elysia/static set.
-		responseValue.headers.set('cache-control', assetCacheControl(pathname));
-	});
+	const assetCachePlugin = createAssetCachePlugin();
 
 	// Check for pre-rendered pages (from SSG or compile)
 	stepStartedAt = performance.now();
@@ -755,7 +774,7 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 
 		const prerenderPlugin = new Elysia({
 			name: 'prerendered-pages'
-		}).onRequest(({ request }) => {
+		}).onRequest(({ request, set }) => {
 			const url = new URL(request.url);
 
 			// Allow bypass for ISR re-render requests
@@ -782,6 +801,22 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 					.finally(() => rerendering.delete(url.pathname));
 			}
 
+			// Under secureHeaders(), swap the nonce the page was rendered
+			// with for this request's (prerenderNonce.ts).
+			const securityHeaders = activeSecurityHeadersFor(request);
+			const nonce = securityHeaders ? getCspNonce(request) : undefined;
+			if (securityHeaders && nonce) {
+				return servePrerenderedPage(
+					filePath,
+					nonce,
+					securityHeaders
+				).then(({ dropHeaders, response }) => {
+					for (const name of dropHeaders) delete set.headers[name];
+
+					return response;
+				});
+			}
+
 			// Serve the cached page immediately (even if stale)
 			return new Response(Bun.file(filePath), {
 				headers: { 'content-type': 'text/html; charset=utf-8' }
@@ -802,6 +837,7 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 			.use(precompressedFiles)
 			.use(staticFiles)
 			.use(generatedAssetsPlugin)
+			.use(await loadVitalsPlugin(config, false))
 			.use(createNotFoundPlugin());
 		await withOpenApi(absolutejs, config, process.cwd(), false);
 		await withTelemetry(absolutejs, config, process.cwd());
@@ -824,6 +860,7 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 		.use(precompressedFiles)
 		.use(staticFiles)
 		.use(generatedAssetsPlugin)
+		.use(await loadVitalsPlugin(config, false))
 		.use(createNotFoundPlugin());
 	await withOpenApi(absolutejs, config, process.cwd(), false);
 	await withTelemetry(absolutejs, config, process.cwd());

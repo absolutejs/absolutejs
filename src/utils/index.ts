@@ -1,6 +1,7 @@
 export * from './defineConfig';
 export * from './defineConvention';
 export * from './generateHeadElement';
+export { fontAssets } from './fontAssets';
 export * from './iconVersion';
 export * from './jsonLd';
 export * from './defineEnv';

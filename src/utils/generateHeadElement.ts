@@ -4,7 +4,9 @@ import type {
 	RobotsDirective,
 	SpeculationRules
 } from '../../types/metadata';
+import { renderFontTags } from './fontAssets';
 import { applyIconVersion, iconMimeType } from './iconVersion';
+import { nonceAttr } from './cspNonceRef';
 import { serializeJsonLd } from './jsonLd';
 
 const renderRobotsContent = (robots: RobotsDirective) => {
@@ -135,6 +137,7 @@ export const generateHeadElement = ({
 	title = 'AbsoluteJS',
 	description = 'A page created using AbsoluteJS',
 	font,
+	fonts,
 	icon = '/assets/ico/favicon.ico',
 	canonical,
 	openGraph,
@@ -180,6 +183,10 @@ export const generateHeadElement = ({
 		);
 	}
 
+	if (fonts) {
+		tags.push(...renderFontTags(fonts));
+	}
+
 	for (const link of preload ?? []) {
 		tags.push(renderPreloadLink(link));
 	}
@@ -189,7 +196,9 @@ export const generateHeadElement = ({
 		: undefined;
 
 	if (speculation) {
-		tags.push(`<script type="speculationrules">${speculation}</script>`);
+		tags.push(
+			`<script${nonceAttr()} type="speculationrules">${speculation}</script>`
+		);
 	}
 
 	const cssPaths = cssPath ? [cssPath].flat() : [];
@@ -200,7 +209,7 @@ export const generateHeadElement = ({
 
 	if (jsonLd) {
 		tags.push(
-			`<script type="application/ld+json">${serializeJsonLd(jsonLd)}</script>`
+			`<script${nonceAttr()} type="application/ld+json">${serializeJsonLd(jsonLd)}</script>`
 		);
 	}
 

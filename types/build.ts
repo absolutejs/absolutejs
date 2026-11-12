@@ -1,6 +1,7 @@
 import { build } from '../src/core/build';
 import { devBuild } from '../src/core/devBuild';
 import type { BuildConfig as BunBuildConfig } from 'bun';
+import type { FontsConfig } from './fonts';
 import type { ImageConfig } from './image';
 import type { SitemapConfig } from './sitemap';
 
@@ -628,6 +629,14 @@ export type BaseBuildConfig = {
 	compile?: CompileConfig;
 	// Image optimization — on-demand resizing, format conversion, caching
 	images?: ImageConfig;
+	/** Build-time font optimization: self-hosts Google Fonts or local font
+	 *  files with hashed names, preloads the critical faces and adds
+	 *  metric-matched fallback faces. Use `fontAssets(manifest)` to put them
+	 *  in a page's head. See docs/FONTS.md. */
+	fonts?: FontsConfig;
+	/** Opt-in Core Web Vitals reporting (LCP, INP, CLS, FCP, TTFB) from real
+	 *  visits. See docs/WEB_VITALS.md. */
+	vitals?: VitalsConfig;
 	// Sitemap generation — auto-discovers page routes on server start
 	sitemap?: SitemapConfig;
 	// OpenAPI docs via @elysia/openapi. `true` serves a Scalar UI at /openapi
@@ -703,3 +712,14 @@ export type DevBuildResult = ReturnType<typeof devBuild>;
 export type Result = BuildResult | DevBuildResult;
 
 export type Prettify<T> = { [K in keyof T]: T[K] } & {};
+
+export type VitalsConfig = {
+	/** Where the browser sends each page's batch. A path is served by the
+	 *  built-in route (handlers registered with `onVital()`); a full URL
+	 *  posts elsewhere. Default `/__absolute/vitals`. */
+	endpoint?: string;
+	/** Share of page loads that report, 0–1. Default 1. */
+	sampleRate?: number;
+	/** Report from `absolute dev` too. Default false. */
+	dev?: boolean;
+};

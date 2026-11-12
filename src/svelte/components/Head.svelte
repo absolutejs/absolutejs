@@ -7,6 +7,7 @@
 		'A page created using AbsoluteJS';
 	export let icon: Metadata['icon'] = '/assets/ico/favicon.ico';
 	export let font: Metadata['font'] = undefined;
+	export let fonts: Metadata['fonts'] = undefined;
 	export let cssPath: Metadata['cssPath'] = undefined;
 	export let canonical: Metadata['canonical'] = undefined;
 	export let openGraph: Metadata['openGraph'] = undefined;
@@ -32,6 +33,21 @@
 		return directives.join(', ');
 	};
 
+	// Kept inline (not imported from utils/fontAssets) so the published
+	// component has no extra relative import to resolve.
+	const FONT_MIME_TYPES: Record<string, string> = {
+		otf: 'font/otf',
+		ttf: 'font/ttf',
+		woff: 'font/woff',
+		woff2: 'font/woff2'
+	};
+	const fontMimeType = (href: string) =>
+		FONT_MIME_TYPES[
+			/\.([a-z0-9]+)(?:[?#].*)?$/i.exec(href)?.[1]?.toLowerCase() ?? ''
+		] ?? 'font/woff2';
+	const isRemoteStylesheet = (href: string) => /^https?:\/\//i.test(href);
+
+	$: remoteFonts = fonts ? fonts.stylesheets.some(isRemoteStylesheet) : false;
 	$: cssPaths = cssPath ? (Array.isArray(cssPath) ? cssPath : [cssPath]) : [];
 	$: resolvedIcon = icon ?? '/assets/ico/favicon.ico';
 </script>
@@ -142,6 +158,29 @@
 			href={`https://fonts.googleapis.com/css2?family=${font}:wght@100..900&display=swap`}
 			rel="stylesheet"
 		/>
+	{/if}
+
+	{#if fonts}
+		{#if remoteFonts}
+			<link rel="preconnect" href="https://fonts.googleapis.com" />
+			<link
+				rel="preconnect"
+				href="https://fonts.gstatic.com"
+				crossorigin="anonymous"
+			/>
+		{/if}
+		{#each fonts.preload as href}
+			<link
+				rel="preload"
+				{href}
+				as="font"
+				type={fontMimeType(href)}
+				crossorigin="anonymous"
+			/>
+		{/each}
+		{#each fonts.stylesheets as href}
+			<link rel="stylesheet" {href} data-absolute-fonts />
+		{/each}
 	{/if}
 
 	{#each cssPaths as path}

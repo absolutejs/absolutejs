@@ -16,6 +16,7 @@ import {
 } from '../build/stylePreprocessor';
 import { lowerSvelteAwaitSlotSyntax } from '../svelte/lowerAwaitSlotSyntax';
 import { lowerSvelteIslandSyntax } from '../svelte/lowerIslandSyntax';
+import { lazyModuleRegistration } from '../svelte/router/lazyModule';
 import type { DevPageEntry, StylePreprocessorConfig } from '../../types/build';
 import type { BindingMetadata, SFCDescriptor } from '@vue/compiler-sfc';
 import { logPageBuild, logWarn } from '../utils/logger';
@@ -991,6 +992,30 @@ const compileSvelteComponent = (
 	return code.replace(/import\.meta\.hot\.accept\(/g, '__hmr_accept(');
 };
 
+// A lazy `<Route loader={() => import('./Page.svelte')}>`: register each
+// dynamically imported `.svelte` file, as compileSvelte does for the build,
+// so the hydration entry can load what the server rendered before it
+// hydrates. The specifiers stay relative; rewriteImports resolves them.
+const svelteLazyRegistrations = (
+	raw: string,
+	filePath: string,
+	projectRoot: string
+) =>
+	Array.from(raw.matchAll(/\bimport\s*\(\s*['"](\.[^'"]+\.svelte)['"]\s*\)/g))
+		.map((match) => match[1])
+		.filter((spec): spec is string => spec !== undefined)
+		.filter((spec) => existsSync(resolve(dirname(filePath), spec)))
+		.map((spec) =>
+			lazyModuleRegistration(
+				relative(projectRoot, resolve(dirname(filePath), spec)).replace(
+					/\\/g,
+					'/'
+				),
+				spec
+			)
+		)
+		.join('');
+
 // Compile .svelte files to client JS using svelte/compiler.
 // Keeps .svelte extensions in imports so the module server handles children.
 const transformSvelteFile = async (
@@ -1026,7 +1051,8 @@ const transformSvelteFile = async (
 
 	const code = isModule
 		? compileSvelteModule(source, filePath)
-		: compileSvelteComponent(source, filePath, projectRoot, enableAsync);
+		: compileSvelteComponent(source, filePath, projectRoot, enableAsync) +
+			svelteLazyRegistrations(raw, filePath, projectRoot);
 
 	return rewriteImports(code, filePath, projectRoot, rewriter);
 };
@@ -1123,6 +1149,8 @@ const compileVueStyles = async (
 	const hmrId = JSON.stringify(filePath);
 	const cssInjection = [
 		`var __style=document.createElement('style');`,
+		// Under secureHeaders(), copy the page's nonce so the policy allows it.
+		`var __absNonce=(document.querySelector('script[nonce],style[nonce]')||{}).nonce;if(__absNonce)__style.nonce=__absNonce;`,
 		`__style.textContent=\`${escaped}\`;`,
 		`__style.dataset.hmrId=${hmrId};`,
 		`var __prev=document.querySelector('style[data-hmr-id="${filePath}"]');`,
@@ -1269,6 +1297,7 @@ const handleCssRequest = (filePath: string) => {
 		`const id = ${JSON.stringify(filePath)};`,
 		`const existing = Array.from(document.querySelectorAll('style[data-hmr-id]')).find(el => el.dataset.hmrId === id);`,
 		`const style = existing || document.createElement('style');`,
+		`var __absNonce=(document.querySelector('script[nonce],style[nonce]')||{}).nonce;if(__absNonce&&!existing)style.nonce=__absNonce;`,
 		`style.textContent = \`${escaped}\`;`,
 		`style.dataset.hmrId = id;`,
 		`style.dataset.hmrSrc = import.meta.url;`,
@@ -1475,6 +1504,7 @@ const handleVirtualSvelteCss = (cssCheckPath: string) => {
 
 	return jsResponse(
 		`var s=document.createElement('style');` +
+			`var __absNonce=(document.querySelector('script[nonce],style[nonce]')||{}).nonce;if(__absNonce)s.nonce=__absNonce;` +
 			`s.textContent=\`${escaped}\`;` +
 			`s.dataset.svelteHmr=${JSON.stringify(cssCheckPath)};` +
 			`var p=document.querySelector('style[data-svelte-hmr="${cssCheckPath}"]');` +

@@ -83,17 +83,54 @@ export const assetCacheControl = (pathname: string) =>
 		? 'public, max-age=31536000, immutable'
 		: 'public, max-age=0, must-revalidate';
 
+/** Applies `assetCacheControl` to static-file responses. @elysia/static
+ *  answers a plain GET with the file itself and its blanket policy on
+ *  `set.headers`, and a precompressed or HEAD answer with a `Response`;
+ *  both get the policy replaced (not appended). Only paths with an
+ *  extension are touched, and a non-Response value only when a policy was
+ *  already set, so pages and APIs keep their own headers. */
+export const createAssetCachePlugin = () =>
+	new Elysia({ name: 'absolutejs-asset-cache' }).onAfterHandle(
+		'global',
+		({ request, responseValue, set }) => {
+			if (request.method !== 'GET' && request.method !== 'HEAD') return;
+			const { pathname } = new URL(request.url);
+			if (pathname.endsWith('/') || !/\.[0-9a-z]+$/i.test(pathname))
+				return;
+			const policy = assetCacheControl(pathname);
+			if (responseValue instanceof Response) {
+				responseValue.headers.set('cache-control', policy);
+
+				return;
+			}
+			if (set.headers['cache-control'] !== undefined)
+				set.headers['cache-control'] = policy;
+		}
+	);
+
 /** Serves the precompressed copy of a static file to a browser that accepts
  *  it. Files without copies, and browsers that accept neither, fall through
  *  to the regular static handler. */
-export const createPrecompressedPlugin = async (buildDir: string) => {
+export const createPrecompressedPlugin = async (
+	buildDir: string,
+	ignorePatterns: readonly (string | RegExp)[] = []
+) => {
 	const root = resolve(buildDir);
 	const copies = new Map<string, Set<Encoding>>();
+	// Same matching as `@elysia/static`'s `ignorePatterns`, so a file kept
+	// off the static routes isn't served through its compressed copy.
+	const isIgnored = (pathname: string) =>
+		ignorePatterns.some((pattern) =>
+			typeof pattern === 'string'
+				? pathname.includes(pattern)
+				: pattern.test(pathname)
+		);
 	for (const path of await listFiles(root)) {
 		const encoding = ENCODINGS.find(({ suffix }) => path.endsWith(suffix));
 		if (!encoding) continue;
 		const original = path.slice(0, -encoding.suffix.length);
 		const pathname = `/${relative(root, original).split(sep).join('/')}`;
+		if (isIgnored(pathname)) continue;
 		const known = copies.get(pathname) ?? new Set<Encoding>();
 		known.add(encoding.encoding);
 		copies.set(pathname, known);

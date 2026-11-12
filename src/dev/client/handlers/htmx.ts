@@ -1,5 +1,6 @@
 /* HTMX HMR update handler */
 
+import { applyPageNonce } from '../cspNonce';
 import { DOM_UPDATE_DELAY_MS } from '../constants';
 import { patchDOMInPlace } from '../domDiff';
 import {
@@ -147,7 +148,7 @@ const removeOldScripts = (container: HTMLElement) => {
 
 const addNewScripts = (container: HTMLElement, newScripts: ScriptInfo[]) => {
 	newScripts.forEach((scriptInfo) => {
-		const newScript = document.createElement('script');
+		const newScript = applyPageNonce(document.createElement('script'));
 		const separator = scriptInfo.src.includes('?') ? '&' : '?';
 		newScript.src = `${scriptInfo.src + separator}t=${Date.now()}`;
 		newScript.type = scriptInfo.type;
@@ -160,7 +161,7 @@ const replaceInlineScript = (script: Element) => {
 		return;
 	}
 
-	const newScript = document.createElement('script');
+	const newScript = applyPageNonce(document.createElement('script'));
 	newScript.textContent = script.textContent || '';
 	newScript.type = script.getAttribute('type') || 'text/javascript';
 	if (script.parentNode) {

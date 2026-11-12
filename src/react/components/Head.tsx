@@ -1,3 +1,4 @@
+import { readCspNonce } from '../../utils/cspNonceRef';
 import type {
 	Metadata,
 	MetaTag,
@@ -5,6 +6,8 @@ import type {
 	TwitterCard,
 	RobotsDirective
 } from '../../../types/metadata';
+import type { FontAssets } from '../../../types/fonts';
+import { fontMimeType, fontPreconnectOrigins } from '../../utils/fontAssets';
 import { applyIconVersion, iconMimeType } from '../../utils/iconVersion';
 import { serializeSpeculationRules } from '../../utils/generateHeadElement';
 import { serializeJsonLd } from '../../utils/jsonLd';
@@ -121,6 +124,43 @@ const toCrossOrigin = (value: string | undefined) => {
 	return 'anonymous';
 };
 
+/** Self-hosted fonts from the `fonts` build config: preloads for the
+ *  critical faces, then the linked stylesheet (never inline). */
+const FontLinks = ({ fonts }: { fonts: FontAssets }) => (
+	<>
+		{fontPreconnectOrigins(fonts).map((origin) => (
+			<link
+				crossOrigin={
+					origin.includes('gstatic') ? 'anonymous' : undefined
+				}
+				href={origin}
+				key={`preconnect:${origin}`}
+				rel="preconnect"
+			/>
+		))}
+		{fonts.preload.map((href) => (
+			<link
+				as="font"
+				crossOrigin="anonymous"
+				href={href}
+				key={`preload:${href}`}
+				rel="preload"
+				suppressHydrationWarning
+				type={fontMimeType(href)}
+			/>
+		))}
+		{fonts.stylesheets.map((href) => (
+			<link
+				data-absolute-fonts=""
+				href={href}
+				key={`stylesheet:${href}`}
+				rel="stylesheet"
+				suppressHydrationWarning
+			/>
+		))}
+	</>
+);
+
 const SpeculationRulesScript = ({
 	rules
 }: {
@@ -132,6 +172,9 @@ const SpeculationRulesScript = ({
 	return (
 		<script
 			dangerouslySetInnerHTML={{ __html: body }}
+			nonce={readCspNonce()}
+			// The nonce exists only on the server; browsers hide it.
+			suppressHydrationWarning
 			type="speculationrules"
 		/>
 	);
@@ -142,6 +185,7 @@ export const Head = ({
 	description = 'A page created using AbsoluteJS',
 	icon = '/assets/ico/favicon.ico',
 	font,
+	fonts,
 	cssPath,
 	canonical,
 	openGraph,
@@ -197,6 +241,7 @@ export const Head = ({
 				/>
 			</>
 		)}
+		{fonts && <FontLinks fonts={fonts} />}
 		{preload?.map((link) => (
 			<link
 				as={link.module ? undefined : link.as}
@@ -224,6 +269,8 @@ export const Head = ({
 		{jsonLd && (
 			<script
 				dangerouslySetInnerHTML={{ __html: serializeJsonLd(jsonLd) }}
+				nonce={readCspNonce()}
+				suppressHydrationWarning
 				type="application/ld+json"
 			/>
 		)}

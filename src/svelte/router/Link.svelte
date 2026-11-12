@@ -1,8 +1,9 @@
 <script lang="ts">
 	import { onDestroy, onMount, type Snippet } from 'svelte';
 	import type { LinkPrefetchMode } from '../../../types/svelteRouter';
-	import { goto } from './goto';
+	import { navigate, preloadRoute } from './navigation';
 	import {
+		canPrefetch,
 		observeViewport,
 		prefetch,
 		resolveDefaultPrefetchMode,
@@ -26,7 +27,8 @@
 		prerender?: boolean;
 		/** Don't reset focus to body on navigate. */
 		keepFocus?: boolean;
-		/** Don't scroll to top on navigate. */
+		/** Leave the scroll position alone on navigate (no scroll to the
+		 *  top or to the `#hash` target). */
 		noScroll?: boolean;
 		/** Forwarded to the underlying `<a>` element. */
 		class?: string;
@@ -79,17 +81,36 @@
 		if (isExternal(to)) return;
 
 		event.preventDefault();
-		void goto(to, {
-			keepFocus,
-			noScroll,
-			replaceState
+		navigate(
+			to,
+			{
+				keepFocus,
+				noScroll,
+				replaceState
+			},
+			'link'
+		).catch((navigationError: unknown) => {
+			console.error(
+				'[absolute] <Link> navigation failed:',
+				navigationError
+			);
 		});
+	};
+
+	// A lazy route's component chunk is part of what a prefetch warms, on
+	// the same triggers (hover, viewport, pointerdown) and under the same
+	// data-saver / opt-out rules as the document prefetch.
+	const preloadLazyRoute = () => {
+		if (canPrefetch()) preloadRoute(to);
 	};
 
 	const handlePointerEnter = () => {
 		if (resolvedMode() === 'none' || isExternal(to)) return;
 		hoverHandle?.cancel();
-		hoverHandle = scheduleHoverPrefetch(to, { prerender });
+		hoverHandle = scheduleHoverPrefetch(to, {
+			onPrefetch: preloadLazyRoute,
+			prerender
+		});
 	};
 
 	const handlePointerLeave = () => {
@@ -102,6 +123,7 @@
 		hoverHandle?.cancel();
 		hoverHandle = null;
 		prefetch(to, { kind: 'route' });
+		preloadLazyRoute();
 		if (prerender) speculate(to);
 	};
 
@@ -109,7 +131,9 @@
 		if (resolvedMode() !== 'viewport' || !anchor) return;
 		if (isExternal(to)) return;
 
-		unobserveViewport = observeViewport(anchor, to);
+		unobserveViewport = observeViewport(anchor, to, {
+			onVisible: preloadLazyRoute
+		});
 	});
 
 	onDestroy(() => {

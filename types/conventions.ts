@@ -23,6 +23,9 @@ export type ConventionsMap = {
 	angular?: FrameworkConventionEntry;
 	ember?: FrameworkConventionEntry;
 	html?: FrameworkConventionEntry;
+	/** Conventions from the HTMX pages directory only. HTMX pages try these
+	 *  first, then `html` (which also includes them). */
+	htmx?: FrameworkConventionEntry;
 };
 
 // Serializable subset of `Error` — the runtime shape we hand to error-page

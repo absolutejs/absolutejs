@@ -2,6 +2,7 @@ import type {
 	AllowedComponentProps,
 	App,
 	ComponentCustomProps,
+	Ref,
 	VNodeProps
 } from 'vue';
 import type { Router } from 'vue-router';
@@ -70,4 +71,50 @@ export type VueVNode = {
 export type VueComponentInstance = {
 	setupState?: Record<string, unknown>;
 	subTree?: VueVNode;
+};
+
+/** Loads the value `useServerData` stores under its key. Receives an
+ *  `AbortSignal` that aborts when the component unmounts or `refresh()` runs
+ *  again; pass it to `fetch` so stale requests are cancelled. */
+export type ServerDataFetcher<T> = (signal: AbortSignal) => Promise<T>;
+
+export type ServerDataOptions = {
+	/** Run the fetcher during server rendering and send the result to the
+	 *  browser with the page. Default: `true`. Set `false` to always load on
+	 *  the client (the server renders the pending state). */
+	server?: boolean;
+};
+
+export type ServerData<T> = {
+	/** The loaded value, or `null` before the first successful load. */
+	data: Ref<T | null>;
+	/** The last load failure, or `null`. A failure on the server reaches the
+	 *  browser as an `Error` with the same `name`; its message is replaced
+	 *  with a generic one in production. */
+	error: Ref<Error | null>;
+	/** True while a load is in flight. */
+	pending: Ref<boolean>;
+	/** Runs the fetcher again in the browser. An in-flight load is aborted
+	 *  first. */
+	refresh: () => Promise<void>;
+};
+
+/** A serialized server failure, as written into the page. */
+export type ServerDataErrorEntry = {
+	error: { message: string; name: string };
+};
+
+/** One key's server result, as written into the page. */
+export type ServerDataEntry = { data: unknown } | ServerDataErrorEntry;
+
+/** Per-request store the Vue page handler puts on the SSR context. Keys are
+ *  claimed during `setup()`; `json` holds each result already serialized so
+ *  a value that cannot be serialized fails while the page renders, not
+ *  while the tail is written. */
+export type ServerDataCollector = {
+	claimed: Set<string>;
+	/** A render error recorded while setup() ran (a repeated key in
+	 *  development), thrown by the page handler once rendering ends. */
+	failure: Error | null;
+	json: Map<string, string>;
 };

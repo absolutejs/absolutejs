@@ -1,3 +1,4 @@
+import { escapeScriptContent } from './escapeScriptContent';
 import type { JsonLdSchema, WithContext } from '../../types/jsonLd';
 
 type JsonLdGraph = {
@@ -13,5 +14,6 @@ export const serializeJsonLd = (schema: JsonLdSchema | JsonLdSchema[]) => {
 		? { '@context': schemaOrgContext, '@graph': schema }
 		: { '@context': schemaOrgContext, ...schema };
 
-	return JSON.stringify(data);
+	// Escaped so a value containing `</script>` can't end the tag.
+	return escapeScriptContent(JSON.stringify(data));
 };

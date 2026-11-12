@@ -39,6 +39,7 @@ const RUNTIME_KEYS = [
 	'static',
 	'svelteDirectory',
 	'telemetry',
+	'vitals',
 	'vueDirectory'
 ] as const satisfies readonly (keyof BuildConfig)[];
 

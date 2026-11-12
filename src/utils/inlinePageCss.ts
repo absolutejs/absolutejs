@@ -16,6 +16,8 @@
  *  Content-hashed filenames mean the sidecar is immutable for the
  *  lifetime of a build, so the read is memoised by absolute path and
  *  the handler hits `readFile` at most once per page per process. */
+
+import { nonceAttr } from './cspNonceRef';
 const siblingCssCache = new Map<string, string>();
 
 /** Drop every memoised sibling-CSS read (including cached misses). The dev
@@ -30,7 +32,7 @@ export const clearSiblingCssCache = () => {
 
 export const injectInlineCss = (headTag: string, css: string) => {
 	if (!css) return headTag;
-	const styleBlock = `<style data-absolute-page-css>${css}</style>`;
+	const styleBlock = `<style data-absolute-page-css${nonceAttr()}>${css}</style>`;
 
 	return headTag.replace('</head>', `${styleBlock}</head>`);
 };

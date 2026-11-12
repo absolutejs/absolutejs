@@ -1,177 +1,112 @@
-# Svelte Router — Route Guards (Deferred)
+# Svelte Router — Route Guards
 
-Status: **Not implemented**. Auth checks, paywall checks, and other "should this navigation be allowed?" logic currently live in user code (`{#if user.loggedIn}<Route ... />{/if}`, or a redirect inside the route's snippet). That works but doesn't compose well across many routes and runs *after* the URL has already changed.
+Status: **Shipped.** A guard is a function that runs **before** a navigation commits and decides whether it happens. Guards run in the browser for `<Link>` clicks, `goto()` and back/forward, and during the server render, where a redirect becomes a real `302`.
 
-## Why we deferred it
+## API
 
-The spa-example doesn't have any auth or gating, so guards aren't visible in our reference app. Most users will hit this when their first real app needs a "redirect to /login if not authenticated" path. Until then, the manual workaround is fine.
+### Where guards go
 
-Bring this back when:
+| Guard | Runs in the browser | Runs on the server | Scope |
+| --- | --- | --- | --- |
+| `<Route guard={…}>` | yes | yes | navigations onto that route |
+| `<Router guard={…}>` | yes | yes | the outermost router: every navigation; a nested router: navigations onto one of its routes |
+| `beforeNavigate(fn)` | yes | no | every client-side navigation |
 
-- A user reports needing pre-navigation gating.
-- We add server-side data loaders to `<Route>` (likely paired feature — guards run on the server too).
-- We add a `<RouterOutlet routes={...} />` config-based API; guards in config form are very natural (each route entry has a `guard` field).
+For one navigation they run in this order, and the first guard that cancels or redirects decides:
 
-## What "good" looks like
-
-A guard is a function that runs **before** a navigation commits. It can:
-
-- Allow the navigation (return `true` or `void`).
-- Deny it (return `false` — the URL doesn't change, the active route doesn't swap).
-- Redirect (return a string URL or a typed `redirect()` sentinel — the navigation continues to the redirected URL instead).
-
-Guards must be:
-
-- **Async-aware**: a guard can `await` a session check, fetch a user, etc.
-- **Cancellable**: a second navigation that arrives while the first guard is pending should cancel the first.
-- **Composable**: guards on parent Routers stack with guards on child Routes.
-- **Server-side aware**: during SSR, guards run with the SSR URL. A guard that redirects must signal "render the redirected URL instead" so the initial HTML is correct (no client flash).
-
-The vue-router and react-router-v6.4+ `loader`/`action` story is the closest reference. SvelteKit's `+page.server.ts`'s `redirect(...)` helper is also relevant.
-
-## Proposed API
-
-### Per-Route guard
+1. `beforeNavigate` guards, in registration order
+2. each mounted `<Router guard>`, outermost first
+3. the matched `<Route guard>` of each router
 
 ```svelte
-<Route
-  path="/dashboard"
-  guard={async (page) => {
-    const session = await auth.getSession();
-    if (!session) return '/login?redirect=/dashboard';
-  }}
->
-  {#snippet content()}<Dashboard />{/snippet}
-</Route>
-```
+<script lang="ts">
+	import Router from '@absolutejs/absolute/svelte/router/Router.svelte';
+	import Route from '@absolutejs/absolute/svelte/router/Route.svelte';
+	import { beforeNavigate, redirect } from '@absolutejs/absolute/svelte/router';
 
-Guard signature:
+	let { url }: { url?: string } = $props();
 
-```ts
-type RouteGuard = (page: PageState) => 
-  | RouteGuardResult
-  | Promise<RouteGuardResult>;
+	// Browser only. Called during component initialisation, it is removed
+	// when the component is destroyed; otherwise call the function it returns.
+	beforeNavigate(({ type }) => {
+		if (type === 'popstate' && editor.dirty) return false;
+	});
+</script>
 
-type RouteGuardResult =
-  | undefined        // allow
-  | true             // allow
-  | false            // deny (no navigation, URL unchanged)
-  | string           // redirect to this URL
-  | { redirect: string; replace?: boolean }; // explicit redirect
-```
-
-### Per-Router guard (covers all child Routes)
-
-```svelte
 <Router
-  guard={(page) => {
-    if (page.url.pathname.startsWith('/admin') && !user.isAdmin) {
-      return '/login';
-    }
-  }}
-  {url}
+	{url}
+	guard={({ to }) => {
+		if (to.pathname.startsWith('/app/admin') && !session.isAdmin) return '/app/login';
+	}}
 >
-  ...
+	<Route
+		path="/app/dashboard"
+		guard={async ({ request }) => {
+			const user = await loadUser(request); // request: server render only
+			if (!user) throw redirect('/app/login?next=/app/dashboard');
+		}}
+	>
+		{#snippet content()}<Dashboard />{/snippet}
+	</Route>
 </Router>
 ```
 
-Useful for "all routes under /admin require admin" without repeating the check on every `<Route>`. Router-level guard runs first; if it allows, the Route-level guard runs.
-
-### Helper for typed redirects
+### Signature
 
 ```ts
-import { redirect } from '@absolutejs/absolute/svelte/router';
+type RouteGuard = (navigation: NavigationContext) =>
+	RouteGuardResult | Promise<RouteGuardResult>;
 
-guard: (page) => {
-  if (!user) throw redirect('/login');
-}
+type NavigationContext = {
+	from: URL | null;           // null on the first render ('enter')
+	to: URL;                    // in hash mode, to.pathname is the routed path
+	params: Record<string, string | undefined>; // the guard's route, matched against `to`
+	type: 'link' | 'goto' | 'popstate' | 'enter';
+	request: Request | undefined; // the incoming request, server render only
+};
+
+type RouteGuardResult =
+	| undefined | void | true   // allow
+	| false                    // cancel
+	| string                   // redirect there
+	| { redirect: string; replace?: boolean };
 ```
 
-`redirect()` returns a sentinel object the router recognises. Throwing instead of returning lets users early-exit deeply nested guard helpers without threading the return value back up. Mirrors SvelteKit's `redirect()`.
+`redirect(location, { replace })` returns a `NavigationRedirect` (an `Error` subclass that is also a `{ redirect, replace }`), so it can be returned or **thrown** from a helper deep inside a guard; both short-circuit the chain the same way. Any other error a guard throws rejects the navigation (`goto()` rejects; a `<Link>` logs it).
 
-## Implementation sketch
+`goto()` resolves to what happened: `'committed'`, `'cancelled'`, `'redirected'`, `'superseded'` (a newer navigation started while a guard was pending) or `'external'`.
 
-### Where guards run
+## Behaviour
 
-In `goto()` (and the popstate listener, and the SSR URL setup):
+- **Async and cancellable.** Guards are awaited one after another. Each navigation takes a token; when a newer navigation starts while a guard is pending, the older one is abandoned (`'superseded'`).
+- **Cancel on a `<Link>` / `goto()`**: nothing changes — no history entry, no route swap.
+- **Cancel on back/forward**: the browser has already moved, so the router undoes it with `history.go(-delta)` (every entry the router writes records its index in `history.state`). Entries it didn't write fall back to pushing the previous URL again.
+- **Redirect**: navigates to the target instead, adding a history entry unless `replace: true` (a redirect from back/forward or the first render always replaces). Redirects chain; more than 10 in a row throws.
+- **Fragment-only changes** (same path and query, different `#hash`) don't run guards, and neither does shallow routing (`pushState` / `replaceState`).
 
-1. Collect all applicable guards: outer `<Router>`s' guards in order, then the matched `<Route>`'s guard.
-2. Run them sequentially (parent → child). Each one can:
-   - Return `false` → abort, don't update `page.url`.
-   - Return a redirect → recurse `goto(redirect, { replaceState: true })`.
-   - Return undefined/true → continue.
-3. If all pass, commit the navigation (update `page.url`, run View Transition, etc.).
+### Server render
 
-### Cancellation
+The page handler passes per-request router state to the render through Svelte context. Svelte's server render is synchronous, so after the first pass each `<Router>` runs its guard chain (`type: 'enter'`, `from: null`, `request` set) against the request URL, before any second pass:
 
-Each guard chain runs against a navigation token (incrementing counter). If the token changes while a guard is awaiting, abort the chain — the user has already started another navigation.
+- a redirect ends the request with `302` and `Location: <target>` (same-origin targets are written as a path; in hash mode the target becomes `/#/target`);
+- a cancel ends it with `403 Forbidden`;
+- otherwise rendering continues.
 
-```ts
-const token = ++currentNavigationToken;
-for (const guard of guards) {
-  const result = await guard(targetPage);
-  if (token !== currentNavigationToken) return; // stale
-  // ... handle result
-}
-```
+`beforeNavigate` guards never run on the server. Put checks the server must enforce on `<Route guard>` / `<Router guard>`.
 
-### Server-side handling
+In hash mode the server never sees the hash, so the router also runs the Route/Router guards once in the browser on the first render; a redirect replaces the entry, and a cancel is ignored there because there is no previous page to stay on.
 
-Guards must run during SSR too — otherwise an unauthorised user gets a flash of the protected page on initial load before the client redirects.
+### Hydration
 
-In `Router.svelte`'s SSR branch (the `if (isOutermost) { ... seedPage(initial); }` block):
+Make guard logic deterministic for the same input. If the server allows a URL that the browser's guard state would redirect, the server HTML is still what hydrates; the guard only runs again on the next navigation.
 
-1. Find the matched route.
-2. Run all guards.
-3. If any returns a redirect, the page handler should respond with a `302` instead of rendering. **This needs framework cooperation** — `Router.svelte` can't return a `Response` from inside Svelte, so we'd need a side-channel.
+## Not covered
 
-Two options for the side-channel:
+- Guards of routes inside a nested `<Router>` that isn't mounted yet (the target page's nested routes register only once they render). Put such checks on the outer route or router.
+- A `cache` hint for guard results. Cache in your own guard (for example a session lookup once per page load).
 
-- **Throw a special error** that the Svelte page handler in `src/svelte/pageHandler.ts` catches and converts to a `302`. Cleanest but couples the router and the page handler.
-- **Pass a `setRedirect` callback** through props that the page handler installs and the router calls. More explicit but adds a prop users have to remember.
+## Tests
 
-Probably go with the throw approach (option 1) and document it. SvelteKit takes the same shape with its `redirect()` helper throwing.
-
-### Route-level guard SSR sequence
-
-```ts
-// inside Router.svelte SSR branch
-const winner = computeWinner();
-if (winner) {
-  for (const guard of collectGuards(winner.id)) {
-    const result = await guard(synthesizedPage);
-    if (result === false) {
-      throw new RouterAbort();
-    }
-    if (typeof result === 'string') {
-      throw new RouterRedirect(result);
-    }
-    if (result && typeof result === 'object' && 'redirect' in result) {
-      throw new RouterRedirect(result.redirect, result.replace);
-    }
-  }
-}
-```
-
-The page handler catches `RouterRedirect` and emits `Response.redirect(url, redirect.replace ? 308 : 302)`. Catches `RouterAbort` and renders an empty body / 403 (configurable).
-
-## Test plan
-
-- **Unit**: guard chain runs in order; first false aborts; first redirect short-circuits.
-- **Cancellation**: navigation B started during navigation A's pending guard cancels A.
-- **Per-Router + per-Route stacking**: outer guard runs before inner.
-- **SSR redirect**: an SSR guard returning a redirect causes the page handler to emit a 302 with the right `Location` header.
-- **Async guard**: `await`-ing inside a guard works; multiple awaits compose.
-- **Throw-based redirect**: `throw redirect('/login')` from deep inside a helper short-circuits the same way as a returned redirect.
-- **Integration (in spa-example)**: add a fake auth guard on `/svelte/profile`; assert hitting it without "auth" redirects to `/svelte` and the URL bar reflects that.
-
-## Risks
-
-- **Hydration mismatch**. If the SSR guard's outcome differs from the client's (different session state, expired token), the SSR HTML and client render diverge. Mitigation: document that guard logic must be deterministic given the same `page` input. Most real-world auth uses a cookie that's available on both sides, so this is usually fine.
-- **Async guard performance**. Awaiting inside a guard delays every navigation. Mitigation: cache where it makes sense (session check once per page load, not per navigation). Provide a `cache: 'navigation' | 'session'` hint on the guard config to formalise this.
-- **Throwing vs returning ambiguity**. Two ways to redirect can confuse users. Mitigation: docs lead with one way (return for top-level, throw for helpers), and the router treats them identically.
-- **Guard composition with shallow routing**. `pushState`/`replaceState` are shallow — they shouldn't run guards (no route swap). Skip guards entirely when the active route doesn't change.
-
-## Compatibility
-
-Strict addition. Routes without a `guard` prop behave exactly as today. Safe for a minor bump.
+- `tests/unit/svelte/router/guards.test.ts` — order, cancel, string / object / thrown `redirect()`, async params, staleness, error propagation.
+- `tests/unit/svelte/routerSsr.test.ts` — server outcome → 302 / 403, first decision wins.
+- `tests/integration/build/svelte-router-browser.test.ts` — a direct request to a guarded route is a 302; a `<Link>` click is redirected; a `beforeNavigate` that cancels back keeps the URL and the route.

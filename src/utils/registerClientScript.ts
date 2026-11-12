@@ -22,6 +22,8 @@
  * The script will be automatically injected into the HTML response and executed on the client.
  */
 
+import { nonceAttr } from './cspNonceRef';
+
 // Request-scoped registry for client scripts
 // Each request gets its own set of scripts to inject
 const scriptRegistry = new Map<string, Set<() => void>>();
@@ -124,7 +126,7 @@ export const generateClientScriptCode = (scripts: (() => void)[]) => {
 		})
 		.join('\n');
 
-	return `<script>
+	return `<script${nonceAttr()}>
 (function() {
 ${scriptCode}
 })();

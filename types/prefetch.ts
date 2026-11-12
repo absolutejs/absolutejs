@@ -41,6 +41,17 @@ export type PrefetchMode = 'hover' | 'viewport' | 'none';
 export type HoverPrefetchOptions = PrefetchOptions & {
 	/** Also inject a prerender speculation rule when the hover fires. */
 	prerender?: boolean;
+	/** Called when the debounced hover trigger fires, after the prefetch —
+	 *  for warming something the URL alone doesn't name (the Svelte
+	 *  router's lazy route chunks). */
+	onPrefetch?: () => void;
+};
+
+/** Options for a viewport trigger. */
+export type ViewportPrefetchOptions = PrefetchOptions & {
+	/** Called once when the element scrolls into view, after the
+	 *  prefetch. */
+	onVisible?: () => void;
 };
 
 export type HoverPrefetchHandle = {

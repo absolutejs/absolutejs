@@ -1,6 +1,12 @@
 export { Island } from './Island.browser';
 export { createTypedIsland } from './createIsland.browser';
 export { useIslandStore } from './useIslandStore';
+export { useServerData } from './useServerData.browser';
+export type {
+	ServerData,
+	ServerDataFetcher,
+	ServerDataOptions
+} from '../../types/vue';
 export {
 	captureSsrTextBaselines,
 	prepareBrowserTranslationHydration,

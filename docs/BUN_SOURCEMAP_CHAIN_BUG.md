@@ -137,8 +137,10 @@ Wired into two places:
 
 1. `src/dev/rebuildTrigger.ts` — `runVueBundleRebuild` calls the
    chainer on every Vue SSR bundle output post-build.
-2. `src/core/build.ts` — the initial dev-mode server build sets
-   `sourcemap: 'inline'` and runs the chainer post-Promise.all.
+2. `src/core/build.ts` — the server (SSR page) build sets
+   `sourcemap: 'inline'` and runs the chainer post-Promise.all, in dev
+   and production. Production SSR bundles are server-only; static
+   serving excludes them (`src/core/serverOnlyStaticFiles.ts`).
 
 The Vue compile pipeline (`src/build/compileVue.ts`) also got
 `sourceMap: true` passed to `compileScript`, plus the inline-map
@@ -149,11 +151,14 @@ Result: SSR error stack frames now resolve to e.g.
 file the developer edits. Verified end-to-end by
 `tests/integration/hmr/lifecycle/sourcemap-stack-traces.test.ts`.
 
-The chain is currently Vue-only. Svelte / Angular SSR build paths emit
-no inline sourcemap on their intermediates (their `compile*.ts` files
-don't pass `sourceMap: true` through to the underlying compiler), so
-the chainer would no-op there even if hooked up — extending coverage
-is straightforward but not yet done.
+Svelte intermediates carry inline maps too (`compileSvelte`). Svelte
+records the component's file by basename, so `compileSvelte` resolves
+each source against the original file's directory before inlining;
+without that, a frame named `<build>/svelte/pages/Page.svelte`, a file
+that doesn't exist. Verified in production by
+`tests/integration/server/production-sourcemaps.test.ts`. Angular
+intermediates still carry no map, so the chainer leaves Angular frames on
+the generated `.js`.
 
 ## What to do when Bun fixes it
 
@@ -163,7 +168,7 @@ the chainer becomes dead weight. Delete in this order:
 1. Remove the `chainBundleInlineSourcemap` call sites:
    - `src/dev/rebuildTrigger.ts` (`runVueBundleRebuild`'s
      post-Promise.all loop over server / client outputs).
-   - `src/core/build.ts` (post-Promise.all block guarded by `isDev`).
+   - `src/core/build.ts` (post-Promise.all server-sourcemap-chain block).
 2. Delete `src/build/chainInlineSourcemaps.ts`.
 3. Inline `buildLineRemap` / `remapGeneratedLines` callers in
    `src/build/compileVue.ts` keep working because they don't depend

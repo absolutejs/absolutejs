@@ -160,6 +160,12 @@ declare global {
 		__ABS_HMR_APPLIES__?: NonNullable<Window['__ABS_HMR_LAST_APPLY__']>[];
 		__ERROR_BOUNDARY__?: { reset: () => void };
 		__INITIAL_PROPS__?: Record<string, unknown>;
+		/** `useServerData` results the Vue page handler serialized for
+		 *  hydration. Entries are removed as components read them. */
+		__ABSOLUTE_SERVER_DATA__?: Record<
+			string,
+			import('./vue').ServerDataEntry
+		>;
 		__ABSOLUTE_PAGE_RENDER_MODE__?: 'client' | 'hydrate';
 		__ABS_REACT_REMOUNT__?: (module: Record<string, unknown>) => void;
 		__REACT_COMPONENT_KEY__?: string;

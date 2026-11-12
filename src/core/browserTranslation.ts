@@ -1,3 +1,4 @@
+import { nonceAttr } from '../utils/cspNonceRef';
 import { TRANSLATABLE_ATTRIBUTES } from '../client/browserTranslationAttributes';
 
 const BASELINE_MARKER = '__ABSOLUTE_SSR_TEXT_BASELINES__';
@@ -17,7 +18,7 @@ export const BROWSER_TRANSLATION_BASELINE_SCRIPT =
 	'const s=e.getAttribute(k);if(s!==null)v.set(k,s);}if(v.size)a.set(e,v);}}';
 
 export const browserTranslationBaselineTag = () =>
-	`<script>${BROWSER_TRANSLATION_BASELINE_SCRIPT}</script>`;
+	`<script${nonceAttr()}>${BROWSER_TRANSLATION_BASELINE_SCRIPT}</script>`;
 
 export const injectBrowserTranslationBaseline = (html: string) => {
 	if (html.includes(BASELINE_MARKER)) return html;

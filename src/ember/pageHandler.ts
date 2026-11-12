@@ -1,3 +1,5 @@
+import { escapeScriptContent } from '../utils/escapeScriptContent';
+import { nonceAttr } from '../utils/cspNonceRef';
 import { isDevelopmentRuntime } from '../utils/runtimeMode';
 import { withPageCacheHeaders } from '../core/pageResponseCache';
 import {
@@ -111,31 +113,30 @@ const buildHtmlShell = (
 	props: Record<string, unknown> | undefined,
 	hmrShim: string
 ) => {
-	const propsScript = `window.__INITIAL_PROPS__=${JSON.stringify(props ?? {})};`;
+	const propsScript = `window.__INITIAL_PROPS__=${escapeScriptContent(JSON.stringify(props ?? {}))};`;
 	const indexImport = indexPath
-		? `<script type="module" src="${indexPath}"></script>`
+		? `<script${nonceAttr()} type="module" src="${indexPath}"></script>`
 		: '';
 
 	return injectBrowserTranslationBaseline(
 		`<!DOCTYPE html><html>${headTag}<body>` +
 			`<div id="ember-root">${bodyContent}</div>` +
-			`<script>${propsScript}</script>${indexImport}${hmrShim}</body></html>`
+			`<script${nonceAttr()}>${propsScript}</script>${indexImport}${hmrShim}</body></html>`
 	);
 };
 
-let cachedEmberHmrShim: Promise<string> | null = null;
+let cachedEmberHmrBundle: Promise<string> | null = null;
 
-const getEmberHmrShim = () => {
-	if (cachedEmberHmrShim) return cachedEmberHmrShim;
-	cachedEmberHmrShim = import('../dev/buildHMRClient').then(
-		async ({ buildHMRClient }) => {
-			const bundle = await buildHMRClient();
-
-			return `<script>window.__HMR_FRAMEWORK__="ember";</script><script data-hmr-client>${bundle}</script>`;
-		}
+// The bundle is cached; the tags are built per request so each carries
+// that request's CSP nonce.
+const getEmberHmrShim = async () => {
+	cachedEmberHmrBundle ??= import('../dev/buildHMRClient').then(
+		({ buildHMRClient }) => buildHMRClient()
 	);
+	const bundle = await cachedEmberHmrBundle;
+	const nonce = nonceAttr();
 
-	return cachedEmberHmrShim;
+	return `<script${nonce}>window.__HMR_FRAMEWORK__="ember";</script><script${nonce} data-hmr-client>${bundle}</script>`;
 };
 
 export const handleEmberPageRequest = async (input: EmberPageRequestInput) => {

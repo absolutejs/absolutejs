@@ -19,6 +19,12 @@ export {
 export { Image } from './components/Image';
 export { StreamSlot, SuspenseSlot } from './components';
 export { useResource } from './useResource';
+export { useServerData } from './useServerData';
+export type {
+	ServerData,
+	ServerDataFetcher,
+	ServerDataOptions
+} from '../../types/vue';
 export { Link } from './router/Link';
 export { usePrefetch } from './usePrefetch';
 export type { UsePrefetchOptions } from './usePrefetch';

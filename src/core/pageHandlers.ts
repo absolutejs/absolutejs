@@ -18,6 +18,12 @@ import {
 	injectIslandPageContext
 } from './islandPageContext';
 import { injectBrowserTranslationBaseline } from './browserTranslation';
+import {
+	derivePageName,
+	renderConventionError
+} from '../utils/resolveConvention';
+import { ssrErrorPage } from '../utils/ssrErrorPage';
+import { nonceStaticHtml, withHtmxStyleNonce } from './staticHtmlNonce';
 
 export type StaticPageRequestOptions = StreamingSlotEnhancerOptions;
 
@@ -65,7 +71,10 @@ const handleStaticPageRequest = async (
 		enableStaticStreaming?: boolean;
 	} = {}
 ) => {
-	const html = await file(pagePath).text();
+	const nonced = await nonceStaticHtml(await file(pagePath).text());
+	const html = settings.enableHTMXStreaming
+		? await withHtmxStyleNonce(nonced)
+		: nonced;
 	const transformedHtml = await transformCurrentStaticPageHtml(
 		html,
 		settings
@@ -87,7 +96,48 @@ const handleStaticPageRequest = async (
 	);
 };
 
-export const handleHTMLPageRequest = (
+/* A static page that throws (or whose file can't be read) renders the
+ * error convention like the framework handlers do: `<Page>.error.html` or
+ * `error.html` (from the HTMX pages directory first for HTMX pages), with
+ * `{{ stack }}` empty in production, then the built-in error page. */
+const renderStaticPageError = async (
+	framework: 'html' | 'htmx',
+	pagePath: string,
+	error: unknown
+) => {
+	console.error(`[SSR] ${framework.toUpperCase()} page error:`, error);
+	const conventionResponse = await renderConventionError(
+		framework,
+		derivePageName(pagePath),
+		error
+	);
+
+	return withPageCacheHeaders(
+		conventionResponse ??
+			new Response(ssrErrorPage(framework, error), {
+				headers: { 'Content-Type': 'text/html' },
+				status: 500
+			})
+	);
+};
+
+const renderHTMLPage = async (
+	pagePath: string,
+	options: HTMLPageRequestOptions | undefined
+) => {
+	const html = await file(pagePath).text();
+	if (extractStaticStreamingTags(html).length > 0) {
+		throw new Error(
+			`HTML page "${pagePath}" uses <abs-stream-slot>, but HTML pages should pass explicit streamingSlots to handleHTMLPageRequest(...).`
+		);
+	}
+
+	return handleStaticPageRequest(pagePath, options, {
+		enableStaticStreaming: false
+	});
+};
+
+export const handleHTMLPageRequest = async (
 	pagePath: string,
 	options?: HTMLPageRequestOptions
 ) => {
@@ -96,32 +146,16 @@ export const handleHTMLPageRequest = (
 		pagePath,
 		options?.__absoluteMobile
 	);
-	if (mobileResponse) return Promise.resolve(mobileResponse);
-	const htmlFile = file(pagePath);
+	if (mobileResponse) return mobileResponse;
 
-	return htmlFile.text().then((html) => {
-		if (extractStaticStreamingTags(html).length > 0) {
-			throw new Error(
-				`HTML page "${pagePath}" uses <abs-stream-slot>, but HTML pages should pass explicit streamingSlots to handleHTMLPageRequest(...).`
-			);
-		}
-
-		return handleStaticPageRequest(pagePath, options, {
-			enableStaticStreaming: false
-		});
-	});
+	try {
+		return await renderHTMLPage(pagePath, options);
+	} catch (error) {
+		return renderStaticPageError('html', pagePath, error);
+	}
 };
 
-export const handleHTMXPageRequest = async (
-	pagePath: string,
-	options: HTMXPageRequestOptions = {}
-) => {
-	const mobileResponse = finalizeStaticMobilePage(
-		'htmx',
-		pagePath,
-		options.__absoluteMobile
-	);
-	if (mobileResponse) return mobileResponse;
+const renderHTMXPage = async (pagePath: string) => {
 	const html = await file(pagePath).text();
 	if (extractStaticStreamingTags(html).length > 0) {
 		throw new Error(
@@ -137,4 +171,22 @@ export const handleHTMXPageRequest = async (
 			enableStaticStreaming: false
 		}
 	);
+};
+
+export const handleHTMXPageRequest = async (
+	pagePath: string,
+	options: HTMXPageRequestOptions = {}
+) => {
+	const mobileResponse = finalizeStaticMobilePage(
+		'htmx',
+		pagePath,
+		options.__absoluteMobile
+	);
+	if (mobileResponse) return mobileResponse;
+
+	try {
+		return await renderHTMXPage(pagePath);
+	} catch (error) {
+		return renderStaticPageError('htmx', pagePath, error);
+	}
 };

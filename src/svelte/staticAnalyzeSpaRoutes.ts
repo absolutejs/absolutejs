@@ -18,43 +18,70 @@ const joinSegments = (parent: string, child: string) => {
 
 const readAttribute = (tag: string, name: string) => {
 	const re = new RegExp(
-		`${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|\\{?["']([^"']+)["']\\}?)`
+		`(?:^|\\s)${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|\\{?["']([^"']+)["']\\}?)`
 	);
 	const match = re.exec(tag);
 
 	return match ? (match[1] ?? match[2] ?? match[3] ?? null) : null;
 };
 
-const ROUTER_OPEN_TAG_PATTERN = /<Router\b([^>]*)>/g;
-const ROUTE_TAG_PATTERN = /<Route\b([^>]*)\/?>/g;
+type TagMatch = { attrs: string; end: number; start: number };
+
+/* Index of the `>` closing a tag whose attributes start at `from`. Braces
+ * are tracked so an expression attribute containing `>` — the arrow in
+ * `loader={() => import('./X.svelte')}` or `guard={…}` — doesn't end the
+ * tag early. */
+const findTagEnd = (source: string, from: number) => {
+	let depth = 0;
+	for (let index = from; index < source.length; index += 1) {
+		const char = source[index];
+		if (char === '{') depth += 1;
+		if (char === '}') depth -= 1;
+		if (char === '>' && depth <= 0) return index;
+	}
+
+	return -1;
+};
+
+const findTags = (source: string, name: string) => {
+	const tags: TagMatch[] = [];
+	const opener = new RegExp(`<${name}\\b`, 'g');
+	let match = opener.exec(source);
+	while (match !== null) {
+		const attrsStart = match.index + match[0].length;
+		const end = findTagEnd(source, attrsStart);
+		if (end === -1) break;
+		tags.push({
+			attrs: source.slice(attrsStart, end).replace(/\/$/, ''),
+			end: end + 1,
+			start: match.index
+		});
+		opener.lastIndex = end + 1;
+		match = opener.exec(source);
+	}
+
+	return tags;
+};
 
 const findRouterBlock = (
 	source: string
 ): { basepath: string; body: string } | null => {
-	const openMatch = ROUTER_OPEN_TAG_PATTERN.exec(source);
-	ROUTER_OPEN_TAG_PATTERN.lastIndex = 0;
-	if (!openMatch) return null;
-	const attrs = openMatch[1] ?? '';
-	const basepathRaw = readAttribute(`<Router ${attrs}>`, 'basepath');
+	const [openTag] = findTags(source, 'Router');
+	if (!openTag) return null;
+	const basepathRaw = readAttribute(openTag.attrs, 'basepath');
 	const basepath = basepathRaw ?? '/';
 
-	const closeIndex = source.indexOf('</Router>', openMatch.index);
+	const closeIndex = source.indexOf('</Router>', openTag.start);
 	if (closeIndex === -1) return null;
-	const body = source.slice(
-		openMatch.index + openMatch[0].length,
-		closeIndex
-	);
+	const body = source.slice(openTag.end, closeIndex);
 
 	return { basepath, body };
 };
 
 const extractRoutesFromBody = (body: string) => {
 	const out: SpaRoute[] = [];
-	let match;
-	ROUTE_TAG_PATTERN.lastIndex = 0;
-	while ((match = ROUTE_TAG_PATTERN.exec(body)) !== null) {
-		const attrs = match[1] ?? '';
-		const path = readAttribute(`<Route ${attrs}/>`, 'path');
+	for (const tag of findTags(body, 'Route')) {
+		const path = readAttribute(tag.attrs, 'path');
 		if (!path) continue;
 
 		out.push({

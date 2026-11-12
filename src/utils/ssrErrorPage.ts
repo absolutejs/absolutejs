@@ -1,3 +1,5 @@
+import { nonceAttr } from './cspNonceRef';
+
 type ErrorPageInput = {
 	framework: string;
 	kind: string;
@@ -31,7 +33,7 @@ const errorPageHtml = ({
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>SSR Error - AbsoluteJS</title>
-<style>
+<style${nonceAttr()}>
 *{margin:0;padding:0;box-sizing:border-box}
 body{min-height:100vh;background:linear-gradient(135deg,rgba(15,23,42,0.98) 0%,rgba(30,41,59,0.98) 100%);color:#e2e8f0;font-family:"JetBrains Mono","Fira Code",ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:14px;line-height:1.6;display:flex;align-items:flex-start;justify-content:center;padding:32px}
 .card{max-width:720px;width:100%;background:rgba(30,41,59,0.6);border:1px solid rgba(71,85,105,0.5);border-radius:16px;box-shadow:0 25px 50px -12px rgba(0,0,0,0.5),0 0 0 1px rgba(255,255,255,0.05);overflow:hidden}
@@ -68,7 +70,8 @@ ${script}
 // Dev build-error pages reload themselves: once the HMR socket reports a
 // finished rebuild or an update (or comes back after a server restart), the
 // fix is in, so asking for the page again shows it.
-const RELOAD_ON_REBUILD = `<script>(()=>{const url=(location.protocol==='https:'?'wss://':'ws://')+location.host+'/hmr';let seen=false;const connect=()=>{const socket=new WebSocket(url);socket.onopen=()=>{if(seen)location.reload();seen=true;};socket.onmessage=(event)=>{try{const message=JSON.parse(event.data);const type=message&&typeof message.type==='string'?message.type:'';if(type==='rebuild-complete'||type==='server-entry-reloaded'||type.endsWith('-update'))location.reload();}catch{}};socket.onclose=()=>setTimeout(connect,500);};connect();})();</script>`;
+const reloadOnRebuild = () =>
+	`<script${nonceAttr()}>(()=>{const url=(location.protocol==='https:'?'wss://':'ws://')+location.host+'/hmr';let seen=false;const connect=()=>{const socket=new WebSocket(url);socket.onopen=()=>{if(seen)location.reload();seen=true;};socket.onmessage=(event)=>{try{const message=JSON.parse(event.data);const type=message&&typeof message.type==='string'?message.type:'';if(type==='rebuild-complete'||type==='server-entry-reloaded'||type.endsWith('-update'))location.reload();}catch{}};socket.onclose=()=>setTimeout(connect,500);};connect();})();</script>`;
 
 /** Dev only: the page a request gets when its page failed to build, with
  *  the build's own error and a page that reloads itself once fixed. */
@@ -82,7 +85,7 @@ export const buildErrorPage = (
 		hint: 'Fix the file and save. This page reloads by itself when the build succeeds.',
 		kind: 'Build Error',
 		message: `${pageName || 'This page'} could not be built.\n\n${error ?? 'The dev-server terminal has the build output.'}`,
-		script: RELOAD_ON_REBUILD
+		script: reloadOnRebuild()
 	});
 
 export const ssrErrorPage = (framework: string, error: unknown) =>

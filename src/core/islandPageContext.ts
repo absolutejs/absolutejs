@@ -1,3 +1,5 @@
+import { escapeScriptContent } from '../utils/escapeScriptContent';
+import { nonceAttr } from '../utils/cspNonceRef';
 import { isProductionRuntime } from '../utils/runtimeMode';
 import { logWarn } from '../utils/logger';
 import { getIslandBootstrapPath } from './islandManifest';
@@ -33,11 +35,11 @@ export const resetIslandBootstrapWarning = () => {
 };
 
 const buildIslandsHeadMarkup = (manifest: Record<string, string>) => {
-	const manifestScript = `<script>window.__ABSOLUTE_MANIFEST__ = ${JSON.stringify(manifest)}</script>`;
-	const islandStateScript = `<script>window.__ABS_ISLAND_STATE__ = ${JSON.stringify(globalThis.__ABS_ISLAND_STATE__ ?? {})}</script>`;
+	const manifestScript = `<script${nonceAttr()}>window.__ABSOLUTE_MANIFEST__ = ${escapeScriptContent(JSON.stringify(manifest))}</script>`;
+	const islandStateScript = `<script${nonceAttr()}>window.__ABS_ISLAND_STATE__ = ${escapeScriptContent(JSON.stringify(globalThis.__ABS_ISLAND_STATE__ ?? {}))}</script>`;
 	const bootstrapPath = getIslandBootstrapPath(manifest);
 	const bootstrapScript = bootstrapPath
-		? `<script type="module" src="${bootstrapPath}"></script>`
+		? `<script${nonceAttr()} type="module" src="${bootstrapPath}"></script>`
 		: '';
 
 	return `${manifestScript}${islandStateScript}${bootstrapScript}`;

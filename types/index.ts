@@ -5,6 +5,7 @@ export * from './build';
 export * from './cli';
 export * from './env';
 export * from './client';
+export * from './fonts';
 export * from './image';
 export * from './island';
 export * from './messages';

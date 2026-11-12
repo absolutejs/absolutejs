@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from 'bun:test';
+import { afterEach, describe, expect, spyOn, test } from 'bun:test';
 import {
 	handleHTMLPageRequest,
 	handleHTMXPageRequest
@@ -27,14 +27,21 @@ afterEach(async () => {
 });
 
 describe('static page handlers', () => {
-	test('handleHTMLPageRequest rejects abs-stream-slot markup', async () => {
+	test('handleHTMLPageRequest answers abs-stream-slot markup with a 500 error page', async () => {
 		const pagePath = await writeTempPage(
 			'<!DOCTYPE html><html><head></head><body><abs-stream-slot resolver="salesSummary"><section>Loading summary...</section></abs-stream-slot></body></html>'
 		);
 
-		await expect(handleHTMLPageRequest(pagePath)).rejects.toThrow(
-			'HTML page'
+		// Rendered as an error page (status 500), like the framework
+		// handlers, rather than thrown out of the handler.
+		const errorSpy = spyOn(console, 'error').mockImplementation(
+			() => undefined
 		);
+		const response = await handleHTMLPageRequest(pagePath);
+		errorSpy.mockRestore();
+
+		expect(response.status).toBe(500);
+		expect(await response.text()).toContain('HTML page');
 	});
 
 	test('handleHTMLPageRequest applies explicit streaming slots through handler options', async () => {
@@ -85,14 +92,21 @@ describe('static page handlers', () => {
 		expect(html).not.toContain('__ABS_SLOT_ENQUEUE__');
 	});
 
-	test('handleHTMXPageRequest rejects abs-stream-slot markup', async () => {
+	test('handleHTMXPageRequest answers abs-stream-slot markup with a 500 error page', async () => {
 		const pagePath = await writeTempPage(
 			'<!DOCTYPE html><html><head></head><body><abs-stream-slot resolver="reportCard"><section>Loading...</section></abs-stream-slot></body></html>'
 		);
 
-		await expect(handleHTMXPageRequest(pagePath)).rejects.toThrow(
-			'HTMX page'
+		// Rendered as an error page (status 500), like the framework
+		// handlers, rather than thrown out of the handler.
+		const errorSpy = spyOn(console, 'error').mockImplementation(
+			() => undefined
 		);
+		const response = await handleHTMXPageRequest(pagePath);
+		errorSpy.mockRestore();
+
+		expect(response.status).toBe(500);
+		expect(await response.text()).toContain('HTMX page');
 	});
 
 	for (const [name, handle] of [

@@ -1,3 +1,8 @@
+import {
+	nonceAttr as nonceAttribute,
+	nonceSvelteHeadStyles,
+	readCspNonce
+} from '../utils/cspNonceRef';
 import { Readable } from 'node:stream';
 import type { Component, ComponentProps } from 'svelte';
 import { render } from 'svelte/server';
@@ -11,7 +16,10 @@ type SvelteRenderOutput = {
 
 type SvelteServerRender = (
 	component: Component<Record<string, unknown>>,
-	options?: { props?: Record<string, unknown> }
+	options?: {
+		csp?: { nonce?: string };
+		props?: Record<string, unknown>;
+	}
 ) => SvelteRenderOutput;
 
 const renderComponent: SvelteServerRender = render;
@@ -42,12 +50,17 @@ export const renderToPipeableStream = <
 	}: RenderPipeableOptions = {}
 ) => {
 	try {
+		// Svelte nonces its own head <style>/<script> tags with this.
+		const resolvedNonce = nonce ?? readCspNonce();
+		const svelteCsp = resolvedNonce
+			? { csp: { nonce: resolvedNonce } }
+			: {};
 		const rendered =
 			typeof props === 'undefined'
-				? renderComponent(component)
-				: renderComponent(component, { props });
+				? renderComponent(component, svelteCsp)
+				: renderComponent(component, { ...svelteCsp, props });
 		const { head, body } = rendered;
-		const nonceAttr = nonce ? ` nonce="${nonce}"` : '';
+		const nonceAttr = nonceAttribute(resolvedNonce);
 		const scripts = [
 			bootstrapScriptContent &&
 				`<script${nonceAttr}>${escapeScriptContent(bootstrapScriptContent)}</script>`,
@@ -64,7 +77,7 @@ export const renderToPipeableStream = <
 
 		const encoder = new TextEncoder();
 		const full = encoder.encode(
-			`<!DOCTYPE html><html lang="en"><head>${head}</head><body>${body}${scripts}</body></html>`
+			`<!DOCTYPE html><html lang="en"><head>${nonceSvelteHeadStyles(head, resolvedNonce)}</head><body>${body}${scripts}</body></html>`
 		);
 
 		let offset = 0;

@@ -2,8 +2,17 @@
 	type RouteEntry = {
 		// reactive — read by the winner-resolver
 		pattern: ReturnType<typeof import('./matchPath').compilePattern>;
+		// basepath-joined path pattern, the lazy-route cache key
+		fullPath: string;
 		// stable — assigned at registration time, used as tiebreaker
 		registrationOrder: number;
+		// read on demand so a changed prop is always seen
+		getGuard: () =>
+			| import('../../../types/svelteRouter').RouteGuard
+			| undefined;
+		getLoader: () =>
+			| import('../../../types/svelteRouter').LazyRouteLoader
+			| undefined;
 	};
 
 	type ActiveMatch = {
@@ -27,13 +36,27 @@
 
 <script lang="ts">
 	import { getContext, onMount, setContext, type Snippet } from 'svelte';
-	import type { RouterMode } from '../../../types/svelteRouter';
-	import { setRouterMode } from './goto';
-	import { hashPathnameOf } from './hashMode';
+	import type {
+		RouteGuard,
+		RouterMode,
+		SvelteRouterSsrState
+	} from '../../../types/svelteRouter';
+	import { type GuardEntry, runGuardChain } from './guards';
+	import { buildHashHref, hashPathnameOf } from './hashMode';
+	import { lazyCacheKey, loadLazy } from './lazy';
 	import { joinBasepath, matchPattern } from './matchPath';
-	import { page, seedPage, setPage } from './page.svelte';
+	import {
+		enterInitialRoute,
+		handleTraversal,
+		registerRouter,
+		restoreInitialScroll,
+		setRouterMode
+	} from './navigation';
+	import { page, seedPage } from './page.svelte';
+	import { activateScrollRestoration, stampInitialEntry } from './scroll';
 
 	const ROUTER_CONTEXT_KEY = Symbol.for('absolutejs.svelte-router');
+	const ROUTER_SSR_KEY = Symbol.for('absolutejs.svelte-router.ssr');
 
 	type RouterProps = {
 		/** SSR URL passthrough. On the server, the page handler forwards
@@ -46,6 +69,12 @@
 		/** `'history'` (default, clean URLs) or `'hash'` (`/#/path`,
 		 *  for static deploys). */
 		mode?: RouterMode;
+		/** Runs before every navigation onto this router's routes (the
+		 *  outermost router: every navigation), before the matched
+		 *  `<Route guard>`. Runs during the server render too, where a
+		 *  redirect becomes a 302. Return `false` to cancel, a URL or
+		 *  `redirect(...)` to redirect, nothing to allow. */
+		guard?: RouteGuard;
 		children?: Snippet;
 	};
 
@@ -53,10 +82,12 @@
 		url,
 		basepath = '',
 		mode = 'history',
+		guard,
 		children
 	}: RouterProps = $props();
 
 	const parent = getContext<RouterRegistry | undefined>(ROUTER_CONTEXT_KEY);
+	const ssr = getContext<SvelteRouterSsrState | undefined>(ROUTER_SSR_KEY);
 	const stackedBasepath = parent
 		? joinBasepath(parent.basepath, basepath)
 		: basepath === ''
@@ -77,14 +108,14 @@
 	const routes = $state(new Map<string, RouteEntry>());
 	let routeCounter = 0;
 
-	const computeWinner = (): ActiveMatch | null => {
+	const computeWinnerFor = (pathname: string): ActiveMatch | null => {
 		let bestId: string | null = null;
 		let bestParams: Record<string, string | undefined> | null = null;
 		let bestScore = -Infinity;
 		let bestOrder = Infinity;
 
 		for (const [id, entry] of routes) {
-			const match = matchPattern(entry.pattern, page.url.pathname);
+			const match = matchPattern(entry.pattern, pathname);
 			if (!match.matched) continue;
 
 			if (
@@ -118,7 +149,7 @@
 		deregister: (id) => {
 			routes.delete(id);
 		},
-		getActiveMatch: () => computeWinner(),
+		getActiveMatch: () => computeWinnerFor(page.url.pathname),
 		mode: stackedMode,
 		nextRouteId: () => `r${routeCounter++}`,
 		register: (id, entry) => {
@@ -127,6 +158,37 @@
 	};
 
 	setContext<RouterRegistry>(ROUTER_CONTEXT_KEY, registry);
+
+	// Guards for a navigation to `target`: this router's own guard (the
+	// outermost one always; a nested one only when one of its routes
+	// matches), then the matched route's guard.
+	const guardsFor = (target: URL) => {
+		const winner = computeWinnerFor(target.pathname);
+		const entries: GuardEntry[] = [];
+		const routerGuard = guard;
+		if (routerGuard && (isOutermost || winner)) {
+			entries.push({ guard: routerGuard, params: winner?.params ?? {} });
+		}
+		const routeGuard = winner
+			? routes.get(winner.id)?.getGuard()
+			: undefined;
+		if (winner && routeGuard) {
+			entries.push({ guard: routeGuard, params: winner.params });
+		}
+
+		return entries;
+	};
+
+	const preload = (target: URL) => {
+		const winner = computeWinnerFor(target.pathname);
+		const entry = winner ? routes.get(winner.id) : undefined;
+		const loader = entry?.getLoader();
+		if (!entry || !loader) return;
+		loadLazy(lazyCacheKey(entry.fullPath, loader), loader).catch(() => {
+			// A failed prefetch is retried (and reported) by the Route
+			// itself if the user actually navigates there.
+		});
+	};
 
 	if (isOutermost) {
 		setRouterMode(stackedMode);
@@ -145,31 +207,80 @@
 		seedPage(initial);
 	}
 
-	onMount(() => {
-		if (!isOutermost) return;
-
-		const onPopState = (event: PopStateEvent) => {
-			const next = new URL(window.location.href);
-			const routable =
-				stackedMode === 'hash' ? hashPathnameOf(next) : next.pathname;
-			const synthetic = new URL(next.href);
-			synthetic.pathname = routable;
-			setPage({
-				params: {},
-				state: event.state ?? null,
-				url: synthetic
+	// Server render: once this pass has registered every Route, run this
+	// router's guards for the request URL. The page handler awaits them
+	// before rendering again; a redirect becomes a 302. The URL is captured
+	// now — `page` is shared module state and other requests may render
+	// before the guards run.
+	if (ssr) {
+		const renderUrl = new URL(page.url.href);
+		const requestUrl = new URL(url ?? '/', 'http://localhost/');
+		const guardKey = `${stackedBasepath}\u0000${renderUrl.href}`;
+		ssr.afterRender(async () => {
+			if (ssr.outcome() !== undefined) return;
+			if (ssr.settledGuards.has(guardKey)) return;
+			ssr.settledGuards.add(guardKey);
+			const decision = await runGuardChain(guardsFor(renderUrl), {
+				from: null,
+				request: ssr.request,
+				to: renderUrl,
+				type: 'enter'
 			});
+			if (decision.kind === 'cancel') ssr.setOutcome({ kind: 'cancel' });
+			if (decision.kind !== 'redirect') return;
+			const target = new URL(decision.location, renderUrl);
+			const location =
+				stackedMode === 'hash'
+					? `${requestUrl.pathname}${requestUrl.search}${buildHashHref(target.pathname + target.search)}`
+					: target.origin === renderUrl.origin
+						? `${target.pathname}${target.search}${target.hash}`
+						: target.href;
+			ssr.setOutcome({ kind: 'redirect', location });
+		});
+	}
+
+	onMount(() => {
+		const unregister = registerRouter({ guardsFor, preload });
+		if (!isOutermost) return unregister;
+
+		const initialEntry = stampInitialEntry();
+		const deactivateScroll = activateScrollRestoration();
+		const navigationEntry = performance.getEntriesByType('navigation')[0];
+		const navigationKind =
+			navigationEntry && 'type' in navigationEntry
+				? navigationEntry.type
+				: undefined;
+		if (
+			initialEntry.scroll &&
+			(navigationKind === 'reload' || navigationKind === 'back_forward')
+		) {
+			void restoreInitialScroll(initialEntry.scroll);
+		}
+		if (stackedMode === 'hash') void enterInitialRoute(page.url);
+
+		const routableUrl = () => {
+			const next = new URL(window.location.href);
+			const synthetic = new URL(next.href);
+			if (stackedMode === 'hash')
+				synthetic.pathname = hashPathnameOf(next);
+
+			return synthetic;
 		};
 
+		let lastTraversalHref = '';
+		const onPopState = (event: PopStateEvent) => {
+			lastTraversalHref = window.location.href;
+			void handleTraversal(event.state, routableUrl());
+		};
+
+		// Browsers fire `popstate` for hash changes too; `hashchange` only
+		// catches the rare engine that doesn't, so skip URLs already handled.
 		const onHashChange = () => {
-			const next = new URL(window.location.href);
-			const synthetic = new URL(next.href);
-			synthetic.pathname = hashPathnameOf(next);
-			setPage({
-				params: {},
-				state: window.history.state ?? null,
-				url: synthetic
-			});
+			if (window.location.href === lastTraversalHref) return;
+			const next = routableUrl();
+			if (next.href === page.url.href) return;
+			lastTraversalHref = window.location.href;
+			void handleTraversal(window.history.state, next);
 		};
 
 		window.addEventListener('popstate', onPopState);
@@ -178,6 +289,8 @@
 		}
 
 		return () => {
+			unregister();
+			deactivateScroll();
 			window.removeEventListener('popstate', onPopState);
 			if (stackedMode === 'hash') {
 				window.removeEventListener('hashchange', onHashChange);

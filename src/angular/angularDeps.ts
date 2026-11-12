@@ -74,6 +74,7 @@ const loadAngularDeps = async () => {
 		APP_BASE_HREF: common.APP_BASE_HREF,
 		bootstrapApplication: platformBrowser.bootstrapApplication,
 		Component: core.Component,
+		CSP_NONCE: core.CSP_NONCE,
 		DomSanitizer: platformBrowser.DomSanitizer,
 		ENVIRONMENT_INITIALIZER: core.ENVIRONMENT_INITIALIZER,
 		inject: core.inject,

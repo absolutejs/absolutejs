@@ -13,6 +13,9 @@ import { afterEach, describe, expect, test } from 'bun:test';
 const { pushState, replaceState } =
 	await import('../../../../src/svelte/router/pushState');
 const { page } = await import('../../../../src/svelte/router/page.svelte');
+const { readHistoryMeta, readUserState } = await import(
+	'../../../../src/svelte/router/scroll'
+);
 
 const originalWindow = (globalThis as { window?: unknown }).window;
 
@@ -34,6 +37,8 @@ type FakeWindow = {
 		replaceState: (state: unknown, title: string, url: string) => void;
 	};
 	location: { href: string };
+	scrollX: number;
+	scrollY: number;
 };
 
 const installFakeWindow = () => {
@@ -52,7 +57,9 @@ const installFakeWindow = () => {
 				calls.push({ method: 'replaceState', state, title, url });
 			}
 		},
-		location: { href: 'http://example.test/start' }
+		location: { href: 'http://example.test/start' },
+		scrollX: 0,
+		scrollY: 0
 	};
 	(globalThis as { window?: unknown }).window = fake;
 
@@ -86,7 +93,13 @@ describe('pushState — with window', () => {
 
 		expect(calls).toHaveLength(1);
 		expect(calls[0]?.method).toBe('pushState');
-		expect(calls[0]?.state).toEqual({ id: 42, modal: 'photo' });
+		// The router keeps its own bookkeeping next to the user's state;
+		// `page.state` (and readUserState) see the user's value unchanged.
+		expect(readHistoryMeta(calls[0]?.state)?.key).toBeString();
+		expect(readUserState(calls[0]?.state)).toEqual({
+			id: 42,
+			modal: 'photo'
+		});
 		expect(calls[0]?.url).toBe('http://example.test/photos/42');
 		expect(page.state).toEqual({ id: 42, modal: 'photo' });
 		expect(page.url.pathname).toBe('/photos/42');
@@ -114,7 +127,9 @@ describe('replaceState — with window', () => {
 
 		expect(calls).toHaveLength(1);
 		expect(calls[0]?.method).toBe('replaceState');
-		expect(calls[0]?.state).toEqual({ redirect: '/dashboard' });
+		expect(readUserState(calls[0]?.state)).toEqual({
+			redirect: '/dashboard'
+		});
 		expect(calls[0]?.url).toBe('http://example.test/login');
 		expect(page.state).toEqual({ redirect: '/dashboard' });
 		expect(page.url.pathname).toBe('/login');

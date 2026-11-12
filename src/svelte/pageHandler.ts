@@ -1,3 +1,4 @@
+import { nonceAttr } from '../utils/cspNonceRef';
 import type { Component as SvelteComponent } from 'svelte';
 import type { SveltePropsOf } from '../../types/svelte';
 import { compileSvelteServerModule } from '../core/svelteServerModule';
@@ -35,6 +36,7 @@ import {
 	renderConventionError
 } from '../utils/resolveConvention';
 import { BROWSER_TRANSLATION_BASELINE_SCRIPT } from '../core/browserTranslation';
+import { createSvelteRouterSsr } from './routerSsr';
 
 type GenericSvelteComponent = SvelteComponent<Record<string, unknown>>;
 type ResolvedSveltePage = {
@@ -298,24 +300,32 @@ export const handleSveltePageRequest = async <
 			// it into headContent. See utils/inlinePageCss.
 			const siblingCss = await readSiblingCss(resolvedPagePath);
 			const cssBlock = siblingCss
-				? `<style data-absolute-page-css>${siblingCss}</style>`
+				? `<style data-absolute-page-css${nonceAttr()}>${siblingCss}</style>`
 				: '';
 			const composedHeadContent = `${cssBlock}${withDeferredStylesheets(
 				resolvedOptions?.headContent ?? '',
 				deferredAssets
 			)}`;
 
+			// The Svelte router's guards and lazy routes are awaited between
+			// render passes; a guard's redirect / cancel ends the request here.
+			const routerSsr = createSvelteRouterSsr(request);
 			const stream = await renderToReadableStream(
 				resolvedPage.component,
 				resolvedProps,
 				{
 					bodyContent: resolvedOptions?.bodyContent,
-					bootstrapScriptContent: `${BROWSER_TRANSLATION_BASELINE_SCRIPT}window.__ABS_SLOT_HYDRATION_PENDING__=true;window.__INITIAL_PROPS__=${JSON.stringify(
-						resolvedProps
-					)};${resolvedIndexPath ? `import(${JSON.stringify(resolvedIndexPath)});` : ''}`,
-					headContent: composedHeadContent
+					context: routerSsr.context,
+					headContent: composedHeadContent,
+					settle: routerSsr.settle,
+					bootstrapScriptContent: () =>
+						`${BROWSER_TRANSLATION_BASELINE_SCRIPT}window.__ABS_SLOT_HYDRATION_PENDING__=true;${routerSsr.bootstrapScript()}window.__INITIAL_PROPS__=${JSON.stringify(
+							resolvedProps
+						)};${resolvedIndexPath ? `import(${JSON.stringify(resolvedIndexPath)});` : ''}`
 				}
 			);
+			const routerResponse = routerSsr.response();
+			if (routerResponse) return routerResponse;
 
 			const htmlStream = injectIslandPageContextStream(stream, {
 				hasIslands: resolvedPage.hasIslands ? true : undefined

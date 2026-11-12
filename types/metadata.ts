@@ -45,6 +45,7 @@ export type MetaTag = {
 	content: string;
 };
 
+import type { FontAssets } from './fonts';
 import type { JsonLdSchema } from './jsonLd';
 
 /** A `<link rel="preload">` (or `rel="modulepreload"` when `module` is
@@ -74,7 +75,12 @@ export type Metadata = {
 	title?: string;
 	description?: string;
 	icon?: string;
+	/** A Google Fonts family name linked from fonts.googleapis.com at
+	 *  runtime. Prefer the `fonts` build config with `fonts` below. */
 	font?: string;
+	/** Self-hosted fonts built from the `fonts` config; pass
+	 *  `fontAssets(manifest)`. */
+	fonts?: FontAssets;
 	cssPath?: string | string[];
 	canonical?: string;
 	openGraph?: OpenGraph;

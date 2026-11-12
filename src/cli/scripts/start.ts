@@ -584,10 +584,21 @@ export const start = async (
 			)
 		: undefined;
 
+	// Svelte pages are separate bundles that import `svelte` from
+	// node_modules when they load. A second copy inlined here has its own
+	// component context, so a page calling `getContext` / `setContext` (the
+	// Svelte router does) failed with `lifecycle_outside_component`. Keep
+	// the one copy external.
+	const sharedPageRuntimes = buildConfig.svelteDirectory
+		? ['svelte', 'svelte/*']
+		: [];
 	const serverBundle = await Bun.build({
 		define: { 'process.env.NODE_ENV': '"production"' },
 		entrypoints: [resolve(serverEntry)],
-		external: resolveServerBundleExternals(buildConfig),
+		external: [
+			...resolveServerBundleExternals(buildConfig),
+			...sharedPageRuntimes
+		],
 		outdir: resolvedOutdir,
 		plugins: [
 			createOptionalPeerPlugin(),
@@ -603,6 +614,11 @@ export const start = async (
 			stubPlugin,
 			createBunStringRawUnicodePlugin()
 		],
+		// A linked map beside the bundle: Bun applies it to stack traces, so a
+		// production error points at src/backend/server.ts and the page
+		// component's source. The build dir is the static root, but
+		// serverOnlyStaticFiles keeps the bundle and its map off it.
+		sourcemap: 'linked',
 		target: 'bun',
 		// Default `throw: true` on newer Bun makes a build error
 		// bubble out as `AggregateError: Bundle failed` with no

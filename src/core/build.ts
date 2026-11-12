@@ -14,6 +14,8 @@ import {
 import { basename, dirname, extname, join, relative, resolve } from 'node:path';
 import { cwd, env, exit } from 'node:process';
 import { build as bunBuild, type BuildArtifact, Glob } from 'bun';
+import { buildFonts } from '../build/fonts/buildFonts';
+import { injectFontTags } from '../build/fonts/injectFontTags';
 import { generateManifest } from '../build/generateManifest';
 import { verifyAngularCoreUniqueness } from '../build/verifyAngularCoreUniqueness';
 import {
@@ -27,7 +29,8 @@ import { transformStaticPagesWithIslands } from '../build/staticIslandPages';
 import { outputLogs } from '../build/outputLogs';
 import { scanEntryPoints } from '../build/scanEntryPoints';
 import { createStampedFileCache } from '../build/stampedFileCache';
-import { scanConventions } from '../build/scanConventions';
+import { isConventionFile, scanConventions } from '../build/scanConventions';
+import { expandHtmlIncludes } from '../build/htmlIncludes';
 import { writeSpaSideManifests } from '../build/spaSideManifests';
 import {
 	buildServerBundleExternals,
@@ -117,6 +120,7 @@ import {
 	getGeneratedRoot
 } from '../utils/generatedDir';
 import { withBuildDirectoryLock } from '../utils/buildDirectoryLock';
+import { fontAssets } from '../utils/fontAssets';
 import { logError, logWarn } from '../utils/logger';
 import { normalizePath } from '../utils/normalizePath';
 import { toKebab, toPascal } from '../utils/stringModifiers';
@@ -124,6 +128,11 @@ import { validateSafePath } from '../utils/validateSafePath';
 import { setSpaRouteManifest } from '../utils/spaRouteManifest';
 import { isTestSourcePath } from '../utils/isTestSourcePath';
 import { injectPwaBootstrapHtml, materializeAbsolutePwa } from '../build/pwa';
+import {
+	injectVitalsReporterHtml,
+	isVitalsEnabled,
+	materializeVitalsReporter
+} from '../build/vitals';
 import { writePrecompressedAssets } from './precompressed';
 
 type BuildTraceEvent = {
@@ -359,6 +368,61 @@ const extractBuildError = (
 		throw err;
 	}
 	exit(1);
+};
+
+/* Copies a static (HTML) convention entry's files into `outDir`, so the
+ * production runtime can read them after the source tree is gone, and
+ * returns the entry pointing at the copies. */
+const materializeStaticConventions = (
+	entry: FrameworkConventionEntry,
+	outDir: string
+) => {
+	mkdirSync(outDir, { recursive: true });
+	const copyFile = (path: string | undefined) => {
+		if (!path) return undefined;
+		const dest = join(outDir, basename(path));
+		cpSync(path, dest, { force: true });
+
+		return dest;
+	};
+	const copyPaths = <Shape extends FrameworkConventions | PageConventions>(
+		paths: Shape
+	) =>
+		Object.fromEntries(
+			Object.entries(paths).map(([kind, path]) => [kind, copyFile(path)])
+		);
+	const materialized: FrameworkConventionEntry = {};
+	if (entry.defaults) materialized.defaults = copyPaths(entry.defaults);
+	if (entry.pages) {
+		materialized.pages = Object.fromEntries(
+			Object.entries(entry.pages).map(([name, page]) => [
+				name,
+				copyPaths(page)
+			])
+		);
+	}
+
+	return materialized;
+};
+
+/* Expands <abs-include> in every copied page (see htmlIncludes.ts). Paths
+ * resolve against the page's source location, where the partials are. */
+const expandStaticPageIncludes = async (
+	sourcePagesDir: string,
+	outputPagesDir: string
+) => {
+	const pages = await scanEntryPoints(outputPagesDir, '*.html');
+	await Promise.all(
+		pages.map(async (outputPage) => {
+			const html = await Bun.file(outputPage).text();
+			const expanded = expandHtmlIncludes(
+				html,
+				join(sourcePagesDir, relative(outputPagesDir, outputPage))
+			);
+			if (expanded.html !== html)
+				await Bun.write(outputPage, expanded.html);
+		})
+	);
 };
 
 type ManifestKeyCollision = { key: string; next: string; previous: string };
@@ -889,7 +953,9 @@ const buildUnlocked = async ({
 	htmxDirectory,
 	angularDirectory,
 	emberDirectory,
+	fonts,
 	pwa,
+	vitals,
 	svelteDirectory,
 	vueDirectory,
 	stylesConfig,
@@ -1173,6 +1239,24 @@ const buildUnlocked = async ({
 			)
 		: undefined;
 
+	const vitalsArtifacts =
+		vitals && isVitalsEnabled(vitals, isDev)
+			? await tracePhase('vitals/materialize', () =>
+					materializeVitalsReporter({
+						buildPath,
+						config: vitals,
+						generatedRoot,
+						write: !isIncremental
+					})
+				)
+			: undefined;
+	// Prepended to every framework client bundle: the PWA bootstrap and the
+	// web vitals reporter, each loaded with a dynamic import.
+	const clientBanner =
+		[pwaArtifacts?.bootstrapBanner, vitalsArtifacts?.banner]
+			.filter((banner): banner is string => Boolean(banner))
+			.join('\n') || undefined;
+
 	// Helper to find matching entry points for incremental files
 	// The dependency graph already includes all dependent files in incrementalFiles
 	const filterToIncrementalEntries = (
@@ -1219,6 +1303,21 @@ const buildUnlocked = async ({
 			})
 		);
 	}
+
+	// Self-host the configured fonts. Downloads are cached between builds,
+	// so only a full build does this; incremental builds keep the manifest
+	// keys from the base manifest.
+	const fontResult =
+		fonts && !isIncremental
+			? await tracePhase('fonts/build', () =>
+					buildFonts({
+						buildPath,
+						config: fonts,
+						projectRoot,
+						warn: (message) => console.warn(message)
+					})
+				)
+			: undefined;
 
 	// Tailwind + entry point scanning run in parallel (they're independent).
 	// Tailwind also has to rerun whenever any file it scans for utility-class
@@ -1362,25 +1461,25 @@ const buildUnlocked = async ({
 		const dirLabel = htmlConventionDirs[idx] ?? '<unknown>';
 		const { defaults: scannedDefaults, pages: scannedPages } =
 			result.conventions;
-		if (scannedDefaults?.error) {
-			if (htmlDefaults.error) {
-				logWarn(
-					`Multiple error.html files found; using ${htmlDefaults.error} and ignoring ${scannedDefaults.error} (${dirLabel}).`
-				);
-			} else {
-				htmlDefaults.error = scannedDefaults.error;
-				htmlConventionSources.push(scannedDefaults.error);
-			}
+		// The HTMX directory's own conventions are also kept under
+		// `conventionsMap.htmx` for HTMX pages, so a duplicate from there
+		// isn't ignored and needs no warning.
+		const isHtmxDir = dirLabel === htmxPagesPath;
+		if (scannedDefaults?.error && !htmlDefaults.error) {
+			htmlDefaults.error = scannedDefaults.error;
+			htmlConventionSources.push(scannedDefaults.error);
+		} else if (scannedDefaults?.error && !isHtmxDir) {
+			logWarn(
+				`Multiple error.html files found; using ${htmlDefaults.error} and ignoring ${scannedDefaults.error} (${dirLabel}).`
+			);
 		}
-		if (scannedDefaults?.notFound) {
-			if (htmlDefaults.notFound) {
-				logWarn(
-					`Multiple not-found.html files found; using ${htmlDefaults.notFound} and ignoring ${scannedDefaults.notFound} (${dirLabel}).`
-				);
-			} else {
-				htmlDefaults.notFound = scannedDefaults.notFound;
-				htmlConventionSources.push(scannedDefaults.notFound);
-			}
+		if (scannedDefaults?.notFound && !htmlDefaults.notFound) {
+			htmlDefaults.notFound = scannedDefaults.notFound;
+			htmlConventionSources.push(scannedDefaults.notFound);
+		} else if (scannedDefaults?.notFound && !isHtmxDir) {
+			logWarn(
+				`Multiple not-found.html files found; using ${htmlDefaults.notFound} and ignoring ${scannedDefaults.notFound} (${dirLabel}).`
+			);
 		}
 		if (scannedDefaults?.loading && !htmlDefaults.loading) {
 			htmlDefaults.loading = scannedDefaults.loading;
@@ -1448,6 +1547,18 @@ const buildUnlocked = async ({
 			htmlConventions.pages = remappedPages;
 		}
 		conventionsMap.html = htmlConventions;
+	}
+
+	// HTMX pages first use the conventions in the HTMX pages directory, then
+	// fall back to the shared html bucket above (which also includes them).
+	const htmxConventionResult = htmxPagesPath
+		? htmlConventionResults[htmlConventionDirs.indexOf(htmxPagesPath)]
+		: undefined;
+	if (htmxConventionResult?.conventions) {
+		conventionsMap.htmx = materializeStaticConventions(
+			htmxConventionResult.conventions,
+			join(buildPath, 'conventions', 'htmx')
+		);
 	}
 
 	// Warn if multiple frameworks define not-found convention files
@@ -2463,7 +2574,7 @@ const buildUnlocked = async ({
 		reactClientEntryPoints.length > 0
 			? mergeBunBuildConfig(
 					{
-						banner: pwaArtifacts?.bootstrapBanner,
+						banner: clientBanner,
 						define: clientDefine,
 						entrypoints: reactClientEntryPoints,
 						external: [
@@ -2554,11 +2665,14 @@ const buildUnlocked = async ({
 									createBunStringRawUnicodePlugin()
 								],
 								root: serverRoot,
-								// Dev-only inline sourcemaps + post-build
-								// chain so SSR error stacks map back to
-								// the .vue source (see
-								// docs/BUN_SOURCEMAP_CHAIN_BUG.md).
-								sourcemap: isDev ? 'inline' : 'none',
+								// Inline sourcemaps + post-build chain so
+								// SSR error stacks map back to the .vue /
+								// .svelte source in dev and production
+								// (see docs/BUN_SOURCEMAP_CHAIN_BUG.md).
+								// These bundles are server-only; production
+								// static serving excludes them
+								// (serverOnlyStaticFiles.ts).
+								sourcemap: 'inline',
 								target: 'bun',
 								throw: false,
 								...projectTsconfig()
@@ -2576,7 +2690,7 @@ const buildUnlocked = async ({
 					bunBuild(
 						mergeBunBuildConfig(
 							{
-								banner: pwaArtifacts?.bootstrapBanner,
+								banner: clientBanner,
 								conditions: svelteResolveConditions,
 								define: clientDefineWithVue,
 								entrypoints: nonReactClientEntryPoints,
@@ -2677,7 +2791,7 @@ const buildUnlocked = async ({
 					bunBuild(
 						mergeBunBuildConfig(
 							{
-								banner: pwaArtifacts?.bootstrapBanner,
+								banner: clientBanner,
 								conditions: svelteResolveConditions,
 								define: clientDefineWithVue,
 								entrypoints: islandClientEntryPoints,
@@ -2807,13 +2921,13 @@ const buildUnlocked = async ({
 		);
 	};
 
-	// Dev-mode sourcemap chain (docs/BUN_SOURCEMAP_CHAIN_BUG.md). Bun.build
+	// Server sourcemap chain (docs/BUN_SOURCEMAP_CHAIN_BUG.md). Bun.build
 	// emits a map from the final bundle back to the per-framework
 	// intermediate (e.g. compileVue's .absolutejs/generated/vue/.../X.js
 	// which carries its own inline map to the .vue source) but does
 	// not chain through it. Post-process here so SSR error stacks
-	// resolve to the user's source files.
-	if (isDev && serverResult?.success) {
+	// resolve to the user's source files, in production too.
+	if (serverResult?.success) {
 		const { chainBundleInlineSourcemaps } = await import(
 			'../build/chainInlineSourcemaps'
 		);
@@ -3140,7 +3254,8 @@ const buildUnlocked = async ({
 				...cssOutputs
 			],
 			buildPath
-		)
+		),
+		...fontResult?.manifest
 	};
 
 	// The server injects the islands bootstrap by a reserved manifest key, so
@@ -3292,7 +3407,10 @@ const buildUnlocked = async ({
 	const recordManifestKey = (key: string, path: string, source: string) => {
 		pageSources.set(path, source);
 		const previous = manifest[key];
-		if (previous && previous !== path) {
+		// Convention files (error.html, not-found.html) may exist in both
+		// directories by design; each directory's copy is used through the
+		// conventions map, not by manifest key.
+		if (previous && previous !== path && !isConventionFile(path)) {
 			manifestKeyCollisions.push({
 				key,
 				next: source,
@@ -3339,10 +3457,15 @@ const buildUnlocked = async ({
 			force: true,
 			recursive: true
 		});
+		// Includes first: everything below (asset paths, images, islands)
+		// then sees the included markup too.
+		await expandStaticPageIncludes(htmlPagesPath, outputHtmlPages);
 
 		// Every copy restores source URLs, including unrelated incremental builds.
 		// Always resolve them against the merged manifest before serving the page.
 		await updateAssetPaths(manifest, outputHtmlPages);
+		if (fonts && fonts.injectHtml !== false)
+			await injectFontTags(outputHtmlPages, fontAssets(manifest));
 		await optimizeHtmlImages(outputHtmlPages);
 
 		// Add HTML pages to manifest (absolute paths for Bun.file())
@@ -3356,6 +3479,10 @@ const buildUnlocked = async ({
 			if (pwaArtifacts) {
 				const source = readFileSync(htmlFile, 'utf8');
 				writeFileSync(htmlFile, injectPwaBootstrapHtml(source));
+			}
+			if (vitalsArtifacts) {
+				const source = readFileSync(htmlFile, 'utf8');
+				writeFileSync(htmlFile, injectVitalsReporterHtml(source));
 			}
 			recordManifestKey(
 				basename(htmlFile, '.html'),
@@ -3376,6 +3503,7 @@ const buildUnlocked = async ({
 			force: true,
 			recursive: true
 		});
+		await expandStaticPageIncludes(htmxPagesPath, outputHtmxPages);
 
 		if (shouldCopyHtmx) {
 			const htmxDestDir = isSingle
@@ -3386,6 +3514,8 @@ const buildUnlocked = async ({
 
 		// HTMX pages are also freshly copied on every incremental build.
 		await updateAssetPaths(manifest, outputHtmxPages);
+		if (fonts && fonts.injectHtml !== false)
+			await injectFontTags(outputHtmxPages, fontAssets(manifest));
 		await optimizeHtmlImages(outputHtmxPages);
 
 		// Add HTMX pages to manifest (absolute paths for Bun.file())
@@ -3399,6 +3529,10 @@ const buildUnlocked = async ({
 			if (pwaArtifacts) {
 				const source = readFileSync(htmxFile, 'utf8');
 				writeFileSync(htmxFile, injectPwaBootstrapHtml(source));
+			}
+			if (vitalsArtifacts) {
+				const source = readFileSync(htmxFile, 'utf8');
+				writeFileSync(htmxFile, injectVitalsReporterHtml(source));
 			}
 			recordManifestKey(
 				basename(htmxFile, '.html'),
@@ -3444,7 +3578,8 @@ const buildUnlocked = async ({
 				...cssOutputs.map((a) => a.path),
 				...siblingCssPaths,
 				...spaSideManifestPaths,
-				...conventionOutputPaths
+				...conventionOutputPaths,
+				...(fontResult?.outputPaths ?? [])
 			])
 		);
 	}

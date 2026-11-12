@@ -26,11 +26,13 @@
  * Global opt-out: `window.__ABSOLUTE_PREFETCH__ = false` disables every
  * entry point in this module (useful for analytics-sensitive pages).
  */
+import { applyPageNonce } from '../dev/client/cspNonce';
 import type {
 	HoverPrefetchHandle,
 	HoverPrefetchOptions,
 	PrefetchKind,
-	PrefetchOptions
+	PrefetchOptions,
+	ViewportPrefetchOptions
 } from '../../types/prefetch';
 
 const PREFETCH_CACHE_LIMIT = 16;
@@ -485,7 +487,7 @@ export const speculate = (url: string) => {
 		liveSpeculationRules.delete(oldest.value);
 	}
 
-	const script = document.createElement('script');
+	const script = applyPageNonce(document.createElement('script'));
 	script.type = 'speculationrules';
 	script.textContent = JSON.stringify({
 		prerender: [{ eagerness: 'immediate', urls: [url] }]
@@ -524,6 +526,7 @@ export const scheduleHoverPrefetch = (
 	const timer = window.setTimeout(() => {
 		prefetch(url, { kind: options.kind ?? 'route' });
 		if (options.prerender) speculate(url);
+		options.onPrefetch?.();
 	}, HOVER_DEBOUNCE_MS);
 
 	return {
@@ -532,7 +535,7 @@ export const scheduleHoverPrefetch = (
 };
 
 type ViewportTarget = {
-	options: PrefetchOptions;
+	options: ViewportPrefetchOptions;
 	url: string;
 };
 
@@ -545,7 +548,9 @@ const handleIntersections = (entries: IntersectionObserverEntry[]) => {
 		const target = viewportTargets.get(entry.target);
 		viewportObserver?.unobserve(entry.target);
 		viewportTargets.delete(entry.target);
-		if (target) prefetch(target.url, target.options);
+		if (!target) continue;
+		prefetch(target.url, { kind: target.options.kind });
+		target.options.onVisible?.();
 	}
 };
 
@@ -567,7 +572,7 @@ const getViewportObserver = () => {
 export const observeViewport = (
 	element: Element,
 	url: string,
-	options: PrefetchOptions = {}
+	options: ViewportPrefetchOptions = {}
 ) => {
 	const observer = getViewportObserver();
 	if (!observer || !canPrefetch()) return () => undefined;

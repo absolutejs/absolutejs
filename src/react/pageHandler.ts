@@ -1,3 +1,4 @@
+import { readCspNonce } from '../utils/cspNonceRef';
 import { isProductionRuntime } from '../utils/runtimeMode';
 import type { ComponentType as ReactComponent } from 'react';
 import { injectIslandPageContextStream } from '../core/islandPageContext';
@@ -189,6 +190,9 @@ export const handleReactPageRequest = async <
 					BROWSER_TRANSLATION_BASELINE_SCRIPT +
 					propsScript +
 					refreshSetup,
+				// React writes this nonce on its bootstrap and streaming
+				// scripts when secureHeaders() is on.
+				nonce: readCspNonce(),
 				onError(error: unknown) {
 					console.error('[SSR] React streaming error:', error);
 				}

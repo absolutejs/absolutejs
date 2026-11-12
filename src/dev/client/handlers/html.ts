@@ -1,5 +1,6 @@
 /* HTML + script HMR update handlers */
 
+import { applyPageNonce } from '../cspNonce';
 import { DOM_UPDATE_DELAY_MS } from '../constants';
 import { patchDOMInPlace } from '../domDiff';
 import {
@@ -286,7 +287,7 @@ const replaceInlineScript = (script: Element) => {
 		return;
 	}
 
-	const newScript = document.createElement('script');
+	const newScript = applyPageNonce(document.createElement('script'));
 	newScript.textContent = script.textContent || '';
 	const scriptEl = script instanceof HTMLScriptElement ? script : null;
 	newScript.type = scriptEl?.type || 'text/javascript';
@@ -330,7 +331,7 @@ const updateHTMLBodyDirect = (
 
 		removeOldScripts(container);
 		newScripts.forEach((scriptInfo) => {
-			const newScript = document.createElement('script');
+			const newScript = applyPageNonce(document.createElement('script'));
 			const separator = scriptInfo.src.includes('?') ? '&' : '?';
 			newScript.src = `${scriptInfo.src + separator}t=${Date.now()}`;
 			newScript.type = scriptInfo.type;
@@ -436,7 +437,7 @@ const reExecuteScripts = (
 	removeOldScripts(container);
 
 	newScripts.forEach((scriptInfo) => {
-		const newScript = document.createElement('script');
+		const newScript = applyPageNonce(document.createElement('script'));
 		const separator = scriptInfo.src.includes('?') ? '&' : '?';
 		newScript.src = `${scriptInfo.src + separator}t=${Date.now()}`;
 		newScript.type = scriptInfo.type;

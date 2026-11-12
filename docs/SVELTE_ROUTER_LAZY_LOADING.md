@@ -1,152 +1,85 @@
-# Svelte Router — Lazy Loading (Deferred)
+# Svelte Router — Lazy Loading
 
-Status: **Not implemented**. Documented here so we can pick this up cleanly if a real use case forces our hand.
+Status: **Shipped.** A `<Route>` can take a component **loader** instead of a `content` snippet. The build splits the component into its own chunk, the browser loads it when the route is first needed (or prefetched), and the server awaits it so the HTML is complete and hydration matches.
 
-## Why we deferred it
-
-AbsoluteJS already code-splits at the **page** level — `/svelte/*` ships only `SvelteSpa`'s code, `/react/*` ships only `ReactSpa`'s, etc. Sub-routes inside a single page (the `<Route>` blocks our router exposes) all live in the same page bundle.
-
-For the typical AbsoluteJS app, that page bundle is small and a few sub-routes don't justify per-route splitting. The manual `{#await import(...)}` escape hatch (below) covers the rare "one sub-route is huge" case without requiring router API changes.
-
-## When to revisit
-
-Bring this back to the top of the queue when **any** of these is true:
-
-- A real user reports that one sub-route is dragging their initial bundle (look for >50KB attributable to a single sub-route's content).
-- We start shipping `<Route>`-style APIs in user-facing examples that pull in heavy deps (rich-text editors, charting libs, 3D viewers).
-- We add a `<RouterOutlet routes={...} />` config-based API (see [SVELTE_ROUTER_PLAN.md](./SVELTE_ROUTER_PLAN.md)) — config-based routes naturally take a `loader` function, so adding lazy loading there is essentially free.
-
-If none of those hit, leave it alone.
-
-## What users do today (the workaround)
-
-A regular `<Route>` snippet can hold a Svelte `{#await}` block around a dynamic `import()`. Bun.build (and any other bundler) sees the `import()` and splits it automatically — no router API needed.
+## API
 
 ```svelte
-<Route path="/svelte/editor">
-  {#snippet content()}
-    {#await import('./HeavyEditor.svelte')}
-      <p>Loading…</p>
-    {:then mod}
-      <mod.default />
-    {:catch err}
-      <p>Failed to load: {err.message}</p>
-    {/await}
-  {/snippet}
-</Route>
+<script lang="ts">
+	import Router from '@absolutejs/absolute/svelte/router/Router.svelte';
+	import Route from '@absolutejs/absolute/svelte/router/Route.svelte';
+	import Link from '@absolutejs/absolute/svelte/router/Link.svelte';
+
+	let { url }: { url?: string } = $props();
+</script>
+
+<Router {url}>
+	<Link to="/app/editor/7">Open the editor</Link>
+
+	<!-- Eager (unchanged) -->
+	<Route path="/app">
+		{#snippet content()}<Home />{/snippet}
+	</Route>
+
+	<!-- Lazy -->
+	<Route
+		path="/app/editor/:id"
+		loader={() => import('./Editor.svelte')}
+		props={{ readOnly: false }}
+	>
+		{#snippet pending()}<p>Loading the editor…</p>{/snippet}
+		{#snippet error(reason, retry)}
+			<p>The editor failed to load.</p>
+			<button onclick={retry}>Try again</button>
+		{/snippet}
+	</Route>
+</Router>
 ```
 
-This is documented as the recommended pattern. **No router-side support is needed for it to work.** The server renders the pending branch, and the browser loads the chunk and renders `mod.default` after hydration.
+| Prop | |
+| --- | --- |
+| `loader` | `() => Promise<module \| Component>` — `() => import('./X.svelte')` works as is; a loader that already unwraps `.default` works too |
+| `props` | extra props for the component; the route params are passed as props as well (`Editor` above gets `id`) |
+| `pending` | snippet shown while a client-side navigation waits for the chunk |
+| `error` | snippet `(reason, retry)` shown when the loader rejects; without it the error is rethrown (the dev overlay shows it, and on the server the page fails like any SSR error) |
 
-Leave this block unmarked. Through 0.20.0-beta.169 AbsoluteJS lowered every `{#await}` into a streaming slot, which broke this pattern: the component arrived as text and the page never hydrated. Streaming is now opt-in with `<!-- absolute:stream -->` (see the README), and a streamed block can't render a component, so this pattern must stay a plain `{#await}`.
+`content` and `loader` are alternatives: the published `Route.svelte.d.ts` types them as a union, and a lazy route's `props` are checked against the component's props minus the route params.
 
-## Proposed API (when we do add it)
+## How it works
 
-The natural shape mirrors what every other config-based router does — a `loader` prop that returns a `Promise` resolving to the route's snippet (or default-exported component).
+### Build
 
-### Surface
+The Svelte compiler collects `import('./X.svelte')` specifiers alongside static imports, compiles those children, and the client bundle (code splitting is on) puts each in its own chunk. Two small additions make hydration possible:
 
-```svelte
-<!-- Eager (today's API, unchanged) -->
-<Route path="/svelte/home">
-  {#snippet content()}<HomeView />{/snippet}
-</Route>
+- every compiled **server** module exports `__ABSOLUTE_SVELTE_SOURCE__` (its project-relative source path), also stamped on the component function;
+- every compiled **client** module that imports a `.svelte` file dynamically registers `source → () => import(chunk)` in a `globalThis` registry (`Symbol.for('absolutejs.svelte.lazy-modules')`).
 
-<!-- Lazy (new) -->
-<Route
-  path="/svelte/editor"
-  loader={() => import('./HeavyEditor.svelte').then((m) => m.default)}
-/>
+### Server render
 
-<!-- Lazy with custom loading UI -->
-<Route
-  path="/svelte/editor"
-  loader={() => import('./HeavyEditor.svelte').then((m) => m.default)}
->
-  {#snippet pending()}<p>Loading editor…</p>{/snippet}
-  {#snippet error(err)}<p>Failed: {err.message}</p>{/snippet}
-</Route>
-```
+Svelte's server render is synchronous, so the page handler renders in passes (at most 5). In the first pass an active lazy route starts its loader; the handler awaits it and renders again with the component resolved, so the HTML holds the real component — no pending state, no flash. One extra pass per nesting level of lazy routes; a page without lazy routes renders once, as before.
 
-### Type shape (`types/svelteRouter.ts`)
+The handler then writes `window.__ABS_SVELTE_LAZY_ROUTES__ = { "<route pattern>": "<source>" }` into the bootstrap script.
 
-Make `RouteProps` a discriminated union:
+### Hydration
 
-```ts
-type EagerRouteProps<P extends string> = {
-  path: P;
-  content: Snippet<[ExtractRouteParams<P>]>;
-};
+Before it hydrates, the page's hydration entry loads the modules named in `__ABS_SVELTE_LAZY_ROUTES__` through the registry, and the lazy `<Route>` finds its component synchronously on the first client render. Hydration therefore adopts the server's DOM: no pending flash and no mismatch. (A loader that resolves to something without the source stamp still works; the route then re-renders once its chunk arrives.)
 
-type LazyRouteProps<P extends string> = {
-  path: P;
-  loader: () => Promise<Component<ExtractRouteParams<P>>>;
-  pending?: Snippet;
-  error?: Snippet<[unknown]>;
-};
+### Browser cache and prefetch
 
-type RouteProps<P extends string> = EagerRouteProps<P> | LazyRouteProps<P>;
-```
+Components are cached by route pattern plus the loader's source text, so a route visited or prefetched once renders synchronously the next time. `<Link>` prefetching warms the chunk on the same triggers as the document prefetch — hover (debounced), `pointerdown`, and viewport in production — and under the same data-saver / `window.__ABSOLUTE_PREFETCH__ = false` rules. `preloadRoute(href)` does the same programmatically.
 
-The discriminator is presence of `loader` vs `content`. Reject both being set with a runtime error in dev (clear devx > clever overload).
+A navigation commits immediately and shows `pending` while an unprefetched chunk loads; scroll restoration waits for in-flight lazy loads (up to 3 s) before restoring a back/forward position.
 
-### Implementation sketch
+### SPA route manifest
 
-Inside `Route.svelte`:
+The static route scan that answers unknown SPA paths with 404 reads `<Route>` tags brace-aware, so `loader={() => import(...)}` and `guard={...}` arrow functions no longer cut a tag short and drop its `path`.
 
-1. **Detect mode**: branch on `'loader' in $props`.
-2. **Eager mode**: unchanged — `{#if isActive}{@render content(match.params)}{/if}`.
-3. **Lazy mode**:
-   - Maintain a per-Route `Promise` cache (module-level `WeakMap<loader, Promise<Component>>` so the same loader fn isn't re-invoked).
-   - When `isActive` flips true and the cache miss, kick off `loader()`.
-   - Use `{#await}` inline:
-     ```svelte
-     {#if isActive && match}
-       {#await ensureLoaded(loader)}
-         {#if pending}{@render pending()}{:else}<!-- silent -->{/if}
-       {:then Comp}
-         <Comp {...match.params} />
-       {:catch err}
-         {#if error}{@render error(err)}{:else}{throw err}{/if}
-       {/await}
-     {/if}
-     ```
-4. **Prefetching** (deferred-deferred): hook into the existing `prefetchCache.ts` (hover-prefetch). When `<Link to="/svelte/editor">` is hovered, fire the matching Route's `loader()` to warm the chunk before navigation. Map link targets to loaders via the registry.
+## Plain `{#await import()}`
 
-### SSR behavior
+Still works and still needs no router support: the server renders the pending branch and the browser renders `mod.default` after hydrating. Leave such a block unmarked — a block marked `<!-- absolute:stream -->` can't render a component. Prefer `loader` when the server should render the component.
 
-Two reasonable choices:
+## Tests
 
-- **Block SSR on the loader** — await it during render so SSR HTML is complete. Pro: no hydration flash. Con: TTFB regression for slow loaders. **Recommended for the first version.**
-- **Stream / suspense-style** — render `pending` snippet to SSR, hydrate later. Requires absolutejs streaming-slot plumbing. Defer until streaming-slots integration is solid for non-React frameworks.
-
-Start with blocking SSR. The lazy benefit is client bundle size, not server time, so blocking SSR doesn't lose anything important.
-
-### Type-safe `loader` return
-
-`Component<P>` is Svelte 5's component constructor type. Importing `.svelte` files via `import()` returns `{ default: Component<P> }`. Users write `loader: () => import('./X.svelte').then(m => m.default)` to unwrap. We could provide a helper:
-
-```ts
-export const lazy = <P>(loader: () => Promise<{ default: Component<P> }>) =>
-  () => loader().then((m) => m.default);
-
-// Usage:
-<Route path="/x" loader={lazy(() => import('./X.svelte'))} />
-```
-
-Worth shipping — it's three lines and saves users from getting the `.then((m) => m.default)` wrong.
-
-## Tests to write when we land it
-
-- Eager mode still works (regression).
-- Lazy mode: navigating to a lazy Route resolves the loader, renders the component.
-- Loader runs **once** per Route instance even if URL flips active → inactive → active.
-- `pending` snippet renders while loader is pending.
-- `error` snippet catches loader rejection; if absent, error propagates to the absolutejs error overlay.
-- Prefetch: hovering a `<Link>` to a lazy route fires its loader.
-- SSR blocks on the loader and emits the resolved component's HTML.
-- Two `<Route>`s with the same `loader` reference share the cached promise.
-
-## Compatibility note
-
-This is a strict addition — existing Routes using `content` snippets keep working unchanged. No breaking changes. Safe to ship in a minor version bump.
+- `tests/unit/svelte/routerSsr.test.ts` — loads ask for another pass, record their source, failures, the bootstrap script.
+- `tests/unit/svelte/staticAnalyzeSpaRoutes.test.ts` — routes with arrow-function attributes stay in the SPA manifest.
+- `tests/integration/build/svelte-router-browser.test.ts` — the chunk isn't among the scripts the page loads, arrives on hover prefetch, a non-prefetched lazy route shows `pending` then the component, a direct request renders the component, and hydration keeps the server's node with no pending flash and no hydration warning.

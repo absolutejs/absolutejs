@@ -5,6 +5,7 @@ import { resolvePackageImport } from '../build/resolvePackageImport';
 import { lowerSvelteIslandSyntax } from '../svelte/lowerIslandSyntax';
 import { lowerSvelteAwaitSlotSyntax } from '../svelte/lowerAwaitSlotSyntax';
 import { createSvelteStylePreprocessor } from '../build/stylePreprocessor';
+import { LAZY_SOURCE_EXPORT } from '../svelte/router/lazyModule';
 
 const serverCacheRoot = join(process.cwd(), '.absolutejs', 'islands', 'svelte');
 
@@ -205,11 +206,19 @@ export const compileSvelteServerModule = async (sourcePath: string) => {
 		sourcePath.endsWith('.ts') || sourcePath.endsWith('.svelte.ts')
 			? transpiler.transformSync(preprocessed.code)
 			: preprocessed.code;
+	// Static imports, plus `import('./Page.svelte')` (a lazy `<Route
+	// loader>`), whose child must be compiled too.
 	const childImportSpecs = Array.from(
-		transpiled.matchAll(/from\s+['"]([^'"]+)['"]/g)
-	)
-		.map((match) => match[1])
-		.filter((value): value is string => value !== undefined);
+		new Set(
+			Array.from(
+				transpiled.matchAll(
+					/(?:from\s+|\bimport\s*\(\s*)['"]([^'"]+)['"]/g
+				)
+			)
+				.map((match) => match[1])
+				.filter((value): value is string => value !== undefined)
+		)
+	);
 	const resolvedChildModules = await Promise.all(
 		childImportSpecs.map((spec) =>
 			resolveSvelteImport(spec, resolutionSourcePath)
@@ -282,6 +291,19 @@ export const compileSvelteServerModule = async (sourcePath: string) => {
 
 	for (const [spec, resolvedModuleImport] of rewrittenModulePaths) {
 		compiledCode = compiledCode.replaceAll(spec, resolvedModuleImport);
+	}
+
+	// Name the source, as compileSvelte does, so a lazy route rendered
+	// from this module can be matched to its client chunk.
+	const sourceId = JSON.stringify(
+		relative(process.cwd(), resolutionSourcePath).replace(/\\/g, '/')
+	);
+	const componentName = /export default function ([\w$]+)\s*\(/.exec(
+		compiledCode
+	)?.[1];
+	compiledCode += `\nexport const ${LAZY_SOURCE_EXPORT} = ${sourceId};`;
+	if (componentName) {
+		compiledCode += `\n${componentName}.${LAZY_SOURCE_EXPORT} = ${sourceId};`;
 	}
 
 	const compiledModulePath = getCachedModulePath(sourcePath);

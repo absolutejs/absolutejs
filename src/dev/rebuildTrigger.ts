@@ -4153,6 +4153,37 @@ const handleHTMLScriptHMR = (
 	});
 };
 
+/* The static pages to live-update for a batch of edited files. An edited
+ * page updates itself. An edited partial or layout (any other .html file,
+ * e.g. html/partials/header.html) isn't a page: every page in
+ * `sourcePagesDir` that includes it, directly or through another include,
+ * updates instead (htmlIncludes.ts). */
+const resolveStaticPageTargets = async (
+	files: string[],
+	sourcePagesDir: string
+) => {
+	const pagesDir = resolvePath(sourcePagesDir);
+	const htmlFiles = files
+		.filter((file) => file.endsWith('.html'))
+		.map((file) => resolvePath(file));
+	const pages = htmlFiles.filter((file) => dirname(file) === pagesDir);
+	const partials = new Set(
+		htmlFiles.filter((file) => dirname(file) !== pagesDir)
+	);
+	if (partials.size === 0) return pages;
+
+	const { collectHtmlIncludeDependencies } =
+		await import('../build/htmlIncludes');
+	const including = (await scanEntryPoints(pagesDir, '*.html')).filter(
+		(page) =>
+			collectHtmlIncludeDependencies(page).some((dependency) =>
+				partials.has(dependency)
+			)
+	);
+
+	return [...new Set([...pages, ...including])];
+};
+
 const computeOutputPagesDir = (
 	state: HMRState,
 	config: BuildConfig,
@@ -4232,14 +4263,19 @@ const handleHTMLPageHMR = async (
 	const htmlFrameworkFiles = filesToRebuild.filter(
 		(file) => detectFramework(file, state.resolvedPaths) === 'html'
 	);
+	const htmlPageFiles = await resolveStaticPageTargets(
+		filesToRebuild,
+		join(state.resolvedPaths.htmlDir, 'pages')
+	);
 
-	if (htmlFrameworkFiles.length === 0 && !shouldRefreshFromIslandChange) {
+	if (
+		htmlFrameworkFiles.length === 0 &&
+		htmlPageFiles.length === 0 &&
+		!shouldRefreshFromIslandChange
+	) {
 		return;
 	}
 
-	const htmlPageFiles = htmlFrameworkFiles.filter((file) =>
-		file.endsWith('.html')
-	);
 	const outputHtmlPages = computeOutputPagesDir(state, config, 'html');
 	const shouldRefreshAllPages =
 		htmlPageFiles.length === 0 && shouldRefreshFromIslandChange;
@@ -4737,14 +4773,19 @@ const handleHTMXPageHMR = async (
 	const htmxFrameworkFiles = filesToRebuild.filter(
 		(file) => detectFramework(file, state.resolvedPaths) === 'htmx'
 	);
+	const htmxPageFiles = await resolveStaticPageTargets(
+		filesToRebuild,
+		join(state.resolvedPaths.htmxDir, 'pages')
+	);
 
-	if (htmxFrameworkFiles.length === 0 && !shouldRefreshFromIslandChange) {
+	if (
+		htmxFrameworkFiles.length === 0 &&
+		htmxPageFiles.length === 0 &&
+		!shouldRefreshFromIslandChange
+	) {
 		return;
 	}
 
-	const htmxPageFiles = htmxFrameworkFiles.filter((file) =>
-		file.endsWith('.html')
-	);
 	const outputHtmxPages = computeOutputPagesDir(state, config, 'htmx');
 	const shouldRefreshAllPages =
 		htmxPageFiles.length === 0 && shouldRefreshFromIslandChange;

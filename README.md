@@ -148,6 +148,109 @@ A streamed block's branches are sent as HTML, so they may contain elements and
 is a build error. A page that streams a block isn't hydrated, so use it for
 content that needs no interactivity.
 
+### Svelte router: guards, lazy routes and scroll restoration
+
+`<Router>`, `<Route>` and `<Link>` from `@absolutejs/absolute/svelte/router/*.svelte`
+route inside one Svelte page. Routes can be guarded and lazily loaded, and
+the router manages the scroll position:
+
+```svelte
+<script lang="ts">
+	import Router from '@absolutejs/absolute/svelte/router/Router.svelte';
+	import Route from '@absolutejs/absolute/svelte/router/Route.svelte';
+	import Link from '@absolutejs/absolute/svelte/router/Link.svelte';
+	import {
+		beforeNavigate,
+		redirect
+	} from '@absolutejs/absolute/svelte/router';
+
+	let { url }: { url?: string } = $props();
+
+	// Browser only: runs before every Link click, goto() and back/forward.
+	beforeNavigate(({ type }) => {
+		if (type === 'popstate' && hasUnsavedChanges()) return false;
+	});
+</script>
+
+<Router {url}>
+	<Link to="/app/editor/1">Editor</Link>
+
+	<Route
+		path="/app/admin"
+		guard={({ request }) => {
+			// Runs in the browser and during the server render.
+			if (!isAdmin(request)) throw redirect('/app/login');
+		}}
+	>
+		{#snippet content()}<AdminPanel />{/snippet}
+	</Route>
+
+	<Route path="/app/editor/:id" loader={() => import('./Editor.svelte')}>
+		{#snippet pending()}<p>Loading the editor…</p>{/snippet}
+		{#snippet error(reason, retry)}<button onclick={retry}>Retry</button
+			>{/snippet}
+	</Route>
+</Router>
+```
+
+- **Guards** (`guard` on a `<Route>` or `<Router>`, plus `beforeNavigate`) can
+  be async and return nothing to allow, `false` to cancel, or a URL /
+  `redirect()` to redirect. They run for `<Link>` clicks, `goto()` and
+  back/forward; cancelling a back/forward puts the URL back. Route and Router
+  guards also run during the server render, where a redirect is a real 302
+  (and a cancel a 403); they get the request as `request`.
+- **Lazy routes** (`loader`) are split into their own chunk, loaded when the
+  route is first needed or when a `<Link>` to it is prefetched (hover /
+  viewport). The server awaits the loader, so the HTML holds the real
+  component, and the browser loads the chunk before hydrating, so there is no
+  pending flash. `pending` shows while a client-side navigation waits for the
+  chunk. The component gets the route params (and `props`) as props.
+- **Scroll**: while a router is mounted it sets
+  `history.scrollRestoration = 'manual'`, starts new navigations at the top
+  (or at the `#hash` target), and restores the position on back/forward and
+  reload. `goto(url, { noScroll: true })` or `<Link noScroll>` leaves the
+  scroll alone.
+
+### Vue server data
+
+`useServerData(key, fetcher)` loads data while a Vue page renders on the
+server and sends it with the page, so hydration reuses it instead of fetching
+again. A client-side route change, or a page whose data wasn't loaded on the
+server, fetches in the browser. `data` is typed from the fetcher:
+
+```vue
+<script setup lang="ts">
+import { useServerData } from '@absolutejs/absolute/vue';
+
+const { data, error, pending, refresh } = useServerData('posts', loadPosts);
+</script>
+```
+
+Keys must be unique within a request, and results must be JSON-serializable. A
+fetcher that throws on the server renders an error state instead of failing
+the page. See [docs/VUE_SERVER_DATA.md](docs/VUE_SERVER_DATA.md).
+
+### Layouts and partials for HTML pages
+
+HTML and HTMX pages can share headers, footers and layouts with build-time
+includes:
+
+```html
+<!-- html/pages/About.html -->
+<abs-include src="../layouts/base.html">
+	<template slot="head"><title>About us</title></template>
+	<h1>About us</h1>
+	<abs-include src="../partials/team.html"></abs-include>
+</abs-include>
+```
+
+The layout puts the content where its `<abs-slot>` and
+`<abs-slot name="head">` tags are. Only files directly in `pages/` are
+pages, so keep partials and layouts in folders like `html/partials/`.
+Islands, asset links and images inside included markup are handled like a
+page's own, and in dev, editing a partial updates every page that uses it.
+See [docs/HTML_INCLUDES.md](docs/HTML_INCLUDES.md).
+
 ### Islands on HTML and HTMX pages
 
 Static HTML and HTMX pages can embed components of any framework as islands.
@@ -211,6 +314,38 @@ startIslands({
 
 If a page has islands but the build produced no bootstrap, the dev server logs
 a warning instead of serving islands that never hydrate.
+
+### Security headers and CSP
+
+`secureHeaders()` adds a strict Content-Security-Policy with a fresh nonce
+per request, plus `X-Content-Type-Options`, `Referrer-Policy`,
+`frame-ancestors` and `Permissions-Policy`:
+
+```ts
+export const server = new Elysia()
+	.use(secureHeaders())
+	.use(absolutejs);
+```
+
+Scripts run only with the nonce (`'strict-dynamic'`, no `'unsafe-inline'`),
+and every inline script and style AbsoluteJS writes carries it, for every
+framework, including streaming slots, islands, pre-rendered pages and the dev
+HMR client. Use `getCspNonce()` for your own inline scripts. See
+[docs/SECURITY_HEADERS.md](docs/SECURITY_HEADERS.md).
+
+### Web vitals
+
+Turn on `vitals` to report LCP, INP, CLS, FCP and TTFB from real visits:
+
+```ts
+// absolute.config.ts
+vitals: { sampleRate: 0.25 }
+```
+
+Every page then loads a small reporter that sends one batch per page, with
+its route, to `POST /__absolute/vitals`. Nothing is stored by default; receive
+the metrics with `onVital((report) => …)`. Off by default, and off in dev
+unless `dev: true`. See [docs/WEB_VITALS.md](docs/WEB_VITALS.md).
 
 ### Installable PWA and offline Sync
 
@@ -433,6 +568,24 @@ Clipboard and Share use browser standards on the web and fail with normalized
 errors when unavailable. Haptics uses vibration where supported and otherwise
 safely becomes a no-op, because tactile feedback must never be required to
 complete an action.
+
+### Self-hosted fonts
+
+List your fonts in `absolute.config.ts` and the build downloads them from
+Google Fonts (or copies local files), serves them from your own origin with
+hashed names, preloads the critical faces and adds a metric-matched fallback
+so text doesn't shift while the font loads:
+
+```ts
+export default defineConfig({
+	fonts: { families: [{ family: 'Poppins', weights: [400, 700] }] }
+});
+```
+
+Pass `fontAssets(manifest)` as the `fonts` option of `Head` or
+`generateHeadElement`; HTML and HTMX pages get the tags automatically. Each
+family gets a `--font-poppins` variable and a `.font-poppins` class. See
+[docs/FONTS.md](docs/FONTS.md).
 
 ### Immutable production images
 

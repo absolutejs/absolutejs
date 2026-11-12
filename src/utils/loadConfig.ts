@@ -21,6 +21,7 @@ const RESERVED_TOP_LEVEL_KEYS = new Set([
 	'env',
 	'htmlDirectory',
 	'htmxDirectory',
+	'fonts',
 	'images',
 	'incrementalFiles',
 	'islands',
@@ -39,6 +40,7 @@ const RESERVED_TOP_LEVEL_KEYS = new Set([
 	'tailwind',
 	'ready',
 	'visibility',
+	'vitals',
 	'vueDirectory'
 ]);
 

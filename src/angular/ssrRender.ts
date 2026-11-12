@@ -1,3 +1,5 @@
+import { escapeScriptContent } from '../utils/escapeScriptContent';
+import { nonceAttr, readCspNonce } from '../utils/cspNonceRef';
 import type { EnvironmentProviders, Provider, Type } from '@angular/core';
 import type { BootstrapContext } from '@angular/platform-browser';
 import type { AngularDeps, CachedRouteData } from '../../types/angular';
@@ -99,7 +101,7 @@ export const injectSsrScripts = (
 	if (requestContext !== undefined) {
 		result = injectBeforeClose(
 			result,
-			`<script>window.__ABS_ANGULAR_REQUEST_CONTEXT__ = ${JSON.stringify(requestContext)};</script>`
+			`<script${nonceAttr()}>window.__ABS_ANGULAR_REQUEST_CONTEXT__ = ${escapeScriptContent(JSON.stringify(requestContext))};</script>`
 		);
 	}
 
@@ -107,7 +109,7 @@ export const injectSsrScripts = (
 		const escapedIndexPath = JSON.stringify(indexPath);
 		result = injectBeforeClose(
 			result,
-			`<script>import(${escapedIndexPath});</script>`
+			`<script${nonceAttr()}>import(${escapeScriptContent(escapedIndexPath)});</script>`
 		);
 	}
 
@@ -120,8 +122,18 @@ export const renderAngularApp = async (
 	document: string | Document,
 	url: string = '/'
 ) => {
+	// Angular writes this nonce on its own <style> and event-replay
+	// scripts when secureHeaders() is on.
+	const nonce = readCspNonce();
+	const cspProviders = nonce
+		? [{ provide: deps.CSP_NONCE, useValue: nonce }]
+		: [];
 	const bootstrap = (context: BootstrapContext) =>
-		deps.bootstrapApplication(PageComponent, { providers }, context);
+		deps.bootstrapApplication(
+			PageComponent,
+			{ providers: [...providers, ...cspProviders] },
+			context
+		);
 
 	return withSuppressedAngularDevLogs(() =>
 		deps.renderApplication(bootstrap, {

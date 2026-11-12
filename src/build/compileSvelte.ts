@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 import { mkdir, stat } from 'node:fs/promises';
 import {
 	dirname,
+	isAbsolute,
 	join,
 	basename,
 	extname,
@@ -21,6 +22,32 @@ import { lowerSvelteAwaitSlotSyntax } from '../svelte/lowerAwaitSlotSyntax';
 import { SVELTE_PAGE_ROOT_ID } from '../svelte/renderToReadableStream';
 import type { StylePreprocessorConfig } from '../../types/build';
 import { inlineSourceMapComment } from './inlineSourceMapComment';
+import {
+	LAZY_SOURCE_EXPORT,
+	lazyModuleRegistration
+} from '../svelte/router/lazyModule';
+/* Svelte names the component's file in its map by basename
+ * (`sources: ['Boom.svelte']`), which only resolves next to the original
+ * file. The map is inlined into an intermediate under .absolutejs/generated
+ * and then chained into a bundle in the build directory, so a bare name
+ * resolved to `build/svelte/pages/Boom.svelte` in stack traces. Anchor each
+ * relative source to the original file's directory. */
+const withResolvedSources = (map: unknown, sourceFile: string) => {
+	if (typeof map !== 'object' || map === null || !('sources' in map))
+		return map;
+	const { sources } = map;
+	if (!Array.isArray(sources)) return map;
+
+	return {
+		...map,
+		sources: sources.map((source: unknown) =>
+			typeof source === 'string' && !isAbsolute(source)
+				? resolve(dirname(sourceFile), source)
+				: source
+		)
+	};
+};
+
 const resolveDevClientDir = () => {
 	const projectRoot = process.cwd();
 	const fromSource = resolve(import.meta.dir, '../dev/client');
@@ -64,6 +91,18 @@ export const clearSvelteCompilerCache = () => {
 };
 
 const transpiler = new Transpiler({ loader: 'ts', target: 'browser' });
+
+const DYNAMIC_IMPORT_PATTERN = /\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
+// Mirrors LAZY_MODULE_REGISTRY_KEY / LAZY_RESOLVED_KEY in
+// src/svelte/router/lazyModule.ts (Symbol.for names, shared at runtime).
+const LAZY_MODULE_REGISTRY_NAME = 'absolutejs.svelte.lazy-modules';
+const LAZY_RESOLVED_NAME = 'absolutejs.svelte.lazy-resolved';
+const LAZY_PRELOAD_MAX_DEPTH = 5;
+
+/** Project-relative source path — the id that links a lazy route's
+ *  server module to the client loader registered for it. */
+const toSourceId = (path: string) =>
+	relative(process.cwd(), path).replace(/\\/g, '/');
 
 const removeUnusedRequireHelper = (code: string) => {
 	const helperStart = code.indexOf('var __require = /* @__PURE__ */');
@@ -291,11 +330,22 @@ export const compileSvelte = async (
 			: rawRel;
 		const baseName = basename(src).replace(/\.svelte(\.(ts|js))?$/, '');
 
-		const importPaths = Array.from(
+		const staticImportPaths = Array.from(
 			transpiledServer.matchAll(/from\s+['"]([^'"]+)['"]/g)
 		)
 			.map((match) => match[1])
 			.filter((path): path is string => path !== undefined);
+		// `import('./Page.svelte')` — a lazy `<Route loader>` (or any other
+		// dynamic import). The child must be compiled like a static one; the
+		// client bundle splits it into its own chunk.
+		const dynamicImportPaths = Array.from(
+			transpiledServer.matchAll(DYNAMIC_IMPORT_PATTERN)
+		)
+			.map((match) => match[1])
+			.filter((path): path is string => path !== undefined);
+		const importPaths = Array.from(
+			new Set([...staticImportPaths, ...dynamicImportPaths])
+		);
 
 		const resolvedModuleImports = await Promise.all(
 			importPaths.map((importPath) =>
@@ -443,6 +493,39 @@ export const compileSvelte = async (
 		const ssrPath = join(serverDir, relDir, `${baseName}.js`);
 		const clientPath = join(clientDir, relDir, `${baseName}.js`);
 
+		// Lazy route support (see src/svelte/router/lazyModule.ts): the
+		// server module names its source so the page handler can tell the
+		// browser which lazy modules a page rendered, and the client module
+		// registers a loader for every `.svelte` file it imports
+		// dynamically, so the hydration entry can load those modules before
+		// it hydrates.
+		const lazyRegistrations = dynamicImportPaths
+			.map((spec) => {
+				const resolvedChild =
+					resolvedImports[importPaths.indexOf(spec)];
+				if (!resolvedChild) return '';
+				const jsSpec = spec.replace(/\.svelte(?:\.(?:ts|js))?$/, '.js');
+				const clientSpec =
+					externalRewrites.get(jsSpec)?.client ?? jsSpec;
+
+				return lazyModuleRegistration(
+					toSourceId(resolvedChild),
+					clientSpec
+				);
+			})
+			.join('');
+		const sourceExport = (code: string) => {
+			const sourceId = JSON.stringify(toSourceId(src));
+			const componentName = /export default function ([\w$]+)\s*\(/.exec(
+				code
+			)?.[1];
+			const componentStamp = componentName
+				? `\n${componentName}.${LAZY_SOURCE_EXPORT} = ${sourceId};`
+				: '';
+
+			return `\nexport const ${LAZY_SOURCE_EXPORT} = ${sourceId};${componentStamp}`;
+		};
+
 		await Promise.all([
 			mkdir(dirname(ssrPath), { recursive: true }),
 			mkdir(dirname(clientPath), { recursive: true })
@@ -458,7 +541,9 @@ export const compileSvelte = async (
 		// stitches the chain because Bun.build doesn't honour input
 		// inline sourcemaps yet (docs/BUN_SOURCEMAP_CHAIN_BUG.md).
 		const inlineMap = (map: unknown) =>
-			map ? `${inlineSourceMapComment(map)}\n` : '';
+			map
+				? `${inlineSourceMapComment(withResolvedSources(map, src))}\n`
+				: '';
 
 		if (isModule) {
 			const generated = generate('client');
@@ -472,11 +557,14 @@ export const compileSvelte = async (
 		} else {
 			const serverGen = generate('server');
 			const clientGen = generate('client');
+			const serverCode = rewriteExternalImports(serverGen.code, 'server');
 			const serverBundle =
-				rewriteExternalImports(serverGen.code, 'server') +
+				serverCode +
+				sourceExport(serverCode) +
 				inlineMap(serverGen.map);
 			const clientBundle =
 				rewriteExternalImports(clientGen.code, 'client') +
+				lazyRegistrations +
 				inlineMap(clientGen.map);
 			await Promise.all([
 				write(ssrPath, serverBundle),
@@ -551,6 +639,28 @@ if (typeof window !== "undefined") {
   }
   window.__ABS_SVELTE_ISLAND_HTML__ = islandHtml;
   hasIslandHtml = Object.keys(islandHtml).length > 0;
+}
+
+// Lazy <Route>s the server rendered: load their modules before hydrating,
+// so the first client render already has the components and matches the
+// server HTML (no pending flash, no hydration mismatch).
+var lazyRoutes = typeof window !== "undefined" && !isHMR ? window.__ABS_SVELTE_LAZY_ROUTES__ : undefined;
+if (lazyRoutes) {
+  var lazyResolved = globalThis[Symbol.for(${JSON.stringify(LAZY_RESOLVED_NAME)})] || (globalThis[Symbol.for(${JSON.stringify(LAZY_RESOLVED_NAME)})] = {});
+  var preloadLazyRoutes = function (depth) {
+    var lazyModules = globalThis[Symbol.for(${JSON.stringify(LAZY_MODULE_REGISTRY_NAME)})];
+    var waiting = Object.keys(lazyRoutes).filter(function (pattern) {
+      return !(pattern in lazyResolved) && lazyModules !== undefined && lazyModules.has(lazyRoutes[pattern]);
+    });
+    if (waiting.length === 0 || depth >= ${LAZY_PRELOAD_MAX_DEPTH}) return Promise.resolve();
+    return Promise.all(waiting.map(function (pattern) {
+      return lazyModules.get(lazyRoutes[pattern])().then(
+        function (mod) { lazyResolved[pattern] = mod; },
+        function () { lazyResolved[pattern] = null; }
+      );
+    })).then(function () { return preloadLazyRoutes(depth + 1); });
+  };
+  await preloadLazyRoutes(0);
 }
 
 if (isHMR) {

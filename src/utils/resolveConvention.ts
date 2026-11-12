@@ -2,6 +2,8 @@ import { isDevelopmentRuntime } from './runtimeMode';
 import { basename } from 'node:path';
 import type { ConventionsMap, ErrorPageProps } from '../../types/conventions';
 import { toPascal } from './stringModifiers';
+import { nonceAttr, nonceSvelteHeadStyles, readCspNonce } from './cspNonceRef';
+import { nonceStaticHtml } from '../core/staticHtmlNonce';
 
 // Use globalThis so the conventions map is shared across all bundles.
 // The main bundle (dist/index.js) calls setConventions, but framework
@@ -93,7 +95,9 @@ const renderReactError = async (
 	if (typeof ErrorComponent !== 'function') return null;
 
 	const element = createElement(ErrorComponent, errorProps);
-	const stream = await renderToReadableStream(element);
+	const stream = await renderToReadableStream(element, {
+		nonce: readCspNonce()
+	});
 
 	return new Response(stream, {
 		headers: { 'Content-Type': 'text/html' },
@@ -110,10 +114,12 @@ const renderSvelteError = async (
 	const ErrorComponent = mod.default;
 	if (!ErrorComponent) return null;
 
+	const nonce = readCspNonce();
 	const { head, body } = render(ErrorComponent, {
-		props: errorProps
+		props: errorProps,
+		...(nonce ? { csp: { nonce } } : {})
 	});
-	const html = `<!DOCTYPE html><html><head>${head}</head><body>${body}</body></html>`;
+	const html = `<!DOCTYPE html><html><head>${nonceSvelteHeadStyles(head)}</head><body>${body}</body></html>`;
 
 	return new Response(html, {
 		headers: { 'Content-Type': 'text/html' },
@@ -126,7 +132,7 @@ const unescapeVueStyles = (ssrBody: string) => {
 	const body = ssrBody.replace(
 		/<style>([\s\S]*?)<\/style>/g,
 		(_, css: string) => {
-			styles += `<style>${css
+			styles += `<style${nonceAttr()}>${css
 				.replace(/&quot;/g, '"')
 				.replace(/&amp;/g, '&')
 				.replace(/&lt;/g, '<')
@@ -205,7 +211,9 @@ const renderHtmlError = async (
 	conventionPath: string,
 	errorProps: ErrorPageProps
 ) => {
-	const template = await Bun.file(conventionPath).text();
+	const template = await nonceStaticHtml(
+		await Bun.file(conventionPath).text()
+	);
 	const html = replaceErrorTokens(template, errorProps);
 
 	return new Response(html, {
@@ -256,6 +264,7 @@ const ERROR_RENDERERS: Record<
 	angular: renderAngularError,
 	ember: renderEmberError,
 	html: renderHtmlError,
+	htmx: renderHtmlError,
 	react: renderReactError,
 	svelte: renderSvelteError,
 	vue: renderVueError
@@ -332,7 +341,9 @@ const renderReactNotFound = async (conventionPath: string) => {
 	if (typeof NotFoundComponent !== 'function') return null;
 
 	const element = createElement(NotFoundComponent);
-	const stream = await renderToReadableStream(element);
+	const stream = await renderToReadableStream(element, {
+		nonce: readCspNonce()
+	});
 
 	return new Response(stream, {
 		headers: { 'Content-Type': 'text/html' },
@@ -346,8 +357,12 @@ const renderSvelteNotFound = async (conventionPath: string) => {
 	const NotFoundComponent = mod.default;
 	if (!NotFoundComponent) return null;
 
-	const { head, body } = render(NotFoundComponent);
-	const html = `<!DOCTYPE html><html><head>${head}</head><body>${body}</body></html>`;
+	const nonce = readCspNonce();
+	const { head, body } = render(
+		NotFoundComponent,
+		nonce ? { csp: { nonce } } : {}
+	);
+	const html = `<!DOCTYPE html><html><head>${nonceSvelteHeadStyles(head)}</head><body>${body}</body></html>`;
 
 	return new Response(html, {
 		headers: { 'Content-Type': 'text/html' },
@@ -390,7 +405,7 @@ const renderAngularNotFound = async (conventionPath: string) => {
 };
 
 const renderHtmlNotFound = async (conventionPath: string) => {
-	const html = await Bun.file(conventionPath).text();
+	const html = await nonceStaticHtml(await Bun.file(conventionPath).text());
 
 	return new Response(html, {
 		headers: { 'Content-Type': 'text/html' },
@@ -405,6 +420,7 @@ const NOT_FOUND_RENDERERS: Record<
 	angular: renderAngularNotFound,
 	ember: renderEmberNotFound,
 	html: renderHtmlNotFound,
+	htmx: renderHtmlNotFound,
 	react: renderReactNotFound,
 	svelte: renderSvelteNotFound,
 	vue: renderVueNotFound
@@ -433,10 +449,16 @@ const NOT_FOUND_PRIORITY: (keyof ConventionsMap)[] = [
 	'svelte',
 	'vue',
 	'angular',
-	'html'
+	'html',
+	'htmx'
 ];
 
-export const renderFirstNotFound = async () => {
+/** Renders the first available not-found convention. An HTMX request
+ *  (`HX-Request` header) tries the HTMX pages directory's not-found.html
+ *  first, so an HTMX swap gets HTMX markup. */
+export const renderFirstNotFound = async (
+	options: { preferHtmx?: boolean } = {}
+) => {
 	const renderNext = async (frameworks: (keyof ConventionsMap)[]) => {
 		const [framework, ...remaining] = frameworks;
 		if (!framework) {
@@ -454,5 +476,9 @@ export const renderFirstNotFound = async () => {
 		return renderNext(remaining);
 	};
 
-	return renderNext(NOT_FOUND_PRIORITY);
+	return renderNext(
+		options.preferHtmx
+			? ['htmx', ...NOT_FOUND_PRIORITY.filter((key) => key !== 'htmx')]
+			: NOT_FOUND_PRIORITY
+	);
 };

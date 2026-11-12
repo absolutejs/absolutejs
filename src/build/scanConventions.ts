@@ -9,6 +9,11 @@ import type {
 
 const CONVENTION_RE = /^(?:(.+)\.)?(error|loading|not-found)\.[^.]+$/;
 
+/** Whether `fileName` is an error/loading/not-found convention file
+ *  (`error.html`, `Home.error.html`, `not-found.svelte`, …). */
+export const isConventionFile = (fileName: string) =>
+	CONVENTION_RE.test(basename(fileName));
+
 const classifyFile = (
 	file: string,
 	pageFiles: string[],

@@ -1047,6 +1047,10 @@ const compileAngularComponentsPartial = async () => {
 			join(srcDir, 'utils', 'runtimeMode.ts')
 		);
 		await cp(
+			join('src', 'utils', 'cspNonceRef.ts'),
+			join(srcDir, 'utils', 'cspNonceRef.ts')
+		);
+		await cp(
 			join('src', 'client', 'streamSwap.ts'),
 			join(srcDir, 'client', 'streamSwap.ts')
 		);

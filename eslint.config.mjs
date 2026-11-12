@@ -57,6 +57,8 @@ export default defineConfig([
 				Buffer: 'readonly',
 				BuildMessage: 'readonly',
 				Bun: 'readonly',
+				HTMLRewriter: 'readonly',
+				HTMLRewriterTypes: 'readonly',
 				NodeJS: 'readonly',
 				ResolveMessage: 'readonly'
 			},
