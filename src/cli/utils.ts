@@ -131,10 +131,10 @@ export const killStaleProcesses = (
 			encoding: 'utf-8'
 		}).trim();
 	} catch {
-		return;
+		return [];
 	}
 	if (!output) {
-		return;
+		return [];
 	}
 
 	const report = (message: string) => {
@@ -152,7 +152,7 @@ export const killStaleProcesses = (
 		.map(Number)
 		.filter((pid) => pid !== process.pid && pid > 0);
 	if (pids.length === 0) {
-		return;
+		return [];
 	}
 
 	const projectDirectory = realpathSync(process.cwd());
@@ -174,6 +174,10 @@ export const killStaleProcesses = (
 		report(
 			`Port ${port} is in use by another process (pid ${holder.pid}: ${holder.command.slice(0, 120) || 'unknown'}). It was left running; stop it or choose another port.`
 		);
+
+	/* What still holds the port: a caller that needs it (a workspace service)
+	 * must not go on to probe a server that isn't its own. */
+	return foreign;
 };
 export const openUrlInBrowser = (
 	url: string,

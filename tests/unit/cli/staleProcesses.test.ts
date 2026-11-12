@@ -55,9 +55,13 @@ test('an unrelated listener on the port is left running and reported', async () 
 			await Bun.sleep(100);
 		}
 		const messages: string[] = [];
-		killStaleProcesses(port, (message) => messages.push(message));
+		const foreign = killStaleProcesses(port, (message) => messages.push(message));
 		await Bun.sleep(300);
 		expect(service.exitCode).toBeNull();
+		/* The other program is returned, so a workspace refuses to start a
+		 * service there instead of probing a server that isn't its own. */
+		if (messages.length > 0)
+			expect(foreign.map((holder) => holder.pid)).toContain(service.pid);
 		expect(await (await fetch(`http://127.0.0.1:${port}/`)).text()).toBe(
 			'ok'
 		);
