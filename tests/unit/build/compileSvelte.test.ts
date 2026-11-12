@@ -9,7 +9,7 @@ const writeTempFile = async (path: string, content: string) => {
 };
 
 describe('compileSvelte', () => {
-	test('disables hydration for await-based Svelte pages', async () => {
+	test('disables hydration only for pages that stream an {#await}', async () => {
 		const root = await mkdtemp(join(tmpdir(), 'absolutejs-compile-svelte-'));
 		const awaitPage = join(root, 'AwaitStreamingPage.svelte');
 		const awaitChild = join(root, 'AwaitChild.svelte');
@@ -21,6 +21,7 @@ describe('compileSvelte', () => {
 				`<script lang="ts">
   const value = new Promise<string>((resolve) => setTimeout(() => resolve('child-loaded'), 1));
 </script>
+<!-- absolute:stream -->
 {#await value}
   <p>loading</p>
 {:then resolved}

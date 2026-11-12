@@ -13,6 +13,7 @@ import {
 import { dirname, join, resolve, relative } from 'node:path';
 import type { AngularCompilerOptions } from '@angular/compiler-cli';
 import ts from 'typescript';
+import { RUNTIME_NODE_ENV_DEFINE } from './runtimeNodeEnv';
 
 /* The two vendored Angular translator files have a top-level static
    `import * as o from '@angular/compiler';`. Because `@angular/compiler`
@@ -231,6 +232,7 @@ const CONFIG_SERVER_EXTERNALS = [
 const buildConfig = async () => {
 	console.log('Building Absolute Config (server)...');
 	const configServerBuild = await Bun.build({
+		define: RUNTIME_NODE_ENV_DEFINE,
 		entrypoints: ['src/cli/config/server.ts'],
 		external: CONFIG_SERVER_EXTERNALS,
 		jsx: { development: false },
@@ -267,6 +269,7 @@ const build = async () => {
 
 	console.log('Building server entry points...');
 	const serverBuild = await Bun.build({
+		define: RUNTIME_NODE_ENV_DEFINE,
 		entrypoints: SERVER_ENTRY_POINTS,
 		external: EXTERNALS,
 		jsx: { development: false },
@@ -294,6 +297,7 @@ const build = async () => {
 	// re-exports it by relative path at the user's build time, and it is the
 	// public `@absolutejs/absolute/client/prefetch` subpath.
 	const clientRuntimeBuild = await Bun.build({
+		define: RUNTIME_NODE_ENV_DEFINE,
 		entrypoints: ['src/client/index.ts', 'src/client/prefetch.ts'],
 		external: EXTERNALS,
 		format: 'esm',
@@ -316,6 +320,7 @@ const build = async () => {
 
 	console.log('Building mobile shell modules...');
 	const mobileShellBuild = await Bun.build({
+		define: RUNTIME_NODE_ENV_DEFINE,
 		entrypoints: [
 			'src/mobile/shellBootstrap.ts',
 			'src/mobile/uiPrimitives.ts',
@@ -372,6 +377,7 @@ const build = async () => {
 
 	console.log('Building image client (browser target)...');
 	const imageBuild = await Bun.build({
+		define: RUNTIME_NODE_ENV_DEFINE,
 		entrypoints: ['src/utils/imageClient.ts'],
 		outdir: join(DIST, 'image-client'),
 		target: 'browser'
@@ -385,6 +391,7 @@ const build = async () => {
 
 	console.log('Building React components (browser target)...');
 	const reactBrowserBuild = await Bun.build({
+		define: RUNTIME_NODE_ENV_DEFINE,
 		entrypoints: ['src/react/components/browser/index.ts'],
 		external: [
 			'react',
@@ -417,6 +424,7 @@ const build = async () => {
 	// `import.meta.dir` (for example `../dev/serverBootstrap.js`), and that
 	// only stays correct while chunks share the entry's directory.
 	const cliBuild = await Bun.build({
+		define: RUNTIME_NODE_ENV_DEFINE,
 		entrypoints: ['src/cli/index.ts'],
 		external: EXTERNALS,
 		naming: { chunk: '[name]-[hash].[ext]', entry: '[name].[ext]' },
@@ -433,6 +441,7 @@ const build = async () => {
 
 	console.log('Building remote Mac agent...');
 	const remoteMacAgentBuild = await Bun.build({
+		define: RUNTIME_NODE_ENV_DEFINE,
 		entrypoints: ['src/mobile/remoteMacAgentEntry.ts'],
 		minify: true,
 		outdir: join(DIST, 'mobile'),
@@ -449,6 +458,7 @@ const build = async () => {
 	// keep the output path in step with `resolveBuildWorkerEntry`.
 	console.log('Building build worker...');
 	const buildWorkerBuild = await Bun.build({
+		define: RUNTIME_NODE_ENV_DEFINE,
 		entrypoints: ['src/build/buildWorker.ts'],
 		external: EXTERNALS,
 		outdir: join(DIST, 'build'),
@@ -466,6 +476,7 @@ const build = async () => {
 	// `typescript` dependency is parsed on a normal dev boot.
 	console.log('Building import-cost diagnostic...');
 	const importCostBuild = await Bun.build({
+		define: RUNTIME_NODE_ENV_DEFINE,
 		entrypoints: [
 			'src/dev/importCostPreload.ts',
 			'src/dev/importCostReport.ts'
@@ -482,6 +493,7 @@ const build = async () => {
 
 	console.log('Building dev server bootstrap...');
 	const serverBootstrapBuild = await Bun.build({
+		define: RUNTIME_NODE_ENV_DEFINE,
 		entrypoints: ['src/dev/serverBootstrap.ts'],
 		outdir: join(DIST, 'dev'),
 		target: 'bun'
@@ -1031,6 +1043,10 @@ const compileAngularComponentsPartial = async () => {
 			join(srcDir, 'utils', 'escapeScriptContent.ts')
 		);
 		await cp(
+			join('src', 'utils', 'runtimeMode.ts'),
+			join(srcDir, 'utils', 'runtimeMode.ts')
+		);
+		await cp(
 			join('src', 'client', 'streamSwap.ts'),
 			join(srcDir, 'client', 'streamSwap.ts')
 		);
@@ -1135,6 +1151,7 @@ const compileAngularComponentsPartial = async () => {
 		);
 
 		await Bun.build({
+			define: RUNTIME_NODE_ENV_DEFINE,
 			entrypoints: [
 				resolve(srcDir, 'core', 'streamingSlotRegistry.ts'),
 				resolve(srcDir, 'core', 'streamingSlotRegistrar.ts')

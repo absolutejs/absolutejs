@@ -1393,7 +1393,8 @@ type TierBreakdown = {
 const USER_FIXABLE_FAST_HMR_REASONS = new Set([
 	'template-parse-error',
 	'template-resource-not-found',
-	'style-resource-not-found'
+	'style-resource-not-found',
+	'style-compile-error'
 ]);
 const isUserFixableFastHmrReason = (reason: string) =>
 	USER_FIXABLE_FAST_HMR_REASONS.has(reason);
@@ -2915,6 +2916,27 @@ const broadcastSvelteModuleUpdate = async (
 	});
 };
 
+/* The modules the browser must re-import for a Svelte batch. `$.hmr` swaps
+ * an edited `.svelte` component in place, so the components that import it
+ * need nothing: re-importing the page would re-create every component under
+ * it and reset their `$state`. The dependency graph still adds those
+ * importers to the batch (their SSR output changes), so only the files the
+ * user edited are broadcast. A `.svelte.ts` / `.svelte.js` module has no
+ * accept handler of its own, so when one was edited its importers are
+ * re-imported as before. */
+const resolveSvelteBroadcastTargets = (
+	state: HMRState,
+	svelteFiles: string[]
+) => {
+	const edited = svelteFiles.filter((file) =>
+		state.lastUserEditedFiles?.has(resolvePath(file))
+	);
+	if (edited.length === 0) return svelteFiles;
+	if (edited.some((file) => !file.endsWith('.svelte'))) return svelteFiles;
+
+	return edited;
+};
+
 const handleSvelteModuleServerPath = async (
 	state: HMRState,
 	svelteFiles: string[],
@@ -2938,13 +2960,15 @@ const handleSvelteModuleServerPath = async (
 
 	const serverDuration = Date.now() - startTime;
 
-	await runSequentially(svelteFiles, (changedFile) =>
-		broadcastSvelteModuleUpdate(
-			state,
-			changedFile,
-			svelteFiles,
-			serverDuration
-		)
+	await runSequentially(
+		resolveSvelteBroadcastTargets(state, svelteFiles),
+		(changedFile) =>
+			broadcastSvelteModuleUpdate(
+				state,
+				changedFile,
+				svelteFiles,
+				serverDuration
+			)
 	);
 
 	// Schedule a debounced server-bundle rebuild so a fresh page

@@ -24,7 +24,7 @@ CLI commands in `src/cli/index.ts`: `dev`, `start`, `build`, `compile`, `typeche
 - `src/dev/` — dev server and HMR pipeline: `moduleServer`, `transformCache`, `dependencyGraph`, `fileWatcher`, `webSocket`, `clientManager`, `rebuildTrigger`, `devCert`, plus a browser-side `client/` (DOM diff, head patch, error overlay, framework detection).
 - `src/{react,svelte,vue,angular}/` — framework adapters: server `pageHandler`, client browser entry, components. Angular is the largest (compiler patches, vendor resolution, injector patch, HMR preservation, islands).
 - `src/islands/` — cross-framework island runtime + browser entry.
-- `src/plugins/` — Elysia plugins: `hmr`, `pageRouter`, `networking`, `imageOptimizer`, `devtoolsJson`.
+- `src/plugins/` — Elysia plugins: `hmr`, `networking`, `imageOptimizer`, `devtoolsJson`.
 - `src/cli/` — CLI dispatcher, scripts, telemetry, workspace TUI.
 - `src/utils/` — config loader/`defineConfig`, image processing, sitemap, JSON-LD, head element, streaming slots, logger, path validation.
 - `src/frontend/react/`, `src/client/` — shared client-side runtime bits.

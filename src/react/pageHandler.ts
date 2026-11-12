@@ -1,3 +1,4 @@
+import { isProductionRuntime } from '../utils/runtimeMode';
 import type { ComponentType as ReactComponent } from 'react';
 import { injectIslandPageContextStream } from '../core/islandPageContext';
 import { getCurrentRouteRegistrationCallsite } from '../core/devRouteRegistrationCallsite';
@@ -80,7 +81,7 @@ const resolveRequestPathname = (request: Request | undefined) => {
 };
 
 const buildRefreshSetup = () => {
-	if (process.env.NODE_ENV === 'production') {
+	if (isProductionRuntime()) {
 		return '';
 	}
 

@@ -1,3 +1,4 @@
+import { isDevelopmentRuntime } from '../utils/runtimeMode';
 import { copyFileSync, existsSync, readdirSync, unlinkSync } from 'node:fs';
 import { dirname, extname, join, resolve } from 'node:path';
 import { DEFAULT_PORT } from '../constants';
@@ -124,7 +125,7 @@ if (
 		process.env.ABSOLUTE_PORT ?? process.env.PORT ?? DEFAULT_PORT
 	);
 	const loadEarlyTls = async () => {
-		if (process.env.NODE_ENV !== 'development') return null;
+		if (!isDevelopmentRuntime()) return null;
 		if (process.env.ABSOLUTE_HTTPS !== 'true') return null;
 		try {
 			const { loadDevCert } = await import('./devCert');
@@ -166,7 +167,7 @@ if (
 // slower boot; that is the trade the flag makes.
 if (
 	!isHotReevaluation &&
-	process.env.NODE_ENV === 'development' &&
+	isDevelopmentRuntime() &&
 	process.env.ABSOLUTE_DEV_PREBUILD !== '0' &&
 	process.env.ABSOLUTE_DEV_IMPORT_COST !== '1'
 ) {
@@ -206,7 +207,7 @@ if (importCostRecorder !== undefined) {
 // Backend HMR: serve the app's server modules through the hot runtime so an
 // edit re-runs only what changed (docs/BACKEND_HMR.md). Installed before the
 // entry's first import, which is what it transforms.
-if (!isHotReevaluation && process.env.NODE_ENV === 'development') {
+if (!isHotReevaluation && isDevelopmentRuntime()) {
 	const { startBackendHmr } = await import('./hot/install');
 	await startBackendHmr(entryPath);
 	markBoot('backend hmr ready');

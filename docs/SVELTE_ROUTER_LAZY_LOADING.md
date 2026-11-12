@@ -36,7 +36,9 @@ A regular `<Route>` snippet can hold a Svelte `{#await}` block around a dynamic 
 </Route>
 ```
 
-This is documented as the recommended pattern. **No router-side support is needed for it to work.**
+This is documented as the recommended pattern. **No router-side support is needed for it to work.** The server renders the pending branch, and the browser loads the chunk and renders `mod.default` after hydration.
+
+Leave this block unmarked. Through 0.20.0-beta.169 AbsoluteJS lowered every `{#await}` into a streaming slot, which broke this pattern: the component arrived as text and the page never hydrated. Streaming is now opt-in with `<!-- absolute:stream -->` (see the README), and a streamed block can't render a component, so this pattern must stay a plain `{#await}`.
 
 ## Proposed API (when we do add it)
 

@@ -3,8 +3,8 @@ import type { NavItem } from './navData';
 import { renderNavBlock } from './staticNav';
 
 // Minimal, idiomatic starter pages — Head/styles wired, nav rendered from the
-// shared navData source of truth (static pages bake a snapshot), and a single
-// <h1> to fill in. One template per framework, keyed in PageTemplateContext.
+// shared navData source of truth (static and Angular pages bake a snapshot),
+// and a single <h1> to fill in. One template per framework, keyed in PageTemplateContext.
 
 export type PageTemplateContext = {
 	cssHref: string;
@@ -88,13 +88,31 @@ const vuePage = (ctx: PageTemplateContext) =>
 </template>
 `;
 
+const angularNavItems = (items: NavItem[]) =>
+	items.length === 0
+		? '[]'
+		: `[\n${items
+				.map(
+					(item) =>
+						`\t{ href: ${JSON.stringify(item.href)}, label: ${JSON.stringify(item.label)} }`
+				)
+				.join(',\n')}\n]`;
+
+// Self-contained: Angular compiles the angular directory, so the page keeps
+// its own snapshot of the nav (like the static pages) instead of importing
+// the shared navData from outside it.
 const angularPage = (ctx: PageTemplateContext) =>
 	`import { Component } from '@angular/core';
-import { navData } from '${ctx.navImportPath}';
 
 // This page has no per-request DI context, so the SSR handler's
 // \`requestContext\` is an empty object.
 export type Context = Record<string, never>;
+
+type NavItem = { href: string; label: string };
+
+// The site's pages when this one was generated. Edit freely; generating
+// another page doesn't rewrite this list.
+const navItems: NavItem[] = ${angularNavItems(ctx.navItems)};
 
 @Component({
 	imports: [],
@@ -112,7 +130,7 @@ export type Context = Record<string, never>;
 	\`
 })
 export class ${ctx.pascal}Component {
-	navItems = navData;
+	navItems = navItems;
 }
 `;
 

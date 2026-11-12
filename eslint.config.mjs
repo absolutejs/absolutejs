@@ -336,6 +336,35 @@ export default defineConfig([
 		}
 	},
 	{
+		// The library bundle (scripts/build.ts) keeps `process.env.NODE_ENV`
+		// a runtime read, but any other bundler that sees the literal member
+		// expression folds it to its own build-time value. The helpers read
+		// through a computed key, which no bundler replaces.
+		files: ['src/**/*.{ts,tsx}'],
+		rules: {
+			'no-restricted-syntax': [
+				'error',
+				{
+					message:
+						'Do not use IIFEs. Extract to a named function instead.',
+					selector:
+						'CallExpression[callee.type="ArrowFunctionExpression"]'
+				},
+				{
+					message:
+						'Do not use IIFEs. Extract to a named function instead.',
+					selector: 'CallExpression[callee.type="FunctionExpression"]'
+				},
+				{
+					message:
+						'Bundlers replace process.env.NODE_ENV at build time. Use getNodeEnv(), isDevelopmentRuntime() or isProductionRuntime() from src/utils/runtimeMode.ts.',
+					selector:
+						'MemberExpression[object.type="MemberExpression"][object.object.name="process"][object.property.name="env"][property.name="NODE_ENV"]'
+				}
+			]
+		}
+	},
+	{
 		files: ['tests/**/*.ts'],
 		rules: {
 			'@typescript-eslint/consistent-type-assertions': 'off',

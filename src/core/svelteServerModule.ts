@@ -192,7 +192,7 @@ export const compileSvelteServerModule = async (sourcePath: string) => {
 	const resolutionSourcePath = await resolveOriginalSourcePath(sourcePath);
 	const source = await Bun.file(sourcePath).text();
 	const { compile, preprocess } = await import('svelte/compiler');
-	const loweredAwaitSource = lowerSvelteAwaitSlotSyntax(source);
+	const loweredAwaitSource = lowerSvelteAwaitSlotSyntax(source, sourcePath);
 	const loweredSource = lowerSvelteIslandSyntax(
 		loweredAwaitSource.code,
 		'server'

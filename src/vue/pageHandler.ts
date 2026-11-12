@@ -1,3 +1,4 @@
+import { isDevelopmentRuntime } from '../utils/runtimeMode';
 import type { Component as VueComponent } from 'vue';
 import type { SSRContext } from 'vue/server-renderer';
 import type { VuePropsOf, VueSetupApp } from '../../types/vue';
@@ -375,7 +376,7 @@ export const handleVuePageRequest = async <Component extends VueComponent>(
 			const ssrContext: SSRContext = {};
 			const head = `<!DOCTYPE html><html>${resolvedHeadTag}<body><div id="root">`;
 			const ssrOnlyHmrShim =
-				clientMode === 'none' && process.env.NODE_ENV === 'development'
+				clientMode === 'none' && isDevelopmentRuntime()
 					? await getSsrOnlyHmrShim()
 					: '';
 			const buildTail = () => {

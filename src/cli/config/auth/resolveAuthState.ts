@@ -211,7 +211,11 @@ const findSetupInFile = (path: string) => {
 		if (ts.isCallExpression(node) && isAuthCall(node, bindings)) {
 			return matchFromCall(node);
 		}
-		node.forEachChild((child) => pending.push(child));
+		// `forEachChild` stops at the first callback that returns a truthy
+		// value, and `push` returns the new length: keep the body void.
+		node.forEachChild((child) => {
+			pending.push(child);
+		});
 	}
 
 	return null;

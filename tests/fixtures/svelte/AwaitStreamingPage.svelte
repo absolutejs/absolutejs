@@ -20,12 +20,14 @@
 </svelte:head>
 
 <main>
+	<!-- absolute:stream -->
 	{#await fastPromise}
 		<p>fast loading</p>
 	{:then value}
 		<section>{value}</section>
 	{/await}
 
+	<!-- absolute:stream -->
 	{#await slowPromise}
 		<p>slow loading</p>
 	{:then value}

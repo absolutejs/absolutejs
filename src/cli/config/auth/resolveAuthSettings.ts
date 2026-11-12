@@ -50,7 +50,11 @@ export const findAuthSettingsObject = (sourceFile: ts.Node) => {
 		) {
 			return node.expression;
 		}
-		node.forEachChild((child) => pending.push(child));
+		// `forEachChild` stops at the first callback that returns a truthy
+		// value, and `push` returns the new length: keep the body void.
+		node.forEachChild((child) => {
+			pending.push(child);
+		});
 	}
 
 	return null;

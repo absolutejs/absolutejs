@@ -24,7 +24,10 @@ import type {
 	R3HmrNamespaceDependency
 } from '@angular/compiler';
 import ts from 'typescript';
-import { compileStyleFileIfNeededSync } from '../../build/stylePreprocessor';
+import {
+	compileStyleFileIfNeeded,
+	compileStyleFileIfNeededSync
+} from '../../build/stylePreprocessor';
 import { createHmrImportGenerator } from './hmrImportGenerator';
 import type { AngularEntityKind } from './resolveOwningComponents';
 import { translateStatement } from './vendor/translator/typescript_translator';
@@ -39,6 +42,7 @@ export type FastHmrFallbackReason =
 	| 'template-parse-error'
 	| 'template-resource-not-found'
 	| 'style-resource-not-found'
+	| 'style-compile-error'
 	| 'structural-change'
 	| 'unexpected-error';
 
@@ -256,6 +260,7 @@ export type FastHmrFailure = {
 	reason: FastHmrFallbackReason;
 	detail?: string;
 	/* User-fixable failures (template-parse-error, template/style-resource-not-found,
+	 * style-compile-error,
 	 * unexpected parser errors) carry these so the dispatcher can render an
 	 * inline error overlay instead of silently rebootstrapping. Other failure
 	 * reasons (file-not-found, structural-change) leave them undefined. */
@@ -3163,58 +3168,80 @@ ${transpiled}
 /* Read a `.css` / `.scss` / `.sass` / `.less` / `.styl` file from
  * disk and preprocess it to plain CSS so it can be inlined into
  * `R3ComponentMetadata.styles` (Angular's runtime applies these
- * strings as `<style>` tags directly). For `.scss` and `.sass`,
- * `compileStyleFileIfNeededSync` invokes Sass's sync compileString.
- * Any other extension falls through to the raw read; for `.css` the
- * raw contents are already valid, and for `.less` / `.styl` the
- * shared preprocessor helper throws (those need an async path that
- * the fast extractor cannot await on). Returns `null` if the file
- * is missing or preprocessing fails. */
+ * strings as `<style>` tags directly). `.css` is read as-is; `.scss` /
+ * `.sass` use Sass's sync compile, which also records `@use` partials
+ * for HMR; Less and Stylus only have async compilers, so they go through
+ * the async preprocessor (the fast path is async, nothing here has to
+ * finish synchronously). A missing file and a file that fails to compile
+ * are reported separately, with the compiler's own message. */
 const STYLE_PREPROCESSED_EXT = new Set([
 	'.scss',
 	'.sass',
-	'.css',
 	'.less',
 	'.styl',
 	'.stylus'
 ]);
+const ASYNC_ONLY_STYLE_EXT = new Set(['.less', '.styl', '.stylus']);
 
-const resolveAndReadStyleResource = (componentDir: string, url: string) => {
-	const abs = resolve(componentDir, url);
-	if (!existsSync(abs)) return null;
+const compileStyleResource = async (abs: string) => {
 	const ext = extname(abs).toLowerCase();
-	if (!STYLE_PREPROCESSED_EXT.has(ext) || ext === '.css') {
-		return readFileSync(abs, 'utf8');
+	if (!STYLE_PREPROCESSED_EXT.has(ext)) return readFileSync(abs, 'utf8');
+	if (ASYNC_ONLY_STYLE_EXT.has(ext)) return compileStyleFileIfNeeded(abs);
+
+	return compileStyleFileIfNeededSync(abs);
+};
+
+type StyleResourceFailure = {
+	detail: string;
+	reason: 'style-compile-error' | 'style-resource-not-found';
+};
+
+const resolveAndReadStyleResource = async (
+	componentDir: string,
+	url: string
+) => {
+	const abs = resolve(componentDir, url);
+	if (!existsSync(abs)) {
+		const failure: StyleResourceFailure = {
+			detail: `Style file not found: ${url} (looked for ${abs})`,
+			reason: 'style-resource-not-found'
+		};
+
+		return failure;
 	}
 	try {
-		return compileStyleFileIfNeededSync(abs);
-	} catch {
-		// Less / Stylus / missing-sass cases land here. Returning
-		// null causes the caller to surface as
-		// `style-resource-not-found`, which the dispatcher routes
-		// to the user-fixable error overlay. The user sees a clear
-		// message instead of silently-broken styles.
-		return null;
+		return await compileStyleResource(abs);
+	} catch (error) {
+		const failure: StyleResourceFailure = {
+			detail: `Could not compile ${url}: ${
+				error instanceof Error ? error.message : String(error)
+			}`,
+			reason: 'style-compile-error'
+		};
+
+		return failure;
 	}
 };
 
-const collectStyles = (
+const collectStyles = async (
 	decoratorMeta: ComponentDecoratorMeta,
 	componentDir: string
-): { styles: string[]; missing: string | null } => {
+) => {
 	const styles: string[] = [...decoratorMeta.styles];
 
 	const urls: string[] = [];
 	if (decoratorMeta.styleUrl) urls.push(decoratorMeta.styleUrl);
 	urls.push(...decoratorMeta.styleUrls);
 
-	for (const url of urls) {
-		const css = resolveAndReadStyleResource(componentDir, url);
-		if (css === null) return { missing: url, styles };
-		styles.push(css);
+	const resources = await Promise.all(
+		urls.map((url) => resolveAndReadStyleResource(componentDir, url))
+	);
+	for (const resource of resources) {
+		if (typeof resource !== 'string') return { failure: resource, styles };
+		styles.push(resource);
 	}
 
-	return { missing: null, styles };
+	return { failure: null, styles };
 };
 
 /* ─── Non-component surgical (services / pipes / directives) ──── */
@@ -3487,16 +3514,14 @@ export const tryFastHmr: TryFastHmr = async (params) => {
 		);
 	}
 
-	const { styles, missing: missingStyle } = collectStyles(
+	const { failure: styleFailure, styles } = await collectStyles(
 		decoratorMeta,
 		componentDir
 	);
-	if (missingStyle) {
-		return fail(
-			'style-resource-not-found',
-			`Style file not found: ${missingStyle}`,
-			{ file: componentFilePath }
-		);
+	if (styleFailure) {
+		return fail(styleFailure.reason, styleFailure.detail, {
+			file: componentFilePath
+		});
 	}
 
 	// Resolve `@Component({ imports: [...] })` to ChildComponentInfo

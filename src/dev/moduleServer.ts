@@ -1009,7 +1009,7 @@ const transformSvelteFile = async (
 		filePath.endsWith('.svelte.ts') || filePath.endsWith('.svelte.js');
 	const loweredAwaitSource = isModule
 		? { code: raw, transformed: false }
-		: lowerSvelteAwaitSlotSyntax(raw);
+		: lowerSvelteAwaitSlotSyntax(raw, filePath);
 	const loweredSource = isModule
 		? loweredAwaitSource
 		: lowerSvelteIslandSyntax(loweredAwaitSource.code, 'client');
@@ -1290,30 +1290,16 @@ const generateSvelteHmrBootstrap = (
 		`import { mount, unmount } from "${sveltePath}";`,
 		`const { default: Component } = await import("${moduleUrl}?t=${timestamp}");`,
 		``,
-		`// Extract count from DOM before unmount (survives across runtime instances)`,
-		`var countBtn = document.querySelector("button");`,
-		`var countMatch = countBtn && countBtn.textContent && countBtn.textContent.match(/(\\d+)/);`,
-		`var domCount = countMatch ? parseInt(countMatch[1], 10) : null;`,
-		``,
-		`var preservedState = window.__HMR_PRESERVED_STATE__ || {};`,
-		`if (domCount !== null && preservedState.initialCount === undefined) {`,
-		`  preservedState.initialCount = domCount;`,
-		`}`,
 		`var initialProps = window.__INITIAL_PROPS__ || {};`,
-		`var mergedProps = Object.assign({}, initialProps, preservedState);`,
-		``,
-		`// Update __INITIAL_PROPS__ so subsequent HMR cycles start with current state`,
-		`if (domCount !== null) window.__INITIAL_PROPS__ = Object.assign({}, initialProps, { initialCount: domCount });`,
 		``,
 		`if (typeof window.__SVELTE_UNMOUNT__ === "function") {`,
 		`  try { window.__SVELTE_UNMOUNT__(); } catch (err) { /* ignore */ }`,
 		`}`,
 		``,
 		`var target = document.getElementById("__absolute_svelte_root__") || document.body;`,
-		`var component = mount(Component, { target, props: mergedProps });`,
+		`var component = mount(Component, { target, props: initialProps });`,
 		`window.__SVELTE_COMPONENT__ = component;`,
-		`window.__SVELTE_UNMOUNT__ = function() { unmount(component); };`,
-		`window.__HMR_PRESERVED_STATE__ = undefined;`
+		`window.__SVELTE_UNMOUNT__ = function() { unmount(component); };`
 	].join('\n');
 };
 

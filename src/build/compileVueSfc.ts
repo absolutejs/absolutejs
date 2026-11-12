@@ -22,6 +22,7 @@ import { buildLineRemap, remapGeneratedLines } from './chainInlineSourcemaps';
 import { isStylePath } from './stylePreprocessor';
 import { inlineCssImports } from './inlineCssImports';
 import { hashContent } from './vueCompileCache';
+import { inlineSourceMapComment } from './inlineSourceMapComment';
 
 const transpiler = new Transpiler({ loader: 'ts', target: 'browser' });
 
@@ -347,9 +348,7 @@ if (typeof __VUE_HMR_RUNTIME__ !== 'undefined') {
 			mappings
 		};
 
-		return `\n//# sourceMappingURL=data:application/json;base64,${Buffer.from(
-			JSON.stringify(map)
-		).toString('base64')}\n`;
+		return `${inlineSourceMapComment(map)}\n`;
 	};
 
 	const output: VueSfcCompileOutput = {

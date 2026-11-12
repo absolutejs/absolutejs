@@ -1,3 +1,4 @@
+import { isDevelopmentRuntime } from '../utils/runtimeMode';
 import {
 	getCurrentAbsoluteMobileProducerContext,
 	type AbsoluteMobileProducerContext
@@ -405,7 +406,7 @@ const finalizeArchivedMobilePage = <Props>(
 const finalizeAbsoluteNativeRouteDevelopmentPage = <Props>(
 	input: FinalizeAbsoluteMobilePageInput<Props>
 ) => {
-	if (process.env.NODE_ENV !== 'development') {
+	if (!isDevelopmentRuntime()) {
 		return createAbsoluteMobileInvalidRequestResponse(
 			'The native-route development representation is disabled outside development.'
 		);

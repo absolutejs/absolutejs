@@ -1,3 +1,4 @@
+import { isDevelopmentRuntime } from '../utils/runtimeMode';
 import { withPageCacheHeaders } from '../core/pageResponseCache';
 import {
 	devBuildErrorResponse,
@@ -221,9 +222,7 @@ export const handleEmberPageRequest = async (input: EmberPageRequestInput) => {
 
 		const innerHtml = bundle.renderToHTML(props ?? {});
 		const hmrShim =
-			!indexPath && process.env.NODE_ENV === 'development'
-				? await getEmberHmrShim()
-				: '';
+			!indexPath && isDevelopmentRuntime() ? await getEmberHmrShim() : '';
 
 		const html = buildHtmlShell(
 			resolvedHeadTag,

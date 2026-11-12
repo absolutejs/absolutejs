@@ -122,6 +122,32 @@ same errors in your editor, add the declarations to `rootDirs`:
 }
 ```
 
+### Svelte `{#await}` and streaming
+
+A plain `{#await}` works as it does in Svelte: the server renders the pending
+branch, then the browser resolves the promise and hydrates, so components,
+`{#if}` and event handlers work in every branch.
+
+To have the server resolve the promise and stream the result into the page
+instead, put `<!-- absolute:stream -->` directly before the block and render
+the page with `collectStreamingSlots: true`:
+
+```svelte
+<!-- absolute:stream -->
+{#await loadPrices()}
+	<p>Loading prices…</p>
+{:then prices}
+	<p>{prices.length} prices, from {prices[0].source}</p>
+{:catch error}
+	<p>Prices are unavailable: {error.message}</p>
+{/await}
+```
+
+A streamed block's branches are sent as HTML, so they may contain elements and
+`{expressions}` only. A component, `{#if}`, `{#each}` or `{@html}` in a branch
+is a build error. A page that streams a block isn't hydrated, so use it for
+content that needs no interactivity.
+
 ### Islands on HTML and HTMX pages
 
 Static HTML and HTMX pages can embed components of any framework as islands.

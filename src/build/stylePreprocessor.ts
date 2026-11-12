@@ -1,3 +1,4 @@
+import { getNodeEnv } from '../utils/runtimeMode';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
@@ -422,7 +423,7 @@ const loadPostcssConfigFile = async (
 					}) => unknown
 				)({
 					cwd: process.cwd(),
-					env: process.env.NODE_ENV
+					env: getNodeEnv()
 				})
 			: config;
 
@@ -1172,12 +1173,12 @@ export const compileStyleFileIfNeededSync = (
 	}
 	if (language === 'less') {
 		throw new Error(
-			`Unable to compile ${filePath}: Less styleUrl preprocessing is async-only. Import the Less file from a bundled entrypoint or use SCSS/CSS for Angular styleUrl.`
+			`Unable to compile ${filePath} synchronously: Less only has an async compiler. Compile it with compileStyleFileIfNeeded() instead.`
 		);
 	}
 	if (language === 'stylus') {
 		throw new Error(
-			`Unable to compile ${filePath}: Stylus styleUrl preprocessing is async-only. Import the Stylus file from a bundled entrypoint or use SCSS/CSS for Angular styleUrl.`
+			`Unable to compile ${filePath} synchronously: Stylus only has an async compiler. Compile it with compileStyleFileIfNeeded() instead.`
 		);
 	}
 

@@ -1,3 +1,4 @@
+import { isProductionRuntime } from '../utils/runtimeMode';
 import type { StreamingSlot } from '../utils/streamingSlots';
 
 type StreamingSlotRegistrar = (slot: StreamingSlot) => void;
@@ -84,10 +85,7 @@ export const setStreamingSlotWarningController = (
 	Reflect.set(globalThis, STREAMING_SLOT_WARNING_STORAGE_KEY, controller);
 };
 export const warnMissingStreamingSlotCollector = (primitiveName: string) => {
-	if (
-		process.env.NODE_ENV === 'production' ||
-		isStreamingSlotCollectionActive()
-	) {
+	if (isProductionRuntime() || isStreamingSlotCollectionActive()) {
 		return;
 	}
 

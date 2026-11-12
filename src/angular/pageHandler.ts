@@ -46,7 +46,10 @@ import {
 	renderAngularApp,
 	resolveSelector
 } from './ssrRender';
-import { isProductionRuntime } from '../utils/runtimeMode';
+import {
+	isDevelopmentRuntime,
+	isProductionRuntime
+} from '../utils/runtimeMode';
 
 type AngularPageRenderOptions = StreamingSlotEnhancerOptions & {
 	collectStreamingSlots?: boolean;
@@ -277,7 +280,7 @@ const resolveRuntimeAngularModulePath = async (pagePath: string) => {
 		// import cache while unchanged files keep their cached module.
 		// In production, NODE_ENV !== 'development' skips the stat and
 		// avoids the per-request filesystem hit.
-		if (process.env.NODE_ENV === 'development') {
+		if (isDevelopmentRuntime()) {
 			try {
 				const { stat } = await import('node:fs/promises');
 				const stats = await stat(pagePath);

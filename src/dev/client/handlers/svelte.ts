@@ -15,53 +15,6 @@ type SvelteHmrWindow = Window & {
 	__SVELTE_HMR_ACCEPT__?: Record<string, (mod: unknown) => void>;
 };
 
-const extractCountFromDOM = () => {
-	const countButton = document.querySelector('button');
-	if (!countButton || !countButton.textContent) {
-		return {};
-	}
-
-	const countMatch = countButton.textContent.match(/(\d+)/);
-	if (!countMatch) {
-		return {};
-	}
-
-	return { initialCount: parseInt(countMatch[1] ?? '0', 10) };
-};
-
-const loadStateFromSession = () => {
-	try {
-		const stored = sessionStorage.getItem('__SVELTE_HMR_STATE__');
-		if (!stored) {
-			return {};
-		}
-
-		const parsed: Record<string, unknown> = JSON.parse(stored);
-		if (parsed && Object.keys(parsed).length > 0) {
-			return parsed;
-		}
-
-		return {};
-	} catch {
-		return {};
-	}
-};
-
-const saveStateToSession = (preservedState: Record<string, unknown>) => {
-	if (Object.keys(preservedState).length === 0) {
-		return;
-	}
-
-	try {
-		sessionStorage.setItem(
-			'__SVELTE_HMR_STATE__',
-			JSON.stringify(preservedState)
-		);
-	} catch {
-		/* ignore */
-	}
-};
-
 const collectCssRules = (sheet: CSSStyleSheet) => {
 	let rules = '';
 	for (let idx = 0; idx < sheet.cssRules.length; idx++) {
@@ -216,21 +169,14 @@ export const handleSvelteUpdate = (message: {
 		return;
 	}
 
-	/* Component update: preserve state, re-import (bootstrap handles unmount + mount) */
+	/* Component update. Svelte's own HMR keeps state: `$.hmr` swaps only the
+	 * edited component, so every other component's `$state` survives. The
+	 * edited component restarts from its real props, as in any Svelte HMR
+	 * setup; nothing here reads state back out of the DOM. */
 
 	/* Save DOM state and scroll position */
 	const domState = saveDOMState(document.body);
 	const scrollState = saveScrollState();
-
-	let preservedState: Record<string, unknown> = extractCountFromDOM();
-
-	if (Object.keys(preservedState).length === 0) {
-		preservedState = loadStateFromSession();
-	}
-
-	/* Set preserved state on window + backup to sessionStorage */
-	window.__HMR_PRESERVED_STATE__ = preservedState;
-	saveStateToSession(preservedState);
 
 	/* CSS pre-update: swap stylesheet BEFORE importing to prevent FOUC */
 	if (message.data.cssUrl) {
@@ -272,48 +218,26 @@ export const handleSvelteUpdate = (message: {
 		}
 
 		import(modulePath)
-			.then(async (newModule) => {
-				let applied = false;
+			.then((newModule) => {
 				if (acceptFn) {
 					acceptFn(newModule);
-					applied = true;
-				}
-
-				/* Let the compiler-owned $.hmr wrapper finish its queued state
-				 * restoration before applying the prop-backed remount fallback. An
-				 * immediate remount can race that restoration and reset rune state. */
-				const preserved = window.__HMR_PRESERVED_STATE__;
-				const remount = window.__SVELTE_REMOUNT__;
-				const hasPreserved =
-					preserved && Object.keys(preserved).length > 0;
-
-				if (applied) await Promise.resolve();
-				if (applied && typeof remount === 'function' && hasPreserved) {
-					remount({
-						...(window.__INITIAL_PROPS__ ?? {}),
-						...preserved
-					});
-				} else if (!applied && typeof remount === 'function') {
-					/* Resilience fallback: no accept callback was found, so
-					 * `$.hmr` never wired the freshly imported module in. The
-					 * import warmed the module cache; remount the page with
-					 * merged props to actually apply the new code instead of
-					 * silently doing nothing. */
-					remount({
-						...(window.__INITIAL_PROPS__ ?? {}),
-						...(preserved ?? {})
+				} else if (typeof window.__SVELTE_REMOUNT__ === 'function') {
+					/* No accept callback was registered for this module, so
+					 * `$.hmr` can't wire the new code in. The import warmed the
+					 * module cache; remount the page with its own props so the
+					 * update still lands. */
+					window.__SVELTE_REMOUNT__({
+						...(window.__INITIAL_PROPS__ ?? {})
 					});
 				} else {
 					/* Last resort: nothing can apply the update in place. */
 					console.warn(
 						'[HMR] Svelte accept callback missing and no remount available; reloading'
 					);
-					window.__HMR_PRESERVED_STATE__ = undefined;
 					window.location.reload();
 
 					return undefined;
 				}
-				window.__HMR_PRESERVED_STATE__ = undefined;
 
 				if (message.data.serverDuration !== undefined) {
 					sendAbsoluteHmrTiming({

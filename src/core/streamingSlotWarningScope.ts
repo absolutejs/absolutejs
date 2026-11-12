@@ -1,3 +1,4 @@
+import { isProductionRuntime } from '../utils/runtimeMode';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { logWarn } from '../utils/logger';
 import { setStreamingSlotWarningController } from './streamingSlotRegistrar';
@@ -105,7 +106,7 @@ setStreamingSlotWarningController({
 });
 
 export const captureStreamingSlotWarningCallsite = () => {
-	if (process.env.NODE_ENV === 'production') {
+	if (isProductionRuntime()) {
 		return undefined;
 	}
 

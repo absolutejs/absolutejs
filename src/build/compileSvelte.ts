@@ -20,6 +20,7 @@ import { lowerSvelteIslandSyntax } from '../svelte/lowerIslandSyntax';
 import { lowerSvelteAwaitSlotSyntax } from '../svelte/lowerAwaitSlotSyntax';
 import { SVELTE_PAGE_ROOT_ID } from '../svelte/renderToReadableStream';
 import type { StylePreprocessorConfig } from '../../types/build';
+import { inlineSourceMapComment } from './inlineSourceMapComment';
 const resolveDevClientDir = () => {
 	const projectRoot = process.cwd();
 	const fromSource = resolve(import.meta.dir, '../dev/client');
@@ -239,10 +240,10 @@ export const compileSvelte = async (
 			src.endsWith('.svelte.ts') || src.endsWith('.svelte.js');
 		const loweredAwaitServerSource = isModule
 			? { code: raw, transformed: false }
-			: lowerSvelteAwaitSlotSyntax(raw);
+			: lowerSvelteAwaitSlotSyntax(raw, src);
 		const loweredAwaitClientSource = isModule
 			? loweredAwaitServerSource
-			: lowerSvelteAwaitSlotSyntax(raw);
+			: lowerSvelteAwaitSlotSyntax(raw, src);
 		const loweredServerSource = isModule
 			? loweredAwaitServerSource
 			: lowerSvelteIslandSyntax(loweredAwaitServerSource.code, 'server');
@@ -457,11 +458,7 @@ export const compileSvelte = async (
 		// stitches the chain because Bun.build doesn't honour input
 		// inline sourcemaps yet (docs/BUN_SOURCEMAP_CHAIN_BUG.md).
 		const inlineMap = (map: unknown) =>
-			map
-				? `\n//# sourceMappingURL=data:application/json;base64,${Buffer.from(
-						JSON.stringify(map)
-					).toString('base64')}\n`
-				: '';
+			map ? `${inlineSourceMapComment(map)}\n` : '';
 
 		if (isModule) {
 			const generated = generate('client');
@@ -557,19 +554,10 @@ if (typeof window !== "undefined") {
 }
 
 if (isHMR) {
-  var preservedState = window.__HMR_PRESERVED_STATE__;
-  if (!preservedState) {
-    try {
-      var stored = sessionStorage.getItem("__SVELTE_HMR_STATE__");
-      if (stored) preservedState = JSON.parse(stored);
-    } catch (err) { /* ignore */ }
-  }
-  var mergedProps = (preservedState && Object.keys(preservedState).length > 0) ? Object.assign({}, initialProps, preservedState) : initialProps;
   if (typeof window.__SVELTE_UNMOUNT__ === "function") {
     try { window.__SVELTE_UNMOUNT__(); } catch (err) { /* ignore */ }
   }
-  component = mount(Component, { target, props: mergedProps });
-  window.__HMR_PRESERVED_STATE__ = undefined;
+  component = mount(Component, { target, props: initialProps });
 } else if (isClientRender) {
   component = mount(Component, { target, props: initialProps });
 } else if (!shouldHydrate) {

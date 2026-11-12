@@ -248,7 +248,8 @@ remounting the page from its module instead of Fast Refresh.
 | Page rename + import update → page recovers | [`lifecycle/page-component-rename.test.ts`](tests/integration/hmr/lifecycle/page-component-rename.test.ts) |
 | Scoped style block edits propagate | [`lifecycle/scoped-style-edits.test.ts`](tests/integration/hmr/lifecycle/scoped-style-edits.test.ts) ("svelte scoped style edit lands in SSR HTML") |
 | Composable (`.svelte.ts` / `.ts` inside `svelteDir/`) edit propagates to SSR | [`lifecycle/svelte-composable-ssr.test.ts`](tests/integration/hmr/lifecycle/svelte-composable-ssr.test.ts) |
-| Browser-side `$state` counter survives a template/runes-mode edit (`$.hmr` collect/restore) | [`lifecycle/svelte-state-preservation.test.ts`](tests/integration/hmr/lifecycle/svelte-state-preservation.test.ts) |
+| Browser-side `$state` counter survives an edit to a sibling component (`$.hmr` swaps only the edited component; no state is read from the DOM) | [`lifecycle/svelte-state-preservation.test.ts`](tests/integration/hmr/lifecycle/svelte-state-preservation.test.ts) |
+| An edited component restarts from its real props, never a number scraped from the page | [`lifecycle/svelte-state-preservation.test.ts`](tests/integration/hmr/lifecycle/svelte-state-preservation.test.ts) |
 
 ### Svelte 5 deep coverage (runes, control-flow, slots, context)
 
@@ -263,7 +264,7 @@ remounting the page from its module instead of Fast Refresh.
 | `setContext` / `getContext` flows value ancestor → descendant | [`lifecycle/svelte-deep-coverage.test.ts`](tests/integration/hmr/lifecycle/svelte-deep-coverage.test.ts) |
 | `{#if}` block renders truthy branch | [`lifecycle/svelte-deep-coverage.test.ts`](tests/integration/hmr/lifecycle/svelte-deep-coverage.test.ts) |
 | `{#each}` block renders every iteration | [`lifecycle/svelte-deep-coverage.test.ts`](tests/integration/hmr/lifecycle/svelte-deep-coverage.test.ts) |
-| `{#await}` resolved-branch body renders SSR-side | [`lifecycle/svelte-deep-coverage.test.ts`](tests/integration/hmr/lifecycle/svelte-deep-coverage.test.ts) |
+| `{#await}` pending branch renders SSR-side (the browser resolves it after hydrating) | [`lifecycle/svelte-deep-coverage.test.ts`](tests/integration/hmr/lifecycle/svelte-deep-coverage.test.ts) |
 | `<style>` block edit lands a fresh rule in SSR-inlined `<style>` | [`lifecycle/svelte-deep-coverage.test.ts`](tests/integration/hmr/lifecycle/svelte-deep-coverage.test.ts) |
 | `on:click` handler edit round-trips through HMR + SSR | [`lifecycle/svelte-deep-coverage.test.ts`](tests/integration/hmr/lifecycle/svelte-deep-coverage.test.ts) |
 
@@ -475,23 +476,27 @@ remounting the page from its module instead of Fast Refresh.
   Verified by [`lifecycle/tier-zero-ssr.test.ts`](tests/integration/hmr/lifecycle/tier-zero-ssr.test.ts)
   and [`lifecycle/vue-composable-ssr.test.ts`](tests/integration/hmr/lifecycle/vue-composable-ssr.test.ts).
 - **Task #223 — Page basename collision across framework dirs.**
-  `Page.html` in both `html/pages/` and `htmx/pages/` collide in
-  the manifest under the same `Page` key. Whichever framework's
-  pipeline ran last wins. Build-time warning would help; namespacing
-  the key would be a breaking change.
+  `Page.html` in both `html/pages/` and `htmx/pages/` share the
+  manifest key `Page`. This is now a build error that names both
+  files ([`integration/build/manifest-key-collision.test.ts`](tests/integration/build/manifest-key-collision.test.ts)).
+  Namespacing the key would be a breaking change, so pages still
+  need unique file names.
 - **Task #224 — `@elysiajs/static` ENOENT race under rapid HMR
   bursts.** When the hashed bundle path is mid-rename during a
   high-cadence edit storm, the static plugin's
   `generateETag` reads the previous hash and bubbles ENOENT
   through the request handler. Real users hit rarely; restart
   resolves.
-- **Less / Stylus via Angular `styleUrl` is async-only.**
-  `compileStyleFileIfNeededSync` deliberately errors on
-  Less/Stylus because their compilers expose only an async API
-  and Angular's `styleUrl` resolution is sync. Vue's
-  `<style lang="…">` path uses the async preprocessor pipeline
-  and supports both
-  (`lifecycle/style-preprocessor-roundtrip.test.ts`).
+- **Less / Stylus via Angular `styleUrl` works everywhere.**
+  The production build, the dev rebuild path and the surgical
+  fast path all compile them. Until beta.169 the fast path
+  compiled styles synchronously; Less and Stylus only have async
+  compilers, so an edit there failed and was misreported as
+  "Style file not found". The fast path now awaits the async
+  preprocessor for them, and a style that exists but fails to
+  compile reports `style-compile-error` with the compiler's message
+  ([`unit/dev/angular/fastHmrStyles.test.ts`](tests/unit/dev/angular/fastHmrStyles.test.ts),
+  [`unit/build/compileAngularJITDefer.test.ts`](tests/unit/build/compileAngularJITDefer.test.ts)).
 - **SCSS partial (`@use` / `@import`) leaf-edit propagation
   through Angular `styleUrl`.** The integration test verifies
   root SCSS-file edits land in SSR; deeper @use partial-graph

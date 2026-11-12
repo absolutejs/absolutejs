@@ -1,3 +1,4 @@
+import { isProductionRuntime } from '../utils/runtimeMode';
 import { logWarn } from '../utils/logger';
 import { getIslandBootstrapPath } from './islandManifest';
 
@@ -19,7 +20,7 @@ let warnedMissingBootstrap = false;
  * production instead of failing silently. */
 const warnIfBootstrapMissing = (manifest: Record<string, string>) => {
 	if (warnedMissingBootstrap || getIslandBootstrapPath(manifest)) return;
-	if (process.env.NODE_ENV === 'production') return;
+	if (isProductionRuntime()) return;
 	warnedMissingBootstrap = true;
 	logWarn(
 		'A page contains islands, but the build manifest has no islands bootstrap, so they will render without hydrating. Set `islands.registry` in absolute.config.ts (a default bootstrap is generated from it) or point `islands.bootstrap` at a file that calls startIslands().'

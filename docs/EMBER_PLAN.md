@@ -506,8 +506,8 @@ This is the second-biggest work item after compile. References:
 
 ### 2.14 Plugins (`src/plugins/`)
 
-- [ ] `pageRouter` plugin — confirm its dispatcher branches on
-  `IslandFramework` for response-type decisions; if so, add an Ember branch.
+- [x] `pageRouter` plugin — removed (it was an unimplemented stub), so
+  there is no dispatcher to extend.
 - [ ] `hmr` plugin — add Ember to its file-glob watcher.
 - [ ] `imageOptimizer`, `networking`, `devtoolsJson` — framework-agnostic;
   no changes.

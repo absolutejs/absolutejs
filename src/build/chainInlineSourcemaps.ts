@@ -10,6 +10,7 @@
  * entire file can be deleted and the post-build call removed. */
 
 import { readFileSync, writeFileSync } from 'node:fs';
+import { inlineSourceMapComment } from './inlineSourceMapComment';
 
 const BASE64_CHARS =
 	'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
@@ -311,9 +312,7 @@ export const inlineLineMapComment = (
 		sourcesContent: [sourceContent],
 		version: 3
 	};
-	return `\n//# sourceMappingURL=data:application/json;base64,${Buffer.from(
-		JSON.stringify(map)
-	).toString('base64')}\n`;
+	return `${inlineSourceMapComment(map)}\n`;
 };
 
 /* Apply a generated-line remap to a sourcemap's mappings. Segments on
@@ -471,10 +470,7 @@ export const chainBundleInlineSourcemap = (
 		chained.sourcesContent = chained.sources.map(() => null);
 	}
 	const stripped = text.replace(SOURCEMAP_INLINE_RE, '');
-	const inline =
-		'\n//# sourceMappingURL=data:application/json;base64,' +
-		Buffer.from(JSON.stringify(chained)).toString('base64');
-	writeFileSync(bundleFilePath, stripped + inline);
+	writeFileSync(bundleFilePath, stripped + inlineSourceMapComment(chained));
 
 	return true;
 };

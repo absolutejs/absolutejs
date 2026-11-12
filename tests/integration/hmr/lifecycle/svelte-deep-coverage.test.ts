@@ -237,7 +237,7 @@ describe('Svelte 5 deep coverage', () => {
 		expect(html).toContain('EACH_3');
 	}, 60_000);
 
-	test('`{#await}` resolved-branch body renders SSR-side', async () => {
+	test('`{#await}` pending branch renders SSR-side', async () => {
 		const srv = await startAndConnect();
 		if (!client) throw new Error('client missing');
 
@@ -248,15 +248,11 @@ describe('Svelte 5 deep coverage', () => {
 			)
 		);
 		const html = await waitForBundleAndFetch(client, srv);
-		// AbsoluteJS's Svelte SSR handles `{#await}` via the
-		// streaming-slot lowering path. The resolved body is
-		// what eventually streams into the slot. We accept
-		// either the resolved sentinel or the pending sentinel
-		// (a hydration-time race is allowed since the slot
-		// fallback can race the resolve on cold compile).
-		expect(
-			html.includes('AWAIT_RESOLVED') || html.includes('AWAIT_PENDING')
-		).toBe(true);
+		// A plain `{#await}` is Svelte's own: the server renders the pending
+		// branch and the browser resolves it after hydrating. Only a block
+		// marked `<!-- absolute:stream -->` is resolved on the server.
+		expect(html).toContain('AWAIT_PENDING');
+		expect(html).not.toContain('AbsoluteAwaitSlot');
 	}, 60_000);
 
 	test('`<style>` block edit lands a fresh rule in the SSR-inlined `<style>` block', async () => {

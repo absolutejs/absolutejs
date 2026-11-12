@@ -125,4 +125,49 @@ describe('vue ssr-only page scanning', () => {
 
 		expect(scanVueSsrOnlyPages(dir, true)).toEqual(new Set(['AboutPage']));
 	});
+
+	/* beta.168 only read literals, so `client: CLIENT_MODE` still built an
+	 * unused client bundle for the page. */
+	const scan = (source: string) => {
+		const dir = mkdtempSync(join(tmpdir(), 'absolute-ssr-only-'));
+		tempDirs.push(dir);
+		writeFileSync(join(dir, 'server.ts'), source);
+
+		return scanVueSsrOnlyPages(dir);
+	};
+
+	test('resolves client and the manifest key from same-file consts', () => {
+		expect(
+			scan(`const SSR_ONLY = 'none' as const;
+const PAGE = 'LandingPage';
+handleVuePageRequest({ client: SSR_ONLY, pagePath: asset(manifest, PAGE) });`)
+		).toEqual(new Set(['LandingPage']));
+	});
+
+	test('resolves a shorthand client property and satisfies', () => {
+		expect(
+			scan(`const client = 'none' satisfies 'auto' | 'none';
+export const route = () => handleVuePageRequest({ client, pagePath: asset(manifest, 'AboutPage') });`)
+		).toEqual(new Set(['AboutPage']));
+	});
+
+	test('keeps the client bundle when the value is not a known const', () => {
+		expect(
+			scan(`import { CLIENT } from './mode';
+let mutable = 'none';
+handleVuePageRequest({ client: CLIENT, pagePath: asset(manifest, 'Imported') });
+handleVuePageRequest({ client: mutable, pagePath: asset(manifest, 'Mutable') });
+handleVuePageRequest({ client: 'auto', pagePath: asset(manifest, 'Hydrated') });`)
+		).toEqual(new Set());
+	});
+
+	test('treats a const shadowed with another value as unknown', () => {
+		expect(
+			scan(`const mode = 'none';
+const render = () => {
+	const mode = 'auto';
+	return handleVuePageRequest({ client: mode, pagePath: asset(manifest, 'Shadowed') });
+};`)
+		).toEqual(new Set());
+	});
 });

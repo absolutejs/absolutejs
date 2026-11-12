@@ -11,8 +11,13 @@
  * Heuristic: a CallExpression named `handleVuePageRequest` (either bare
  * or via property access) whose first argument is an ObjectLiteralExpression
  * containing both:
- *   - `client: 'none'` (string literal)
- *   - `pagePath: asset(manifest, '<Name>')` (literal manifest key)
+ *   - `client: 'none'`
+ *   - `pagePath: asset(manifest, '<Name>')`
+ * Each value may be a string literal or a `const` declared in the same file
+ * (`const CLIENT = 'none'`, `as const` and `satisfies` included, and the
+ * shorthand `{ client }`). Anything else (an import, a function call, a
+ * `let`) can't be known at build time; that page keeps its client bundle,
+ * which still works, it just isn't trimmed.
  *
  * The literal manifest key is the PascalCased basename of the .vue
  * source — the same key `compileVue` uses when generating the manifest —
@@ -110,12 +115,68 @@ const getPropertyName = (name: ts.PropertyName) => {
 	return null;
 };
 
-const readStringLiteralValue = (node: ts.Expression) => {
-	if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
-		return node.text;
+/** Same-file `const NAME = '<string>'` bindings. A name declared more than
+ *  once with different values (shadowing) maps to null: unknown. */
+type ConstStrings = Map<string, string | null>;
+
+const unwrapExpression = (node: ts.Expression): ts.Expression => {
+	if (
+		ts.isAsExpression(node) ||
+		ts.isSatisfiesExpression(node) ||
+		ts.isParenthesizedExpression(node) ||
+		ts.isTypeAssertionExpression(node)
+	) {
+		return unwrapExpression(node.expression);
+	}
+
+	return node;
+};
+
+const readLiteral = (node: ts.Expression) => {
+	const inner = unwrapExpression(node);
+	if (
+		ts.isStringLiteral(inner) ||
+		ts.isNoSubstitutionTemplateLiteral(inner)
+	) {
+		return inner.text;
 	}
 
 	return null;
+};
+
+const isConstDeclaration = (declaration: ts.VariableDeclaration) =>
+	ts.isVariableDeclarationList(declaration.parent) &&
+	(declaration.parent.flags & ts.NodeFlags.Const) !== 0;
+
+const collectConstStrings = (sourceFile: ts.SourceFile) => {
+	const constants: ConstStrings = new Map();
+	const visit = (node: ts.Node) => {
+		if (
+			ts.isVariableDeclaration(node) &&
+			ts.isIdentifier(node.name) &&
+			node.initializer &&
+			isConstDeclaration(node)
+		) {
+			const name = node.name.text;
+			const value = readLiteral(node.initializer);
+			const known = constants.has(name);
+			constants.set(
+				name,
+				known && constants.get(name) !== value ? null : value
+			);
+		}
+		ts.forEachChild(node, visit);
+	};
+	ts.forEachChild(sourceFile, visit);
+
+	return constants;
+};
+
+const readStringValue = (node: ts.Expression, constants: ConstStrings) => {
+	const inner = unwrapExpression(node);
+	if (ts.isIdentifier(inner)) return constants.get(inner.text) ?? null;
+
+	return readLiteral(inner);
 };
 
 const isAssetCall = (node: ts.Expression) => {
@@ -130,40 +191,58 @@ const isAssetCall = (node: ts.Expression) => {
  *  (typically `manifest`, but a user could rename it) and only read
  *  the literal second arg. Non-literal second args make the page
  *  un-resolvable at build time; fall back to keeping the client bundle. */
-const extractAssetLiteralKey = (call: ts.CallExpression) => {
+const extractAssetLiteralKey = (
+	call: ts.CallExpression,
+	constants: ConstStrings
+) => {
 	if (call.arguments.length < 2) return null;
 	const keyArg = call.arguments[1];
 	if (!keyArg) return null;
 
-	return readStringLiteralValue(keyArg);
+	return readStringValue(keyArg, constants);
 };
 
-const extractPagePathAssetKey = (initializer: ts.Expression) => {
+const extractPagePathAssetKey = (
+	initializer: ts.Expression,
+	constants: ConstStrings
+) => {
 	if (!isAssetCall(initializer)) return null;
 	if (!ts.isCallExpression(initializer)) return null;
 
-	return extractAssetLiteralKey(initializer);
+	return extractAssetLiteralKey(initializer, constants);
+};
+
+/** The property's name and value expression; `{ client }` reads the
+ *  same-file binding named `client`. */
+const readProperty = (property: ts.ObjectLiteralElementLike) => {
+	if (ts.isShorthandPropertyAssignment(property)) {
+		return { name: property.name.text, value: property.name };
+	}
+	if (!ts.isPropertyAssignment(property)) return null;
+	const name = getPropertyName(property.name);
+
+	return name ? { name, value: property.initializer } : null;
 };
 
 const extractSsrOnlyPageName = (
-	objectLiteral: ts.ObjectLiteralExpression
+	objectLiteral: ts.ObjectLiteralExpression,
+	constants: ConstStrings
 ): string | null => {
 	let hasClientNone = false;
 	let pageAssetKey: string | null = null;
 
-	for (const property of objectLiteral.properties) {
-		if (!ts.isPropertyAssignment(property)) continue;
-		const name = getPropertyName(property.name);
-		if (!name) continue;
+	for (const element of objectLiteral.properties) {
+		const property = readProperty(element);
+		if (!property) continue;
 
-		if (name === 'client') {
-			const value = readStringLiteralValue(property.initializer);
-			if (value === 'none') hasClientNone = true;
+		if (property.name === 'client') {
+			hasClientNone =
+				readStringValue(property.value, constants) === 'none';
 			continue;
 		}
 
-		if (name === 'pagePath') {
-			pageAssetKey = extractPagePathAssetKey(property.initializer);
+		if (property.name === 'pagePath') {
+			pageAssetKey = extractPagePathAssetKey(property.value, constants);
 		}
 	}
 
@@ -191,6 +270,7 @@ const extractFromFile = (filePath: string) => {
 		getScriptKind(filePath)
 	);
 
+	const constants = collectConstStrings(sourceFile);
 	const visit = (node: ts.Node) => {
 		if (
 			ts.isCallExpression(node) &&
@@ -198,7 +278,7 @@ const extractFromFile = (filePath: string) => {
 		) {
 			const firstArg = node.arguments[0];
 			if (firstArg && ts.isObjectLiteralExpression(firstArg)) {
-				const pageName = extractSsrOnlyPageName(firstArg);
+				const pageName = extractSsrOnlyPageName(firstArg, constants);
 				if (pageName) out.add(pageName);
 			}
 		}

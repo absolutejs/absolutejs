@@ -361,6 +361,21 @@ const extractBuildError = (
 	exit(1);
 };
 
+type ManifestKeyCollision = { key: string; next: string; previous: string };
+
+const formatManifestKeyCollisions = (
+	collisions: ManifestKeyCollision[],
+	projectRoot: string
+) =>
+	collisions
+		.map(({ key, next, previous }) => {
+			const first = relative(projectRoot, previous);
+			const second = relative(projectRoot, next);
+
+			return `Manifest key "${key}" belongs to two pages: ${first} and ${second}. Pages are looked up by file name (asset(manifest, '${key}')), so each name must be unique across htmlDirectory, htmxDirectory and the other page directories. Rename one of them, for example ${basename(second)} to ${basename(second).replace(key, `${key}Page`)}, and update its route.`;
+		})
+		.join('\n');
+
 const copyHtmxVendor = (htmxDir: string, htmxDestDir: string) => {
 	mkdirSync(htmxDestDir, { recursive: true });
 	const glob = new Glob('htmx*.min.js');
@@ -3267,21 +3282,24 @@ const buildUnlocked = async ({
 	}
 
 	/* Same-basename pages across `htmlDirectory` and `htmxDirectory`
-	 * (or two pages with the same name within one of those dirs)
-	 * collide in `manifest[<basename>]`. Whichever pipeline runs
-	 * last wins; the other page silently 404s when its route
-	 * looks the key up. Emit a clear build-time warning so the
-	 * user can rename one. Doesn't break the build — keeping the
-	 * last-writer-wins behaviour preserves existing setups that
-	 * intentionally rely on it. */
-	const warnManifestKeyCollision = (
-		key: string,
-		previousPath: string,
-		nextPath: string
-	) => {
-		logWarn(
-			`Manifest key collision: "${key}" was "${previousPath}" and will be overwritten by "${nextPath}". Rename one of the conflicting pages so each manifest key is unique across html/htmx (and other framework) directories.`
-		);
+	 * (or a static page sharing its name with another framework's page)
+	 * collide in `manifest[<basename>]`: whichever pipeline runs last
+	 * wins, and every route that looks the key up serves that page. The
+	 * key naming is public (`asset(manifest, 'Home')`), so a collision is
+	 * a build error that names both files instead of a warning. */
+	const manifestKeyCollisions: ManifestKeyCollision[] = [];
+	const pageSources = new Map<string, string>();
+	const recordManifestKey = (key: string, path: string, source: string) => {
+		pageSources.set(path, source);
+		const previous = manifest[key];
+		if (previous && previous !== path) {
+			manifestKeyCollisions.push({
+				key,
+				next: source,
+				previous: pageSources.get(previous) ?? previous
+			});
+		}
+		manifest[key] = path;
 	};
 
 	const shouldCopyHtmx =
@@ -3339,15 +3357,11 @@ const buildUnlocked = async ({
 				const source = readFileSync(htmlFile, 'utf8');
 				writeFileSync(htmlFile, injectPwaBootstrapHtml(source));
 			}
-			const fileName = basename(htmlFile, '.html');
-			if (manifest[fileName] && manifest[fileName] !== htmlFile) {
-				warnManifestKeyCollision(
-					fileName,
-					manifest[fileName],
-					htmlFile
-				);
-			}
-			manifest[fileName] = htmlFile;
+			recordManifestKey(
+				basename(htmlFile, '.html'),
+				htmlFile,
+				join(htmlPagesPath, relative(outputHtmlPages, htmlFile))
+			);
 		}
 	};
 
@@ -3386,15 +3400,11 @@ const buildUnlocked = async ({
 				const source = readFileSync(htmxFile, 'utf8');
 				writeFileSync(htmxFile, injectPwaBootstrapHtml(source));
 			}
-			const fileName = basename(htmxFile, '.html');
-			if (manifest[fileName] && manifest[fileName] !== htmxFile) {
-				warnManifestKeyCollision(
-					fileName,
-					manifest[fileName],
-					htmxFile
-				);
-			}
-			manifest[fileName] = htmxFile;
+			recordManifestKey(
+				basename(htmxFile, '.html'),
+				htmxFile,
+				join(htmxPagesPath, relative(outputHtmxPages, htmxFile))
+			);
 		}
 	};
 
@@ -3402,6 +3412,27 @@ const buildUnlocked = async ({
 		tracePhase('postprocess/html-pages', processHtmlPages),
 		tracePhase('postprocess/htmx-pages', processHtmxPages)
 	]);
+
+	if (manifestKeyCollisions.length > 0) {
+		const message = formatManifestKeyCollisions(
+			manifestKeyCollisions,
+			projectRoot
+		);
+		if (hmr) {
+			logError('Manifest key collision', new Error(message));
+			passErrors.push({
+				file: manifestKeyCollisions[0]?.next,
+				label: 'Manifest',
+				message,
+				pass: 'manifest'
+			});
+		} else if (throwOnError) {
+			throw new Error(message);
+		} else {
+			logError('Manifest key collision', new Error(message));
+			exit(1);
+		}
+	}
 
 	if (!isIncremental) {
 		await tracePhase('cleanup/stale-outputs', () =>

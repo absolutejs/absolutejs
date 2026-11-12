@@ -1,3 +1,4 @@
+import { isDevelopmentRuntime } from './runtimeMode';
 import { basename } from 'node:path';
 import type { ConventionsMap, ErrorPageProps } from '../../types/conventions';
 import { toPascal } from './stringModifiers';
@@ -67,7 +68,7 @@ export const setConventions = (map: ConventionsMap) => {
 	Reflect.set(globalThis, CONVENTIONS_KEY, map);
 };
 
-const isDev = () => process.env.NODE_ENV === 'development';
+const isDev = () => isDevelopmentRuntime();
 
 const buildErrorProps = (error: unknown): ErrorPageProps => {
 	if (error instanceof Error) {
