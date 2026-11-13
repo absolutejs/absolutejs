@@ -1,4 +1,10 @@
 import { nonceAttr } from './cspNonceRef';
+import { isDevelopmentRuntime } from './runtimeMode';
+
+/** What a production error page says instead of the error's own message,
+ *  which can name server paths, hosts or queries. */
+export const GENERIC_ERROR_MESSAGE =
+	'Something went wrong while rendering this page.';
 
 type ErrorPageInput = {
 	framework: string;
@@ -88,10 +94,17 @@ export const buildErrorPage = (
 		script: reloadOnRebuild()
 	});
 
+const errorMessage = (error: unknown) =>
+	error instanceof Error ? error.message : String(error);
+
 export const ssrErrorPage = (framework: string, error: unknown) =>
 	errorPageHtml({
 		framework,
 		hint: 'A component threw during server-side rendering. Check the terminal for the full stack trace.',
 		kind: 'Server Render Error',
-		message: error instanceof Error ? error.message : String(error)
+		// Only development shows the error itself; the handler has logged
+		// it on the server either way.
+		message: isDevelopmentRuntime()
+			? errorMessage(error)
+			: GENERIC_ERROR_MESSAGE
 	});

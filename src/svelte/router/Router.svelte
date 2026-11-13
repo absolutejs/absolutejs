@@ -8,11 +8,9 @@
 		registrationOrder: number;
 		// read on demand so a changed prop is always seen
 		getGuard: () =>
-			| import('../../../types/svelteRouter').RouteGuard
-			| undefined;
+			import('../../../types/svelteRouter').RouteGuard | undefined;
 		getLoader: () =>
-			| import('../../../types/svelteRouter').LazyRouteLoader
-			| undefined;
+			import('../../../types/svelteRouter').LazyRouteLoader | undefined;
 	};
 
 	type ActiveMatch = {

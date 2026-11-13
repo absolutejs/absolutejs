@@ -5,6 +5,118 @@
 		{
 			"changes": [
 				{
+					"detail": "An Angular router page mounted at a wildcard route like `.get('/portal/*', …)` only got `APP_BASE_HREF` when `handleAngularPageRequest(...)` was written directly inside that route. Called from a helper function, no base href was set and the router could not match any route. The base href now comes from the route that matched the request, so `/portal/*` gives `/portal/` wherever the handler call is written, and the browser bootstraps with the same value. Parameterised mounts such as `/t/:tenant/*` use the values from the request URL. A provider you pass in the handler's `providers` option still takes precedence on the server.",
+					"kind": "fixed",
+					"summary": "Angular APP_BASE_HREF works when the page handler is called from a helper"
+				},
+				{
+					"detail": "When an Angular page module exported `routes` and declared its routed child components in the same file, the build picked the first exported class as the page, so the server and the browser rendered the first routed child as the page root for every URL. The page is now the component that hosts `<router-outlet>`. Without an outlet, the last exported component is the page, and an explicit `export default` still wins.",
+					"kind": "fixed",
+					"summary": "Angular router pages with routed children in the same file render the right root"
+				},
+				{
+					"detail": "Production builds of Angular pages that import `@absolutejs/absolute/angular` warned \"Server bundle references 2 distinct @angular/core resolutions\" even though every real import used the same copy. The check read text such as `from '@angular/core'` inside string literals in AbsoluteJS's own code as imports. It now reads the bundle's actual imports. `absolute doctor` also checks that each `@angular/*` runtime package resolves to one physical copy, and `absolute doctor --fix` pins your app's version in `overrides`, removes the extra copy and reinstalls.",
+					"kind": "fixed",
+					"summary": "No more false \"2 distinct @angular/core resolutions\" warning, and doctor finds real duplicates"
+				},
+				{
+					"detail": "In a project without React or Svelte installed, such as a Vue and Angular app, every Angular rebuild in `absolute dev` logged \"angular client bundle rebuild failed\" with \"Could not resolve: react\" and \"svelte\", and the served bundle stayed on its previous version. The Angular dev rebuild now stubs frameworks the project does not install, like the initial build already did.",
+					"kind": "fixed",
+					"summary": "Angular dev rebuilds no longer fail on React or Svelte when they are not installed"
+				},
+				{
+					"detail": "A project made with create-absolutejs creates its scoped state inline: `.use([absolutejs, api, scopedState({ count: { value: 0 } })])`. Editing `server.ts` or `api.ts` re-runs that statement, and `@absolutejs/scoped-state` 0.3 keeps every visitor's session inside the plugin `scopedState()` returns, so each edit made a new, empty one and every count went back to 0. Backend HMR now hands the re-run statement the plugin the same call made last time, so visitors keep their state. This works for any number of `scopedState()` calls in a statement. A call whose arguments you edit starts empty, and the dev server says so. A call you delete is dropped. When the arguments are not plain literals, for example a variable, the call cannot be matched safely, so it still starts empty and the dev server warns you to move it into its own top-level `const` and pass that to `.use()`.",
+					"kind": "fixed",
+					"summary": "Backend HMR keeps scoped state created inline in the app, the way create-absolutejs writes it"
+				},
+				{
+					"detail": "The dev server treated some editor and tool temp files as source changes. On macOS, `sed -i` writes a `.!12345!file.ts` file, which made an Angular page rebootstrap and lose its state. The dev watchers, including the one that restarts the server, now ignore `sed -i` temp files from both GNU and macOS, Vim swap files and its `4913` probe, Emacs lock and autosave files, `~` backups, `.tmp` files, JetBrains `___jb_tmp___` and `___jb_old___` files, Chrome `.crswap` files, Kate swap files and gedit's `.goutputstream-` files. The saved file's own change still triggers the update.",
+					"kind": "fixed",
+					"summary": "Dev watchers ignore editor temp, swap and lock files"
+				},
+				{
+					"detail": "Error convention pages showed the error's own message outside development. A missing static page rendered `error.html` with `{{ message }}` set to \"ENOENT: no such file or directory, open '/srv/app/build/html/pages/Nope.html'\", which exposed the server's file layout. Database and network errors can expose hosts and queries the same way. Outside development, every error convention page (HTML and HTMX `error.html`, and the React, Svelte, Vue and Angular error pages) now receives the message \"Something went wrong while rendering this page.\" and no stack. The built-in error page shown when no convention exists does the same. The `name` prop is unchanged. The full error is still logged on the server, and development still shows the real message and stack.",
+					"kind": "security",
+					"summary": "Production error pages show a generic message instead of the error text"
+				},
+				{
+					"detail": "With two HTML or HTMX pages open that share a partial or layout, editing the partial made every tab show the last page updated. Both tabs showed the same body, and one lost its own `<title>` and other slot content. Each tab now applies only its own page. Live updates also stopped putting the old text back on elements that have an `id`, so an edited partial or page shows its new text there too. Text that a script changed on such an element is still kept.",
+					"kind": "fixed",
+					"summary": "Editing a shared partial in dev updates each open HTML or HTMX page with its own content and the new text"
+				},
+				{
+					"detail": "The htmx copy that `absolute add htmx` installs, and that `absolute htmx` reports as the vendored version, is now 2.0.11 instead of 2.0.6. Projects that already have htmx keep their installed copy. Run `absolute htmx 2.0.11` to upgrade one.",
+					"kind": "changed",
+					"summary": "The bundled htmx is now 2.0.11"
+				},
+				{
+					"detail": "The published type declarations of these mobile release functions list the members of their inferred result types in a different order. The types are the same; nothing about how they are called or what they return changed.",
+					"kind": "internal",
+					"summary": "Mobile release functions’ declarations reorder their result members",
+					"symbols": [
+						"buildAbsoluteAndroidRelease",
+						"buildAbsoluteIosRelease",
+						"buildAbsoluteRemoteIosRelease",
+						"createAbsoluteMobileCompatibilityArtifact",
+						"installAbsoluteIosRelease",
+						"parseAbsoluteMobileCompatibilityArtifact",
+						"readAbsoluteMobileMaterializedReleases"
+					]
+				},
+				{
+					"detail": "Under `absolute start`, `GET /manifest.json` returned the build's runtime manifest, which lists the absolute disk path of every SSR page and server bundle (for example `/srv/app/build/react/server/rsc/Dashboard.<hash>.js`). It now returns 404, as `server-outputs.json` and `spa-routes.json` already did, and so do its `.br` and `.gz` copies. The browser never fetched this file. Pages with islands also carried those paths in the inline `window.__ABSOLUTE_MANIFEST__` script. That script now holds only web paths, so island bundles and the islands bootstrap resolve as before. A web-app manifest can no longer be named `manifest.json`: the build overwrote that file with its own manifest, so it was never served. `pwa.manifest.path: '/manifest.json'` is now a build error, and a `manifest.json` in `publicDirectory` logs a warning. Use the default `/manifest.webmanifest`.",
+					"kind": "security",
+					"summary": "Production no longer serves /manifest.json or puts server file paths in island pages"
+				},
+				{
+					"detail": "Warnings and errors from a production server or build, such as \"File route ... is not served\", started with `[hmr]` even though production has no HMR. They now start with `[absolutejs]`. The dev server still uses `[hmr]`.",
+					"kind": "fixed",
+					"summary": "Production warnings start with [absolutejs] instead of [hmr]"
+				},
+				{
+					"detail": "A React page that rendered a React `<Island>` returned 500 under `absolute start` with `renderToString is not a function`. Island SSR used React's legacy string renderer, which the production server bundle strips out. Islands now render with `renderToReadableStream`. When the island registry has React islands, the production server bundle also keeps React external. Each island's source loads `react` from node_modules when it first renders, and a second copy inlined into the bundle made the island's hooks fail.",
+					"kind": "fixed",
+					"summary": "React islands render in production builds",
+					"symbols": [
+						"Island"
+					]
+				},
+				{
+					"detail": "A production build now removes the bundles an earlier build left in the build directory. The cleanup only recognised file hashes made of hex digits, but Bun hashes use letters and digits, so old server bundles, page bundles, workers, fonts and React Server Components bundles piled up with every build. A build now removes older versions of the files it writes, old chunks in the directories it writes chunks to, the `.br` and `.gz` copies of removed files, and the outputs of pages that no longer exist. It keeps a list of its outputs in `build-outputs.json` to find those, and that file is never served. Files you put in the build directory yourself are left alone.",
+					"kind": "fixed",
+					"summary": "Production builds no longer leave old hashed bundles in the build directory"
+				},
+				{
+					"detail": "A route handler that threw before returning an HTML or HTMX page got Elysia's JSON 500. Browser navigations and HTMX requests now get the `error.html` from the HTML or HTMX pages directory, with status 500. HTMX requests try the HTMX one first. In production the page shows a generic message and no stack. Other requests, Elysia's own errors and thrown `status(...)` responses are unchanged. This is a fallback: if your app registers its own `onError`, before or after `.use(absolutejs)`, your handler keeps handling these errors and no `error.html` is rendered. The app's handlers are found when the server starts with `.listen()`; an app that only calls `app.handle()` gets `error.html` regardless. See docs/STATIC_PAGE_CONVENTIONS.md.",
+					"kind": "changed",
+					"summary": "Routes that throw render error.html for HTML and HTMX page requests"
+				},
+				{
+					"detail": "In dev, every page using the Svelte router logged `[svelte] hydration_mismatch` and was mounted again from scratch, even a page with one `<Route>`. The same happened to any Svelte page or snippet whose only content is one component. The dev server compiles browser components with Svelte's HMR option, which expects a marker comment after such a component, but the server render was compiled without it and left the markers out. The server render now uses the same option in dev, so these pages hydrate cleanly. Production builds were not affected.",
+					"kind": "fixed",
+					"summary": "Svelte router pages, and pages whose only content is one component, hydrate without a mismatch warning in dev"
+				},
+				{
+					"detail": "Importing a `.svelte` component that has no `<script>` block failed `absolute typecheck` with \"Could not find a declaration file for module\", unless the project's tsconfig set `allowJs`. svelte-check treats a component without `<script lang=\"ts\">` as JavaScript, and without `allowJs` it could not resolve the import. The svelte-check step now enables `allowJs` in the config it generates. JavaScript files are still not type-checked unless the project sets `checkJs`. The generated declaration for such a component, used when server code imports it, is now a complete TypeScript declaration instead of one that names `SvelteComponent` without importing it.",
+					"kind": "fixed",
+					"summary": "`absolute typecheck` accepts imports of Svelte components that have no `<script>` block"
+				},
+				{
+					"detail": "A Vue page that exported `routes` returned 500 under `absolute start` with `__VUE_PROD_DEVTOOLS__ is not defined`. vue-router is bundled into the page's server build and reads Vue's compile-time feature flags, which only the client builds defined. The flags are now defined in the server build, the production server bundle, `absolute compile`, the dev dependency vendor and the dev module server. Lazily loaded route components also failed to load in production with a 404, because their build path contains a directory named `%2F` and the server decoded it into a slash. They now load, so a direct visit to a nested URL mounts the route and client-side navigation works.",
+					"kind": "fixed",
+					"summary": "Vue pages that export `routes` work in production builds",
+					"symbols": [
+						"defineRoutes",
+						"handleVuePageRequest"
+					]
+				}
+			],
+			"date": "2026-11-13",
+			"version": "0.20.0-beta.171"
+		},
+		{
+			"changes": [
+				{
 					"detail": "The surgical Angular HMR path compiled `styleUrl` files synchronously, which Less and Stylus don't support. Editing a component whose `styleUrl` was a `.less` or `.styl` file showed \"Style file not found\" for a file that existed, and the update stalled behind the error overlay. The fast path now compiles Less and Stylus with their async compilers. A style that exists but fails to compile reports the compiler's error instead of \"not found\". The production build and the dev rebuild path already handled Less and Stylus.",
 					"kind": "fixed",
 					"summary": "Angular HMR applies edits to components whose `styleUrl` is Less or Stylus, and reports style compile errors accurately"

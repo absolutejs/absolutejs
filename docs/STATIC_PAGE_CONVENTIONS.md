@@ -18,6 +18,47 @@ fails a static-page check (for example an `<abs-stream-slot>` in an HTML
 page that passed no `streamingSlots`). The response has status 500, and the
 error is logged on the server.
 
+### Errors thrown by route handlers
+
+A route handler that throws before it returns a page, for example
+
+```ts
+.get('/account', () => {
+	throw new Error('database unavailable');
+})
+```
+
+also renders `error.html` with status 500, when the request is a page
+request: a browser navigation (`Accept: text/html`) or an HTMX request
+(`HX-Request: true`). HTMX requests try `htmx/pages/error.html` first, then
+`html/pages/error.html`; other requests try them the other way round.
+Outside development the page shows the generic message
+`Something went wrong while rendering this page.` and an empty
+`{{ stack }}`, so neither the error message nor any file path reaches the
+browser. The error is logged on the
+server.
+
+What this doesn't cover:
+
+- Requests that aren't page requests, such as `fetch()` calls or JSON API
+  requests, keep Elysia's default error response.
+- Errors Elysia raises itself (not found, validation, parse errors) and
+  thrown `status(...)` responses keep their own status and handling.
+- `<Page>.error.html` files aren't matched from a route: a route isn't tied
+  to a page file, so the directory's `error.html` is used.
+- It needs an `error.html` (or a `<Page>.error.html`) in the HTML or HTMX
+  pages directory. Without one, the route gets Elysia's default response.
+- If your app registers its own `onError`, before or after
+  `.use(absolutejs)` or as a global hook in another plugin, AbsoluteJS
+  leaves these errors to it and doesn't render `error.html`. An `onError`
+  with the default local scope inside a sub-plugin isn't counted, because
+  Elysia doesn't share it with the app.
+- Your app's own `onError` is found when the server starts with
+  `.listen()`, which covers `absolute dev`, `absolute start` and compiled
+  binaries. An app that only calls `app.handle()` (some tests and
+  serverless setups) still gets `error.html` for these requests, and an
+  `onError` it registers after `.use(absolutejs)` doesn't see them.
+
 The error page can show the error with three placeholders:
 
 ```html

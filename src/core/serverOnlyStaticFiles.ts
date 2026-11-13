@@ -17,12 +17,27 @@ const STATIC_PLUGIN_DEFAULTS = ['.DS_Store', '.git', '.env'];
  *  the build directory. */
 export const SERVER_OUTPUTS_FILE = 'server-outputs.json';
 
+/** Runtime files the build writes at the root of the build directory. The
+ *  server reads them from disk; none of them is public. `manifest.json`
+ *  maps every page to its bundle, and for SSR bundles that is an absolute
+ *  path on the server's disk. A public file with one of these names (from
+ *  `publicDirectory` or `pwa.manifest.path`) would be overwritten by the
+ *  build and never served. */
+export const RUNTIME_FILE_NAMES = [
+	'absolute-runtime.json',
+	'build-outputs.json',
+	'conventions.json',
+	'manifest.json',
+	SERVER_OUTPUTS_FILE,
+	'spa-routes.json'
+] as const;
+
 const SERVER_ONLY_PATTERNS = [
 	// SSR bundles and server vendors: svelte/server, vue/server,
 	// angular/vendor/server, …
 	/^\/(?:angular|ember|react|svelte|vue)\/(?:vendor\/)?server\//,
 	/^\/conventions\//,
-	/^\/(?:absolute-runtime|conventions|server-outputs|spa-routes)\.json(?:\.br|\.gz)?$/,
+	/^\/(?:absolute-runtime|build-outputs|conventions|manifest|server-outputs|spa-routes)\.json(?:\.br|\.gz)?$/,
 	// Source maps: client maps are moved to a private directory by the
 	// build (`sourcemaps: 'external'`); the server bundle's map stays local.
 	/\.map$/,

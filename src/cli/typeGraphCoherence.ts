@@ -16,7 +16,26 @@ const DEPENDENCY_FIELDS = [
 	'peerDependencies'
 ] as const;
 
-const TYPE_GRAPH_PACKAGES = ['elysia', 'typebox', 'exact-mirror'] as const;
+const TYPE_GRAPH_PACKAGES: readonly string[] = [
+	'elysia',
+	'typebox',
+	'exact-mirror'
+];
+
+/** Angular runtime packages that must resolve to one physical copy. A
+ *  second copy (for example one nested under `@absolutejs/absolute` when
+ *  its peer range doesn't match the app's version) becomes a second
+ *  module instance at runtime, and `inject()` then fails with NG0203. */
+export const ANGULAR_RUNTIME_PACKAGES: readonly string[] = [
+	'@angular/core',
+	'@angular/common',
+	'@angular/compiler',
+	'@angular/platform-browser',
+	'@angular/platform-server',
+	'@angular/router',
+	'@angular/forms',
+	'@angular/animations'
+];
 
 type Manifest = Record<string, unknown>;
 type PackageRequire = ReturnType<typeof createRequire>;
@@ -37,6 +56,8 @@ export type PackageIdentity = {
 export type TypeGraphReport = {
 	identities: PackageIdentity[];
 	installRoot: string;
+	/** The packages this report inspected. */
+	packages: readonly string[];
 	unresolved: { consumer: string; packageName: string }[];
 };
 
@@ -154,7 +175,7 @@ const appendConsumer = (
 const inspectTarget = (
 	consumer: Consumer,
 	consumerName: string,
-	target: (typeof TYPE_GRAPH_PACKAGES)[number]
+	target: string
 ): TargetInspection => {
 	if (!declaresPackage(consumer.manifest, target)) return {};
 	const path = resolvePackageJson(createRequire(consumer.path), target);
@@ -194,7 +215,10 @@ const collectInspection = (
 	);
 };
 
-const inspectTypeGraph = (cwd: string): TypeGraphReport => {
+const inspectTypeGraph = (
+	cwd: string,
+	packages: readonly string[] = TYPE_GRAPH_PACKAGES
+): TypeGraphReport => {
 	const installRoot = findInstallRoot(cwd);
 	const rootManifestPath = join(installRoot, 'package.json');
 	const rootManifest = readManifest(rootManifestPath) ?? {};
@@ -224,7 +248,7 @@ const inspectTypeGraph = (cwd: string): TypeGraphReport => {
 	const unresolved: TypeGraphReport['unresolved'] = [];
 	for (const consumer of consumers) {
 		const consumerName = manifestName(consumer.manifest, '<workspace>');
-		const inspections = TYPE_GRAPH_PACKAGES.map((target) =>
+		const inspections = packages.map((target) =>
 			inspectTarget(consumer, consumerName, target)
 		);
 		inspections.forEach((inspection) =>
@@ -238,11 +262,11 @@ const inspectTypeGraph = (cwd: string): TypeGraphReport => {
 		);
 	}
 
-	return { identities, installRoot, unresolved };
+	return { identities, installRoot, packages, unresolved };
 };
 
 const duplicateTypeGraphPackages = (report: TypeGraphReport) =>
-	TYPE_GRAPH_PACKAGES.flatMap((name) => {
+	report.packages.flatMap((name) => {
 		const identities = report.identities.filter(
 			(identity) => identity.packageName === name
 		);

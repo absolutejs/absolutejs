@@ -13,7 +13,10 @@ import {
 } from '../domState';
 import { processCSSLinks, waitForCSSAndUpdate } from '../cssUtils';
 import { patchHeadInPlace } from '../headPatch';
-import { detectCurrentFramework } from '../frameworkDetect';
+import {
+	detectCurrentFramework,
+	isUpdateForThisPage
+} from '../frameworkDetect';
 import { type HTMXSavedState, type ScriptInfo } from '../../../../types/client';
 import { hmrState } from '../hmrState';
 import { sendAbsoluteHmrTiming } from '../hmrTiming';
@@ -71,11 +74,13 @@ export const handleHTMXUpdate = (message: {
 	data: {
 		html?: string | { body?: string; head?: string } | null;
 		serverDuration?: number;
+		sourceFile?: string;
 	};
 	timestamp?: number;
 }) => {
 	const htmxFrameworkCheck = detectCurrentFramework();
 	if (htmxFrameworkCheck !== 'htmx') return;
+	if (!isUpdateForThisPage(message.data.sourceFile)) return;
 
 	if (window.__REACT_ROOT__) {
 		window.__REACT_ROOT__ = undefined;

@@ -1249,6 +1249,28 @@ const pruneStaleHashedSiblings = async (
 	);
 };
 
+/* Plugins for the dev Angular client rebuild. The page index imports
+ * `@absolutejs/absolute/client`, whose island hydrators reference every
+ * framework runtime, so the runtimes of frameworks the project doesn't
+ * install resolve to throwing stubs, same as the initial build. */
+export const getAngularClientBundlePlugins = async (
+	config: BuildConfig,
+	userAngularRoot: string
+) => {
+	const { createAngularHmrInjectionPlugin } =
+		await import('./angular/hmrInjectionPlugin');
+
+	return [
+		createStylePreprocessorPlugin(getStyleTransformConfig(config)),
+		createAngularHmrInjectionPlugin({
+			generatedAngularRoot: getFrameworkGeneratedDir('angular'),
+			projectRoot: process.cwd(),
+			userAngularRoot
+		}),
+		...(await getMissingClientFrameworkPlugins(config))
+	];
+};
+
 const bundleAngularClient = async (
 	state: HMRState,
 	clientPaths: string[],
@@ -1258,12 +1280,8 @@ const bundleAngularClient = async (
 	const { build: bunBuild } = await import('bun');
 	const { generateManifest } = await import('../build/generateManifest');
 	const { getAngularVendorPaths } = await import('../core/devVendorPaths');
-	const { getFrameworkGeneratedDir } = await import('../utils/generatedDir');
-	const { createAngularHmrInjectionPlugin } =
-		await import('./angular/hmrInjectionPlugin');
 	const clientRoot = await computeClientRoot(state.resolvedPaths);
 	const depVendorPaths = globalThis.__depVendorPaths ?? {};
-	const generatedAngularRoot = getFrameworkGeneratedDir('angular');
 
 	let angVendorPaths = getAngularVendorPaths();
 	if (!angVendorPaths) {
@@ -1293,16 +1311,10 @@ const bundleAngularClient = async (
 		format: 'esm',
 		naming: '[dir]/[name].[hash].[ext]',
 		outdir: buildDir,
-		plugins: [
-			createStylePreprocessorPlugin(
-				getStyleTransformConfig(state.config)
-			),
-			createAngularHmrInjectionPlugin({
-				generatedAngularRoot,
-				projectRoot: process.cwd(),
-				userAngularRoot
-			})
-		],
+		plugins: await getAngularClientBundlePlugins(
+			state.config,
+			userAngularRoot
+		),
 		root: clientRoot,
 		sourcemap: 'inline',
 		target: 'browser',

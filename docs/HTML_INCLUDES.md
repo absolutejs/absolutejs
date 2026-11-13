@@ -87,4 +87,10 @@ Include cycle: html/partials/a.html includes itself
 ## Dev
 
 Editing a page live-updates it. Editing a partial or a layout live-updates
-every page that includes it, directly or through another include.
+every page that includes it, directly or through another include. Each open
+tab gets its own page, with its own slot content and the partial's new
+text, so two tabs on two pages that share a layout both stay correct.
+
+Text that a script changed on an element with an `id` (a counter, say) is
+kept across live updates. Text you edit in the markup always shows the new
+version, including on elements with an `id`.

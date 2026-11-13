@@ -89,7 +89,8 @@ export const injectSsrScripts = (
 	html: string,
 	requestId: string,
 	indexPath: string,
-	requestContext?: unknown
+	requestContext?: unknown,
+	baseHref?: string | null
 ) => {
 	let result = injectBeforeClose(html, browserTranslationBaselineTag());
 
@@ -105,6 +106,15 @@ export const injectSsrScripts = (
 		result = injectBeforeClose(
 			result,
 			`<script${nonceAttr()}>window.__ABS_ANGULAR_REQUEST_CONTEXT__ = ${escapeScriptContent(JSON.stringify(requestContext))};</script>`
+		);
+	}
+
+	// Read by the generated client bootstrap so the browser router uses
+	// the same `APP_BASE_HREF` the server rendered with.
+	if (baseHref) {
+		result = injectBeforeClose(
+			result,
+			`<script${nonceAttr()}>window.__ABS_ANGULAR_BASE_HREF__ = ${escapeScriptContent(JSON.stringify(baseHref))};</script>`
 		);
 	}
 

@@ -21,9 +21,8 @@ GlobalRegistrator.register({ url: 'https://example.com/' });
 Object.assign(globalThis, nativeWebGlobals);
 
 const { createSSRApp, defineComponent, h, nextTick } = await import('vue');
-const { createMemoryHistory, createRouter, RouterView } = await import(
-	'vue-router'
-);
+const { createMemoryHistory, createRouter, RouterView } =
+	await import('vue-router');
 const { renderToString } = await import('vue/server-renderer');
 const { handleVuePageRequest } = await import('../../../src/vue');
 const serverBuild = await import('../../../src/vue/useServerData');

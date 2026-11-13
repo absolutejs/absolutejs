@@ -6,8 +6,8 @@ import { join, resolve } from 'node:path';
  * static page handlers never rendered the error convention: a page whose
  * file couldn't be read (or that failed a static-page check) surfaced as an
  * unhandled error. They now behave like the framework handlers: status 500,
- * the HTMX directory's conventions first for HTMX pages, no stack in
- * production. Unmatched routes use not-found.html, the HTMX one for HTMX
+ * the HTMX directory's conventions first for HTMX pages, no stack and a
+ * generic message in production. Unmatched routes use not-found.html, the HTMX one for HTMX
  * requests. */
 
 const repoRoot = resolve(import.meta.dir, '..', '..', '..');
@@ -20,7 +20,16 @@ const root = join(
 type Mode = 'development' | 'production';
 type Result = { body: string; status: number };
 type Probe = Record<
-	'htmlError' | 'htmxError' | 'notFound' | 'htmxNotFound' | 'home',
+	| 'htmlError'
+	| 'htmxError'
+	| 'notFound'
+	| 'htmxNotFound'
+	| 'home'
+	| 'routeThrows'
+	| 'routeThrowsHtmx'
+	| 'routeThrowsApi'
+	| 'routeStatus'
+	| 'routeThrowsAppHandler',
 	Result
 >;
 
@@ -80,7 +89,13 @@ if (${JSON.stringify(mode)} === 'production') {
 	const { absolutejs } = await prepare('absolute.config.ts');
 	const app = new Elysia()
 		.use(absolutejs)
-		.get('/', () => handleHTMLPageRequest(manifest.Home));
+		.get('/', () => handleHTMLPageRequest(manifest.Home))
+		.get('/throws', () => {
+			throw new Error('route secret at /srv/app/server.ts');
+		})
+		.get('/teapot', ({ status }) => {
+			throw status(418, 'TEAPOT');
+		});
 	const request = (path, headers = {}) =>
 		app.handle(new Request('http://localhost' + path, { headers }));
 	probe.home = await read(await request('/'));
@@ -88,6 +103,32 @@ if (${JSON.stringify(mode)} === 'production') {
 	probe.htmxNotFound = await read(
 		await request('/no-such-fragment', { 'HX-Request': 'true' })
 	);
+	const page = { accept: 'text/html,application/xhtml+xml' };
+	probe.routeThrows = await read(await request('/throws', page));
+	probe.routeThrowsHtmx = await read(
+		await request('/throws', { 'HX-Request': 'true' })
+	);
+	probe.routeThrowsApi = await read(
+		await request('/throws', { accept: 'application/json' })
+	);
+	probe.routeStatus = await read(await request('/teapot', page));
+
+	/* An app with its own onError, registered after .use(absolutejs), keeps
+	 * handling these errors itself. The app is found when it starts, so this
+	 * one listens. Started last: the runtime plugin remembers the started app. */
+	const withHandler = new Elysia()
+		.use(absolutejs)
+		.onError(() => new Response('APP_ERROR_HANDLER', { status: 500 }))
+		.get('/throws', () => {
+			throw new Error('route secret at /srv/app/server.ts');
+		})
+		.listen(0);
+	probe.routeThrowsAppHandler = await read(
+		await fetch('http://localhost:' + withHandler.server.port + '/throws', {
+			headers: page
+		})
+	);
+	await withHandler.stop();
 }
 
 process.stdout.write('PROBE' + JSON.stringify(probe) + '\\n');
@@ -151,7 +192,6 @@ describe('HTML and HTMX error conventions', () => {
 
 		expect(status).toBe(500);
 		expect(body).toContain('HTML_ERROR');
-		expect(body).toContain('Missing.html');
 	});
 
 	test('an HTMX page that throws renders the HTMX error.html with status 500', () => {
@@ -159,7 +199,27 @@ describe('HTML and HTMX error conventions', () => {
 
 		expect(status).toBe(500);
 		expect(body).toContain('HTMX_ERROR');
-		expect(body).toContain('abs-stream-slot');
+	});
+
+	test('production error pages show a generic message, never a server path', () => {
+		for (const key of ['htmlError', 'htmxError'] as const) {
+			const { body } = result('production', key);
+
+			expect(body).toContain('Something went wrong');
+			expect(body).not.toContain(root);
+			expect(body).not.toContain('Missing.html');
+			expect(body).not.toContain('ENOENT');
+			expect(body).not.toContain('abs-stream-slot');
+		}
+	});
+
+	test('development error pages keep the real message', () => {
+		expect(result('development', 'htmlError').body).toContain(
+			'Missing.html'
+		);
+		expect(result('development', 'htmxError').body).toContain(
+			'abs-stream-slot'
+		);
 	});
 
 	test('production error pages carry no stack; development ones do', () => {
@@ -189,5 +249,48 @@ describe('HTML and HTMX not-found conventions', () => {
 
 		expect(status).toBe(404);
 		expect(body).toContain('HTMX_NOT_FOUND');
+	});
+});
+
+/* A route handler that throws before reaching a page handler used to get
+ * Elysia's JSON 500. Page navigations and HTMX requests now get error.html. */
+describe('Errors thrown by route handlers', () => {
+	test('a page navigation renders the HTML error.html with status 500', () => {
+		const { body, status } = result('production', 'routeThrows');
+
+		expect(status).toBe(500);
+		expect(body).toContain(
+			'HTML_ERROR Something went wrong while rendering this page.'
+		);
+		expect(body).toContain('<pre id="stack">[]</pre>');
+		expect(body).not.toContain('route secret');
+		expect(body).not.toContain('/srv/app');
+	});
+
+	test('an HTMX request renders the HTMX error.html', () => {
+		const { body, status } = result('production', 'routeThrowsHtmx');
+
+		expect(status).toBe(500);
+		expect(body).toContain(
+			'HTMX_ERROR Something went wrong while rendering this page.'
+		);
+		expect(body).not.toContain('route secret');
+	});
+
+	test("an app's own onError, registered after .use(absolutejs), still handles them", () => {
+		const { body, status } = result('production', 'routeThrowsAppHandler');
+
+		expect(status).toBe(500);
+		expect(body).toBe('APP_ERROR_HANDLER');
+	});
+
+	test('non-page requests and thrown status responses are left alone', () => {
+		const api = result('production', 'routeThrowsApi');
+		expect(api.status).toBe(500);
+		expect(api.body).not.toContain('HTML_ERROR');
+
+		const teapot = result('production', 'routeStatus');
+		expect(teapot.status).toBe(418);
+		expect(teapot.body).toContain('TEAPOT');
 	});
 });

@@ -13,7 +13,10 @@ import {
 } from '../domState';
 import { processCSSLinks, waitForCSSAndUpdate } from '../cssUtils';
 import { patchHeadInPlace } from '../headPatch';
-import { detectCurrentFramework } from '../frameworkDetect';
+import {
+	detectCurrentFramework,
+	isUpdateForThisPage
+} from '../frameworkDetect';
 import type { ScriptInfo } from '../../../../types/client';
 import { restoreDOMChanges, snapshotDOMChanges } from '../domTracker';
 import { hmrState } from '../hmrState';
@@ -85,6 +88,7 @@ export const handleHTMLUpdate = (message: {
 	data: {
 		html?: string | { body?: string; head?: string } | null;
 		serverDuration?: number;
+		sourceFile?: string;
 	};
 	timestamp?: number;
 }) => {
@@ -92,6 +96,7 @@ export const handleHTMLUpdate = (message: {
 	if (htmlFrameworkCheck !== 'html') {
 		return;
 	}
+	if (!isUpdateForThisPage(message.data.sourceFile)) return;
 
 	if (window.__REACT_ROOT__) {
 		window.__REACT_ROOT__ = undefined;

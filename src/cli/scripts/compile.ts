@@ -3,6 +3,7 @@ import { prepareCompiledClientGraph } from '../../build/compiledClientGraph';
 import { createExternalAssetPlugin } from '../../build/externalAssetPlugin';
 import { maskLiterals } from '../../build/maskLiterals';
 import { loadIslandRegistryBuildInfo } from '../../build/islandEntries';
+import { resolveProductionServerDefine } from '../../build/resolveBuildMode';
 import { createIslandRegistryDefinitionPlugin } from '../../build/islandRegistryTransform';
 import { createBunStringRawUnicodePlugin } from '../../build/bunStringRawUnicodePlugin';
 import { finalizeAbsoluteMobileCompatibilityBuild } from '../../mobile/buildPipeline';
@@ -1591,7 +1592,7 @@ export default server;
 	);
 
 	const serverBundle = await Bun.build({
-		define: { 'process.env.NODE_ENV': '"production"' },
+		define: resolveProductionServerDefine(buildConfig),
 		entrypoints: [serverBundleEntry],
 		external: resolveServerBundleExternals(buildConfig),
 		outdir: resolvedOutdir,
@@ -1758,7 +1759,7 @@ export default server;
 	// ── Step 5: Compile binary ──────────────────────────────────
 	const result = await Bun.build({
 		compile: { outfile: resolvedOutfile },
-		define: { 'process.env.NODE_ENV': '"production"' },
+		define: resolveProductionServerDefine(buildConfig),
 		entrypoints: [entrypointPath],
 		plugins: [
 			createStubPlugin({

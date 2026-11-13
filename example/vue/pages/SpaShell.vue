@@ -20,12 +20,16 @@ export const routes = defineRoutes([
 </script>
 
 <script setup lang="ts">
-import { RouterView } from 'vue-router';
+import { RouterLink, RouterView } from 'vue-router';
 </script>
 
 <template>
 	<main class="spa-shell">
 		<h1>SPA Shell</h1>
+		<nav>
+			<RouterLink class="spa-link-one" to="/spashell/one">One</RouterLink>
+			<RouterLink class="spa-link-two" to="/spashell/two">Two</RouterLink>
+		</nav>
 		<RouterView />
 	</main>
 </template>

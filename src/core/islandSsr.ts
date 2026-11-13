@@ -34,17 +34,27 @@ const stripLeadingHoistedResources = (html: string) => {
 	return result.trimStart();
 };
 
-export const renderReactIslandToHtml = <Props extends Record<string, unknown>>(
+/* Rendered with renderToReadableStream, not renderToString: `absolute start`
+ * stubs out React's legacy string renderer in the production server bundle,
+ * so renderToString is undefined there. Awaiting `allReady` before reading
+ * makes the stream flush the finished markup in one pass, like the string
+ * renderer did. */
+export const renderReactIslandToHtml = async <
+	Props extends Record<string, unknown>
+>(
 	component: ReactComponentType<Props>,
 	props: Props
-) =>
-	import('react').then(({ createElement }) =>
-		import('react-dom/server').then(({ renderToString }) =>
-			stripLeadingHoistedResources(
-				renderToString(createElement(component, props))
-			)
-		)
+) => {
+	const { createElement } = await import('react');
+	const { renderToReadableStream } = await import('react-dom/server');
+	const stream = await renderToReadableStream(
+		createElement(component, props)
 	);
+	await stream.allReady;
+	const html = await new Response(stream).text();
+
+	return stripLeadingHoistedResources(html);
+};
 export const renderSvelteIslandToHtml = <Props extends Record<string, unknown>>(
 	component: import('svelte').Component<Props>,
 	props: Props

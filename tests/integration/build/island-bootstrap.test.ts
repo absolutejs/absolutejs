@@ -129,4 +129,29 @@ describe('islands bootstrap for static pages', () => {
 		);
 		await expectBootstrapInjected(root, manifest, bootstrapPath);
 	}, 120_000);
+
+	test('the manifest injected into a page carries no server file paths', async () => {
+		const root = await createFixture();
+		const manifest = await buildFixture(root);
+		const buildDir = join(root, 'build');
+		// The server's copy maps static pages to files on disk.
+		expect(manifest.prices?.startsWith(buildDir)).toBe(true);
+
+		setCurrentIslandManifest(manifest, buildDir);
+		const html = await (
+			await handleHTMLPageRequest(manifest.prices ?? '')
+		).text();
+		const match =
+			/window\.__ABSOLUTE_MANIFEST__ = (\{.*?\})<\/script>/.exec(html);
+		const injected: Record<string, string> = JSON.parse(match?.[1] ?? '{}');
+
+		expect(html).not.toContain(root);
+		expect(injected.IslandReactPriceChart).toBe(
+			manifest.IslandReactPriceChart
+		);
+		expect(injected.AbsoluteIslandBootstrap).toBe(
+			manifest.AbsoluteIslandBootstrap
+		);
+		expect(injected.prices).toBeUndefined();
+	}, 120_000);
 });

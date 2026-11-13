@@ -15,6 +15,7 @@ import {
 	resolveProjectName
 } from '../../utils/instanceRegistry';
 import { loadIslandRegistryBuildInfo } from '../../build/islandEntries';
+import { resolveProductionServerDefine } from '../../build/resolveBuildMode';
 import { createIslandRegistryDefinitionPlugin } from '../../build/islandRegistryTransform';
 import { createBunStringRawUnicodePlugin } from '../../build/bunStringRawUnicodePlugin';
 import { finalizeAbsoluteMobileCompatibilityBuild } from '../../mobile/buildPipeline';
@@ -578,10 +579,11 @@ export const start = async (
 	// The runtime resolves them lazily via dynamic import. See
 	// build/islandRegistryTransform.ts.
 	const islandRegistrySpec = buildConfig.islands?.registry;
-	const islandRegistryPlugin = islandRegistrySpec
-		? createIslandRegistryDefinitionPlugin(
-				await loadIslandRegistryBuildInfo(resolve(islandRegistrySpec))
-			)
+	const islandRegistryInfo = islandRegistrySpec
+		? await loadIslandRegistryBuildInfo(resolve(islandRegistrySpec))
+		: undefined;
+	const islandRegistryPlugin = islandRegistryInfo
+		? createIslandRegistryDefinitionPlugin(islandRegistryInfo)
 		: undefined;
 
 	// Svelte pages are separate bundles that import `svelte` from
@@ -589,11 +591,23 @@ export const start = async (
 	// component context, so a page calling `getContext` / `setContext` (the
 	// Svelte router does) failed with `lifecycle_outside_component`. Keep
 	// the one copy external.
-	const sharedPageRuntimes = buildConfig.svelteDirectory
-		? ['svelte', 'svelte/*']
-		: [];
+	//
+	// React islands are the same: the runtime imports each island's source
+	// when it first renders, and that source imports `react` from
+	// node_modules. With React inlined here the island's hooks ran against a
+	// React the renderer never set up (`ReactSharedInternals.H` is null).
+	const hasReactIslands =
+		islandRegistryInfo?.definitions.some(
+			(definition) => definition.framework === 'react'
+		) ?? false;
+	const sharedPageRuntimes = [
+		...(buildConfig.svelteDirectory ? ['svelte', 'svelte/*'] : []),
+		...(buildConfig.reactDirectory && hasReactIslands
+			? ['react', 'react/*', 'react-dom', 'react-dom/*']
+			: [])
+	];
 	const serverBundle = await Bun.build({
-		define: { 'process.env.NODE_ENV': '"production"' },
+		define: resolveProductionServerDefine(buildConfig),
 		entrypoints: [resolve(serverEntry)],
 		external: [
 			...resolveServerBundleExternals(buildConfig),

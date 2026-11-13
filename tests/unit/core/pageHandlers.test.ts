@@ -41,7 +41,10 @@ describe('static page handlers', () => {
 		errorSpy.mockRestore();
 
 		expect(response.status).toBe(500);
-		expect(await response.text()).toContain('HTML page');
+		// Outside development the page gets a generic message, not the error's.
+		expect(await response.text()).toContain(
+			'Something went wrong while rendering this page.'
+		);
 	});
 
 	test('handleHTMLPageRequest applies explicit streaming slots through handler options', async () => {
@@ -106,7 +109,9 @@ describe('static page handlers', () => {
 		errorSpy.mockRestore();
 
 		expect(response.status).toBe(500);
-		expect(await response.text()).toContain('HTMX page');
+		expect(await response.text()).toContain(
+			'Something went wrong while rendering this page.'
+		);
 	});
 
 	for (const [name, handle] of [

@@ -112,7 +112,7 @@ describe('HTMX deeper coverage', () => {
 			const html = await (await fetch(`${srv.baseUrl}/htmx`)).text();
 			// Same shape as HTML's injection but with `"htmx"`.
 			expect(html).toContain(
-				'<script>window.__HMR_FRAMEWORK__="htmx";</script>'
+				'<script>window.__HMR_FRAMEWORK__="htmx";window.__HMR_PAGE__="HTMXExample.html";</script>'
 			);
 			expect(html).toContain('data-hmr-client');
 		},

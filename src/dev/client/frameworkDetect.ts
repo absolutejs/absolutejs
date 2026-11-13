@@ -60,3 +60,14 @@ export const getComponentNameFromPath = (filePath: string) => {
 		.map((word) => word.charAt(0).toUpperCase() + word.slice(1))
 		.join('');
 };
+/* Static (HTML/HTMX) pages are told which built page they are (see
+ * injectHMRIntoHTMLFile in build.ts). Every tab receives every page's
+ * html-update / htmx-update, so a tab applies only its own page's. A
+ * document without a page name (older builds) applies all of them. */
+export const isUpdateForThisPage = (sourceFile: unknown) => {
+	const page = window.__HMR_PAGE__;
+	if (!page || typeof sourceFile !== 'string') return true;
+	const normalized = sourceFile.replace(/\\/g, '/');
+
+	return normalized.slice(normalized.lastIndexOf('/') + 1) === page;
+};

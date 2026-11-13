@@ -21,6 +21,10 @@ type ExportMeta = HotModuleAnalysis['exports'];
 
 type Slot = { value: unknown; generation: number };
 
+/** A stateful factory's result kept across versions (analyze.ts,
+ *  STATEFUL_FACTORIES), and the planned id whose statement made it. */
+type Instance = { owner: string; value: unknown };
+
 type Pending = {
 	generation: number;
 	meta: ExportMeta;
@@ -35,6 +39,8 @@ type Pending = {
 	changedExports: Set<string>;
 	/** How long each re-run statement took, in milliseconds. */
 	timings: Map<string, number>;
+	/** Stateful factory instances the re-run statements used. */
+	instances: Map<string, Instance>;
 };
 
 export type ModuleRecord = {
@@ -59,6 +65,10 @@ export type ModuleRecord = {
 	source?: string;
 	/** Import-specifier tag of the version the facade imports. */
 	tag: number;
+	/** Stateful factory instances by call key, kept across versions. */
+	instances: Map<string, Instance>;
+	/** Call keys already warned about resetting their state. */
+	warned: Set<string>;
 };
 
 type Facade = {
@@ -81,6 +91,7 @@ const recordFor = (path: string) => {
 	const created: ModuleRecord = {
 		cells: {},
 		generation: 0,
+		instances: new Map(),
 		keys: new Map(),
 		lastChanged: new Set(),
 		lastTimings: new Map(),
@@ -89,6 +100,7 @@ const recordFor = (path: string) => {
 		revisions: new Map(),
 		slots: new Map(),
 		tag: 0,
+		warned: new Set(),
 		watchers: new Map()
 	};
 	records.set(path, created);
@@ -180,6 +192,7 @@ const begin = (path: string, meta: ExportMeta, plan: StatementPlan[]) => {
 	record.generation += 1;
 	const pending: Pending = {
 		generation: record.generation,
+		instances: new Map(),
 		meta,
 		reran: new Set(),
 		seen: new Set(),
@@ -224,6 +237,8 @@ const begin = (path: string, meta: ExportMeta, plan: StatementPlan[]) => {
 
 		return value;
 	};
+	const where = (label: string) =>
+		`${label} of ${relative(process.cwd(), path) || path}`;
 
 	return {
 		cells: record.cells,
@@ -253,6 +268,25 @@ const begin = (path: string, meta: ExportMeta, plan: StatementPlan[]) => {
 
 			return store(id, await ownedAsync(id, factory));
 		},
+		/** An inline stateful factory call with literal arguments: the
+		 *  instance the same call made in the previous version, so a re-run
+		 *  statement keeps its state. A call that changed gets a new one. */
+		p: (
+			owner: string,
+			key: string,
+			label: string,
+			create: () => unknown
+		) => {
+			const previous = record.instances.get(key);
+			const value = previous ? previous.value : create();
+			if (!previous && record.keys.has(owner))
+				console.log(
+					`[hmr] ${where(label)} is new or changed, so its state starts empty`
+				);
+			pending.instances.set(key, { owner, value });
+
+			return value;
+		},
 		/** A statement run for its effect, only when it re-runs. */
 		r: (id: string, effect: () => unknown) => {
 			if (kept(id)) return;
@@ -263,6 +297,24 @@ const begin = (path: string, meta: ExportMeta, plan: StatementPlan[]) => {
 			if (kept(id)) return;
 			await ownedAsync(id, effect);
 			store(id, undefined);
+		},
+		/** An inline stateful factory call whose arguments are not literals:
+		 *  it cannot be matched to the previous instance, so say once that
+		 *  re-running its statement reset the state, and how to keep it. */
+		w: (
+			owner: string,
+			key: string,
+			label: string,
+			create: () => unknown
+		) => {
+			if (record.keys.has(owner) && !record.warned.has(key)) {
+				record.warned.add(key);
+				console.warn(
+					`[hmr] ${where(label)} ran again because its statement re-ran, so the state it holds was reset. Create it in its own top-level const (const visitorState = scopedState({ … })) and pass that to .use() to keep it across edits.`
+				);
+			}
+
+			return create();
 		}
 	};
 };
@@ -321,6 +373,22 @@ const stopReplaced = async (
 	if (record.generation > 1) logDisposed(record.path, counts);
 };
 
+/** Instances the new version used, plus those of statements it kept. An
+ *  instance whose statement re-ran without making the same call, or whose
+ *  statement is gone, is dropped. */
+const keptInstances = (record: ModuleRecord, pending: Pending) => {
+	const instances = new Map(pending.instances);
+	for (const [key, instance] of record.instances)
+		if (
+			!instances.has(key) &&
+			pending.seen.has(instance.owner) &&
+			!pending.reran.has(instance.owner)
+		)
+			instances.set(key, instance);
+
+	return instances;
+};
+
 const commit = (record: ModuleRecord, pending: Pending) => {
 	if (record.pending !== pending) return;
 	record.pending = undefined;
@@ -333,6 +401,7 @@ const commit = (record: ModuleRecord, pending: Pending) => {
 	record.keys = pending.keys;
 	record.lastChanged = pending.changedExports;
 	record.lastTimings = pending.timings;
+	record.instances = keptInstances(record, pending);
 	for (const name of pending.changedExports)
 		record.revisions.set(name, (record.revisions.get(name) ?? 0) + 1);
 	if (replaced.size === 0) return;

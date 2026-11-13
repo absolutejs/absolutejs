@@ -4,6 +4,9 @@ import { buildErrorPage } from '../utils/ssrErrorPage';
 
 type AbsoluteRequestStore = {
 	request: Request;
+	/** Route pattern Elysia matched for this request (e.g. `/portal/*`).
+	 *  Set before the handler runs, for dynamic routes only. */
+	route?: string;
 	/** Manifest keys `asset()` could not resolve during this request, in
 	 *  call order. Dev only — the page handlers use them to find which
 	 *  page to build on demand. */
@@ -46,9 +49,26 @@ export const absoluteRequestContext = new Elysia({
 	.onRequest(({ request }) => {
 		ensureRequestStorage().enterWith({ request });
 	})
+	.onBeforeHandle(({ request, route }) => {
+		const store = getRequestStorage()?.getStore();
+		if (store && store.request === request && typeof route === 'string') {
+			store.route = route;
+		}
+	})
 	.as('global');
 export const getCurrentAbsoluteRequest = () =>
 	getRequestStorage()?.getStore()?.request;
+/** The Elysia route pattern matched for the current request, when the
+ *  request is the one given (or no request is given). Lets page handlers
+ *  derive mount-relative values such as Angular's `APP_BASE_HREF` at
+ *  request time, wherever the handler call is written. */
+export const getCurrentAbsoluteRoute = (request?: Request) => {
+	const store = getRequestStorage()?.getStore();
+	if (!store) return undefined;
+	if (request && store.request !== request) return undefined;
+
+	return store.route;
+};
 export const runWithAbsoluteRequest = <Result>(
 	request: Request,
 	callback: () => Result

@@ -564,6 +564,12 @@ const buildSvelteCheck = async (cacheDir: string, svelteDir: string) => {
 		svelteTsconfigPath,
 		JSON.stringify(
 			{
+				// svelte-check gives a component with no `<script lang="ts">`
+				// the JS script kind. Without allowJs, importing one (a
+				// script-less component above all) fails with TS7016. This
+				// only lets those components resolve: checkJs stays as the
+				// project set it, so no JavaScript starts being checked.
+				compilerOptions: { allowJs: true },
 				extends: resolve('tsconfig.json'),
 				files: ABSOLUTE_TYPECHECK_FILES,
 				include: [

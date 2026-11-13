@@ -93,9 +93,9 @@ describe('HTML deeper coverage', () => {
 		const html = await (await fetch(`${srv.baseUrl}/html`)).text();
 		// `injectHMRIntoHTMLFile` adds two inline `<script>`
 		// elements just before `</body>`: a framework marker
-		// and the inlined HMR client bundle.
+		// (with the page name) and the inlined HMR client bundle.
 		expect(html).toContain(
-			'<script>window.__HMR_FRAMEWORK__="html";</script>'
+			'<script>window.__HMR_FRAMEWORK__="html";window.__HMR_PAGE__="HTMLExample.html";</script>'
 		);
 		expect(html).toContain('data-hmr-client');
 	}, 30_000);

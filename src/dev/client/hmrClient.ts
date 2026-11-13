@@ -14,6 +14,7 @@ import {
 	type ServerSnapshot
 } from './reconnect';
 import { detectCurrentFramework } from './frameworkDetect';
+import { captureServerDOM } from './domTracker';
 import {
 	absoluteHmrClientTarget,
 	restoreAbsoluteHmrApply,
@@ -157,6 +158,15 @@ if (typeof window !== 'undefined') {
 	}
 	if (!window.__HMR_SERVER_VERSIONS__) {
 		window.__HMR_SERVER_VERSIONS__ = {};
+	}
+	// Static pages: remember the server-rendered text of elements with an
+	// id, so an HMR update can tell script changes from edited markup.
+	const framework = window.__HMR_FRAMEWORK__;
+	if (
+		(framework === 'html' || framework === 'htmx') &&
+		typeof document !== 'undefined'
+	) {
+		captureServerDOM(document.body);
 	}
 }
 

@@ -7,6 +7,7 @@ import { sendTelemetryEvent } from '../cli/telemetryEvent';
 import { unrefTimer } from '../utils/unrefTimer';
 import type { HMRState } from './clientManager';
 import { addFileToGraph, removeFileFromGraph } from './dependencyGraph';
+import { isEditorTempFile } from './editorTempFiles';
 import { getWatchPaths, shouldIgnorePath } from './pathUtils';
 
 const safeRemoveFromGraph = (
@@ -37,18 +38,6 @@ const safeAddToGraph = (
 	}
 };
 
-// Atomic-write temp files created by editors mid-save. These exist for
-// milliseconds before being renamed over the real target — firing the HMR
-// pipeline on them either no-ops (if the temp has no dependents) or
-// emits a spurious `[abs:restart]` marker that triggers a full restart
-// when the actual edit could have been handled in-place.
-const ATOMIC_WRITE_TEMP_PATTERNS = [
-	// sed -i: `sed[A-Za-z0-9]+`, no extension
-	/(^|\/)sed[A-Za-z0-9]{6,}$/,
-	// vim's "4913" probe file used to test write permissions
-	/(^|\/)4913$/
-];
-
 const shouldSkipFilename = (filename: string, isStylesDir: boolean) =>
 	(!isStylesDir &&
 		(filename === 'compiled' ||
@@ -70,12 +59,11 @@ const shouldSkipFilename = (filename: string, isStylesDir: boolean) =>
 			filename.startsWith('server/') ||
 			filename.startsWith('client/'))) ||
 	filename.endsWith('/') ||
-	filename.includes('.tmp.') ||
-	filename.endsWith('.tmp') ||
-	filename.endsWith('~') ||
-	filename.startsWith('.#') ||
-	isAbsoluteServerEntryCopyPath(filename) ||
-	ATOMIC_WRITE_TEMP_PATTERNS.some((pattern) => pattern.test(filename));
+	// Editor/tool temp, swap and lock files (`sed -i`, Vim, Emacs,
+	// JetBrains, …). Firing HMR on them can rebootstrap the page and
+	// lose its state; the real file's change drives the update instead.
+	isEditorTempFile(filename) ||
+	isAbsoluteServerEntryCopyPath(filename);
 
 const setupWatcher = (
 	absolutePath: string,

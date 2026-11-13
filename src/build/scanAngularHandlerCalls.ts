@@ -58,7 +58,9 @@ export type AngularHandlerCall = {
 	manifestKey: string;
 	/** Mount path from the surrounding `.get("/path", ...)` / `.post(...)`
 	 *  Elysia chain. `null` when the call isn't directly inside such a
-	 *  registration (rare but possible — e.g. inside a helper function). */
+	 *  registration (rare but possible — e.g. inside a helper function).
+	 *  The SSR handler then derives `APP_BASE_HREF` from the route Elysia
+	 *  matched at request time instead (see `src/angular/baseHref.ts`). */
 	mountPath: string | null;
 };
 

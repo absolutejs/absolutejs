@@ -141,3 +141,59 @@ describe('islands bootstrap injection', () => {
 		}
 	});
 });
+
+/* The build manifest maps SSR pages and server bundles to absolute paths on
+ * the server's disk. The copy injected into a page keeps only web paths. */
+describe('injected manifest', () => {
+	const injectedManifest = (html: string) => {
+		const match =
+			/window\.__ABSOLUTE_MANIFEST__ = (\{.*?\})<\/script>/.exec(html);
+		if (!match?.[1]) throw new Error('no injected manifest');
+		const parsed: Record<string, string> = JSON.parse(match[1]);
+
+		return parsed;
+	};
+
+	test('leaves out server file paths inside the build directory', () => {
+		setCurrentIslandManifest(
+			{
+				AbsoluteIslandBootstrap: '/islands/bootstrap.abc123de.js',
+				DashboardRSC:
+					'/srv/app/build/react/server/rsc/Dashboard.abc.js',
+				HomeIndex: '/react/indexes/Home.abc123de.js',
+				IslandReactA: '/islands/react/A.abc123de.js',
+				SvelteExample:
+					'/srv/app/build/svelte/server/pages/Svelte.abc.js',
+				WindowsPage: 'C:\\srv\\app\\build\\vue\\server\\Vue.abc.js'
+			},
+			'/srv/app/build'
+		);
+		const manifest = injectedManifest(injectIslandPageContext(ISLAND_PAGE));
+
+		expect(manifest).toEqual({
+			AbsoluteIslandBootstrap: '/islands/bootstrap.abc123de.js',
+			HomeIndex: '/react/indexes/Home.abc123de.js',
+			IslandReactA: '/islands/react/A.abc123de.js'
+		});
+	});
+
+	test('the streaming injection uses the same filtered copy', async () => {
+		setCurrentIslandManifest(
+			{
+				IslandReactA: '/islands/react/A.abc123de.js',
+				Page: '/srv/app/build/html/pages/Page.html'
+			},
+			'/srv/app/build/'
+		);
+		const html = await new Response(
+			injectIslandPageContextStream(createStream([ISLAND_PAGE]), {
+				hasIslands: true
+			})
+		).text();
+
+		expect(html).not.toContain('/srv/app/build');
+		expect(injectedManifest(html)).toEqual({
+			IslandReactA: '/islands/react/A.abc123de.js'
+		});
+	});
+});

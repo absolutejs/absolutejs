@@ -122,7 +122,11 @@ describe('dist/ reads NODE_ENV at runtime', () => {
 		const development = resultFor('development').errorPage;
 
 		expect(production.status).toBe(500);
-		expect(production.body).toContain('probe failure');
+		// Production gets a generic message instead of the error's own.
+		expect(production.body).toContain(
+			'Something went wrong while rendering this page.'
+		);
+		expect(production.body).not.toContain('probe failure');
 		expect(production.body).toContain('NO_STACK');
 		expect(production.body).not.toContain('at Throwing');
 		expect(development.body).toContain('Error: probe failure');

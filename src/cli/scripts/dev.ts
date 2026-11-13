@@ -1,3 +1,4 @@
+import { isEditorTempFile } from '../../dev/editorTempFiles';
 import { isAbsoluteServerEntryCopyPath } from '../../dev/serverEntryCopies';
 import { changeNeedsRestart } from '../../dev/restartScope';
 import { $, env } from 'bun';
@@ -2250,13 +2251,8 @@ export const dev = async (
 		// races the real edit or wastes a cycle.
 		const isAtomicWriteTemp = (filename: string) =>
 			filename.endsWith('.log') ||
-			filename.endsWith('.tmp') ||
-			filename.includes('.tmp.') ||
-			filename.endsWith('~') ||
-			filename.startsWith('.#') ||
-			isAbsoluteServerEntryCopyPath(filename) ||
-			/^sed[A-Za-z0-9]{6,}$/.test(filename) ||
-			filename === '4913';
+			isEditorTempFile(filename) ||
+			isAbsoluteServerEntryCopyPath(filename);
 		// The dev runtime's `serverEntryWatcher` handles the entry's
 		// basename AND `absolute.config.ts` in-place — skip both
 		// here so we don't double-fire the restart pipeline. If the

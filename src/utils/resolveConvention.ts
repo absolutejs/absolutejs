@@ -4,6 +4,7 @@ import type { ConventionsMap, ErrorPageProps } from '../../types/conventions';
 import { toPascal } from './stringModifiers';
 import { nonceAttr, nonceSvelteHeadStyles, readCspNonce } from './cspNonceRef';
 import { nonceStaticHtml } from '../core/staticHtmlNonce';
+import { GENERIC_ERROR_MESSAGE } from './ssrErrorPage';
 
 // Use globalThis so the conventions map is shared across all bundles.
 // The main bundle (dist/index.js) calls setConventions, but framework
@@ -72,16 +73,23 @@ export const setConventions = (map: ConventionsMap) => {
 
 const isDev = () => isDevelopmentRuntime();
 
+/* Outside development an error page gets a generic message and no stack.
+ * Error messages routinely carry server details (a failed read names the
+ * absolute path it tried, a database error names hosts and tables), and the
+ * convention page renders them to whoever sent the request. The request
+ * handler has already logged the full error on the server. */
 const buildErrorProps = (error: unknown): ErrorPageProps => {
+	const name = error instanceof Error ? error.name : 'Error';
+	if (!isDev()) return { message: GENERIC_ERROR_MESSAGE, name };
 	if (error instanceof Error) {
 		return {
 			message: error.message,
-			name: error.name,
-			...(isDev() && error.stack ? { stack: error.stack } : {})
+			name,
+			...(error.stack ? { stack: error.stack } : {})
 		};
 	}
 
-	return { message: String(error), name: 'Error' };
+	return { message: String(error), name };
 };
 
 const renderReactError = async (
@@ -331,6 +339,55 @@ export const renderConventionError = async (
 	}
 
 	return null;
+};
+
+/* An error thrown by a route handler (not by a page handler, which renders
+ * its own error page) reaches Elysia's onError. When the request is a page
+ * navigation or an HTMX request and the project ships an HTML or HTMX
+ * error.html, render that instead of Elysia's JSON 500. HTMX requests try
+ * the HTMX directory's error.html first. Outside development
+ * buildErrorProps gives the page a generic message and no stack, so no file
+ * paths or internals leak. */
+
+const isPageRequest = (request: Request) => {
+	if (request.headers.get('hx-request') === 'true') return true;
+	if (request.headers.get('sec-fetch-dest') === 'document') return true;
+
+	return (request.headers.get('accept') ?? '').includes('text/html');
+};
+
+export const renderStaticRouteError = async (
+	request: Request,
+	error: unknown
+) => {
+	if (!isPageRequest(request)) return null;
+	const preferHtmx = request.headers.get('hx-request') === 'true';
+	const order: ('html' | 'htmx')[] = preferHtmx
+		? ['htmx', 'html']
+		: ['html', 'htmx'];
+	const frameworks = order.filter((framework) =>
+		hasErrorConvention(framework)
+	);
+	if (frameworks.length === 0) return null;
+
+	const errorProps = buildErrorProps(error);
+	const renderNext = async (
+		remaining: ('html' | 'htmx')[]
+	): Promise<Response | null> => {
+		const [framework, ...rest] = remaining;
+		if (!framework) return null;
+		const response = await tryFrameworkErrorConvention(
+			framework,
+			'',
+			errorProps,
+			// Per-page conventions are matched from the original stack.
+			error
+		);
+
+		return response ?? renderNext(rest);
+	};
+
+	return renderNext(frameworks);
 };
 
 const renderReactNotFound = async (conventionPath: string) => {

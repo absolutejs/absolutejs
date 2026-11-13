@@ -39,7 +39,10 @@ import { outputLogs } from '../build/outputLogs';
 import { scanEntryPoints } from '../build/scanEntryPoints';
 import { createStampedFileCache } from '../build/stampedFileCache';
 import { isConventionFile, scanConventions } from '../build/scanConventions';
-import { SERVER_OUTPUTS_FILE } from './serverOnlyStaticFiles';
+import {
+	RUNTIME_FILE_NAMES,
+	SERVER_OUTPUTS_FILE
+} from './serverOnlyStaticFiles';
 import { expandHtmlIncludes } from '../build/htmlIncludes';
 import { writeSpaSideManifests } from '../build/spaSideManifests';
 import {
@@ -616,9 +619,8 @@ export const scanWorkerReferences = async (dirs: string[], memoise = false) => {
  * falls through to Tier 0). */
 const primeAngularHmrFingerprints = async (angularDir: string) => {
 	try {
-		const { primeComponentFingerprint } = await import(
-			'../dev/angular/fastHmrCompiler'
-		);
+		const { primeComponentFingerprint } =
+			await import('../dev/angular/fastHmrCompiler');
 		const { readdir } = await import('node:fs/promises');
 		const walk = async (dir: string) => {
 			const entries = await readdir(dir, { withFileTypes: true });
@@ -1033,6 +1035,11 @@ const buildUnlocked = async ({
 		isDev,
 		vueDirectory ? vueFeatureFlags : {}
 	);
+	// Server (SSR) bundles inline packages like vue-router, whose ESM build
+	// reads Vue's compile-time feature flags as free globals. Without these
+	// a production page that exported `routes` threw
+	// `__VUE_PROD_DEVTOOLS__ is not defined` on every request.
+	const serverDefine = vueDirectory ? vueFeatureFlags : undefined;
 	const projectRoot = cwd();
 	// Dev-only: keep resolvable node_modules packages OUT of the Bun-target
 	// (SSR) bundles — the dev server resolves them at runtime. Empty in
@@ -1284,10 +1291,19 @@ const buildUnlocked = async ({
 		mkdirSync(buildPath, { recursive: true })
 	);
 
-	if (publicPath)
+	if (publicPath) {
 		await tracePhase('public/copy', () =>
 			cpSync(publicPath, buildPath, { force: true, recursive: true })
 		);
+		// The build's runtime files live at the build root and are never
+		// served, so a public file with the same name is overwritten and 404s.
+		for (const name of RUNTIME_FILE_NAMES) {
+			if (isIncremental || !existsSync(join(publicPath, name))) continue;
+			logWarn(
+				`${join(publicDirectory ?? '', name)} is not served: "${name}" at the build root is reserved for the build's runtime files. Rename it (a web-app manifest can be "manifest.webmanifest").`
+			);
+		}
+	}
 
 	const pwaArtifacts = pwa
 		? await tracePhase('pwa/materialize', () =>
@@ -1780,9 +1796,8 @@ const buildUnlocked = async ({
 	// resolve a name; never produces false positives.
 	const ssrOnlyVueEntries = shouldCompileVue
 		? await tracePhase('scan/vue-ssr-only', async () => {
-				const { scanVueSsrOnlyPages } = await import(
-					'../build/scanVueSsrOnlyPages'
-				);
+				const { scanVueSsrOnlyPages } =
+					await import('../build/scanVueSsrOnlyPages');
 				const ssrOnlyPageNames = scanVueSsrOnlyPages(projectRoot, hmr);
 				if (ssrOnlyPageNames.size === 0) return new Set<string>();
 				const resolved = new Set<string>();
@@ -1853,12 +1868,10 @@ const buildUnlocked = async ({
 	let angularAppProvidersSource: string | undefined = undefined;
 	if (shouldCompileAngular && angularDir) {
 		await tracePhase('scan/angular-handlers', async () => {
-			const { runAngularHandlerScan } = await import(
-				'../build/runAngularHandlerScan'
-			);
-			const { parseAngularProvidersImport } = await import(
-				'../build/parseAngularConfigImports'
-			);
+			const { runAngularHandlerScan } =
+				await import('../build/runAngularHandlerScan');
+			const { parseAngularProvidersImport } =
+				await import('../build/parseAngularConfigImports');
 			const scanResult = runAngularHandlerScan(projectRoot, angularDir);
 			const providersImport = parseAngularProvidersImport(projectRoot);
 			// Build the per-page injection map whether or not a global
@@ -2220,6 +2233,7 @@ const buildUnlocked = async ({
 				compiledPaths.map(async (compiledPath, idx) => {
 					const name = basename(compiledPath).replace(/\.[^.]+$/, '');
 					const result = await bunBuild({
+						define: serverDefine,
 						entrypoints: [compiledPath],
 						format: 'esm',
 						minify: !isDev,
@@ -2436,9 +2450,8 @@ const buildUnlocked = async ({
 		);
 	let vendorPaths = getDevVendorPaths();
 	if (!vendorPaths && hmr && usesReactClient) {
-		const { computeVendorPaths } = await import(
-			'../build/buildReactVendor'
-		);
+		const { computeVendorPaths } =
+			await import('../build/buildReactVendor');
 		vendorPaths = computeVendorPaths();
 		setDevVendorPaths(vendorPaths);
 	}
@@ -2448,18 +2461,16 @@ const buildUnlocked = async ({
 	// React island bundle — two+ React copies → "Invalid hook call" / null
 	// dispatcher when islands hydrate. Mirrors the Angular prod block below.
 	if (!hmr && usesReactClient) {
-		const { buildReactVendor, computeVendorPaths } = await import(
-			'../build/buildReactVendor'
-		);
+		const { buildReactVendor, computeVendorPaths } =
+			await import('../build/buildReactVendor');
 		await buildReactVendor(buildPath, { production: !isDev });
 		vendorPaths = computeVendorPaths();
 		setDevVendorPaths(vendorPaths);
 	}
 	let angularVendorPaths = getAngularVendorPaths();
 	if (!angularVendorPaths && hmr && angularDir) {
-		const { computeAngularVendorPaths } = await import(
-			'../build/buildAngularVendor'
-		);
+		const { computeAngularVendorPaths } =
+			await import('../build/buildAngularVendor');
 		angularVendorPaths = computeAngularVendorPaths(
 			globalThis.__angularVendorSpecifiers
 		);
@@ -2534,27 +2545,24 @@ const buildUnlocked = async ({
 	}
 	let vueVendorPaths = getVueVendorPaths();
 	if (!vueVendorPaths && hmr && vueDir) {
-		const { computeVueVendorPaths } = await import(
-			'../build/buildVueVendor'
-		);
+		const { computeVueVendorPaths } =
+			await import('../build/buildVueVendor');
 		vueVendorPaths = computeVueVendorPaths();
 		setVueVendorPaths(vueVendorPaths);
 	}
 	// Production: build the Vue vendor so Vue is externalized + shared (one
 	// instance across host page and Vue island bundles), not inlined per bundle.
 	if (!hmr && vueDir) {
-		const { buildVueVendor, computeVueVendorPaths } = await import(
-			'../build/buildVueVendor'
-		);
+		const { buildVueVendor, computeVueVendorPaths } =
+			await import('../build/buildVueVendor');
 		await buildVueVendor(buildPath);
 		vueVendorPaths = computeVueVendorPaths();
 		setVueVendorPaths(vueVendorPaths);
 	}
 	let svelteVendorPaths = getSvelteVendorPaths();
 	if (!svelteVendorPaths && hmr && svelteDir) {
-		const { computeSvelteVendorPaths } = await import(
-			'../build/buildSvelteVendor'
-		);
+		const { computeSvelteVendorPaths } =
+			await import('../build/buildSvelteVendor');
 		svelteVendorPaths = computeSvelteVendorPaths();
 		setSvelteVendorPaths(svelteVendorPaths);
 	}
@@ -2563,9 +2571,8 @@ const buildUnlocked = async ({
 	// bundles), not inlined — duplicated runtimes break Svelte 5 hydration
 	// (`Cannot read properties of null (reading 'nodes')`).
 	if (!hmr && svelteDir) {
-		const { buildSvelteVendor, computeSvelteVendorPaths } = await import(
-			'../build/buildSvelteVendor'
-		);
+		const { buildSvelteVendor, computeSvelteVendorPaths } =
+			await import('../build/buildSvelteVendor');
 		await buildSvelteVendor(buildPath);
 		svelteVendorPaths = computeSvelteVendorPaths();
 		setSvelteVendorPaths(svelteVendorPaths);
@@ -2719,6 +2726,7 @@ const buildUnlocked = async ({
 						mergeBunBuildConfig(
 							{
 								conditions: svelteResolveConditions,
+								define: serverDefine,
 								entrypoints: serverEntryPoints,
 								external: serverBuildExternals,
 								format: 'esm',
@@ -3002,9 +3010,8 @@ const buildUnlocked = async ({
 	// not chain through it. Post-process here so SSR error stacks
 	// resolve to the user's source files, in production too.
 	if (serverResult?.success) {
-		const { chainBundleInlineSourcemaps } = await import(
-			'../build/chainInlineSourcemaps'
-		);
+		const { chainBundleInlineSourcemaps } =
+			await import('../build/chainInlineSourcemaps');
 		const serverBundlePaths = serverOutputs
 			.map((out) => out.path)
 			.filter((path) => path.endsWith('.js'));
@@ -3022,9 +3029,8 @@ const buildUnlocked = async ({
 	// exposed, and a server-side symbolicator (e.g. @absolutejs/errors) reads the
 	// private maps keyed by the JS file's basename.
 	if (!isDev && resolveClientSourcemap(sourcemaps, isDev) === 'external') {
-		const { chainExternalSourcemap } = await import(
-			'../build/chainInlineSourcemaps'
-		);
+		const { chainExternalSourcemap } =
+			await import('../build/chainInlineSourcemaps');
 		const sourcemapDir = join(projectRoot, 'sourcemaps');
 		mkdirSync(sourcemapDir, { recursive: true });
 		const mapFiles = readdirSync(buildPath, {
@@ -3209,9 +3215,8 @@ const buildUnlocked = async ({
 		angularServerVendorPaths &&
 		Object.keys(angularServerVendorPaths).length > 0
 	) {
-		const { rewriteBuildOutputsWith } = await import(
-			'../build/rewriteImportsPlugin'
-		);
+		const { rewriteBuildOutputsWith } =
+			await import('../build/rewriteImportsPlugin');
 		// Each server output sits at a different depth in the build tree
 		// (e.g. `angular/generated/pages/X.js` vs `vue/generated/server/.../X.js`).
 		// Compute the relative path from each artifact to the vendor file so
@@ -3529,8 +3534,14 @@ const buildUnlocked = async ({
 		if (!hmrClientBundle) return;
 		let html = readFileSync(filePath, 'utf-8');
 		if (html.includes('data-hmr-client')) return;
+		// The page name lets the HMR client ignore updates for other pages:
+		// every open tab hears every html-update / htmx-update.
+		const pageName = JSON.stringify(basename(filePath)).replace(
+			/</g,
+			'\\u003c'
+		);
 		const tag =
-			`<script>window.__HMR_FRAMEWORK__="${framework}";</script>` +
+			`<script>window.__HMR_FRAMEWORK__="${framework}";window.__HMR_PAGE__=${pageName};</script>` +
 			`<script data-hmr-client>${hmrClientBundle}</script>`;
 		const bodyClose = /<\/body\s*>/i.exec(html);
 		html = bodyClose
@@ -3664,18 +3675,22 @@ const buildUnlocked = async ({
 
 	if (!isIncremental) {
 		await tracePhase('cleanup/stale-outputs', () =>
-			cleanStaleOutputs(buildPath, [
-				...serverOutputs.map((a) => a.path),
-				...reactClientOutputs.map((a) => a.path),
-				...nonReactClientOutputs.map((a) => a.path),
-				...islandClientOutputs.map((a) => a.path),
-				...cssOutputs.map((a) => a.path),
-				...siblingCssPaths,
-				...spaSideManifestPaths,
-				...conventionOutputPaths,
-				...(fontResult?.outputPaths ?? []),
-				...(reactServerResult?.outputPaths ?? [])
-			])
+			cleanStaleOutputs(
+				buildPath,
+				[
+					...serverOutputs.map((a) => a.path),
+					...reactClientOutputs.map((a) => a.path),
+					...nonReactClientOutputs.map((a) => a.path),
+					...islandClientOutputs.map((a) => a.path),
+					...cssOutputs.map((a) => a.path),
+					...siblingCssPaths,
+					...spaSideManifestPaths,
+					...conventionOutputPaths,
+					...(fontResult?.outputPaths ?? []),
+					...(reactServerResult?.outputPaths ?? [])
+				],
+				{ pruneRecorded: !hmr }
+			)
 		);
 	}
 
@@ -3797,7 +3812,10 @@ const buildUnlocked = async ({
 	writeFileSync(
 		join(buildPath, SERVER_OUTPUTS_FILE),
 		JSON.stringify(
-			[...serverOutputs.map((artifact) => artifact.path), ...emberServerPaths]
+			[
+				...serverOutputs.map((artifact) => artifact.path),
+				...emberServerPaths
+			]
 				.map((path) => relative(buildPath, path).split(sep).join('/'))
 				.filter((path) => !path.startsWith('..'))
 		)

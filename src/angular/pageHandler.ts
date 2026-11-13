@@ -15,12 +15,14 @@ import { setSsrContextGetter } from '../utils/registerClientScript';
 import { getAngularDeps } from './angularDeps';
 import { buildServerAnimationProviders } from './animationProviders';
 import { buildRouterRedirectProviders } from './routerRedirectProviders';
+import { resolveRequestBaseHref } from './baseHref';
 import { renderSpaNotFound } from '../utils/spaRouteManifest';
 import { lowerAngularServerIslands } from './lowerServerIslands';
 import { getCurrentRouteRegistrationCallsite } from '../core/devRouteRegistrationCallsite';
 import {
 	devBuildErrorResponse,
 	getCurrentAbsoluteRequest,
+	getCurrentAbsoluteRoute,
 	resolveDeferredPageAssets,
 	withDeferredStylesheets
 } from '../core/requestContext';
@@ -367,6 +369,15 @@ export const handleAngularPageRequest = async <Page = unknown>(
 ) => {
 	const requestId = `angular_${Date.now()}_${Math.random().toString(BASE_36_RADIX).substring(2, RANDOM_ID_END_INDEX)}`;
 	const request = input.request ?? getCurrentAbsoluteRequest();
+	// Pages mounted under a wildcard route (`/portal/*`) need
+	// `APP_BASE_HREF` set to the mount, or the router matches against the
+	// full path. Read it from the route Elysia matched for this request so
+	// it works wherever the handler call is written, including inside a
+	// helper function the build-time scan can't see through.
+	const runtimeBaseHref = resolveRequestBaseHref(
+		getCurrentAbsoluteRoute(request),
+		request
+	);
 	// Dev on-demand pages: `asset()` returned `''` for a page that has not
 	// been built yet. Build it now and re-read the manifest; otherwise fall
 	// through to the manifest error so the overlay shows the real cause.
@@ -544,9 +555,21 @@ export const handleAngularPageRequest = async <Page = unknown>(
 				const handlerCallProviders: ReadonlyArray<
 					Provider | EnvironmentProviders
 				> = Array.isArray(input.providers) ? input.providers : [];
+				// The runtime base href sits after the page providers so it
+				// beats the build-time inferred one, and before the
+				// handler-call providers so an explicit override still wins.
+				const baseHrefProviders: Provider[] = runtimeBaseHref
+					? [
+							{
+								provide: deps.APP_BASE_HREF,
+								useValue: runtimeBaseHref
+							}
+						]
+					: [];
 				const combinedProviders = [
 					...(await buildRouterRedirectProviders(deps, responseInit)),
 					...pageProviders,
+					...baseHrefProviders,
 					...handlerCallProviders,
 					...(await buildServerAnimationProviders(
 						usesLegacyAnimations
@@ -579,7 +602,8 @@ export const handleAngularPageRequest = async <Page = unknown>(
 						htmlWithLoweredIslands,
 						requestId,
 						resolvedIndexPath,
-						maybeRequestContext
+						maybeRequestContext,
+						runtimeBaseHref
 					),
 					{ hasIslands: shouldProcessIslands }
 				);

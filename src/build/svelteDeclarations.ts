@@ -45,6 +45,17 @@ const writeFile = ts.sys.writeFile;
 ts.sys.writeFile = (file, data, bom) => {
 	if (resolve(file).startsWith(allowed)) writeFile(file, data, bom);
 };
+// svelte2tsx emits a component with no <script> as JavaScript, and that
+// declaration references SvelteComponent without importing it. An empty TS
+// instance script gives it the same declaration a TS component gets.
+const readFile = ts.sys.readFile;
+ts.sys.readFile = (file, encoding) => {
+	const code = readFile(file, encoding);
+	if (code === undefined || !file.endsWith('.svelte') || /<script[\\s>]/.test(code))
+		return code;
+
+	return '<script lang="ts"></script>\\n' + code;
+};
 const { emitDts } = require(svelte2tsxPath);
 emitDts({
 	declarationDir: stagingDir,
@@ -111,6 +122,8 @@ const fingerprintOf = (
 	const inputs = [
 		...collectInputs(svelteDir).sort(),
 		readFileSync(tsconfigPath, 'utf-8'),
+		// A change to how declarations are emitted invalidates old mirrors.
+		EMIT_SCRIPT,
 		svelte2tsxPath,
 		existsSync(svelte2tsxManifest)
 			? readFileSync(svelte2tsxManifest, 'utf-8')

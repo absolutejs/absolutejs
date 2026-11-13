@@ -123,7 +123,11 @@ export const setupApp = async (_app, context) => context.setNotFound();`
 
 			expect(response.status).toBe(500);
 			expect(html).toContain('SSR Error - AbsoluteJS');
-			expect(html).toContain('async Vue SSR failed');
+			// Outside development the page gets a generic message, not the error's.
+			expect(html).toContain(
+				'Something went wrong while rendering this page.'
+			);
+			expect(html).not.toContain('async Vue SSR failed');
 			expect(errorSpy).toHaveBeenCalled();
 		} finally {
 			errorSpy.mockRestore();

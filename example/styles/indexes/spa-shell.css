@@ -1,0 +1,4 @@
+/* Global styles for the Vue SPA shell example (served as SpaShellCSS). */
+#root {
+	min-height: 100%;
+}

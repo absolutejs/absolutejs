@@ -15,7 +15,7 @@ import type * as TS from 'typescript';
  * Every rewrite is an insertion or a same-line replacement, so line numbers
  * in stack traces still match the source file. */
 
-export const ANALYZER_VERSION = 1;
+export const ANALYZER_VERSION = 2;
 
 export type ExportKind = 'class' | 'function' | 'live' | 'value';
 
@@ -61,7 +61,12 @@ export type HotModuleRejection = { ok: false; reason: string };
 
 type Ts = typeof TS;
 type Edit = { pos: number; del: number; text: string; order: number };
-type ImportBinding = { module: string | undefined; name: string };
+type ImportBinding = {
+	module: string | undefined;
+	name: string;
+	/** The import specifier as written (`@absolutejs/scoped-state`). */
+	specifier?: string;
+};
 type Reference = {
 	name: string;
 	deferred: boolean;
@@ -552,6 +557,68 @@ const isFunctionInitializer = (tsc: Ts, node: TS.Expression | undefined) => {
 
 const IDENTIFIER = /^[A-Za-z_$][\w$]*$/;
 
+/* Package factories whose result holds state the app keeps between requests
+ * (scopedState keeps every visitor's session inside the plugin it returns).
+ * A call to one of them written inline in a statement that re-runs — the
+ * create-absolutejs scaffold's `.use([absolutejs, api, scopedState({…})])` —
+ * would create an empty instance on every edit. With literal arguments the
+ * hot runtime hands back the instance the same call made in the previous
+ * version instead, exactly as it keeps a top-level `const` that holds one.
+ * Only factories that start nothing (no timers, sockets or listeners) belong
+ * here: a kept instance outlives the statement version that created it. */
+const STATEFUL_FACTORIES = new Map([
+	['@absolutejs/scoped-state', new Set(['scopedState'])]
+]);
+
+const STATIC_IDENTIFIERS = new Set(['Infinity', 'NaN', 'undefined']);
+
+/** Whether `node` is built from literals alone (no bindings, calls or
+ *  functions), so the same text always produces the same value. */
+const isStaticExpression = (tsc: Ts, node: TS.Node): boolean => {
+	if (
+		tsc.isParenthesizedExpression(node) ||
+		tsc.isAsExpression(node) ||
+		tsc.isSatisfiesExpression(node) ||
+		tsc.isSpreadElement(node) ||
+		tsc.isSpreadAssignment(node)
+	)
+		return isStaticExpression(tsc, node.expression);
+	if (
+		tsc.isStringLiteral(node) ||
+		tsc.isNumericLiteral(node) ||
+		tsc.isBigIntLiteral(node) ||
+		tsc.isNoSubstitutionTemplateLiteral(node) ||
+		tsc.isRegularExpressionLiteral(node) ||
+		node.kind === tsc.SyntaxKind.TrueKeyword ||
+		node.kind === tsc.SyntaxKind.FalseKeyword ||
+		node.kind === tsc.SyntaxKind.NullKeyword ||
+		tsc.isOmittedExpression(node)
+	)
+		return true;
+	if (tsc.isIdentifier(node)) return STATIC_IDENTIFIERS.has(node.text);
+	if (tsc.isPrefixUnaryExpression(node))
+		return isStaticExpression(tsc, node.operand);
+	if (tsc.isArrayLiteralExpression(node))
+		return node.elements.every((element) =>
+			isStaticExpression(tsc, element)
+		);
+	if (tsc.isObjectLiteralExpression(node))
+		return node.properties.every((property) =>
+			tsc.isSpreadAssignment(property)
+				? isStaticExpression(tsc, property)
+				: tsc.isPropertyAssignment(property) &&
+					(!tsc.isComputedPropertyName(property.name) ||
+						isStaticExpression(tsc, property.name.expression)) &&
+					isStaticExpression(tsc, property.initializer)
+		);
+	if (tsc.isTemplateExpression(node))
+		return node.templateSpans.every((span) =>
+			isStaticExpression(tsc, span.expression)
+		);
+
+	return false;
+};
+
 export type ResolveImport = (specifier: string) => string | undefined;
 
 const rejection = (reason: string): HotModuleRejection => ({
@@ -577,16 +644,25 @@ const recordImport = (
 	const clause = statement.importClause;
 	if (!clause || clause.isTypeOnly) return;
 	const specifier = statement.moduleSpecifier;
-	const module =
+	const written =
 		tsc.isStringLiteralLike(specifier) || tsc.isIdentifier(specifier)
-			? resolveImport(specifier.text)
+			? specifier.text
 			: undefined;
+	const module = written === undefined ? undefined : resolveImport(written);
 	if (clause.name)
-		addImport(scope, clause.name.text, { module, name: 'default' });
+		addImport(scope, clause.name.text, {
+			module,
+			name: 'default',
+			specifier: written
+		});
 	const bindings = clause.namedBindings;
 	if (!bindings) return;
 	if (tsc.isNamespaceImport(bindings)) {
-		addImport(scope, bindings.name.text, { module, name: '*' });
+		addImport(scope, bindings.name.text, {
+			module,
+			name: '*',
+			specifier: written
+		});
 
 		return;
 	}
@@ -594,7 +670,8 @@ const recordImport = (
 		if (element.isTypeOnly) continue;
 		addImport(scope, element.name.text, {
 			module,
-			name: (element.propertyName ?? element.name).text
+			name: (element.propertyName ?? element.name).text,
+			specifier: written
 		});
 	}
 };
@@ -1215,7 +1292,86 @@ export const analyzeModule = (
 		}
 	};
 
+	/** The call a reference makes to a stateful package factory. */
+	const statefulCall = (reference: Reference) => {
+		if (reference.deferred || !reference.call) return undefined;
+		const imported = imports.get(reference.name);
+		const factories = imported?.specifier
+			? STATEFUL_FACTORIES.get(imported.specifier)
+			: undefined;
+		if (!imported || !factories) return undefined;
+		const viaNamespace =
+			imported.name === '*' && reference.member !== undefined;
+		const name = viaNamespace ? reference.member : imported.name;
+		const callee = viaNamespace ? reference.node.parent : reference.node;
+		const call = callee.parent;
+		if (
+			!name ||
+			!factories.has(name) ||
+			!call ||
+			!tsc.isCallExpression(call) ||
+			call.expression !== callee
+		)
+			return undefined;
+
+		return { call, name };
+	};
+
+	/** The planned id whose evaluation runs `node`. */
+	const ownerId = (statement: TopStatement, node: TS.Node) => {
+		const { node: root } = statement;
+		if (!tsc.isVariableStatement(root)) return statement.id;
+		const declaration = root.declarationList.declarations.find(
+			(item) => item.pos <= node.pos && node.end <= item.end
+		);
+		const name = declaration
+			? bindingNames(tsc, declaration.name)[0]
+			: undefined;
+		if (!name) return statement.id;
+
+		return statement.kind === 'let'
+			? `${statement.id}:${name}`
+			: `v:${name}`;
+	};
+
+	// Inline stateful factory calls (see STATEFUL_FACTORIES): keep the
+	// previous version's instance when the call is unchanged, or warn that
+	// re-running it resets its state when its arguments are not literals.
+	const rewriteStatefulCalls = (statement: TopStatement) => {
+		if (statement.kind === 'import' || statement.kind === 'skip') return;
+		const occurrences = new Map<string, number>();
+		for (const reference of statement.refs) {
+			const found = statefulCall(reference);
+			if (!found) continue;
+			const { call, name } = found;
+			const owner = ownerId(statement, call);
+			const line =
+				file.getLineAndCharacterOfPosition(call.getStart(file)).line +
+				1;
+			const label = quote(`${name}(…) on line ${line}`);
+			const isStatic = call.arguments.every((argument) =>
+				isStaticExpression(tsc, argument)
+			);
+			if (!isStatic && hasTopLevelAwait(tsc, call)) continue;
+			const textHash = hashText(call.getText(file));
+			const occurrence = occurrences.get(`${owner}#${textHash}`) ?? 0;
+			occurrences.set(`${owner}#${textHash}`, occurrence + 1);
+			const key = quote(`${owner}#${textHash}#${occurrence}`);
+			edit(
+				call.getStart(file),
+				0,
+				isStatic
+					? `__absH.p(${quote(owner)},${key},${label},()=>(`
+					: `__absH.w(${quote(owner)},${key},${label},()=>(`
+			);
+			edit(call.end, 0, '))');
+		}
+	};
+
 	for (const statement of statements) rewriteStatement(statement);
+	// After the statement wrappers: an insertion made later at the same
+	// position lands inside the earlier one.
+	for (const statement of statements) rewriteStatefulCalls(statement);
 	for (const statement of statements) rewriteCellReferences(statement);
 
 	edits.sort(compareEdits);

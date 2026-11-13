@@ -147,6 +147,9 @@ declare global {
 		__HMR_MANIFEST__?: Record<string, string>;
 		__HMR_MODULE_UPDATES__?: Array<unknown>;
 		__HMR_MODULE_VERSIONS__?: Record<string, number>;
+		/** File name of the static (HTML/HTMX) page this document was built
+		 *  from, so html-update / htmx-update for other pages are ignored. */
+		__HMR_PAGE__?: string;
 		__HMR_PRESERVED_STATE__?: Record<string, unknown>;
 		__HMR_SERVER_VERSIONS__?: Record<string, number>;
 		__HMR_UPDATE_COUNT__?: number;

@@ -5,6 +5,7 @@ import { join, relative } from 'node:path';
 import { rm } from 'node:fs/promises';
 import { build as bunBuild, Glob, type BunPlugin } from 'bun';
 import { generateVendorEntrySource } from './vendorEntrySource';
+import { resolveVueFeatureFlags } from './resolveBuildMode';
 import { isTestSourcePath } from '../utils/isTestSourcePath';
 import { devProfileEnabled } from '../utils/startupTimings';
 
@@ -442,6 +443,10 @@ const createStripPureAnnotationsPlugin = (): BunPlugin => ({
 	}
 });
 
+/* vue-router's ESM build reads Vue's compile-time feature flags as free
+ * globals. The dep vendor is a dev build, so use the development values. */
+const VUE_FEATURE_FLAGS = resolveVueFeatureFlags(true);
+
 const buildDepVendorPass = async (
 	specifiers: string[],
 	vendorDir: string,
@@ -527,6 +532,7 @@ const buildDepVendorPass = async (
 
 		for (let pass = 0; pass < MAX_INLINE_PASSES; pass++) {
 			lastResult = await bunBuild({
+				define: VUE_FEATURE_FLAGS,
 				entrypoints: [entryPath],
 				external: [...externalsSet],
 				format: 'esm',
@@ -588,6 +594,7 @@ const buildDepVendorPass = async (
 		);
 
 		return bunBuild({
+			define: VUE_FEATURE_FLAGS,
 			entrypoints: groupEntries.map((entry) => entry.entryPath),
 			// Externalize every OTHER package's spec (shared via their own
 			// vendor files); keep this package's own subpaths internal so

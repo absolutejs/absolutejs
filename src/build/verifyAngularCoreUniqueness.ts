@@ -27,12 +27,34 @@ import { resolve } from 'node:path';
 import type { BuildArtifact } from 'bun';
 import { logError, logWarn } from '../utils/logger';
 
-/* Match every import-style specifier referencing `@angular/core` in
- * a bundled server output. Captures the full quoted specifier so we
- * can tell apart bare (`@angular/core`) vs vendor (`./vendor/...`)
- * vs absolute-path (`/abs/path/...`) shapes. */
+/* Fallback for outputs the transpiler can't scan: every import-style
+ * specifier in the text. It also matches `from '@angular/core'` inside
+ * string literals (AbsoluteJS's own bundled code carries generated
+ * source templates), so it's only used when scanning fails. */
 const ANGULAR_CORE_IMPORT_RE =
 	/(?:from|import)\s*\(\s*["']([^"']*)["']\s*\)|(?:from|import)\s*["']([^"']*)["']/g;
+
+const importScanner = new Bun.Transpiler({ loader: 'js' });
+
+/* The module specifiers an output really imports (static, dynamic with a
+ * literal, re-exports, require). Reading the import records instead of
+ * regex-matching the text keeps string literals that merely look like
+ * imports from counting as a second `@angular/core` resolution. */
+const readImportSpecifiers = (text: string) => {
+	try {
+		return importScanner.scanImports(text).map((entry) => entry.path);
+	} catch {
+		const specifiers: string[] = [];
+		ANGULAR_CORE_IMPORT_RE.lastIndex = 0;
+		let match: RegExpExecArray | null;
+		while ((match = ANGULAR_CORE_IMPORT_RE.exec(text)) !== null) {
+			const specifier = match[1] ?? match[2] ?? '';
+			if (specifier) specifiers.push(specifier);
+		}
+
+		return specifiers;
+	}
+};
 
 /* Specifier patterns that indicate `@angular/core` in any of its
  * resolved or unresolved shapes:
@@ -86,8 +108,10 @@ const classifySpecifier = (
 	};
 };
 
+type ScannedArtifact = Pick<BuildArtifact, 'path' | 'text'>;
+
 const collectAngularCoreShapes = async (
-	artifacts: BuildArtifact[],
+	artifacts: readonly ScannedArtifact[],
 	serverOutDir: string | undefined
 ): Promise<Map<string, Set<string>>> => {
 	// shape-key → set of artifact paths that referenced it
@@ -99,11 +123,7 @@ const collectAngularCoreShapes = async (
 		} catch {
 			continue;
 		}
-		ANGULAR_CORE_IMPORT_RE.lastIndex = 0;
-		let match: RegExpExecArray | null;
-		while ((match = ANGULAR_CORE_IMPORT_RE.exec(text)) !== null) {
-			const specifier = match[1] ?? match[2] ?? '';
-			if (!specifier) continue;
+		for (const specifier of readImportSpecifiers(text)) {
 			const shape = classifySpecifier(
 				specifier,
 				artifact.path,
@@ -126,7 +146,7 @@ const collectAngularCoreShapes = async (
 };
 
 export const verifyAngularCoreUniqueness = async (
-	artifacts: BuildArtifact[],
+	artifacts: readonly ScannedArtifact[],
 	serverOutDir: string | undefined,
 	throwOnError: boolean
 ): Promise<void> => {

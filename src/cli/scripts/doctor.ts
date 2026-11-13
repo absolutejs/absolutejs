@@ -5,7 +5,10 @@ import { DEFAULT_PORT } from '../../constants';
 import { loadRawConfig } from '../../utils/loadConfig';
 import { scanListeners } from '../../utils/portScan';
 import { colors } from '../tuiPrimitives';
-import { typeGraphCoherence } from '../typeGraphCoherence';
+import {
+	ANGULAR_RUNTIME_PACKAGES,
+	typeGraphCoherence
+} from '../typeGraphCoherence';
 import { collectEnvVars } from './env';
 
 type CheckStatus = 'fail' | 'ok' | 'warn';
@@ -147,6 +150,37 @@ const typeGraphCheck = () => {
 	);
 };
 
+const usesAngular = (config: object | null) =>
+	config !== null && readString(config, 'angularDirectory') !== undefined;
+
+/* Two physical copies of an Angular runtime package become two module
+ * instances at runtime, and `inject()` then fails with NG0203. */
+const angularRuntimeCheck = () => {
+	const report = typeGraphCoherence.inspectTypeGraph(
+		process.cwd(),
+		ANGULAR_RUNTIME_PACKAGES
+	);
+	const duplicates = typeGraphCoherence.duplicateTypeGraphPackages(report);
+	if (duplicates.length > 0) {
+		return check(
+			'fail',
+			'Angular runtime',
+			`${duplicates
+				.map(
+					(entry) =>
+						`${entry.name}: ${entry.paths.length} physical copies`
+				)
+				.join(', ')} (run absolute doctor --fix)`
+		);
+	}
+
+	return check(
+		'ok',
+		'Angular runtime',
+		'one copy of each @angular/* runtime package'
+	);
+};
+
 const STATUS_MARK: Record<CheckStatus, string> = {
 	fail: `${colors.red}✗${colors.reset}`,
 	ok: `${colors.green}✓${colors.reset}`,
@@ -187,6 +221,7 @@ const gatherChecks = async () => {
 		checkBun(),
 		checkAbsolute(),
 		typeGraphCheck(),
+		...(usesAngular(config) ? [angularRuntimeCheck()] : []),
 		configCheck,
 		...(config === null ? [] : frameworkChecks(config)),
 		env,
@@ -237,11 +272,25 @@ const applyFixes = async () => {
 	const fixes = config ? fixFrameworkDirs(cwd, config) : [];
 	const envFix = await fixEnvExample(cwd);
 	if (envFix) fixes.push(envFix);
-	const report = typeGraphCoherence.inspectTypeGraph(cwd);
-	const graphFixes = typeGraphCoherence.alignTypeGraphOverrides(report);
-	const removedPackages =
-		typeGraphCoherence.removeDuplicateTypeGraphPackages(report);
-	if (graphFixes.length > 0 || removedPackages.length > 0) {
+	const reports = [
+		typeGraphCoherence.inspectTypeGraph(cwd),
+		...(usesAngular(config)
+			? [
+					typeGraphCoherence.inspectTypeGraph(
+						cwd,
+						ANGULAR_RUNTIME_PACKAGES
+					)
+				]
+			: [])
+	];
+	const graphFixes = reports.flatMap((report) =>
+		typeGraphCoherence.alignTypeGraphOverrides(report)
+	);
+	const removedPackages = reports.flatMap((report) =>
+		typeGraphCoherence.removeDuplicateTypeGraphPackages(report)
+	);
+	const [report] = reports;
+	if (report && (graphFixes.length > 0 || removedPackages.length > 0)) {
 		const install = Bun.spawnSync(['bun', 'install', '--force'], {
 			cwd: report.installRoot,
 			stderr: 'inherit',

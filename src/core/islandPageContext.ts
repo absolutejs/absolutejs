@@ -34,8 +34,37 @@ export const resetIslandBootstrapWarning = () => {
 	warnedMissingBootstrap = false;
 };
 
+let manifestBuildDir: string | undefined;
+
+const WINDOWS_ABSOLUTE_PATH = /^[A-Za-z]:[\\/]|^\\\\/;
+
+/* The build manifest also maps SSR pages and server bundles to absolute
+ * paths on the server's disk (the server imports them from there). Those
+ * entries mean nothing to a browser and would publish the server's file
+ * layout in every page with islands, so only web paths are sent. */
+const isServerFilePath = (value: string) => {
+	if (WINDOWS_ABSOLUTE_PATH.test(value)) return true;
+	if (!manifestBuildDir) return false;
+	const root = manifestBuildDir.endsWith('/')
+		? manifestBuildDir
+		: `${manifestBuildDir}/`;
+
+	return value.startsWith(root);
+};
+
+/** The part of the build manifest a browser may see. */
+export const toBrowserManifest = (manifest: Record<string, string>) => {
+	const browserManifest: Record<string, string> = {};
+	for (const [key, value] of Object.entries(manifest)) {
+		if (typeof value !== 'string' || isServerFilePath(value)) continue;
+		browserManifest[key] = value;
+	}
+
+	return browserManifest;
+};
+
 const buildIslandsHeadMarkup = (manifest: Record<string, string>) => {
-	const manifestScript = `<script${nonceAttr()}>window.__ABSOLUTE_MANIFEST__ = ${escapeScriptContent(JSON.stringify(manifest))}</script>`;
+	const manifestScript = `<script${nonceAttr()}>window.__ABSOLUTE_MANIFEST__ = ${escapeScriptContent(JSON.stringify(toBrowserManifest(manifest)))}</script>`;
 	const islandStateScript = `<script${nonceAttr()}>window.__ABS_ISLAND_STATE__ = ${escapeScriptContent(JSON.stringify(globalThis.__ABS_ISLAND_STATE__ ?? {}))}</script>`;
 	const bootstrapPath = getIslandBootstrapPath(manifest);
 	const bootstrapScript = bootstrapPath
@@ -411,6 +440,12 @@ export const injectIslandPageContextStream = (
 		warnIfBootstrapMissing(manifest)
 	);
 };
-export const setCurrentIslandManifest = (manifest: Record<string, string>) => {
+/** `buildDir` is the absolute build directory: manifest entries inside it
+ *  are server-side file paths and stay out of the page. */
+export const setCurrentIslandManifest = (
+	manifest: Record<string, string>,
+	buildDir?: string
+) => {
 	globalThis.__absoluteManifest = manifest;
+	manifestBuildDir = buildDir?.replaceAll('\\', '/');
 };

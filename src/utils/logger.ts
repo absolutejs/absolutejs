@@ -3,6 +3,7 @@
  * Provides formatted output with ANSI colors and timestamps
  */
 
+import { isDevelopmentRuntime } from './runtimeMode';
 import { formatTimestamp, startupBanner } from './startupBanner';
 import type {
 	HMRApplyKind,
@@ -38,6 +39,13 @@ const frameworkColors: Record<string, string> = {
 	svelte: colors.yellow,
 	vue: colors.green
 };
+
+/**
+ * The line prefix. `[hmr]` belongs to the dev server's log stream; a
+ * production server or build has no HMR, so its warnings and errors (a
+ * shadowed file route, a manifest problem) say `[absolutejs]` instead.
+ */
+const logTag = () => (isDevelopmentRuntime() ? '[hmr]' : '[absolutejs]');
 
 /**
  * Format a file path for display (relative, clean)
@@ -76,7 +84,7 @@ const log = (
 	}
 ) => {
 	const timestamp = `${colors.dim}${formatTimestamp()}${colors.reset}`;
-	const tag = `${colors.cyan}[hmr]${colors.reset}`;
+	const tag = `${colors.cyan}${logTag()}${colors.reset}`;
 
 	let message = action;
 
@@ -115,11 +123,12 @@ export const logCssUpdate = (
 
 /**
  * Build error
- * Format: "10:30:45 AM [hmr] error Build failed: ..."
+ * Format: "10:30:45 AM [hmr] error Build failed: ..." (`[absolutejs]`
+ * outside dev)
  */
 export const logError = (message: string, error?: Error | string) => {
 	const timestamp = `${colors.dim}${formatTimestamp()}${colors.reset}`;
-	const tag = `${colors.red}[hmr]${colors.reset}`;
+	const tag = `${colors.red}${logTag()}${colors.reset}`;
 	const errorMsg = error instanceof Error ? error.message : error;
 	const fullMessage = `${colors.red}error${colors.reset} ${message}${errorMsg ? `: ${errorMsg}` : ''}`;
 	console.error(`${timestamp} ${tag} ${fullMessage}`);
@@ -218,11 +227,11 @@ export const logServerReload = () => {
 
 /**
  * Warning message
- * Format: "10:30:45 AM [hmr] warning ..."
+ * Format: "10:30:45 AM [hmr] warning ..." (`[absolutejs]` outside dev)
  */
 export const logWarn = (message: string) => {
 	const timestamp = `${colors.dim}${formatTimestamp()}${colors.reset}`;
-	const tag = `${colors.yellow}[hmr]${colors.reset}`;
+	const tag = `${colors.yellow}${logTag()}${colors.reset}`;
 	console.log(
 		`${timestamp} ${tag} ${colors.yellow}warning ${message}${colors.reset}`
 	);

@@ -132,6 +132,23 @@ describe('AbsoluteJS PWA build integration', () => {
 		).rejects.toThrow('root-level');
 	});
 
+	test('rejects a manifest path that the build runtime manifest would overwrite', async () => {
+		const paths = await fixture();
+		await expect(
+			materializeAbsolutePwa({
+				...paths,
+				config: {
+					manifest: {
+						icons: [],
+						name: 'App',
+						path: '/manifest.json',
+						shortName: 'App'
+					}
+				}
+			})
+		).rejects.toThrow('reserved');
+	});
+
 	test('auto-provisions trusted Web Push when the portable capability is imported', async () => {
 		const paths = await fixture();
 		await writeFile(

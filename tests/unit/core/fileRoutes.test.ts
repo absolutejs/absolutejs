@@ -147,7 +147,12 @@ describe('fileRoutes', () => {
 			expect((await request(app, '/gone')).status).toBe(404);
 			const broken = await request(app, '/broken');
 			expect(broken.status).toBe(500);
-			expect(await broken.text()).toContain('LOAD_EXPLODED');
+			const brokenBody = await broken.text();
+			// Outside development the page gets a generic message, not the error's.
+			expect(brokenBody).toContain(
+				'Something went wrong while rendering this page.'
+			);
+			expect(brokenBody).not.toContain('LOAD_EXPLODED');
 		} finally {
 			console.error = originalError;
 		}

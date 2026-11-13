@@ -6,6 +6,7 @@ import { lowerSvelteIslandSyntax } from '../svelte/lowerIslandSyntax';
 import { lowerSvelteAwaitSlotSyntax } from '../svelte/lowerAwaitSlotSyntax';
 import { createSvelteStylePreprocessor } from '../build/stylePreprocessor';
 import { LAZY_SOURCE_EXPORT } from '../svelte/router/lazyModule';
+import { isDevelopmentRuntime } from '../utils/runtimeMode';
 
 const serverCacheRoot = join(process.cwd(), '.absolutejs', 'islands', 'svelte');
 
@@ -276,7 +277,11 @@ export const compileSvelteServerModule = async (sourcePath: string) => {
 			async: loweredAwaitSource.transformed || loweredSource.transformed
 		},
 		filename: resolutionSourcePath,
-		generate: 'server'
+		generate: 'server',
+		// The dev server's client modules are compiled with `hmr`, which
+		// changes the anchor comments around a lone component. The server
+		// render has to place the same anchors or hydration fails.
+		hmr: isDevelopmentRuntime()
 	}).js.code;
 
 	for (const [spec, compiledChildPath] of childModulePaths) {

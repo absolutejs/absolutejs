@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import { isEditorTempFile } from '../../../src/dev/editorTempFiles';
 import { isAtomicWriteTemp } from '../../../src/dev/serverEntryWatcher';
 
 /* Editor / shell tools that write atomically (write tmp, rename
@@ -59,6 +60,34 @@ describe('isAtomicWriteTemp', () => {
 		expect(isAtomicWriteTemp('.eslintrc.json')).toBe(false);
 		expect(isAtomicWriteTemp('.gitignore')).toBe(false);
 		expect(isAtomicWriteTemp('.env')).toBe(false);
+	});
+
+	test('matches BSD/macOS `sed -i` temp files (`.!NNNN!file`)', () => {
+		expect(isAtomicWriteTemp('.!12345!counter.component.ts')).toBe(true);
+		expect(isEditorTempFile('pages/.!987!portal.ts')).toBe(true);
+		expect(isAtomicWriteTemp('.!counter.ts')).toBe(false);
+	});
+
+	test('matches Vim swap files', () => {
+		expect(isAtomicWriteTemp('.counter.component.ts.swp')).toBe(true);
+		expect(isAtomicWriteTemp('.counter.component.ts.swo')).toBe(true);
+		expect(isAtomicWriteTemp('.server.ts.swx')).toBe(true);
+	});
+
+	test('matches JetBrains, Emacs autosave, Chrome and Kate temp files', () => {
+		expect(isAtomicWriteTemp('portal.ts___jb_tmp___')).toBe(true);
+		expect(isAtomicWriteTemp('portal.ts___jb_old___')).toBe(true);
+		expect(isAtomicWriteTemp('#portal.ts#')).toBe(true);
+		expect(isAtomicWriteTemp('portal.ts.crswap')).toBe(true);
+		expect(isAtomicWriteTemp('portal.ts.kate-swp')).toBe(true);
+		expect(isAtomicWriteTemp('.goutputstream-ABC123')).toBe(true);
+	});
+
+	test('matches by basename when given a nested path', () => {
+		expect(isEditorTempFile('src/pages/.#portal.ts')).toBe(true);
+		expect(isEditorTempFile('src\\pages\\portal.ts~')).toBe(true);
+		expect(isEditorTempFile('src/pages/portal.ts')).toBe(false);
+		expect(isEditorTempFile('src/.#pages/portal.ts')).toBe(false);
 	});
 
 	test('matches `4913` exactly (not as substring)', () => {

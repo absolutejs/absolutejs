@@ -2,7 +2,10 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, test } from 'bun:test';
-import { typeGraphCoherence } from '../../../src/cli/typeGraphCoherence';
+import {
+	ANGULAR_RUNTIME_PACKAGES,
+	typeGraphCoherence
+} from '../../../src/cli/typeGraphCoherence';
 
 const temporaryDirectories: string[] = [];
 
@@ -147,5 +150,108 @@ describe('Elysia type graph coherence', () => {
 				)
 			).exists()
 		).toBeFalse();
+	});
+});
+
+/* An app on one Angular version with `@absolutejs/absolute` peering on
+ * another gets a nested copy installed under the framework package. Two
+ * copies of `@angular/core` are two runtime instances, and `inject()`
+ * then fails with NG0203. `absolute doctor` reports it and `--fix` pins
+ * the app's version and removes the nested copy. */
+const angularFixture = async (duplicate: boolean) => {
+	const directory = await mkdtemp(join(tmpdir(), 'absolute-angular-graph-'));
+	temporaryDirectories.push(directory);
+	await writeFile(join(directory, 'bun.lock'), 'lock-v1');
+	await writePackage(directory, {
+		dependencies: {
+			'@absolutejs/absolute': '1.0.0',
+			'@angular/core': '21.2.6'
+		},
+		name: 'angular-app',
+		version: '1.0.0'
+	});
+	await writePackage(join(directory, 'node_modules', '@angular', 'core'), {
+		name: '@angular/core',
+		version: '21.2.6'
+	});
+	const absoluteDirectory = join(
+		directory,
+		'node_modules',
+		'@absolutejs',
+		'absolute'
+	);
+	await writePackage(absoluteDirectory, {
+		name: '@absolutejs/absolute',
+		peerDependencies: { '@angular/core': '^21.0.0' },
+		version: '1.0.0'
+	});
+	if (duplicate) {
+		await writePackage(
+			join(absoluteDirectory, 'node_modules', '@angular', 'core'),
+			{ name: '@angular/core', version: '21.1.0' }
+		);
+	}
+
+	return directory;
+};
+
+describe('Angular runtime coherence', () => {
+	test('accepts one @angular/core across the app and the framework', async () => {
+		const directory = await angularFixture(false);
+		const report = typeGraphCoherence.inspectTypeGraph(
+			directory,
+			ANGULAR_RUNTIME_PACKAGES
+		);
+
+		expect(typeGraphCoherence.duplicateTypeGraphPackages(report)).toEqual(
+			[]
+		);
+	});
+
+	test('finds a nested @angular/core copy and repairs it', async () => {
+		const directory = await angularFixture(true);
+		const report = typeGraphCoherence.inspectTypeGraph(
+			directory,
+			ANGULAR_RUNTIME_PACKAGES
+		);
+
+		expect(
+			typeGraphCoherence
+				.duplicateTypeGraphPackages(report)
+				.map((entry) => entry.name)
+		).toEqual(['@angular/core']);
+		expect(typeGraphCoherence.alignTypeGraphOverrides(report)).toEqual([
+			'@angular/core@21.2.6'
+		]);
+		const manifest = await Bun.file(join(directory, 'package.json')).json();
+		expect(manifest.overrides).toEqual({ '@angular/core': '21.2.6' });
+		expect(
+			typeGraphCoherence.removeDuplicateTypeGraphPackages(report)
+		).toHaveLength(1);
+		expect(
+			await Bun.file(
+				join(
+					directory,
+					'node_modules',
+					'@absolutejs',
+					'absolute',
+					'node_modules',
+					'@angular',
+					'core',
+					'package.json'
+				)
+			).exists()
+		).toBeFalse();
+		expect(
+			await Bun.file(
+				join(
+					directory,
+					'node_modules',
+					'@angular',
+					'core',
+					'package.json'
+				)
+			).exists()
+		).toBeTrue();
 	});
 });

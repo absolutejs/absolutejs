@@ -115,11 +115,7 @@ export type NavigationRedirectTarget = {
  *  - `false` — cancel: the URL and the rendered route stay as they were.
  *  - a URL string or `{ redirect }` — navigate there instead. */
 export type RouteGuardResult =
-	| undefined
-	| void
-	| boolean
-	| string
-	| NavigationRedirectTarget;
+	undefined | void | boolean | string | NavigationRedirectTarget;
 
 export type RouteGuard = (
 	navigation: NavigationContext
@@ -127,11 +123,7 @@ export type RouteGuard = (
 
 /** What `goto()` resolves to once the navigation has settled. */
 export type NavigationOutcome =
-	| 'committed'
-	| 'cancelled'
-	| 'redirected'
-	| 'superseded'
-	| 'external';
+	'committed' | 'cancelled' | 'redirected' | 'superseded' | 'external';
 
 /** A lazily loaded route component: the module namespace returned by
  *  `import('./Page.svelte')`, or the component itself. */
@@ -165,8 +157,7 @@ export type SvelteRouterSsrResolved =
 
 /** @internal What a server-side guard decided for the whole request. */
 export type SvelteRouterSsrOutcome =
-	| { kind: 'redirect'; location: string }
-	| { kind: 'cancel' };
+	{ kind: 'redirect'; location: string } | { kind: 'cancel' };
 
 /** @internal Per-request state the Svelte page handler passes the router
  *  through Svelte context, so guards and lazy routes can be awaited

@@ -6,7 +6,7 @@ import { join } from 'node:path';
 // and places it for you — offline — and `absolute htmx <version>` swaps in any
 // version from jsDelivr without you hand-managing the file.
 
-export const VENDORED_HTMX_VERSION = '2.0.6';
+export const VENDORED_HTMX_VERSION = '2.0.11';
 
 // The vendored file ships next to this module in src (dev) and is copied to
 // dist/cli/htmx by the build, so one of these candidates always resolves.

@@ -1978,6 +1978,107 @@ export type AngularProvidersInjection = {
 	pagesByFile: Map<string, { hasRoutes: boolean; basePath: string | null }>;
 };
 
+const ROUTER_OUTLET_PATTERN = /router-outlet|\bRouterOutlet\b/;
+const COMPONENT_MARKER_PATTERN = /ɵcmp|ɵɵngDeclareComponent|\bComponent\s*\(/;
+
+const isExportedClass = (statement: ts.Statement) =>
+	ts.isClassDeclaration(statement) &&
+	statement.name !== undefined &&
+	(ts.getModifiers(statement) ?? []).some(
+		(modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword
+	);
+
+const statementReferencesClass = (
+	statement: ts.Statement,
+	className: string,
+	sourceFile: ts.SourceFile
+) => {
+	if (!ts.isExpressionStatement(statement)) return false;
+	const text = statement.getText(sourceFile);
+
+	// JIT/transpiled decorators: `Name = __decorate([Component({...})], Name)`.
+	// AOT metadata: `ɵsetClassMetadata(Name, [...])` inside an IIFE.
+	return (
+		new RegExp(`^\\s*${className}\\s*=`).test(text) ||
+		new RegExp(`ɵsetClassMetadata\\(\\s*${className}\\b`).test(text)
+	);
+};
+
+/** Picks the class the generated `export default` (and the client
+ *  bootstrap wrappers) should point at in a compiled Angular page module.
+ *
+ *  - An explicit `export default Name;` always wins.
+ *  - Otherwise, among the exported component classes, the last one that
+ *    hosts `<router-outlet>` is the page root. Pages that declare their routed
+ *    children in the same file (`export const routes = [...]`) export
+ *    several components, and the routed children come first because the
+ *    routes table references them.
+ *  - Otherwise the last-declared exported component, since components a
+ *    page uses must be declared before the page that references them.
+ *
+ *  Works on both the AOT output (`static ɵcmp = ɵɵdefineComponent(...)`)
+ *  and the JIT output (`Name = __decorate([Component({...})], Name)`). */
+export const detectAngularPageComponentClass = (source: string) => {
+	const defaultMatch = source.match(
+		/export\s+default\s+([A-Za-z_$][\w$]*)\s*;/
+	);
+	if (defaultMatch) return defaultMatch[1] ?? null;
+
+	const sourceFile = ts.createSourceFile(
+		'page.js',
+		source,
+		ts.ScriptTarget.Latest,
+		true,
+		ts.ScriptKind.JS
+	);
+	const exportedNames = new Set<string>();
+	for (const statement of sourceFile.statements) {
+		if (
+			!ts.isExportDeclaration(statement) ||
+			statement.moduleSpecifier ||
+			!statement.exportClause ||
+			!ts.isNamedExports(statement.exportClause)
+		)
+			continue;
+		for (const element of statement.exportClause.elements) {
+			exportedNames.add((element.propertyName ?? element.name).text);
+		}
+	}
+
+	const candidates = sourceFile.statements
+		.filter(ts.isClassDeclaration)
+		.filter(
+			(statement) =>
+				isExportedClass(statement) ||
+				exportedNames.has(statement.name?.text ?? '')
+		)
+		.map((statement) => {
+			const className = statement.name?.text ?? '';
+			const related = sourceFile.statements
+				.filter((other) =>
+					statementReferencesClass(other, className, sourceFile)
+				)
+				.map((other) => other.getText(sourceFile));
+			const text = [statement.getText(sourceFile), ...related].join('\n');
+
+			return {
+				className,
+				hostsOutlet: ROUTER_OUTLET_PATTERN.test(text),
+				isComponent: COMPONENT_MARKER_PATTERN.test(text)
+			};
+		})
+		.filter((candidate) => candidate.className.length > 0);
+
+	const components = candidates.filter((candidate) => candidate.isComponent);
+	const outletHosts = components.filter((candidate) => candidate.hostsOutlet);
+	// Nested routed children can host their own outlet; they are declared
+	// before the page root that references them, so the last host wins.
+	const outletHost = outletHosts.at(-1);
+	if (outletHost) return outletHost.className;
+
+	return components.at(-1)?.className ?? candidates[0]?.className ?? null;
+};
+
 export const compileAngular = async (
 	entryPoints: string[],
 	outRoot: string,
@@ -2161,24 +2262,11 @@ export const compileAngular = async (
 		// `AdminLogsComponent`) get a dangling `export default
 		// ResourcesComponent` appended, which throws
 		// `ReferenceError: <X> is not defined` at module-evaluation time.
-		// Surfaces immediately on every request as of Bun 1.3.14 (the
-		// loader bug oven-sh/bun#29791 that masked it on retries is fixed).
-		const detectExportedComponentClass = (
-			source: string
-		): string | null => {
-			const defaultMatch = source.match(
-				/export\s+default\s+([A-Za-z_$][\w$]*)\s*;/
-			);
-			if (defaultMatch) return defaultMatch[1]!;
-			const exportClassMatch = source.match(
-				/export\s+(?:default\s+)?class\s+([A-Za-z_$][\w$]*)/
-			);
-			if (exportClassMatch) return exportClassMatch[1]!;
-			return null;
-		};
+		// Router pages with co-located routed children resolve to the
+		// `<router-outlet>` host, not the first routed child.
 		const detectedClassName = await traceAngularPhase(
 			'wrapper/detect-component-class',
-			() => detectExportedComponentClass(original),
+			() => detectAngularPageComponentClass(original),
 			{ entry: resolvedEntry }
 		);
 		// `not-found.ts` and similar convention pages export a render
@@ -2407,6 +2495,7 @@ import { bootstrapApplication } from '@angular/platform-browser';
 import { provideClientHydration } from '@angular/platform-browser';
 import { withHttpTransferCacheOptions } from '@angular/platform-browser';
 import { ${changeDetectionImport}, REQUEST_CONTEXT } from '@angular/core';
+import { APP_BASE_HREF as __abs_APP_BASE_HREF } from '@angular/common';
 import { prepareBrowserTranslationHydration } from '@absolutejs/absolute/client';
 import * as pageModule from '${normalizedImportPath}';
 var ${componentClassName} = pageModule.default;
@@ -2430,6 +2519,15 @@ var contextProviders = [{ provide: REQUEST_CONTEXT, useValue: requestContext }];
 // and client bundle.
 var pageProvidersExport = Reflect.get(pageModule, 'providers');
 var pageProviders = Array.isArray(pageProvidersExport) ? pageProvidersExport : [];
+// The server derives APP_BASE_HREF from the matched route at request time
+// (\`/portal/*\` → \`/portal/\`) and ships it here, so it overrides the
+// build-time inferred value and works for handlers called from helpers.
+var runtimeBaseHref = typeof window.__ABS_ANGULAR_BASE_HREF__ === 'string'
+    ? window.__ABS_ANGULAR_BASE_HREF__
+    : null;
+if (runtimeBaseHref) {
+    pageProviders = pageProviders.concat([{ provide: __abs_APP_BASE_HREF, useValue: runtimeBaseHref }]);
+}
 var absoluteHttpTransferCacheOptions = {
     includePostRequests: false,
     includeRequestsWithAuthHeaders: false,
@@ -2518,6 +2616,7 @@ import { bootstrapApplication } from '@angular/platform-browser';
 import { provideClientHydration } from '@angular/platform-browser';
 import { withHttpTransferCacheOptions } from '@angular/platform-browser';
 import { enableProdMode, ${changeDetectionImport}, REQUEST_CONTEXT } from '@angular/core';
+import { APP_BASE_HREF as __abs_APP_BASE_HREF } from '@angular/common';
 import { prepareBrowserTranslationHydration } from '@absolutejs/absolute/client';
 import * as pageModule from '${normalizedImportPath}';
 var ${componentClassName} = pageModule.default;
@@ -2541,6 +2640,15 @@ var contextProviders = [{ provide: REQUEST_CONTEXT, useValue: requestContext }];
 // and client bundle.
 var pageProvidersExport = Reflect.get(pageModule, 'providers');
 var pageProviders = Array.isArray(pageProvidersExport) ? pageProvidersExport : [];
+// The server derives APP_BASE_HREF from the matched route at request time
+// (\`/portal/*\` → \`/portal/\`) and ships it here, so it overrides the
+// build-time inferred value and works for handlers called from helpers.
+var runtimeBaseHref = typeof window.__ABS_ANGULAR_BASE_HREF__ === 'string'
+    ? window.__ABS_ANGULAR_BASE_HREF__
+    : null;
+if (runtimeBaseHref) {
+    pageProviders = pageProviders.concat([{ provide: __abs_APP_BASE_HREF, useValue: runtimeBaseHref }]);
+}
 var absoluteHttpTransferCacheOptions = {
     includePostRequests: false,
     includeRequestsWithAuthHeaders: false,

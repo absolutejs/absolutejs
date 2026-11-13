@@ -284,8 +284,8 @@ export default defineConfig({
 			SUBSCRIBE_HTML
 		),
 		copyFile(
-			join(repoRoot, 'example', 'htmx', 'htmx.2.0.6.min.js'),
-			join(projectRoot, 'htmx', 'htmx.2.0.6.min.js')
+			join(repoRoot, 'example', 'htmx', 'htmx.2.0.11.min.js'),
+			join(projectRoot, 'htmx', 'htmx.2.0.11.min.js')
 		)
 	]);
 };

@@ -3,10 +3,11 @@ import { runUntracked } from '../dev/hotResources';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { basename, join, relative, resolve as resolvePath } from 'node:path';
 import { encodeSrcPath } from '../dev/srcPath';
-import { Elysia, NotFound } from 'elysia';
+import { Elysia, ElysiaError, InternalServerError, NotFound } from 'elysia';
 import type { staticPlugin } from '@elysia/static';
 import type { BuildConfig, MobileConfig } from '../../types/build';
 import type { ConventionsMap } from '../../types/conventions';
+import { HTTP_STATUS_INTERNAL_SERVER_ERROR } from '../constants';
 import { withOpenApi } from '../plugins/openApiPlugin';
 import { withTelemetry } from '../plugins/telemetryPlugin';
 import { loadConfig } from '../utils/loadConfig';
@@ -15,6 +16,7 @@ import { installAngularZoneRuntime } from '../angular/zoneRuntime';
 import { setIconVersionResolver } from '../utils/iconVersion';
 import { setCurrentIslandManifest } from './islandPageContext';
 import { absoluteRequestContext } from './requestContext';
+import { hasForeignErrorHook } from './appErrorHooks';
 import { formActionRuntime } from './formActionFlash';
 import { loadIslandRegistry } from './loadIslandRegistry';
 import { setCurrentIslandRegistry } from './currentIslandRegistry';
@@ -24,7 +26,8 @@ import {
 } from '../islands/pageMetadata';
 import {
 	setConventions,
-	renderFirstNotFound
+	renderFirstNotFound,
+	renderStaticRouteError
 } from '../utils/resolveConvention';
 import { setSpaRouteManifest } from '../utils/spaRouteManifest';
 import { logStartupTimingBlock } from '../utils/startupTimings';
@@ -67,6 +70,30 @@ const retryStaticPlugin = async (
 		return new Elysia({ name: 'absolutejs-static-fallback' });
 	}
 };
+
+/* Vue mirrors each source file under `sources/<encoded filesystem root>/…`
+ * (build/vueModuleOutputPath.ts), so on disk one directory is literally
+ * named `%2F`. A lazily imported route component is requested at that path,
+ * and Elysia's decoded `*` param turned the `%2F` into a slash, so every
+ * lazy Vue route chunk 404ed in production. Decode each segment of the raw
+ * path, but keep a segment that decodes to a separator in its encoded form,
+ * which is how it was written. */
+const generatedAssetRelativePath = (pathname: string) =>
+	pathname
+		.replace(/^\/\.absolutejs\/?/, '')
+		.split('/')
+		.map((segment) => {
+			try {
+				const decoded = decodeURIComponent(segment);
+
+				return /[\\/]/.test(decoded)
+					? encodeURIComponent(decoded)
+					: decoded;
+			} catch {
+				return segment;
+			}
+		})
+		.join('/');
 
 // `@elysia/static` builds its routes by walking `assets` and reading each file
 // up front (we pass `alwaysStatic: true`). In dev the build dir is live, so a
@@ -437,7 +464,7 @@ const prepareDev = async (
 	stepStartedAt = performance.now();
 	setBootPhase('load runtime metadata');
 	if (result.conventions) setConventions(result.conventions);
-	setCurrentIslandManifest(result.manifest);
+	setCurrentIslandManifest(result.manifest, buildDir);
 	if (config.islands?.registry) {
 		setCurrentIslandRegistry(
 			await loadIslandRegistry(config.islands.registry)
@@ -493,6 +520,7 @@ const prepareDev = async (
 		.use(hmrPlugin)
 		.use(createBuildErrorRecoveryPlugin())
 		.use(await loadVitalsPlugin(config, true))
+		.use(createStaticErrorPlugin(() => absolutejs))
 		.use(createNotFoundPlugin());
 	await withOpenApi(absolutejs, config, process.cwd(), true);
 	await withTelemetry(absolutejs, config, process.cwd());
@@ -574,6 +602,52 @@ const createNotFoundPlugin = () =>
 			return undefined;
 		}
 	);
+
+/* A route handler that throws (before or around handleHTMLPageRequest /
+ * handleHTMXPageRequest, which render their own errors) would otherwise get
+ * Elysia's JSON 500. For page navigations and HTMX requests, render the
+ * HTML/HTMX error.html instead (renderStaticRouteError). Only unexpected
+ * throws qualify: Elysia's own errors (not found, validation, parse) and
+ * thrown `status(...)` responses keep their status and handlers. Returns
+ * undefined otherwise so later onError handlers still run. */
+const isUnexpectedRouteError = (error: unknown, statusCode: unknown) => {
+	if (!(error instanceof Error)) return false;
+	if (error instanceof ElysiaError && !(error instanceof InternalServerError))
+		return false;
+
+	return (
+		statusCode === undefined ||
+		statusCode === HTTP_STATUS_INTERNAL_SERVER_ERROR
+	);
+};
+
+/* A fallback only: when the app registers its own onError (anywhere, before
+ * or after `.use(absolutejs)`), this hook does nothing and the app's handler
+ * decides, as it did before error.html covered thrown routes. `owner` is the
+ * AbsoluteJS runtime plugin, whose own hooks (not-found, telemetry, …) don't
+ * count. The app is read when an error happens, so in dev a handler added by
+ * a backend HMR edit takes effect without a restart. */
+const createStaticErrorPlugin = (owner: () => unknown) => {
+	let startedApp: unknown;
+
+	return new Elysia({ name: 'absolutejs-static-error' })
+		.onStart((app) => {
+			startedApp = app;
+		})
+		.onError('global', async ({ error, request, set }) => {
+			if (!isUnexpectedRouteError(error, set.status)) return undefined;
+			const app = globalThis.__absoluteLiveApp ?? startedApp;
+			if (hasForeignErrorHook(app, owner())) return undefined;
+			const response = await renderStaticRouteError(request, error);
+			if (!response) return undefined;
+			console.error(
+				`[SSR] ${request.method} ${new URL(request.url).pathname} threw:`,
+				error
+			);
+
+			return response;
+		});
+};
 
 /* Dev-only error renderer for routes that throw "Asset ... not
  * found in manifest." — the most common failure mode when a build
@@ -667,7 +741,7 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 	const manifest: Record<string, string> = JSON.parse(
 		readFileSync(`${buildDir}/manifest.json`, 'utf-8')
 	);
-	setCurrentIslandManifest(manifest);
+	setCurrentIslandManifest(manifest, buildDir);
 	if (config.islands?.registry) {
 		setCurrentIslandRegistry(
 			await loadIslandRegistry(config.islands.registry)
@@ -713,8 +787,11 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 	const generatedAssetsRoot = join(buildDir, '.absolutejs');
 	const generatedAssetsPlugin = new Elysia({
 		name: 'absolutejs-generated-assets'
-	}).get('/.absolutejs/*', async ({ params, set }) => {
-		const requestedPath = resolvePath(generatedAssetsRoot, params['*']);
+	}).get('/.absolutejs/*', async ({ request, set }) => {
+		const requestedPath = resolvePath(
+			generatedAssetsRoot,
+			generatedAssetRelativePath(new URL(request.url).pathname)
+		);
 		if (relative(generatedAssetsRoot, requestedPath).startsWith('..')) {
 			set.status = 404;
 
@@ -879,6 +956,7 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 			.use(staticFiles)
 			.use(generatedAssetsPlugin)
 			.use(await loadVitalsPlugin(config, false))
+			.use(createStaticErrorPlugin(() => absolutejs))
 			.use(createNotFoundPlugin());
 		await withOpenApi(absolutejs, config, process.cwd(), false);
 		await withTelemetry(absolutejs, config, process.cwd());
@@ -904,6 +982,7 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 		.use(staticFiles)
 		.use(generatedAssetsPlugin)
 		.use(await loadVitalsPlugin(config, false))
+		.use(createStaticErrorPlugin(() => absolutejs))
 		.use(createNotFoundPlugin());
 	await withOpenApi(absolutejs, config, process.cwd(), false);
 	await withTelemetry(absolutejs, config, process.cwd());

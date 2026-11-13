@@ -35,7 +35,15 @@ modules:
   - side-effecting statements (`startQueue(...)`, `setInterval(...)`) run
     again only if they changed;
   - top-level `let`/`var` live in a per-module store that survives versions,
-    so state assigned at runtime (`store = createStore()`) is not reset.
+    so state assigned at runtime (`store = createStore()`) is not reset;
+  - a `scopedState({ … })` call written inline in a statement that re-runs
+    (`.use([absolutejs, api, scopedState({ … })])`, as create-absolutejs
+    writes it) returns the plugin the same call returned last version, so
+    visitors keep their sessions. Calls are matched by their text and
+    position in the statement: an edited call starts empty, a removed one is
+    dropped. A call whose arguments are not literals cannot be matched; it
+    starts empty and the dev server warns to hoist it into a top-level
+    `const`.
 
 "Unchanged" means: the statement's text, the text of every top-level
 declaration of the same module it reaches (directly, or through functions it

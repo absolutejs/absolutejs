@@ -1,3 +1,4 @@
+import { isEditorTempFile } from './editorTempFiles';
 import { isAbsoluteServerEntryCopyPath } from './serverEntryCopies';
 import { unrefTimer } from '../utils/unrefTimer';
 
@@ -57,27 +58,14 @@ const ENTRY_IMPORT_RETRY_DELAY_MS = 250;
 const MAX_ENTRY_IMPORT_ATTEMPTS = 3;
 const WATCH_FALLBACK_INTERVAL_MS = 250;
 
-const ATOMIC_WRITE_TEMP_PATTERNS: RegExp[] = [/^sed[A-Za-z0-9]{6,}$/, /^4913$/];
-
-/* Detect filenames produced by atomic-rename editors. These files
- * appear briefly on disk during a save (the editor writes the new
- * content to a tmp sibling, then renames it over the original)
- * and would otherwise trigger a spurious HMR cycle. Patterns:
- *   - `.tmp` suffix or `.tmp.` substring (generic + Prettier)
- *   - `~` suffix (Emacs, Vim, some IDEs)
- *   - `.#…` prefix (Emacs lockfiles)
- *   - `sed<random>` (in-place `sed -i` tmp)
- *   - `4913` (vim's preflight write probe)
+/* Detect filenames produced by atomic-rename editors and tools (`sed -i`,
+ * Vim swap files, Emacs locks, JetBrains safe-write, …). These files
+ * appear briefly on disk during a save and would otherwise trigger a
+ * spurious HMR cycle. See `editorTempFiles.ts` for the patterns.
  *
- * Exported for direct unit testing — the integration suite can
- * assert the regex set without spinning up a dev server. */
+ * Exported for direct unit testing. */
 export const isAtomicWriteTemp = (filename: string) =>
-	filename.endsWith('.tmp') ||
-	filename.includes('.tmp.') ||
-	filename.endsWith('~') ||
-	filename.startsWith('.#') ||
-	isAbsoluteServerEntryCopyPath(filename) ||
-	ATOMIC_WRITE_TEMP_PATTERNS.some((pattern) => pattern.test(filename));
+	isEditorTempFile(filename) || isAbsoluteServerEntryCopyPath(filename);
 
 const fileHash = (path: string) => {
 	try {

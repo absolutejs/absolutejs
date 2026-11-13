@@ -1,6 +1,7 @@
 import { describe, expect, test, afterAll } from 'bun:test';
 import { startProdServer, type ProdServer } from '../../helpers/prodServer';
 import { fetchPage } from '../../helpers/http';
+import { openPage } from '../../helpers/browser';
 
 let server: ProdServer;
 
@@ -32,6 +33,47 @@ describe('production SSR correctness', () => {
 		expect(html).toContain('AbsoluteJS + Vue');
 		expect(html).toContain('<script');
 	});
+
+	/* The SPA shell exports `routes`, so its SSR page bundle inlines
+	 * vue-router, whose ESM build reads Vue's feature flags as free globals.
+	 * The production server pass didn't define them, and every request
+	 * failed with `__VUE_PROD_DEVTOOLS__ is not defined`. */
+	test('vue page exporting routes renders a nested URL', async () => {
+		const { html, status } = await fetchPage(
+			`${server.baseUrl}/spashell/one`
+		);
+		expect(status).toBe(200);
+		expect(html).not.toContain('is not defined');
+		expect(html).toContain('<div id="root">');
+		expect(html).toMatch(
+			/<script type="module" src="[^"]*SpaShell[^"]*\.js"/
+		);
+	});
+
+	test('vue page exporting routes mounts and navigates client-side', async () => {
+		const session = await openPage(`${server.baseUrl}/spashell/one`);
+		try {
+			const { page } = session;
+			await page.waitForSelector('.spa-one', { timeout: 15_000 });
+			expect(await page.textContent('.spa-shell h1')).toBe('SPA Shell');
+			expect(await page.textContent('.spa-one')).toBe('SPA_ONE_CONTENT');
+			// A full reload would drop this marker.
+			await page.evaluate(() => {
+				Reflect.set(window, '__spaNavigationMarker', true);
+			});
+			await page.click('.spa-link-two');
+			await page.waitForSelector('.spa-two', { timeout: 15_000 });
+			expect(await page.textContent('.spa-two')).toBe('SPA_TWO_CONTENT');
+			expect(new URL(page.url()).pathname).toBe('/spashell/two');
+			expect(
+				await page.evaluate(() =>
+					Reflect.get(window, '__spaNavigationMarker')
+				)
+			).toBe(true);
+		} finally {
+			await session.close();
+		}
+	}, 60_000);
 
 	test('angular page contains SSR content', async () => {
 		const { html } = await fetchPage(`${server.baseUrl}/angular`);

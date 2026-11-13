@@ -55,7 +55,9 @@ test('an unrelated listener on the port is left running and reported', async () 
 			await Bun.sleep(100);
 		}
 		const messages: string[] = [];
-		const foreign = killStaleProcesses(port, (message) => messages.push(message));
+		const foreign = killStaleProcesses(port, (message) =>
+			messages.push(message)
+		);
 		await Bun.sleep(300);
 		expect(service.exitCode).toBeNull();
 		/* The other program is returned, so a workspace refuses to start a

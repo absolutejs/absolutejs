@@ -1,5 +1,11 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import {
+	mkdirSync,
+	mkdtempSync,
+	realpathSync,
+	rmSync,
+	writeFileSync
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -327,5 +333,144 @@ describe('backend HMR', () => {
 		expect(outcome.status).toBe('applied');
 		const plugin = await import(`${path('plugin.ts')}?absolute-hot=999`);
 		expect(plugin.extraValue()).toBe('extra');
+	});
+});
+
+/* scopedState written inline in a statement that re-runs (the
+ * create-absolutejs scaffold's `.use([absolutejs, api, scopedState({…})])`).
+ * The fake package keeps its sessions in a closure, as
+ * @absolutejs/scoped-state 0.3 does, so only the same instance keeps state. */
+describe('inline stateful factory calls', () => {
+	const STATEFUL_TAG_BASE = 20_000;
+	let statefulTag = STATEFUL_TAG_BASE;
+	const loadStateful = async () => {
+		statefulTag += 1;
+		const loaded: Record<string, unknown> = await import(
+			`${path('stateful.ts')}?absolute-hot=${statefulTag}`
+		);
+
+		return loaded;
+	};
+	const pluginsOf = (loaded: Record<string, unknown>) => {
+		const built = loaded.app;
+		const plugins: unknown =
+			typeof built === 'object' && built !== null
+				? Reflect.get(built, 'plugins')
+				: undefined;
+		if (!Array.isArray(plugins)) throw new Error('app has no plugins');
+
+		return [...plugins];
+	};
+	const editStateful = async (from: string, to: string) => {
+		const source = await Bun.file(path('stateful.ts')).text();
+		if (!source.includes(from))
+			throw new Error(`${from} not in stateful.ts`);
+		write('stateful.ts', source.replace(from, to));
+
+		return loadStateful();
+	};
+	const captured = (method: 'log' | 'warn') => {
+		const lines: string[] = [];
+		const original = console[method];
+		console[method] = (...args: unknown[]) => {
+			lines.push(args.map(String).join(' '));
+		};
+
+		return {
+			lines,
+			restore: () => {
+				console[method] = original;
+			}
+		};
+	};
+
+	beforeAll(() => {
+		const pkg = path('node_modules/@absolutejs/scoped-state');
+		mkdirSync(pkg, { recursive: true });
+		writeFileSync(
+			join(pkg, 'package.json'),
+			'{"name":"@absolutejs/scoped-state","type":"module","main":"index.js"}\n'
+		);
+		writeFileSync(
+			join(pkg, 'index.js'),
+			'let made = 0;\nexport const scopedState = (setup) => { made += 1; return { id: made, sessions: new Map(), setup }; };\n'
+		);
+		write(
+			'stateful.ts',
+			[
+				"import { scopedState } from '@absolutejs/scoped-state';",
+				"import * as scoped from '@absolutejs/scoped-state';",
+				'',
+				'const initial = { count: { value: 0 } };',
+				"export const label = 'L1';",
+				'export const app = {',
+				"\tplugins: [scopedState({ count: { value: 0 } }), scoped.scopedState({ other: { value: 'x' } }), scopedState({ count: { value: 0 } })],",
+				"\tversion: 'one'",
+				'};',
+				"export const dynamic = { plugin: scopedState(initial), version: 'one' };",
+				''
+			].join('\n')
+		);
+	});
+
+	test('a re-run statement keeps every inline instance, two identical calls apart', async () => {
+		const [first, second, third] = pluginsOf(await loadStateful());
+		expect(first).not.toBe(third);
+		const next = pluginsOf(
+			await editStateful("version: 'one'\n", "version: 'two'\n")
+		);
+		expect(next[0]).toBe(first);
+		expect(next[1]).toBe(second);
+		expect(next[2]).toBe(third);
+	});
+
+	test('a version that keeps the statement keeps its instances for later', async () => {
+		const before = pluginsOf(await loadStateful());
+		await editStateful("'L1'", "'L2'");
+		const next = pluginsOf(
+			await editStateful("version: 'two'\n", "version: 'three'\n")
+		);
+		next.forEach((plugin, index) => expect(plugin).toBe(before[index]));
+	});
+
+	test('a call whose arguments change starts empty; the others keep theirs', async () => {
+		const [first, second, third] = pluginsOf(await loadStateful());
+		const logs = captured('log');
+		const next = pluginsOf(
+			await editStateful(
+				"{ other: { value: 'x' } }",
+				"{ other: { value: 'y' } }"
+			)
+		);
+		logs.restore();
+		expect(next[0]).toBe(first);
+		expect(next[1]).not.toBe(second);
+		expect(next[2]).toBe(third);
+		expect(logs.lines.join('\n')).toContain('scopedState(…) on line 7 of');
+	});
+
+	test('a removed call is dropped, so adding it back starts empty', async () => {
+		const [, second] = pluginsOf(await loadStateful());
+		const removed = "scoped.scopedState({ other: { value: 'y' } }), ";
+		await editStateful(removed, '');
+		const back = pluginsOf(
+			await editStateful('plugins: [', `plugins: [${removed}`)
+		);
+		expect(back[1]).not.toBe(second);
+	});
+
+	test('a call with non-literal arguments warns how to keep its state', async () => {
+		const before = (await loadStateful()).dynamic;
+		const warnings = captured('warn');
+		const after = (
+			await editStateful("version: 'one' }", "version: 'two' }")
+		).dynamic;
+		warnings.restore();
+		expect(Reflect.get(Object(after), 'plugin')).not.toBe(
+			Reflect.get(Object(before), 'plugin')
+		);
+		expect(warnings.lines.join('\n')).toContain(
+			'Create it in its own top-level const'
+		);
 	});
 });

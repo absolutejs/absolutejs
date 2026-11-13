@@ -462,7 +462,12 @@ export const compileSvelte = async (
 						},
 						filename: src,
 						generate: mode,
-						hmr: mode === 'client' && isDev
+						// Both sides, not only the client: with `hmr` Svelte
+						// stops treating a lone component as standalone and
+						// gives it an anchor comment. A server render without
+						// those anchors fails to hydrate against an HMR client
+						// (every page wrapped in <Router>, for one).
+						hmr: isDev
 					}).js;
 			let code = compiledJs.code.replace(
 				/\.svelte(?:\.(?:ts|js))?(['"])/g,

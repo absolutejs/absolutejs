@@ -5,6 +5,7 @@ import { decodeSrcPath, encodeSrcPath } from './srcPath';
 import { inlineCssImports } from '../build/inlineCssImports';
 import { importFromProject } from '../build/importFromProject';
 import { resolvePackageImport } from '../build/resolvePackageImport';
+import { resolveVueFeatureFlags } from '../build/resolveBuildMode';
 import { addAutoRouterSetupApp } from '../build/vueAutoRouterTransform';
 import { buildIslandMetadataExports } from '../islands/sourceMetadata';
 import { isFile } from '../utils/isFile';
@@ -56,8 +57,13 @@ const SRC_PREFIX = '/@src/';
 // `define` only substitutes FREE identifiers, so a local
 // `const require = createRequire(…)`, a `require` parameter, and a `.require`
 // property are all left alone.
-type BrowserDefine = { require: string };
-const BROWSER_DEFINE: BrowserDefine = { require: 'undefined' };
+//
+// Vue's compile-time feature flags are pinned too: packages served raw from
+// node_modules (vue-router's ESM build) read them as free globals.
+const BROWSER_DEFINE: Record<string, string> = {
+	require: 'undefined',
+	...resolveVueFeatureFlags(true)
+};
 
 const jsTranspiler = new Bun.Transpiler({
 	define: BROWSER_DEFINE,

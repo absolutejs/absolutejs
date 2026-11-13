@@ -3,6 +3,7 @@ import { dirname, join } from 'node:path';
 import type { PwaConfig } from '../../types/build';
 import { projectImportsAbsoluteDeviceCapability } from '../mobile/deviceCapabilities';
 import { discoverAbsoluteSyncSchema } from '../mobile/syncSchema';
+import { RUNTIME_FILE_NAMES } from '../core/serverOnlyStaticFiles';
 
 const BOOTSTRAP_PUBLIC_PATH = '/__absolute/pwa/bootstrap.js';
 const BOOTSTRAP_MARKER = 'data-absolute-pwa';
@@ -143,6 +144,16 @@ export const materializeAbsolutePwa = async ({
 				'pwa.manifest.path'
 			)
 		: undefined;
+	// The build writes its own runtime files at the build root and serves
+	// none of them, so a web-app manifest there would be overwritten and 404.
+	const reservedName = RUNTIME_FILE_NAMES.find(
+		(name) => manifestPath === `/${name}`
+	);
+	if (reservedName) {
+		throw new TypeError(
+			`pwa.manifest.path "/${reservedName}" is reserved for the build's runtime files. Use the default "/manifest.webmanifest" or another name.`
+		);
+	}
 	const artifacts: AbsolutePwaBuildArtifacts = {
 		bootstrapBanner: injectionSource(),
 		bootstrapPublicPath: BOOTSTRAP_PUBLIC_PATH,

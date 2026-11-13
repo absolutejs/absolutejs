@@ -233,6 +233,35 @@ the router manages the scroll position:
   reload. `goto(url, { noScroll: true })` or `<Link noScroll>` leaves the
   scroll alone.
 
+### Vue router pages
+
+A Vue page that exports `routes` becomes a single-page app shell. The page
+installs vue-router with those routes, and one server route can serve every
+child URL:
+
+```vue
+<script lang="ts">
+import { defineRoutes } from '@absolutejs/absolute/vue';
+
+export const routes = defineRoutes([
+	{
+		path: '/app/one',
+		component: () => import('./One.vue').then((m) => m.default)
+	},
+	{ path: '/app', redirect: '/app/one' }
+]);
+</script>
+
+<template><RouterView /></template>
+```
+
+Forward `request` to `handleVuePageRequest` so the handler can match the URL.
+The server sends an empty `#root` for these pages, with the child
+routes' CSS already inlined, and the browser renders the route when it mounts.
+Rendering on the server would be thrown away by that client mount and would
+play CSS entrance animations twice. A page with `client: 'none'` has no client
+mount, so it is rendered on the server.
+
 ### Vue server data
 
 `useServerData(key, fetcher)` loads data while a Vue page renders on the
@@ -375,9 +404,7 @@ per request, plus `X-Content-Type-Options`, `Referrer-Policy`,
 `frame-ancestors` and `Permissions-Policy`:
 
 ```ts
-export const server = new Elysia()
-	.use(secureHeaders())
-	.use(absolutejs);
+export const server = new Elysia().use(secureHeaders()).use(absolutejs);
 ```
 
 Scripts run only with the nonce (`'strict-dynamic'`, no `'unsafe-inline'`),
@@ -392,7 +419,9 @@ Turn on `vitals` to report LCP, INP, CLS, FCP and TTFB from real visits:
 
 ```ts
 // absolute.config.ts
-vitals: { sampleRate: 0.25 }
+vitals: {
+	sampleRate: 0.25;
+}
 ```
 
 Every page then loads a small reporter that sends one batch per page, with

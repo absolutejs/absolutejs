@@ -36,8 +36,7 @@ type LazyRouteProps<
 };
 
 type RouteProps<Path extends string, Props extends Record<string, unknown>> =
-	| EagerRouteProps<Path>
-	| LazyRouteProps<Path, Props>;
+	EagerRouteProps<Path> | LazyRouteProps<Path, Props>;
 
 class Route<
 	Path extends string = string,

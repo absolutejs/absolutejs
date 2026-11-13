@@ -13,9 +13,8 @@ import { afterEach, describe, expect, test } from 'bun:test';
 const { pushState, replaceState } =
 	await import('../../../../src/svelte/router/pushState');
 const { page } = await import('../../../../src/svelte/router/page.svelte');
-const { readHistoryMeta, readUserState } = await import(
-	'../../../../src/svelte/router/scroll'
-);
+const { readHistoryMeta, readUserState } =
+	await import('../../../../src/svelte/router/scroll');
 
 const originalWindow = (globalThis as { window?: unknown }).window;
 

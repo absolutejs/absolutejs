@@ -78,13 +78,11 @@ type HmrSnapshot = {
 };
 
 const snapshot = (activeSession: BrowserSession) =>
-	activeSession.page.evaluate(
-		(): HmrSnapshot => ({
-			firstButton: document.querySelector('button')?.textContent ?? '',
-			initialProps: Reflect.get(window, '__INITIAL_PROPS__'),
-			sessionKeys: Object.keys(sessionStorage)
-		})
-	);
+	activeSession.page.evaluate((): HmrSnapshot => ({
+		firstButton: document.querySelector('button')?.textContent ?? '',
+		initialProps: Reflect.get(window, '__INITIAL_PROPS__'),
+		sessionKeys: Object.keys(sessionStorage)
+	}));
 
 const startAll = async () => {
 	installFixture();
