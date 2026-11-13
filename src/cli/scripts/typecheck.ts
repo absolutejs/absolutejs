@@ -1,4 +1,4 @@
-import { join, parse, relative, resolve } from 'node:path';
+import { dirname, join, parse, relative, resolve } from 'node:path';
 import { existsSync, readFileSync } from 'node:fs';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { parse as parseJsonc } from 'jsonc-parser';
@@ -17,6 +17,7 @@ import { getString, isRecord } from '../config/guards';
 import {
 	bunCheckCommand,
 	bunCheckSupported,
+	NO_SCRIPT,
 	checkFingerprint
 } from './bunCheck';
 import { ANSI_ESCAPE_CODE } from '../../constants';
@@ -411,6 +412,31 @@ const buildVueTscCheck = async (cacheDir: string) => {
 	return run('vue-tsc', base);
 };
 
+/* vue-check (@absolutejs/vue-check): the project's own Vue codegen with
+ * bun check as the checker, reporting the errors vue-tsc reports. It reads
+ * the same program bun check does, and keeps its generated TypeScript in the
+ * cache, never the project. */
+const buildVueCheck = async (cacheDir: string) => {
+	const configPath = await writeTypecheckConfig(cacheDir, 'bun');
+	const vueCheck = join(
+		dirname(
+			Bun.resolveSync(
+				'@absolutejs/vue-check/package.json',
+				import.meta.dir
+			)
+		),
+		'src/cli.ts'
+	);
+
+	return run('vue-check', [
+		process.execPath,
+		vueCheck,
+		'-p',
+		configPath,
+		`--out-dir=${resolve(cacheDir, 'vue-check')}`
+	]);
+};
+
 const buildAngularCheck = async (cacheDir: string, angularDir: string) => {
 	const ngcBin = findBin('ngc');
 	if (!ngcBin) {
@@ -530,7 +556,8 @@ const buildBunCheck = async (cacheDir: string) => {
 		'check',
 		'-p',
 		configPath,
-		'--listFilesOnly'
+		'--listFilesOnly',
+		NO_SCRIPT
 	]);
 	const fingerprint =
 		listing.exitCode === 0
@@ -740,13 +767,14 @@ export const typecheck = async (configPath?: string) => {
 	for (const config of targets) ensureFileRouteModule(config);
 	const checks: Promise<CheckerResult>[] = [];
 
-	// vue-tsc is a superset of tsc — it checks .ts, .tsx, AND .vue files.
-	// Any .ts file can import from .vue, so vue-tsc must check everything
-	// when Vue is present. When Vue is absent, bun check does tsc's job
-	// (Bun 1.4.3+); tsc remains the fallback on older Bun or with
-	// ABSOLUTE_TYPECHECK_CHECKER=tsc.
-	const plainCheck = bunCheckSupported() ? buildBunCheck : buildTscCheck;
-	checks.push(hasVue ? buildVueTscCheck(cacheDir) : plainCheck(cacheDir));
+	// bun check does tsc's job (Bun 1.4.4+). With Vue, vue-check does
+	// vue-tsc's: a Vue checker covers .ts, .tsx AND .vue files, since any .ts
+	// file can import from .vue. tsc and vue-tsc remain the fallback on older
+	// Bun or with ABSOLUTE_TYPECHECK_CHECKER=tsc.
+	const useBunCheck = bunCheckSupported();
+	const plainCheck = useBunCheck ? buildBunCheck : buildTscCheck;
+	const vueCheck = useBunCheck ? buildVueCheck : buildVueTscCheck;
+	checks.push(hasVue ? vueCheck(cacheDir) : plainCheck(cacheDir));
 
 	// svelte-check scoped to the Svelte directory only
 	for (const svelteDir of hasSvelte ? svelteDirs : []) {

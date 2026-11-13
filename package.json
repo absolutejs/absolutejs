@@ -15,6 +15,7 @@
 		"@absolutejs/devices-capacitor": "0.8.1",
 		"@absolutejs/http": "0.0.1",
 		"@absolutejs/pwa": ">=0.16.3 <0.18.0",
+		"@absolutejs/vue-check": ">=0.1.1 <0.2.0",
 		"@capacitor/browser": "8.0.4",
 		"@capacitor/filesystem": "8.1.3",
 		"@capacitor/keyboard": "8.0.5",
@@ -581,7 +582,7 @@
 			]
 		}
 	},
-	"version": "0.20.0-beta.171",
+	"version": "0.20.0-beta.172",
 	"workspaces": [
 		"tests/fixtures/*",
 		"tests/fixtures/_packages/*"

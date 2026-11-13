@@ -35,15 +35,16 @@ const project = async () => {
 };
 
 describe('bun check gating', () => {
-	test('needs Bun 1.4.3 or later', () => {
+	test('needs Bun 1.4.4 or later (--no-script)', () => {
 		expect(bunCheckSupported('1.4.2', {})).toBe(false);
-		expect(bunCheckSupported('1.4.3', {})).toBe(true);
+		expect(bunCheckSupported('1.4.3', {})).toBe(false);
+		expect(bunCheckSupported('1.4.4', {})).toBe(true);
 		expect(bunCheckSupported('1.5.0', {})).toBe(true);
 	});
 
 	test('ABSOLUTE_TYPECHECK_CHECKER=tsc keeps tsc', () => {
 		expect(
-			bunCheckSupported('1.4.3', { ABSOLUTE_TYPECHECK_CHECKER: 'tsc' })
+			bunCheckSupported('1.4.4', { ABSOLUTE_TYPECHECK_CHECKER: 'tsc' })
 		).toBe(false);
 	});
 
@@ -57,7 +58,14 @@ describe('bun check gating', () => {
 	});
 
 	test('passes a positive thread cap through and ignores anything else', () => {
-		const base = ['/bun', 'check', '-p', '/p/tsconfig.json', '--all'];
+		const base = [
+			'/bun',
+			'check',
+			'-p',
+			'/p/tsconfig.json',
+			'--all',
+			'--no-script'
+		];
 		expect(bunCheckCommand('/p/tsconfig.json', {}, '/bun', false)).toEqual(
 			base
 		);

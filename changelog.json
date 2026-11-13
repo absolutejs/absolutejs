@@ -5,6 +5,22 @@
 		{
 			"changes": [
 				{
+					"detail": "When a project’s package.json has a `check` script, `bun check` runs that script instead of type-checking, so `absolute typecheck` could report a project as checked without checking it. It now always passes `--no-script`, which Bun added in 1.4.4, and so uses bun check from Bun 1.4.4 on (it was 1.4.3). On Bun 1.4.3 it type-checks with tsc, as on older Bun.",
+					"kind": "fixed",
+					"summary": "absolute typecheck type-checks even when the project has a check script"
+				},
+				{
+					"detail": "For a project with Vue, `absolute typecheck` now runs vue-check (`@absolutejs/vue-check`, a dependency of the framework) instead of vue-tsc whenever it runs bun check: the project’s own Vue codegen with Bun’s native checker, reporting the errors vue-tsc reports in a fraction of the time and memory. Its generated TypeScript stays in `.absolutejs/vue-check`. vue-tsc remains the fallback where tsc does: Bun older than 1.4.4, or `ABSOLUTE_TYPECHECK_CHECKER=tsc`.",
+					"kind": "changed",
+					"summary": "absolute typecheck checks Vue projects with vue-check"
+				}
+			],
+			"date": "2026-11-13",
+			"version": "0.20.0-beta.172"
+		},
+		{
+			"changes": [
+				{
 					"detail": "An Angular router page mounted at a wildcard route like `.get('/portal/*', …)` only got `APP_BASE_HREF` when `handleAngularPageRequest(...)` was written directly inside that route. Called from a helper function, no base href was set and the router could not match any route. The base href now comes from the route that matched the request, so `/portal/*` gives `/portal/` wherever the handler call is written, and the browser bootstraps with the same value. Parameterised mounts such as `/t/:tenant/*` use the values from the request URL. A provider you pass in the handler's `providers` option still takes precedence on the server.",
 					"kind": "fixed",
 					"summary": "Angular APP_BASE_HREF works when the page handler is called from a helper"
