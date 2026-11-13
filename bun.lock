@@ -153,6 +153,7 @@
         "sharp": ">=0.33.0",
         "stylus": "^0.64.0",
         "svelte": "^5.35.2",
+        "svelte2tsx": ">=0.7.0 <1",
         "tailwindcss": "^4.1.0",
         "typescript": "^5.9.3",
         "vue": "^3.5.27",
@@ -189,6 +190,7 @@
         "sharp",
         "stylus",
         "svelte",
+        "svelte2tsx",
         "tailwindcss",
         "typescript",
         "vue",
@@ -376,6 +378,16 @@
     "tests/fixtures/expo-hmr": {
       "name": "@absolutejs/test-expo-hmr",
     },
+    "tests/fixtures/react-server-components": {
+      "name": "@absolutejs/fixture-react-server-components",
+      "version": "0.0.0",
+      "dependencies": {
+        "@absolutejs/absolute": "file:../../..",
+        "elysia": "*",
+        "react": "*",
+        "react-dom": "*",
+      },
+    },
   },
   "overrides": {
     "@sinclair/typebox": "0.34.52",
@@ -442,6 +454,8 @@
     "@absolutejs/fixture-expo-android-authenticated-release": ["@absolutejs/fixture-expo-android-authenticated-release@workspace:tests/fixtures/expo-android-authenticated-release"],
 
     "@absolutejs/fixture-expo-android-release": ["@absolutejs/fixture-expo-android-release@workspace:tests/fixtures/expo-android-release"],
+
+    "@absolutejs/fixture-react-server-components": ["@absolutejs/fixture-react-server-components@workspace:tests/fixtures/react-server-components"],
 
     "@absolutejs/fixture-vue-package-picker": ["@absolutejs/fixture-vue-package-picker@workspace:tests/fixtures/_packages/vue-package-picker"],
 

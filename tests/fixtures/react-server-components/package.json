@@ -3,8 +3,7 @@
 		"@absolutejs/absolute": "file:../../..",
 		"elysia": "*",
 		"react": "*",
-		"react-dom": "*",
-		"react-server-dom-webpack": "*"
+		"react-dom": "*"
 	},
 	"name": "@absolutejs/fixture-react-server-components",
 	"private": true,

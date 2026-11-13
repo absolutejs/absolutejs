@@ -5,6 +5,234 @@
 		{
 			"changes": [
 				{
+					"detail": "The surgical Angular HMR path compiled `styleUrl` files synchronously, which Less and Stylus don't support. Editing a component whose `styleUrl` was a `.less` or `.styl` file showed \"Style file not found\" for a file that existed, and the update stalled behind the error overlay. The fast path now compiles Less and Stylus with their async compilers. A style that exists but fails to compile reports the compiler's error instead of \"not found\". The production build and the dev rebuild path already handled Less and Stylus.",
+					"kind": "fixed",
+					"summary": "Angular HMR applies edits to components whose `styleUrl` is Less or Stylus, and reports style compile errors accurately"
+				},
+				{
+					"detail": "Angular pages ran zoneless only, so apps and libraries that rely on zone.js (NgZone, change detection after timers or manually added event listeners) didn't update. Set `angular: { changeDetection: 'zone' }` in absolute.config.ts and add zone.js to your app (`bun add zone.js`). Server rendering then waits for the timers and requests a page starts, the browser loads zone.js before Angular boots, and hydration and HMR keep working. Async functions in your Angular code are compiled to generators in this mode, because zone.js can't follow native `await`. Elysia routes keep working with zone.js loaded on the server. The default stays zoneless. Angular islands still render zoneless in zone mode.",
+					"kind": "added",
+					"summary": "Angular pages can opt into zone.js change detection"
+				},
+				{
+					"detail": "`absolute add <framework>` failed with \"Could not find defineConfig\" on the config create-absolutejs writes (`import { defineConfig } …` followed by `export default defineConfig({…})`). The config walker passed `pending.push(child)` straight to TypeScript's `forEachChild`, which stops at the first truthy callback result, so only a file's first statement (the import) was ever searched. The auth config readers behind `absolute config` had the same bug and are fixed too. `absolute generate page --framework angular` now writes a self-contained page with its nav baked in, like the static pages, instead of importing `../../shared/navData` from outside the Angular directory.",
+					"kind": "fixed",
+					"summary": "`absolute add` edits scaffolded configs, and generated Angular pages no longer import shared files"
+				},
+				{
+					"detail": "Call `enableNavigation()` from `@absolutejs/absolute/client/navigation` on your pages and a link from a page in one framework to a page in another (a React page to a Svelte page, say) no longer reloads the browser. The target page's HTML is fetched, its stylesheets load first, the current page is torn down, the head and body are swapped (in a View Transition where the browser supports one), and the target page hydrates. Island stores made with `createIslandStore` keep their values, back and forward work across the two pages with their scroll positions, and the new page's title is announced to screen readers. Links inside a framework's own router still navigate through that router. Under `secureHeaders()` the swapped-in page's scripts and styles run with the current page's nonce, but only those that carried their own response's nonce. Add `data-absolute-navigation=\"off\"` to a link (or a parent) to get a normal page load; any failure also falls back to one. The Svelte router's `<Link>` now leaves a URL that no mounted `<Router>` matches to this navigation when it is enabled. This release is tested with React and Svelte pages. Vue and Angular pages have the same teardown hook but are not tested yet. HTML and HTMX pages have none, so leaving one is still a normal page load.",
+					"kind": "added",
+					"summary": "Links between pages built with different frameworks can navigate without a full page reload"
+				},
+				{
+					"detail": "Vue and Ember wrote a page's initial props into an inline script with a plain `JSON.stringify`, so a prop value containing `</script>` ended the script and the rest of the value was parsed as HTML: an XSS hole for any page that passes user-provided data as props. The same applied to Angular's `requestContext`, the island state and manifest scripts, and JSON-LD (`generateHeadElement`, the React and Svelte `JsonLd` components). All of these now escape `<`, U+2028 and U+2029, as React and Svelte page props already did. The data is unchanged once parsed.",
+					"kind": "security",
+					"summary": "Initial props, request context, island state and JSON-LD can no longer break out of their inline <script>"
+				},
+				{
+					"detail": "Opt-in file routes for React and Svelte pages. With `fileRoutes: true` in absolute.config.ts, each file under `<reactDirectory>/routes/` or `<svelteDirectory>/routes/` becomes a GET route: `index.tsx` serves `/`, `blog/index.tsx` serves `/blog`, and `blog/[slug].tsx` serves `/blog/:slug`. Files and folders starting with `_` are private, so components can live next to routes. A sibling `blog/[slug].server.ts` can export `load`, whose result becomes the page's props, and `beforeHandle`, which can answer the request first (for example with a redirect). The build writes a route module (`src/routes.gen.ts` by default, `fileRoutes.output` to change it); pass its `routeTree` to `fileRoutes(routeTree, manifest)` after `prepare()`. The route module checks types: `load` must take the route's params and return the page's props, so a renamed param or a missing prop is a type error. Explicit routes stay the default and win over a file route for the same path. In `absolute dev`, adding, renaming or removing a route file updates the routes without a restart. Catch-all, optional and group segments, Vue, Angular and HTML routes, and per-folder conventions are planned. See docs/FILE_ROUTER_PLAN.md.",
+					"kind": "added",
+					"summary": "Opt-in file routes for React and Svelte pages, with typed `load` functions",
+					"symbols": [
+						"fileRoutes",
+						"reactFileRoute",
+						"svelteFileRoute",
+						"FileRouteContext"
+					]
+				},
+				{
+					"detail": "`defineAction(path, { body, handler })` defines a form action: a POST route that checks the form against an Elysia `t.Object` schema and works with or without JavaScript. Without JavaScript a plain `<form method=\"post\">` posts, the browser is sent back to the page (or to `redirect`) and the page shows the result: React and other SSR pages read it with `getActionState(action)` and pass it as a prop, and static HTML and HTMX pages get the errors, the success message and what the user typed written into `<form data-absolute-action>` by the server. With JavaScript, React's `useFormAction` hook (from `@absolutejs/absolute/react/hooks`) and `enhanceForms()` for plain pages (from `@absolutejs/absolute/client`) submit without a reload and expose pending, the typed result and one error message per field. HTMX `hx-post` forms get the action's `htmx` fragment, or behave like a plain post. Cross-site posts are refused (403), bodies over `maxBodySize` (default 10 MiB) are refused before they are read (413), and JSON clients such as Eden get JSON.",
+					"kind": "added",
+					"summary": "Form actions: one handler for forms that work without JavaScript and update in place with it, on React, static HTML and HTMX pages"
+				},
+				{
+					"detail": "HTML and HTMX pages can share markup with `<abs-include src=\"../partials/header.html\"></abs-include>`, which is replaced at build time with the file's contents. Paths are relative to the including file, and included files can include others. A layout marks where content goes with `<abs-slot>` and `<abs-slot name=\"head\">`; a page fills the slots through the include's children and `<template slot=\"head\">`. Includes are expanded before asset paths, image optimization and island rendering, so included markup gets all three. A missing file or an include cycle fails the build and shows the chain. Only the `.html` files directly in `pages/` are pages. In dev, editing a partial or layout updates every page that includes it. See docs/HTML_INCLUDES.md.",
+					"kind": "added",
+					"summary": "Layouts and partials for HTML and HTMX pages with `<abs-include>` and `<abs-slot>`"
+				},
+				{
+					"detail": "Apps can now be translated. `defineI18n()` takes your locales, the default locale's messages and a loader for each other locale, and `i18nPlugin()` works out each request's locale from the URL prefix (`/fr/about`), the domain, or the visitor's cookie and `Accept-Language` header. Handlers get `locale` and an `i18n` object: `i18n.t('key', params)` formats ICU messages (plurals, select, numbers, dates) with the platform's `Intl`, and `i18n.payload(['namespace'])` returns the messages a page needs to hydrate, which you pass as a page prop. React pages read them with `I18nProvider` and `useI18n()` from `@absolutejs/absolute/react/hooks`; Svelte pages with `setI18n()` and `getI18n()` from `@absolutejs/absolute/svelte`. Message keys and their parameters are type-checked against the default catalog, and a locale missing a key is a type error. `i18n.alternates()` builds hreflang links, which the `alternates` field of `Metadata` renders in `generateHeadElement` and the React and Svelte `Head` components. Setting `sitemap.i18n` lists every page once per locale with hreflang alternates. Svelte pages get the request's `lang` and `dir` on `<html>`. The browser-safe helpers (`createTranslator`, `formatMessage`, `localizePath`, `negotiateLocale`, `localeDirection`) are exported from `@absolutejs/absolute/i18n`. See docs/I18N_PLAN.md.",
+					"kind": "added",
+					"summary": "Internationalization: locale routing, typed ICU message catalogs, React and Svelte translation APIs, hreflang links and a per-locale sitemap",
+					"symbols": [
+						"defineI18n",
+						"i18nPlugin",
+						"getRequestLocale",
+						"I18nProvider",
+						"useI18n",
+						"setI18n",
+						"getI18n",
+						"createTranslator",
+						"defineMessages",
+						"formatMessage",
+						"Metadata",
+						"generateHeadElement",
+						"Head",
+						"SitemapConfig",
+						"BaseBuildConfig"
+					]
+				},
+				{
+					"detail": "An HTML page and an HTMX page with the same file name (both `pages/Home.html`) share the manifest key `Home`. The build only warned \"Manifest key collision … overwritten\", and both routes then served whichever page was processed last. The build now fails and names both source files. In dev the error is reported like any other failed build pass. Key naming is unchanged.",
+					"kind": "breaking",
+					"migration": {
+						"instruction": "If the build reports \"Manifest key \\\"…\\\" belongs to two pages\", rename one of the two files (for example `htmx/pages/Home.html` to `htmx/pages/HtmxHome.html`) and update the `asset(manifest, …)` call in its route. Builds without a collision are unaffected.",
+						"manual": true
+					},
+					"summary": "Two pages with the same name in the HTML and HTMX directories are a build error instead of one silently replacing the other",
+					"symbols": [
+						"asset",
+						"build"
+					]
+				},
+				{
+					"detail": "A pre-rendered page used to be either fully cached or fully rendered per request. Now a streaming slot marked `dynamic` (`<StreamSlot dynamic>` or `<SuspenseSlot dynamic>` in React, the `dynamic` prop or `<!-- absolute:stream dynamic -->` in Svelte) stays a hole in the pre-rendered page. On a route listed in `static.routes`, the build stores the page as a static shell: other slots are resolved into it, and dynamic slots keep their fallback. Each request gets the cached shell at once, before the route handler runs. Only the dynamic slots are then rendered, with the visitor's cookies and headers, and streamed into the page, carrying the request's CSP nonce under `secureHeaders()`. Revalidation (`static.revalidate`) re-captures the shell. Pages without a dynamic slot are pre-rendered as before. Vue and Angular support comes later.",
+					"kind": "added",
+					"summary": "Partial prerendering: pre-rendered React and Svelte pages serve a cached shell instantly and stream their `dynamic` slots per request",
+					"symbols": [
+						"StreamSlot",
+						"SuspenseSlot",
+						"StreamingSlot"
+					]
+				},
+				{
+					"detail": "Bun's bundler replaces a literal `process.env.NODE_ENV` with its build-time value, and with nothing defined that value is \"development\". The published dist/ was built that way, so every such check was a constant: `absolute start` and compiled binaries ran development code with NODE_ENV=production. Error convention pages received `error.stack`; Vue pages with `client: 'none'` shipped the ~130 KB inline dev reload client; React pages emitted the Fast Refresh setup; Angular pages stat'ed their module on every request; and the island-bootstrap and streaming-slot dev warnings stayed on. The library build now leaves `process.env.NODE_ENV` a runtime read, the source reads it through `src/utils/runtimeMode.ts`, and a lint rule rejects a literal `process.env.NODE_ENV` in src/.",
+					"kind": "security",
+					"summary": "Production servers no longer run development code paths: error pages stop exposing stacks, and `client: 'none'` Vue pages stop shipping the dev reload client"
+				},
+				{
+					"detail": "The production server bundle had no source map, so errors logged by `absolute start` pointed into dist/server.js. The Svelte, Vue and Angular SSR page bundles had none either; only dev chained their maps back to the source. The server bundle now gets a linked map, and the SSR page bundles get the same inline-and-chained maps as dev. A route handler error points at its line in your server file, and a page component error at its `.svelte`/`.vue` file. Svelte frames used to name a nonexistent file next to the build output (`build/svelte/pages/Page.svelte`), because Svelte records the source by basename; they now resolve to the original file, in dev too. Neither map is served publicly. The \"Could not decode sourcemap\" warning was fixed in the previous release.",
+					"kind": "fixed",
+					"summary": "Production stack traces point at your server file and page components instead of the bundled output"
+				},
+				{
+					"detail": "Set `reactServerComponentsDirectory` in absolute.config.ts and put pages in its `pages` folder. Pages are server components: they can be async and read data directly, and that code never ships to the browser. Components marked `\"use client\"` are server-rendered, then hydrated in the browser. Serve a page from any Elysia route with `handleReactServerPageRequest({ page: asset(manifest, '<Page>RSC'), props })`. `<Suspense>` boundaries stream, and the inline scripts carry the CSP nonce when `secureHeaders()` is on. Install `react-server-dom-webpack` at the same version as `react` (19.2.3 or later). Existing React pages are unchanged. Server Actions, client-side navigation and HMR for these pages are not available yet; edits reload after the dev server restarts.",
+					"kind": "added",
+					"summary": "Opt-in React Server Components for React pages served from Elysia routes"
+				},
+				{
+					"detail": "The image optimizer created its cache directory (`<build>/.cache/images` unless `images.cacheDirectory` is set) when the server started, so a production server that could not write its build directory crashed on boot with `EACCES` or `EROFS`, even if the app never optimized an image. That is the usual container setup: the build copied in as root and the server running as a non-root user, or a read-only root filesystem. The directory is now created on the first image written to the cache. When it cannot be written, images are still optimized and served, just not cached. A prepared build now starts from a read-only directory with an empty HOME and writes nothing outside TMPDIR.",
+					"kind": "fixed",
+					"summary": "Production servers start when their build directory is read-only, such as in a container running as a non-root user"
+				},
+				{
+					"detail": "`pageRouterPlugin` was a placeholder that only logged \"Page Router Plugin Not Implemented Yet\" and registered nothing, so removing it changes no behavior.",
+					"kind": "removed",
+					"migration": {
+						"instruction": "Delete the `pageRouterPlugin` import and call; it never did anything. Register page routes with Elysia (`.get(path, () => handle…PageRequest(…))`) as before.",
+						"manual": true
+					},
+					"summary": "Remove the unimplemented `pageRouterPlugin` export",
+					"symbols": [
+						"pageRouterPlugin"
+					]
+				},
+				{
+					"detail": "`secureHeaders()` is an opt-in Elysia plugin that sends a Content-Security-Policy with a per-request nonce (`'strict-dynamic'`, no `'unsafe-inline'` for scripts), plus `X-Content-Type-Options: nosniff`, `Referrer-Policy`, `frame-ancestors` and `Permissions-Policy`, each overridable. Every inline `<script>` and `<style>` AbsoluteJS writes carries the nonce: page bootstraps and initial props for every framework, island state, streaming-slot patches, inline page CSS, Svelte and Angular component styles, speculation rules, the error pages and the dev HMR client. The nonce is added where each script is written, so a script injected through `{@html}` / `v-html` / `dangerouslySetInnerHTML` stays blocked. Pre-rendered and ISR pages store the nonce they were rendered with and swap it for each request's, on scripts, styles and `<link rel=\"modulepreload\">`. A page pre-rendered without the plugin is served without a policy and logged. In development the policy also allows the HMR WebSocket and `'unsafe-eval'` (Angular's dev compiler). `getCspNonce()` and the `cspNonce` context value give your own inline scripts the nonce. See docs/SECURITY_HEADERS.md.",
+					"kind": "added",
+					"summary": "`secureHeaders()`: a strict nonce-based Content-Security-Policy and security headers for every framework",
+					"symbols": [
+						"secureHeaders",
+						"getCspNonce"
+					]
+				},
+				{
+					"detail": "A new `fonts` option in `absolute.config.ts` downloads Google Fonts (or copies local font files) at build time and serves them from your own origin with content-hashed names and a one-year immutable cache. The build writes one linked stylesheet with `font-display: swap`, a size-adjusted fallback face per family so text does not shift while the font loads, and a `--font-<family>` variable and `.font-<family>` class. Pass `fontAssets(manifest)` to the `fonts` option of `Head` (React, Svelte) or `generateHeadElement`; HTML and HTMX pages get the preload and stylesheet tags automatically. Downloads are cached between builds; a failed download stops the build unless `fallbackToRemote` is set. Hashed static files served by a plain GET now also get the immutable cache header; before, only precompressed copies did.",
+					"kind": "added",
+					"summary": "Self-hosted, preloaded fonts with layout-stable fallbacks from the `fonts` config"
+				},
+				{
+					"detail": "`absolute start` writes the bundled server into the build directory, and that directory is also the static root, so `GET /server.js` downloaded the whole backend. The same applied to its `.br`/`.gz` copies, to the Svelte/Vue/Angular SSR page bundles under `<framework>/server/`, to the compiled convention pages, and to `absolute-runtime.json`, `conventions.json` and `spa-routes.json`. Production static serving now excludes those, plus `.map` files and native `.node` addons. The build records every file its server pass writes in `server-outputs.json`, and those are excluded by exact path, so SSR bundles are covered wherever the layout of a project puts them (a Svelte-only build writes them to `svelte/pages/`, Angular to `angular/src/…`). The precompressed handler applies the same list. The server still reads all of them from disk.",
+					"kind": "security",
+					"summary": "Production servers no longer serve their own server bundle, SSR bundles or runtime manifests as static files"
+				},
+				{
+					"detail": "The production server bundle has no source map, but the AbsoluteJS code inside it builds inline source map comments for Svelte and Vue output. Those were template literals starting with `\\n`, which Bun's bundler emits as a real newline, leaving a line that starts `//# sourceMappingURL=data:…${…}` in the middle of dist/server.js. Bun read that line as the bundle's own source map whenever it built a stack trace, and warned that it couldn't decode it.",
+					"kind": "fixed",
+					"summary": "`absolute start` no longer warns \"Could not decode sourcemap in dist/server.js\" on the first error"
+				},
+				{
+					"detail": "`handleHTMLPageRequest` and `handleHTMXPageRequest` now render the error convention when a page can't be served (its file is missing or unreadable, or it fails a static-page check). They return status 500 with `<Page>.error.html` or `error.html`, like the framework handlers, and `{{ stack }}` is empty in production. Before, the error went unhandled. HTMX pages use the HTMX pages directory's error page first. An HTMX request (`HX-Request: true`) to an unknown route gets that directory's `not-found.html` first. Having `error.html` or `not-found.html` in both the HTML and HTMX directories no longer counts as a page name collision. `loading.html` doesn't apply to static pages; see docs/STATIC_PAGE_CONVENTIONS.md.",
+					"kind": "fixed",
+					"summary": "HTML and HTMX pages render their error.html when they fail, and HTMX requests get the HTMX not-found.html",
+					"symbols": [
+						"ConventionsMap"
+					]
+				},
+				{
+					"detail": "`SuspenseSlot` rendered its resolved content with React's `renderToStaticMarkup`, but `absolute start` strips React's legacy string renderer out of the production server bundle to save about 4,000 lines. In production every SuspenseSlot patch failed with `renderToStaticMarkup is not a function`, so the fallback stayed on the page. The slot now renders with `renderToReadableStream`, which the bundle keeps.",
+					"kind": "fixed",
+					"summary": "React `SuspenseSlot` content streams in production builds",
+					"symbols": [
+						"SuspenseSlot"
+					]
+				},
+				{
+					"detail": "The packaged Svelte `Head` component imports a small icon helper by relative path, and the package shipped the component without that file, so any app using `Head` from `@absolutejs/absolute/svelte/components/Head.js` failed to build with \"Could not resolve ../../utils/iconVersion\". The helper now ships next to the components.",
+					"kind": "fixed",
+					"summary": "Apps using the Svelte `Head` component build again"
+				},
+				{
+					"detail": "On every Svelte component update the HMR client read the first number out of the page's first `<button>`, stored it in sessionStorage and remounted the page with it as an `initialCount` prop. On a page whose first button said \"Page 1\", editing any component reset a counter elsewhere on the page and injected `initialCount: 1`. The scaffold's demo only worked because its first button happened to be the counter. The client now leaves state to Svelte's own HMR and never reads it from the DOM. The dev server also stopped re-importing the components that import an edited `.svelte` file: `$.hmr` already swaps the edited component in place, and re-importing the page re-created every component under it. As in any Svelte setup, the edited component itself restarts from its props, and components elsewhere on the page keep their `$state`.",
+					"kind": "fixed",
+					"summary": "Svelte HMR keeps component state instead of remounting the page with a number read from the first button"
+				},
+				{
+					"detail": "Every `{#await}` with a pending branch was rewritten into a streaming slot, and any page containing one had hydration switched off. Buttons on such a page never worked; without `collectStreamingSlots: true` the pending branch showed forever; with it, a component in the `then` branch arrived as literal text; `{#if}` inside a branch failed to compile; and a shorthand `{#await x then y}` followed by a normal block failed with \"Unterminated regular expression\", because the pattern matched across both. A plain `{#await}` is now left to Svelte, which renders the pending branch on the server and resolves and hydrates it in the browser. Streaming is opt-in with `<!-- absolute:stream -->` directly before the block. A streamed block's branches are sent as HTML, so a component or logic block inside one is a build error, and only pages that stream a block skip hydration.",
+					"kind": "breaking",
+					"migration": {
+						"instruction": "To keep server-side streaming for an `{#await}` block, put `<!-- absolute:stream -->` directly before it and keep its branches to elements and `{expressions}`. Unmarked blocks now render the pending branch on the server and resolve in the browser.",
+						"manual": true
+					},
+					"summary": "Svelte `{#await}` blocks render and hydrate natively; server streaming is opt-in with `<!-- absolute:stream -->`",
+					"symbols": [
+						"handleSveltePageRequest"
+					]
+				},
+				{
+					"detail": "Route guards: a `guard` on `<Route>` or `<Router>`, and `beforeNavigate()` for browser-only checks, runs before `<Link>` clicks, `goto()` and back/forward, and can be async. It returns nothing to allow, `false` to cancel or a URL / `redirect()` to redirect. Cancelling back/forward puts the URL back. Route and Router guards also run during the server render, where a redirect is a 302. Lazy routes: `<Route loader={() => import(\"./Page.svelte\")}>` puts the component in its own chunk, loaded when the route is first visited or when a `<Link>` to it is prefetched, with optional `pending` and `error` snippets. The server renders the real component and the browser loads its chunk before hydrating, so the page doesn't flash. Scroll restoration: while a router is mounted, new navigations start at the top or at the `#hash` target, and back/forward and reload return to where you were. `goto(url, { noScroll: true })` leaves the scroll alone. `goto()` now resolves to what happened (`\"committed\"`, `\"cancelled\"`, `\"redirected\"`, …), and `history.state` holds the router's bookkeeping next to your state, which `page.state` still returns unchanged. Smaller additions that support this: `renderToReadableStream` takes a Svelte `context`, a `settle` callback that can ask for another render pass, and a function for `bootstrapScriptContent`; `observeViewport` and `scheduleHoverPrefetch` take an `onVisible` / `onPrefetch` callback; and the `noScroll` doc on `GotoOptions` now covers `#hash` targets.",
+					"kind": "added",
+					"summary": "Svelte router: route guards with server redirects, lazy routes, and scroll restoration",
+					"symbols": [
+						"goto",
+						"beforeNavigate",
+						"redirect",
+						"preloadRoute",
+						"GotoOptions",
+						"renderToReadableStream",
+						"observeViewport"
+					]
+				},
+				{
+					"detail": "`absolute start` bundled its own copy of Svelte into the production server, while Svelte pages load Svelte from node_modules. The two copies kept separate component context, so a page calling `getContext` or `setContext` (the Svelte router does) answered every request with a 500 `lifecycle_outside_component`. The production server now keeps Svelte external when the app has Svelte pages, so there is one copy.",
+					"kind": "fixed",
+					"summary": "Svelte pages that use `getContext` / `setContext`, including every Svelte router page, no longer fail under `absolute start`"
+				},
+				{
+					"detail": "The build drops the client bundle of a Vue page registered with `client: 'none'`, but it only recognised a string literal. `client: CLIENT_MODE` with `const CLIENT_MODE = 'none'` in the same file still built an unused hydration bundle. The scanner now resolves same-file `const` strings for `client` and for the `asset(manifest, …)` key, including `as const`, `satisfies` and the shorthand `{ client }`. A value it can't know at build time (an import, a `let`, a call) keeps the client bundle, which still works and just isn't trimmed.",
+					"kind": "fixed",
+					"summary": "Vue pages with `client: 'none'` set through a same-file const skip their unused client bundle"
+				},
+				{
+					"detail": "Vue pages could only get server data as props from the route handler. `useServerData(key, fetcher)`, exported from `@absolutejs/absolute/vue`, runs the fetcher while the page renders on the server and writes the result into the page, so hydration shows it without fetching again. A client-side route change, a page that exports `routes`, or `server: false` fetches in the browser instead. It returns `data`, `error`, `pending` and `refresh` refs, with `data` typed from the fetcher. A fetcher that throws on the server renders an error state rather than failing the page (in production the message sent to the browser is generic). Using one key twice in a request fails the page with a clear error outside production. Pages with `client: 'none'` render the data but write nothing into the page, and streaming pages are supported. Streaming-slot patches also no longer land inside the page's own inline scripts.",
+					"kind": "added",
+					"summary": "Vue pages can load data on the server with `useServerData` and hydrate without a second fetch"
+				},
+				{
+					"detail": "Set `vitals` in absolute.config.ts (`{ endpoint?, sampleRate?, dev? }`) to report LCP, INP, CLS, FCP and TTFB from real visits. A production build bundles a small reporter (web-vitals plus a sender) that every framework's client bundle imports and that static HTML/HTMX pages load with a script tag. Each page load samples once, and a page that reports sends one batch, with its route and navigation type, when it's hidden or closed (`sendBeacon`, falling back to `fetch` keepalive). `prepare()` serves `POST /__absolute/vitals`, validated with a TypeBox schema. It stores nothing; register `onVital(handler)` to forward the metrics to your own store. With `vitals` unset nothing is built or injected, and dev reports only with `dev: true`. It works on pre-rendered pages and under `secureHeaders()`. See docs/WEB_VITALS.md.",
+					"kind": "added",
+					"summary": "Opt-in Core Web Vitals reporting with `vitals` and `onVital()`",
+					"symbols": [
+						"onVital"
+					]
+				}
+			],
+			"date": "2026-11-13",
+			"version": "0.20.0-beta.170"
+		},
+		{
+			"changes": [
+				{
 					"detail": "`absolute workspace dev` warned that another program held a service's port, then started the service anyway and probed the port for readiness. The other program answered, so the service showed \"ready\" while every request reached someone else's server, and the service itself exited without saying why. A service whose port another program still holds now refuses to start, naming that program: stop it, or give the service another port.",
 					"kind": "fixed",
 					"summary": "A workspace service never shows ready on a port another program holds"
