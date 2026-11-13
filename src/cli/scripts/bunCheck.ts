@@ -7,11 +7,17 @@ import { isRecord } from '../config/guards';
 /* `bun check` (Bun 1.4.3) is a port of TypeScript 7's checker that reads the
  * same tsconfig.json and reports the same errors as tsc. On this repository
  * it checks 1,183 files in 2.6s and 0.47 GB, where tsc 5.9 took 38.6s and
- * 1.5 GB. It only checks: it never writes, and so keeps no .tsbuildinfo. */
-export const BUN_CHECK_MIN_VERSION = '1.4.3';
+ * 1.5 GB. It only checks: it never writes, and so keeps no .tsbuildinfo.
+ *
+ * It needs Bun 1.4.4: when a project's package.json has a `check` script,
+ * `bun check` runs that script instead of type-checking, and only 1.4.4 adds
+ * `--no-script` to prevent it. */
+export const BUN_CHECK_MIN_VERSION = '1.4.4';
 
 /** Set to `tsc` to keep the TypeScript compiler as the checker. */
 export const CHECKER_ENV = 'ABSOLUTE_TYPECHECK_CHECKER';
+/** Type-check, never a project's own `check` script in its place. */
+export const NO_SCRIPT = '--no-script';
 /** Caps the threads `bun check` starts: one per core by default, which a
  *  memory-capped container (Studio) cannot always afford. */
 export const THREADS_ENV = 'ABSOLUTE_TYPECHECK_THREADS';
@@ -25,7 +31,7 @@ export const bunCheckCommand = (
 	terminal: boolean = process.stdout.isTTY === true
 ) => {
 	const threads = Number(env[THREADS_ENV]);
-	const command = [bun, 'check', '-p', configPath, '--all'];
+	const command = [bun, 'check', '-p', configPath, '--all', NO_SCRIPT];
 	// Its output reaches the user through a pipe, which bun check would
 	// otherwise read as CI: one plain line per error, no source excerpt.
 	if (terminal) command.push('--pretty=true');
