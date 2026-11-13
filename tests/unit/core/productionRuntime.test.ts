@@ -53,6 +53,21 @@ describe('production runtime config', () => {
 			});
 		}));
 
+	test('keeps Angular change detection but not Angular providers', () =>
+		withBuildDirectory(async (directory) => {
+			const config: BuildConfig = {
+				angular: { changeDetection: 'zone', providers: [] },
+				angularDirectory: './src/angular'
+			};
+			writeProductionRuntime(config, directory);
+
+			expect(readProductionRuntime(directory)).toEqual({
+				angular: { changeDetection: 'zone' },
+				angularDirectory: './src/angular',
+				buildDirectory: directory
+			});
+		}));
+
 	test('is absent for a build without one or from another version', () =>
 		withBuildDirectory(async (directory) => {
 			expect(readProductionRuntime(directory)).toBeNull();

@@ -153,9 +153,17 @@
 			"import": "./dist/client/index.js",
 			"types": "./dist/src/client/index.d.ts"
 		},
+		"./client/navigation": {
+			"import": "./dist/client/navigation.js",
+			"types": "./dist/src/client/navigation.d.ts"
+		},
 		"./client/prefetch": {
 			"import": "./dist/client/prefetch.js",
 			"types": "./dist/src/client/prefetch.d.ts"
+		},
+		"./i18n": {
+			"import": "./dist/i18n/index.js",
+			"types": "./dist/src/i18n/index.d.ts"
 		},
 		"./image": {
 			"import": "./dist/image-client/imageClient.js",

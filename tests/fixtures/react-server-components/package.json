@@ -1,0 +1,13 @@
+{
+	"dependencies": {
+		"@absolutejs/absolute": "file:../../..",
+		"elysia": "*",
+		"react": "*",
+		"react-dom": "*",
+		"react-server-dom-webpack": "*"
+	},
+	"name": "@absolutejs/fixture-react-server-components",
+	"private": true,
+	"type": "module",
+	"version": "0.0.0"
+}

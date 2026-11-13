@@ -12,3 +12,15 @@ export {
 	captureSsrTextBaselines,
 	prepareBrowserTranslationHydration
 } from './browserTranslation';
+export {
+	applyActionResult,
+	enhanceForm,
+	enhanceForms,
+	FORM_ACTION_EVENT,
+	formActionReducer,
+	submitFormAction
+} from './formActions';
+export type {
+	FormActionEventDetail,
+	SubmitFormActionOptions
+} from './formActions';

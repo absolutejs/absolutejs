@@ -220,15 +220,15 @@ export const getAllSizes = (config?: ImageConfig) => {
 	return [...device, ...image].sort((left, right) => left - right);
 };
 
-export const getCacheDir = (buildDir: string, cacheDirectory?: string) => {
-	const dir = cacheDirectory
+/* Only names the directory; writeToCache creates it. Creating it here, when
+ * the server boots, crashed every production server whose build directory
+ * it could not write (a container running as a non-root user over a
+ * root-owned build, a read-only root filesystem), even an app that never
+ * optimizes an image. A cache that cannot be written is skipped instead. */
+export const getCacheDir = (buildDir: string, cacheDirectory?: string) =>
+	cacheDirectory
 		? resolve(cacheDirectory)
 		: join(buildDir, '.cache', 'images');
-
-	if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-
-	return dir;
-};
 
 export const getCacheKey = (
 	url: string,
@@ -456,6 +456,7 @@ export const writeToCache = (
 
 	const dataPath = join(cacheDir, `${cacheKey}.data`);
 
+	mkdirSync(cacheDir, { recursive: true });
 	writeFileSync(dataPath, buffer);
 
 	writeFileSync(metaPath, JSON.stringify(meta));

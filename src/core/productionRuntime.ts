@@ -46,7 +46,11 @@ const RUNTIME_KEYS = [
 export type ProductionRuntimeConfig = Pick<
 	BuildConfig,
 	(typeof RUNTIME_KEYS)[number]
->;
+> & {
+	// Only the serializable part of `angular`: the server must load
+	// zone.js before listening. `providers` is baked into page bundles.
+	angular?: Pick<NonNullable<BuildConfig['angular']>, 'changeDetection'>;
+};
 
 type ProductionRuntimeFile = {
 	config: ProductionRuntimeConfig;
@@ -57,6 +61,8 @@ export const productionRuntimeConfigOf = (config: BuildConfig) => {
 	const picked: Record<string, unknown> = {};
 	for (const key of RUNTIME_KEYS)
 		if (config[key] !== undefined) picked[key] = config[key];
+	if (config.angular?.changeDetection)
+		picked.angular = { changeDetection: config.angular.changeDetection };
 
 	// Through JSON on the way out, so what is written is exactly what is read.
 	const runtime: ProductionRuntimeConfig = JSON.parse(JSON.stringify(picked));

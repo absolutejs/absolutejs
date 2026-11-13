@@ -144,4 +144,35 @@ describe('lowerSvelteAwaitSlotSyntax', () => {
 		expect(lowered.transformed).toBe(false);
 		expect(lowered.code).toBe(source);
 	});
+	test('marks a block dynamic with the `dynamic` directive', () => {
+		const source = `<script lang="ts">
+	const greeting = Promise.resolve('hi');
+	const prices = Promise.resolve([1]);
+</script>
+
+<!-- absolute:stream dynamic -->
+{#await greeting}
+	<p>loading</p>
+{:then value}
+	<p>{value}</p>
+{/await}
+
+<!-- absolute:stream -->
+{#await prices}
+	<p>loading</p>
+{:then value}
+	<p>{value.length}</p>
+{/await}
+`;
+		const lowered = lowerSvelteAwaitSlotSyntax(source);
+
+		expect(lowered.transformed).toBe(true);
+		expect(lowered.code).toContain(
+			'<AbsoluteAwaitSlot id="absolute-svelte-await-0" dynamic fallbackHtml'
+		);
+		expect(lowered.code).toContain(
+			'<AbsoluteAwaitSlot id="absolute-svelte-await-1" fallbackHtml'
+		);
+		expect(lowered.code).not.toContain('absolute:stream');
+	});
 });

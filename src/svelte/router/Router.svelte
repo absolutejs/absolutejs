@@ -179,6 +179,8 @@
 		return entries;
 	};
 
+	const matches = (target: URL) => computeWinnerFor(target.pathname) !== null;
+
 	const preload = (target: URL) => {
 		const winner = computeWinnerFor(target.pathname);
 		const entry = winner ? routes.get(winner.id) : undefined;
@@ -240,7 +242,7 @@
 	}
 
 	onMount(() => {
-		const unregister = registerRouter({ guardsFor, preload });
+		const unregister = registerRouter({ guardsFor, matches, preload });
 		if (!isOutermost) return unregister;
 
 		const initialEntry = stampInitialEntry();

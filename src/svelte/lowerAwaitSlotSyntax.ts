@@ -21,10 +21,14 @@ import { BASE_36_RADIX } from '../constants';
  *   {:then prices}
  *     <p>{prices.length} prices</p>
  *   {/await}
+ *
+ * `<!-- absolute:stream dynamic -->` marks the slot dynamic: on a
+ * pre-rendered page it stays a hole in the cached shell and streams on
+ * every request (partial prerendering).
  */
 export const AWAIT_STREAM_DIRECTIVE = '<!-- absolute:stream -->';
 
-const DIRECTIVE_RE = /<!--\s*absolute:stream\s*-->\s*/g;
+const DIRECTIVE_RE = /<!--\s*absolute:stream(\s+dynamic)?\s*-->\s*/g;
 const BRANCH_TAG_RE = /^\{:(then|catch)(?:\s+([A-Za-z_$][\w$]*))?\s*\}$/;
 const SVELTE_ONLY_MARKUP_RE = /\{[#:/@]|<[A-Z]|<svelte:/;
 
@@ -201,7 +205,7 @@ const parseStreamedAwait = (
 	};
 };
 
-const renderSlot = (block: StreamedAwait, slotId: string) => {
+const renderSlot = (block: StreamedAwait, slotId: string, dynamic: boolean) => {
 	const thenValueIdentifier = block.thenIdentifier ?? '__awaitValue';
 	const catchValueIdentifier = block.catchIdentifier ?? '__awaitError';
 	const catchBranch =
@@ -209,7 +213,7 @@ const renderSlot = (block: StreamedAwait, slotId: string) => {
 			? 'catch (_absoluteAwaitError) { throw _absoluteAwaitError; }'
 			: `catch (${catchValueIdentifier}) { return ${markupToTemplateLiteral(block.catchMarkup)}; }`;
 
-	return `<AbsoluteAwaitSlot id="${slotId}" fallbackHtml={${markupToTemplateLiteral(
+	return `<AbsoluteAwaitSlot id="${slotId}"${dynamic ? ' dynamic' : ''} fallbackHtml={${markupToTemplateLiteral(
 		block.pendingMarkup
 	)}} resolve={async () => { try { const ${thenValueIdentifier} = await (${
 		block.expression
@@ -240,7 +244,7 @@ export const lowerSvelteAwaitSlotSyntax = (
 		const slotId = `absolute-svelte-await-${awaitIndex.toString(BASE_36_RADIX)}`;
 		awaitIndex += 1;
 		lowered += source.slice(cursor, directive.index);
-		lowered += renderSlot(block, slotId);
+		lowered += renderSlot(block, slotId, directive[1] !== undefined);
 		cursor = block.end;
 	}
 

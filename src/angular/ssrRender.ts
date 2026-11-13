@@ -10,6 +10,7 @@ import {
 import { browserTranslationBaselineTag } from '../core/browserTranslation';
 import { buildAbsoluteHttpTransferCacheOptions } from './httpTransferCache';
 import { buildRequestProviders } from './requestProviders';
+import { isAngularZoneMode } from './zoneRuntime';
 
 // --- Last-used requestContext cache for HMR ---
 // Stores { requestContext, headTag } from the most recent real request per
@@ -41,7 +42,9 @@ export const buildProviders = (
 			buildAbsoluteHttpTransferCacheOptions()
 		)
 	),
-	deps.provideZonelessChangeDetection(),
+	isAngularZoneMode()
+		? deps.provideZoneChangeDetection({ eventCoalescing: true })
+		: deps.provideZonelessChangeDetection(),
 	{ provide: deps.APP_BASE_HREF, useValue: '/' },
 	{ provide: deps.DomSanitizer, useValue: sanitizer },
 	{ provide: deps.Sanitizer, useValue: sanitizer },

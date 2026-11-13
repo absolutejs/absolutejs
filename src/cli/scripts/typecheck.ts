@@ -27,6 +27,7 @@ import {
 	svelteDeclarationRootDirs,
 	tsconfigHasSvelteDeclarationRoot
 } from '../../build/svelteDeclarations';
+import { ensureFileRouteModule } from '../../build/fileRoutes';
 import type {
 	AbsoluteServiceConfig,
 	ServiceConfig
@@ -729,6 +730,8 @@ export const typecheck = async (configPath?: string) => {
 	const cacheDir = '.absolutejs';
 	await mkdir(cacheDir, { recursive: true });
 	if (hasSvelte) await prepareSvelteDeclarations(svelteDirs);
+	// File routes: the route module carries the load/props checks.
+	for (const config of targets) ensureFileRouteModule(config);
 	const checks: Promise<CheckerResult>[] = [];
 
 	// vue-tsc is a superset of tsc — it checks .ts, .tsx, AND .vue files.

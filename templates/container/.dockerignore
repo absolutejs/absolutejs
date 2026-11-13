@@ -1,0 +1,9 @@
+node_modules
+dist
+build
+compiled-server
+.absolutejs
+.env*
+!.env.example
+*.log
+.DS_Store

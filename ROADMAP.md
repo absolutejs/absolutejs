@@ -246,81 +246,39 @@ Elysia's full middleware system — `onBeforeHandle`, `onAfterHandle`, `.use()` 
 
 ---
 
-## 7. P2 — Partial Prerendering (requires SSG)
+## 7. P2 — Partial Prerendering
+
+**Status: Phase 1 shipped (React, Svelte).** Plan and later phases: `docs/PARTIAL_PRERENDERING_PLAN.md`.
 
 **What Next.js 16 does:**
-A page is split into a static shell (navbar, footer, layout — cached at CDN) and dynamic "holes" that stream in at request time (user-specific content, real-time data). The static parts load instantly from cache while the dynamic parts stream in via SSR. From the user's perspective, the page appears instantly with personalized content filling in smoothly.
+A page is split into a static shell (navbar, footer, layout — cached) and dynamic "holes" that stream in at request time (user-specific content, real-time data). Everything outside a `<Suspense>` boundary is pre-rendered; the fallbacks are replaced with streamed content per request.
 
-Next.js implements this by combining static generation with Suspense boundaries — everything outside a `<Suspense>` boundary is pre-rendered at build time, and the Suspense fallbacks are replaced with streamed server-rendered content at request time.
+**What AbsoluteJS has:**
 
-**What AbsoluteJS has today:**
-Every page is fully server-rendered at request time. No static caching of any page content. The entire page waits for all data before any HTML is sent (unless using streaming SSR, which streams in-order but still requires the server to render everything on each request).
+- Prerendering and ISR (`static: { routes, revalidate }`, `src/core/prerender.ts`), served from `_prerendered/` before any route handler runs, with the CSP nonce swapped per request (`prerenderNonce.ts`).
+- Out-of-order streaming slots for every framework: React `StreamSlot`/`SuspenseSlot`, Svelte `StreamSlot`/`AwaitSlot` and `<!-- absolute:stream -->` `{#await}`, Vue `StreamSlot`/`SuspenseSlot`, Angular `@defer`. Patches carry the request's nonce.
+- **Partial prerendering (Phase 1):** mark a slot `dynamic` (`<StreamSlot dynamic …>`, `<SuspenseSlot dynamic …>`, Svelte `dynamic` prop or `<!-- absolute:stream dynamic -->`). On a route listed in `static.routes`:
+    - The build captures a shell: static slots are resolved into it, dynamic slots keep their fallback, and their ids are stored in `<route>.holes`.
+    - At request time the cached shell is sent at once, with first byte independent of the route handler and of every slot.
+    - The server then renders the route in-process with the visitor's cookies and headers to collect only the dynamic slots, and streams their patches into the open document with the request's nonce.
+    - ISR re-captures the shell and its holes. Pages without dynamic slots are pre-rendered exactly as before.
+- Files: `src/core/partialPrerender.ts`, `src/core/partialPrerenderServe.ts`, `withRegisteredStreamingSlots` (`src/core/responseEnhancers.ts`), the `prerendered-pages` plugin (`src/core/prepare.ts`).
 
-**Why this matters:**
-Most pages are 80% static content (nav, sidebar, footer, headings, layout) and 20% dynamic (user name, notifications, personalized feed). Rendering that 80% on every request is wasted work. Partial prerendering means:
+**Still to build:**
 
-- The static shell loads from CDN in ~50ms (no server round-trip)
-- The dynamic holes stream from the server in ~200-500ms
-- Combined: users see a near-instant page with dynamic content appearing smoothly
-- Server load drops dramatically — most of the HTML is served from cache
+- Phase 2: `dynamic` for Vue and Angular (including `@defer`).
+- Phase 2: on-demand revalidation (`revalidatePath`) with atomic shell writes.
+- Phase 2: build warnings for static slots that read the request.
+- Phase 2: a cheaper holes render that stops once the holes have registered.
+- Phase 3: edge or CDN mode (shell with `ETag`/304, holes from a separate never-cached request), and an HTMX hole helper over its deferred fragment fetch.
+- Phase 4: per-locale shells once i18n lands, and dynamic islands on HTML and HTMX pages.
 
-**What needs to be built (depends on SSG being implemented first):**
+**Design constraints (kept):**
 
-_Build-time static shell generation:_
-
-- During the build, render each page but stop at dynamic boundaries (Suspense, `{#await}`, `<Suspense>`, `@defer`)
-- Write the static HTML (everything outside dynamic boundaries) to disk with placeholder slots for the dynamic parts
-- The static shell includes all CSS, the page layout, and fallback content (loading skeletons) for each dynamic slot
-
-_Request-time dynamic streaming:_
-
-- When a request comes in, serve the static shell immediately from disk/cache
-- Simultaneously, render the dynamic parts on the server and stream them into the placeholder slots
-- Reuse the out-of-order streaming infrastructure — the `$RC` swap script handles inserting dynamic content into the static shell
-
-_Per-framework dynamic boundaries:_
-
-- **React**: `<Suspense>` boundaries — everything inside is dynamic, everything outside is static
-- **Svelte**: `{#await}` blocks or a new `<Dynamic>` component
-- **Vue**: `<Suspense>` component — same pattern as React
-- **Angular**: `@defer` blocks — natural fit, Angular already distinguishes static vs deferred content
-
-_Caching strategy:_
-
-- Static shells cached in memory and/or on disk with content-hash keys
-- Cache invalidation: rebuild the shell when the page's static parts change (detected via file watcher or manual invalidation)
-- Dynamic parts are never cached (they're user-specific/time-specific)
-- CDN integration: set `Cache-Control` headers so the static shell is edge-cached while the dynamic stream bypasses cache
-
-_Configuration:_
-
-- Per-page opt-in via a config option or export:
-    ```ts
-    // In the route handler
-    app.get('/dashboard', () =>
-    	handleReactPageRequest(Dashboard, manifest['DashboardIndex'], {
-    		prerender: 'partial', // static shell + dynamic streaming
-    		props: { userId: getCurrentUser() }
-    	})
-    );
-    ```
-- Or via the build config for pages that should always be partially prerendered
-
-**Design considerations:**
-
-- The static shell must be a valid HTML document on its own — if dynamic streaming fails, the user sees the shell with fallback content (loading skeletons), not a broken page.
-- Dynamic boundaries should be explicit — the developer marks what's dynamic, everything else is assumed static. No guessing.
-- This compounds with islands — an island with `hydrate="visible"` inside a dynamic boundary gets: static shell → streamed SSR HTML → hydrated on scroll. Three layers of progressive loading.
-- Hot reloading in dev: skip the static cache and render everything server-side (same as today). Partial prerendering is a production optimization only.
-
-**Files likely involved:**
-
-- Builds on top of SSG implementation and out-of-order streaming
-- New: `src/core/partialPrerender.ts` — orchestrates static shell serving + dynamic streaming
-- New: `src/build/generateStaticShells.ts` — renders pages at build time, extracts static content, writes shells to disk
-- `src/utils/streamingSlots.ts` — reused from out-of-order streaming for dynamic slot insertion
-- Each framework's `pageHandler.ts` — add `prerender: 'partial'` mode that serves cached shell + streams dynamic parts
-- `src/plugins/hmr.ts` — static shell cache invalidation when source files change
+- The shell is a valid document by itself: if holes fail, the fallbacks stay.
+- Dynamic is explicit: the developer marks it, and everything else is baked in.
+- Dev never caches. Partial prerendering is a production feature.
+- Hydration props are captured with the shell, so per-user data belongs in holes.
 
 ---
 

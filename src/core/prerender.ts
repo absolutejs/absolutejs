@@ -1,6 +1,7 @@
 import { mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { StaticConfig } from '../../types/build';
+import { PARTIAL_SHELL_HEADER, writePartialHoles } from './partialPrerender';
 import { renderedNonce, writeRenderedNonce } from './prerenderNonce';
 
 export type PrerenderResult = {
@@ -129,7 +130,10 @@ export const rerenderRoute = async (
 ) => {
 	try {
 		const res = await fetchWithTimeout(`http://localhost:${port}${route}`, {
-			headers: { [PRERENDER_BYPASS_HEADER]: '1' },
+			headers: {
+				[PARTIAL_SHELL_HEADER]: '1',
+				[PRERENDER_BYPASS_HEADER]: '1'
+			},
 			redirect: 'manual'
 		});
 		if (!res.ok) return false;
@@ -140,6 +144,7 @@ export const rerenderRoute = async (
 		const filePath = join(prerenderDir, fileName);
 		await Bun.write(filePath, html);
 		await writeRenderedNonce(filePath, renderedNonce(res));
+		await writePartialHoles(filePath, res);
 		await writeTimestamp(filePath);
 
 		return true;
@@ -156,7 +161,10 @@ const prerenderRoute = async (
 	result: PrerenderResult,
 	log?: LogFn
 ) => {
+	// Asks for the static shell: a page with dynamic streaming slots keeps
+	// their fallbacks, and they stream per request (partialPrerenderServe.ts).
 	const res = await fetchWithTimeout(`${baseUrl}${route}`, {
+		headers: { [PARTIAL_SHELL_HEADER]: '1' },
 		redirect: 'manual'
 	}).catch(() => null);
 	if (!res) {
@@ -189,10 +197,17 @@ const prerenderRoute = async (
 	// Under secureHeaders(), the nonce this render used; serving swaps it
 	// for each request's own (prerenderNonce.ts).
 	await writeRenderedNonce(filePath, renderedNonce(res));
+	const holes = await writePartialHoles(filePath, res);
 	await writeTimestamp(filePath);
 	result.routes.set(route, filePath);
 
-	log?.(`  Pre-rendered ${route} → ${fileName} (${html.length} bytes)`);
+	const partial =
+		holes.length > 0
+			? `, partial: ${holes.length} dynamic slot${holes.length === 1 ? '' : 's'}`
+			: '';
+	log?.(
+		`  Pre-rendered ${route} → ${fileName} (${html.length} bytes${partial})`
+	);
 };
 
 /**

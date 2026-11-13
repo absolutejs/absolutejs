@@ -49,6 +49,7 @@ import {
 	updateInstance
 } from '../../utils/instanceRegistry';
 import { loadConfig } from '../../utils/loadConfig';
+import { ensureFileRouteModule } from '../../build/fileRoutes';
 import { scanListeners } from '../../utils/portScan';
 import { resolveDevPort } from '../../utils/resolveDevPort';
 import { getLocalIPAddress } from '../../utils/networking';
@@ -1898,6 +1899,9 @@ export const dev = async (
 		} catch {
 			return;
 		}
+		// File routes: the server entry imports the route module, so it has to
+		// exist before the dev child imports the entry.
+		ensureFileRouteModule(cfg);
 		const refreshedDevConfig = resolveDevConfig(cfg?.dev);
 		if (
 			options.androidDevice &&

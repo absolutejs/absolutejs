@@ -71,6 +71,7 @@ import {
 } from './moduleVersionTracker';
 import { sendTelemetryEvent } from '../cli/telemetryEvent';
 import { cleanStaleAssets, populateAssetStore } from './assetStore';
+import { rebuildReactServerComponents } from './reactServerComponentsRebuild';
 import { writeSpaSideManifests } from '../build/spaSideManifests';
 import { clearSpaRouteCssCaches } from '../utils/spaRouteCss';
 import { clearSiblingCssCache } from '../utils/inlinePageCss';
@@ -836,6 +837,11 @@ export const queueFileChange = async (
 	};
 	if (publicDir && (await handleStaticMirror(publicDir, ''))) return;
 	if (assetsDir && (await handleStaticMirror(assetsDir, 'assets'))) return;
+	// React Server Components: rebuild only that pass (its own module).
+	if (
+		await rebuildReactServerComponents(state, config, filePath, currentHash)
+	)
+		return;
 
 	// React pages and components are imported by the server for SSR, not
 	// through a build. Update the server's copy in place while the client

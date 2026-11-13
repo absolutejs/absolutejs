@@ -7,6 +7,10 @@ import {
 
 type LegacySuspenseSlotProps = {
 	className?: string;
+	/** Stream this slot on every request even when the page is
+	 *  pre-rendered (partial prerendering): the cached shell keeps the
+	 *  fallback. Set it on anything that reads the request or must be fresh. */
+	dynamic?: boolean;
 	errorHtml?: string;
 	fallbackHtml?: string;
 	id: string;
@@ -17,6 +21,10 @@ type LegacySuspenseSlotProps = {
 type FrameworkSuspenseRenderProps<T = unknown> = {
 	children: (value: Awaited<T>) => ReactNode;
 	className?: string;
+	/** Stream this slot on every request even when the page is
+	 *  pre-rendered (partial prerendering): the cached shell keeps the
+	 *  fallback. Set it on anything that reads the request or must be fresh. */
+	dynamic?: boolean;
 	errorFallback?: ReactNode | ((error: unknown) => ReactNode);
 	id: string;
 	fallback?: ReactNode;
@@ -35,6 +43,10 @@ type FrameworkSuspenseRenderProps<T = unknown> = {
 type FrameworkSuspenseNodeProps = {
 	children?: ReactNode;
 	className?: string;
+	/** Stream this slot on every request even when the page is
+	 *  pre-rendered (partial prerendering): the cached shell keeps the
+	 *  fallback. Set it on anything that reads the request or must be fresh. */
+	dynamic?: boolean;
 	errorFallback?: ReactNode | ((error: unknown) => ReactNode);
 	id: string;
 	promise?: Promise<ReactNode>;
@@ -54,11 +66,18 @@ const isLegacyProps = <T,>(
 ): props is LegacySuspenseSlotProps =>
 	'fallbackHtml' in props || 'errorHtml' in props;
 
+/* Rendered with renderToReadableStream, not renderToStaticMarkup:
+ * `absolute start` stubs out React's legacy string renderer in the
+ * production server bundle (it is ~4,000 lines nothing else uses), so
+ * renderToStaticMarkup is undefined there and every SuspenseSlot patch
+ * failed in production. */
 const renderReactNodeToHtml = async (node: ReactNode) => {
 	const { Fragment } = await import('react');
-	const { renderToStaticMarkup } = await import('react-dom/server');
+	const { renderToReadableStream } = await import('react-dom/server');
+	const stream = await renderToReadableStream(<Fragment>{node}</Fragment>);
+	await stream.allReady;
 
-	return renderToStaticMarkup(<Fragment>{node}</Fragment>);
+	return new Response(stream).text();
 };
 
 const hasRenderChildren = <T,>(
@@ -115,6 +134,7 @@ const renderErrorFallback = async <T,>(
 
 const registerLegacySuspenseSlot = (props: LegacySuspenseSlotProps) => {
 	registerStreamingSlot({
+		dynamic: props.dynamic,
 		errorHtml: props.errorHtml,
 		fallbackHtml: props.fallbackHtml,
 		id: props.id,
@@ -127,6 +147,7 @@ const registerFrameworkSuspenseSlot = <T,>(
 	props: FrameworkSuspenseSlotProps<T>
 ) => {
 	registerStreamingSlot({
+		dynamic: props.dynamic,
 		id: props.id,
 		timeoutMs: props.timeoutMs,
 		resolve: async () => {

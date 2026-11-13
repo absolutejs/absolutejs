@@ -75,6 +75,10 @@ declare global {
 	 *  detect this and call `.reload({ fetch })` on the existing server
 	 *  instead of re-binding the port. Stays unset outside dev. */
 	var __absoluteBunServer: import('bun').Server | null | undefined;
+	/** Angular change detection mode for this process, set by the build
+	 *  and by `installAngularZoneRuntime` (src/angular/zoneRuntime.ts). */
+	var __absoluteAngularChangeDetection:
+		import('./build').AngularChangeDetection | undefined;
 	/** "Building…" placeholder bound by the dev bootstrap before the entry
 	 *  is imported; released by `networking` right before the real listen.
 	 *  See `src/dev/earlyListener.ts`. */

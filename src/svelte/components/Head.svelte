@@ -10,6 +10,7 @@
 	export let fonts: Metadata['fonts'] = undefined;
 	export let cssPath: Metadata['cssPath'] = undefined;
 	export let canonical: Metadata['canonical'] = undefined;
+	export let alternates: Metadata['alternates'] = undefined;
 	export let openGraph: Metadata['openGraph'] = undefined;
 	export let twitter: Metadata['twitter'] = undefined;
 	export let robots: Metadata['robots'] = undefined;
@@ -65,6 +66,16 @@
 
 	{#if canonical}
 		<link rel="canonical" href={canonical} />
+	{/if}
+
+	{#if alternates}
+		{#each alternates as alternate (alternate.hreflang)}
+			<link
+				rel="alternate"
+				hreflang={alternate.hreflang}
+				href={alternate.href}
+			/>
+		{/each}
 	{/if}
 
 	{#if openGraph}

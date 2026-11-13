@@ -1,7 +1,11 @@
 <script lang="ts">
 	import { onDestroy, onMount, type Snippet } from 'svelte';
 	import type { LinkPrefetchMode } from '../../../types/svelteRouter';
-	import { navigate, preloadRoute } from './navigation';
+	import {
+		belongsToDocumentNavigation,
+		navigate,
+		preloadRoute
+	} from './navigation';
 	import {
 		canPrefetch,
 		observeViewport,
@@ -79,6 +83,10 @@
 		if (target && target !== '_self') return;
 		if (rest['download'] !== undefined) return;
 		if (isExternal(to)) return;
+		// No <Router> here has a route for `to` and cross-framework
+		// navigation is on: another page owns the URL, so the click goes to
+		// the browser, where the navigation layer swaps that page in.
+		if (belongsToDocumentNavigation(to)) return;
 
 		event.preventDefault();
 		navigate(

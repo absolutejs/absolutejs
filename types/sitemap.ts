@@ -1,3 +1,5 @@
+import type { SitemapI18nConfig } from './i18n';
+
 export type ChangeFrequency =
 	'always' | 'hourly' | 'daily' | 'weekly' | 'monthly' | 'yearly' | 'never';
 
@@ -25,4 +27,7 @@ export type SitemapConfig = {
 	defaultPriority?: number;
 	overrides?: Record<string, SitemapRouteOverride>;
 	routes?: () => string[] | Promise<string[]>;
+	/** List every page once per locale, each with `xhtml:link` hreflang
+	 *  alternates. Pass the same locales/strategy as `defineI18n()`. */
+	i18n?: SitemapI18nConfig;
 };

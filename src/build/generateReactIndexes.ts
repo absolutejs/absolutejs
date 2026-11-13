@@ -55,10 +55,31 @@ export const reactRefreshRuntimePath = join(
 	'reactRefreshRuntime.js'
 ).replace(/\\/g, '/');
 
+/** A page that lives outside `pages/` under a name of its own: a file
+ *  route (src/build/fileRoutes.ts). */
+export type ExtraReactPage = { name: string; source: string };
+
+type ReactIndexPage = {
+	componentName: string;
+	/** Import specifier, relative to the indexes directory. */
+	importPath: string;
+	source: string;
+};
+
+const toImportPath = (fromDir: string, source: string) => {
+	const withoutExtension = source.replace(/\.[jt]sx$/, '');
+	const path = relative(resolve(fromDir), withoutExtension)
+		.split(sep)
+		.join('/');
+
+	return path.startsWith('.') ? path : `./${path}`;
+};
+
 export const generateReactIndexFiles = async (
 	reactPagesDirectory: string,
 	reactIndexesDirectory: string,
-	isDev = false
+	isDev = false,
+	extraPages: readonly ExtraReactPage[] = []
 ) => {
 	if (!existsSync(reactIndexesDirectory)) {
 		mkdirSync(reactIndexesDirectory, { recursive: true });
@@ -67,15 +88,20 @@ export const generateReactIndexFiles = async (
 	const CONVENTION_RE = /^(?:(.+)\.)?(error|loading|not-found)\.[^.]+$/;
 	const pagesGlob = new Glob('*.{jsx,tsx}');
 	const files: string[] = [];
-	for await (const file of pagesGlob.scan({ cwd: reactPagesDirectory })) {
+	// A file-routes app may have no pages/ folder at all.
+	const pageFiles = existsSync(reactPagesDirectory)
+		? pagesGlob.scan({ cwd: reactPagesDirectory })
+		: [];
+	for await (const file of pageFiles) {
 		if (CONVENTION_RE.test(file)) continue;
 		files.push(file);
 	}
 
 	// Remove stale indexes whose source pages no longer exist
-	const currentPageNames = new Set(
-		files.map((file) => basename(file).split('.')[0])
-	);
+	const currentPageNames = new Set([
+		...files.map((file) => basename(file).split('.')[0]),
+		...extraPages.map((page) => page.name)
+	]);
 
 	const emptyStringArray: string[] = [];
 
@@ -111,9 +137,25 @@ export const generateReactIndexFiles = async (
 		.split(sep)
 		.join('/');
 
-	const promises = files.map(async (file) => {
-		const fileName = basename(file);
-		const componentName = fileName.split('.')[0]!;
+	const pages: ReactIndexPage[] = [
+		...files.map((file) => {
+			const componentName = basename(file).split('.')[0] ?? '';
+
+			return {
+				componentName,
+				importPath: `${pagesRelPath}/${componentName}`,
+				source: resolve(reactPagesDirectory, `${componentName}.tsx`)
+			};
+		}),
+		...extraPages.map((page) => ({
+			componentName: page.name,
+			importPath: toImportPath(reactIndexesDirectory, page.source),
+			source: resolve(page.source)
+		}))
+	];
+
+	const promises = pages.map(async (page) => {
+		const { componentName, importPath } = page;
 		const pascalComponentName = toPascal(componentName);
 
 		const hmrPreamble = isDev
@@ -179,11 +221,11 @@ export const generateReactIndexFiles = async (
 		const content = [
 			...hmrPreamble,
 			...reactImports,
-			`import * as PageModule from '${pagesRelPath}/${componentName}';\n`,
+			`import * as PageModule from '${importPath}';\n`,
 			...errorBoundaryDef,
 			`// Hydration with error handling and fallback`,
 			`const isDev = ${isDev};`,
-			`const componentPath = '${pagesRelPath}/${componentName}';\n`,
+			`const componentPath = '${importPath}';\n`,
 			`function resolvePageComponent(module, candidateNames) {`,
 			`\tfor (const name of candidateNames) {`,
 			`\t\tconst value = module[name];`,
@@ -423,7 +465,7 @@ export const generateReactIndexFiles = async (
 				? [
 						`\n// Pre-warm: import the page module from the module server`,
 						`// immediately so the browser caches all /@src/ URLs.`,
-						`import('/@src/${relative(process.cwd(), resolve(reactPagesDirectory, `${componentName}.tsx`)).replace(/\\/g, '/')}').catch(() => {});`
+						`import('/@src/${relative(process.cwd(), page.source).replace(/\\/g, '/')}').catch(() => {});`
 					]
 				: [])
 		].join('\n');

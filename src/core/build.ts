@@ -11,7 +11,15 @@ import {
 	statSync,
 	writeFileSync
 } from 'node:fs';
-import { basename, dirname, extname, join, relative, resolve } from 'node:path';
+import {
+	basename,
+	dirname,
+	extname,
+	join,
+	relative,
+	resolve,
+	sep
+} from 'node:path';
 import { cwd, env, exit } from 'node:process';
 import { build as bunBuild, type BuildArtifact, Glob } from 'bun';
 import { buildFonts } from '../build/fonts/buildFonts';
@@ -24,12 +32,14 @@ import {
 	loadIslandRegistryBuildInfo
 } from '../build/islandEntries';
 import { generateReactIndexFiles } from '../build/generateReactIndexes';
+import { buildReactServerComponentsPass } from '../build/buildReactServerComponents';
 import { createHTMLScriptHMRPlugin } from '../build/htmlScriptHMRPlugin';
 import { transformStaticPagesWithIslands } from '../build/staticIslandPages';
 import { outputLogs } from '../build/outputLogs';
 import { scanEntryPoints } from '../build/scanEntryPoints';
 import { createStampedFileCache } from '../build/stampedFileCache';
 import { isConventionFile, scanConventions } from '../build/scanConventions';
+import { SERVER_OUTPUTS_FILE } from './serverOnlyStaticFiles';
 import { expandHtmlIncludes } from '../build/htmlIncludes';
 import { writeSpaSideManifests } from '../build/spaSideManifests';
 import {
@@ -95,7 +105,15 @@ import type {
 	DevPageEntry
 } from '../../types/build';
 import { toDevPageEntry } from '../dev/lazyPages';
+import {
+	fileRouteFor,
+	fileRouteNamed,
+	fileRoutesOf,
+	isInFileRouteRoot,
+	syncFileRoutes
+} from '../build/fileRoutes';
 import { createAngularLinkerPlugin } from '../build/angularLinkerPlugin';
+import { setAngularChangeDetection } from '../angular/zoneRuntime';
 import { createBunStringRawUnicodePlugin } from '../build/bunStringRawUnicodePlugin';
 import { createExternalAssetPlugin } from '../build/externalAssetPlugin';
 import { createIslandRegistryDefinitionPlugin } from '../build/islandRegistryTransform';
@@ -678,6 +696,32 @@ const copyDevIndexes = async ({
 	}
 };
 
+/* File routes: a route's React index imports its source by a relative path
+ * from the indexes directory; served from `_src_indexes/` it needs the
+ * module server's `/@src/` URL instead. */
+const rewriteFileRouteImports = (content: string, indexesDir: string) =>
+	content.replace(
+		/from\s*'(\.{1,2}\/[^']+)'/g,
+		(match, specifier: string) => {
+			const target = resolve(indexesDir, specifier);
+			if (!isInFileRouteRoot(target)) return match;
+
+			return `from '/@src/${relative(process.cwd(), target).replace(/\\/g, '/')}'`;
+		}
+	);
+
+/* File routes: route files that do not map to a URL are skipped and
+ * listed; a production build stops on them, a dev build carries on. */
+const reportFileRouteProblems = (
+	scan: ReturnType<typeof syncFileRoutes>,
+	isDev: boolean
+) => {
+	if (!scan || scan.problems.length === 0) return;
+	const message = `File routes:\n  ${scan.problems.join('\n  ')}`;
+	if (!isDev) throw new Error(message);
+	logWarn(message);
+};
+
 const copyReactDevIndexes = (
 	reactIndexesPath: string,
 	reactPagesPath: string,
@@ -703,6 +747,7 @@ const copyReactDevIndexes = (
 			(_match, _fullPath, componentName) =>
 				`from '/@src/${pagesRel}/${componentName}'`
 		);
+		content = rewriteFileRouteImports(content, reactIndexesPath);
 		writeFileSync(join(devIndexDir, file), content);
 	}
 };
@@ -714,11 +759,15 @@ const copySvelteDevIndexes = (
 	devIndexDir: string
 ) => {
 	const svelteIndexDir = join(getFrameworkGeneratedDir('svelte'), 'indexes');
-	const sveltePageEntries = svelteEntries.filter((file) =>
-		resolve(file).startsWith(resolve(sveltePagesPath))
+	const sveltePageEntries = svelteEntries.filter(
+		(file) =>
+			resolve(file).startsWith(resolve(sveltePagesPath)) ||
+			fileRouteFor(file) !== undefined
 	);
 	for (const entry of sveltePageEntries) {
-		const name = basename(entry).replace(/\.svelte(\.(ts|js))?$/, '');
+		const name =
+			fileRouteFor(entry)?.name ??
+			basename(entry).replace(/\.svelte(\.(ts|js))?$/, '');
 		const indexFile = join(svelteIndexDir, 'pages', `${name}.js`);
 		if (!existsSync(indexFile)) continue;
 		let content = readFileSync(indexFile, 'utf-8');
@@ -949,8 +998,10 @@ const buildUnlocked = async ({
 	publicDirectory,
 	islands,
 	reactDirectory,
+	reactServerComponentsDirectory,
 	htmlDirectory,
 	htmxDirectory,
+	angular,
 	angularDirectory,
 	emberDirectory,
 	fonts,
@@ -968,7 +1019,8 @@ const buildUnlocked = async ({
 	mode,
 	sitemap,
 	sourcemaps,
-	dev
+	dev,
+	fileRoutes
 }: BuildConfig) => {
 	const buildStart = performance.now();
 	// `absolute build` and `absolute compile` explicitly request production.
@@ -1072,6 +1124,13 @@ const buildUnlocked = async ({
 	};
 
 	await tracePhase('absolute/version', () => resolveAbsoluteVersion());
+	// File routes: rescan the route folders and refresh the route module.
+	await tracePhase('file-routes/scan', async () =>
+		reportFileRouteProblems(
+			syncFileRoutes({ fileRoutes, reactDirectory, svelteDirectory }),
+			isDev
+		)
+	);
 	const isIncremental = incrementalFiles && incrementalFiles.length > 0;
 	const styleTransformConfig = createStyleTransformConfig(
 		stylePreprocessors,
@@ -1099,6 +1158,9 @@ const buildUnlocked = async ({
 	const vueDir = vueDirectory && validateSafePath(vueDirectory, projectRoot);
 	const angularDir =
 		angularDirectory && validateSafePath(angularDirectory, projectRoot);
+	// Angular zone.js mode (opt-in): read by compileAngular for the
+	// generated client indexes and async downleveling.
+	setAngularChangeDetection(angular?.changeDetection);
 	const emberDir =
 		emberDirectory && validateSafePath(emberDirectory, projectRoot);
 	const islandBootstrapPath =
@@ -1286,7 +1348,12 @@ const buildUnlocked = async ({
 		// Always regenerate React index files to ensure latest error handling is included
 		// This is safe because index files are small and generation is fast
 		await tracePhase('react/index-generation', () =>
-			generateReactIndexFiles(reactPagesPath, reactIndexesPath, hmr)
+			generateReactIndexFiles(
+				reactPagesPath,
+				reactIndexesPath,
+				hmr,
+				fileRoutesOf('react')
+			)
 		);
 	}
 
@@ -1432,7 +1499,10 @@ const buildUnlocked = async ({
 	]);
 
 	// Convention files (colocated with pages) for error/loading/not-found
-	const allSvelteEntries = svelteConventionResult.pageFiles;
+	const allSvelteEntries = [
+		...svelteConventionResult.pageFiles,
+		...fileRoutesOf('svelte').map((route) => route.source)
+	];
 	const allVueEntries = vueConventionResult.pageFiles;
 	const allAngularEntries = angularConventionResult.pageFiles;
 	const allEmberEntries = emberConventionResult.pageFiles;
@@ -1617,7 +1687,10 @@ const buildUnlocked = async ({
 		) {
 			const pageName = basename(entry, '.tsx');
 
-			return join(reactPagesPath, `${pageName}.tsx`);
+			return (
+				fileRouteNamed(pageName)?.source ??
+				join(reactPagesPath, `${pageName}.tsx`)
+			);
 		}
 
 		return null;
@@ -2300,7 +2373,8 @@ const buildUnlocked = async ({
 		islandClientEntryPoints.length === 0 &&
 		globalCssEntries.length === 0 &&
 		htmxDir === undefined &&
-		htmlDir === undefined
+		htmlDir === undefined &&
+		reactServerComponentsDirectory === undefined
 	) {
 		logWarn('No entry points found, manifest will be empty');
 		sendTelemetryEvent('build:empty', {
@@ -3243,6 +3317,25 @@ const buildUnlocked = async ({
 	];
 	outputLogs(allLogs);
 
+	// ── React Server Components (opt-in) — see build/buildReactServerComponents.ts
+	const reactServerResult = await tracePhase('bun/react-server', () =>
+		buildReactServerComponentsPass({
+			buildPath,
+			directory: reactServerComponentsDirectory,
+			incrementalFiles: normalizedIncrementalFiles,
+			isDev,
+			projectRoot
+		})
+	);
+	if (reactServerResult && !reactServerResult.success) {
+		handlePassFailure(
+			reactServerResult.logs,
+			'react-server',
+			'React Server Components'
+		);
+	}
+	// ── end React Server Components
+
 	const manifest: Record<string, string> = {
 		...(options?.baseManifest || {}),
 		...generateManifest(
@@ -3255,7 +3348,8 @@ const buildUnlocked = async ({
 			],
 			buildPath
 		),
-		...fontResult?.manifest
+		...fontResult?.manifest,
+		...reactServerResult?.manifest
 	};
 
 	// The server injects the islands bootstrap by a reserved manifest key, so
@@ -3579,7 +3673,8 @@ const buildUnlocked = async ({
 				...siblingCssPaths,
 				...spaSideManifestPaths,
 				...conventionOutputPaths,
-				...(fontResult?.outputPaths ?? [])
+				...(fontResult?.outputPaths ?? []),
+				...(reactServerResult?.outputPaths ?? [])
 			])
 		);
 	}
@@ -3693,6 +3788,19 @@ const buildUnlocked = async ({
 	writeFileSync(
 		join(buildPath, 'manifest.json'),
 		JSON.stringify(manifest, null, '\t')
+	);
+
+	// Every file the server pass wrote, so production static serving can
+	// keep them off the public routes (serverOnlyStaticFiles.ts). Their
+	// layout varies by framework and project shape, so the build lists
+	// them rather than the server guessing from directory names.
+	writeFileSync(
+		join(buildPath, SERVER_OUTPUTS_FILE),
+		JSON.stringify(
+			[...serverOutputs.map((artifact) => artifact.path), ...emberServerPaths]
+				.map((path) => relative(buildPath, path).split(sep).join('/'))
+				.filter((path) => !path.startsWith('..'))
+		)
 	);
 
 	// Write convention files map (error/loading/not-found) if any exist

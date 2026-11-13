@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 
 type LegacySuspenseSlotProps = {
 	className?: string;
+	dynamic?: boolean;
 	errorHtml?: string;
 	fallbackHtml?: string;
 	id: string;
@@ -12,6 +13,7 @@ type LegacySuspenseSlotProps = {
 type FrameworkSuspenseSlotProps<T = unknown> = {
 	children?: ReactNode | ((value: T) => ReactNode);
 	className?: string;
+	dynamic?: boolean;
 	errorFallback?: ReactNode | ((error: unknown) => ReactNode);
 	id: string;
 	promise?: Promise<T>;

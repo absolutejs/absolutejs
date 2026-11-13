@@ -46,6 +46,7 @@ export type MetaTag = {
 };
 
 import type { FontAssets } from './fonts';
+import type { AlternateLink } from './i18n';
 import type { JsonLdSchema } from './jsonLd';
 
 /** A `<link rel="preload">` (or `rel="modulepreload"` when `module` is
@@ -83,6 +84,10 @@ export type Metadata = {
 	fonts?: FontAssets;
 	cssPath?: string | string[];
 	canonical?: string;
+	/** Localized versions of this page, rendered as
+	 *  `<link rel="alternate" hreflang="…" href="…">`. The i18n plugin's
+	 *  `i18n.alternates()` builds the list (with `x-default`). */
+	alternates?: AlternateLink[];
 	openGraph?: OpenGraph;
 	twitter?: TwitterCard;
 	robots?: RobotsDirective;

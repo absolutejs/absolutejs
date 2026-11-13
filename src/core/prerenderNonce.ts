@@ -49,9 +49,12 @@ const restamp = (html: string, previous: string, nonce: string) => {
 		}
 	};
 
+	// <link rel="modulepreload"> carries the nonce too; the policy checks
+	// it like the script it preloads.
 	return new HTMLRewriter()
 		.on('script', stamp)
 		.on('style', stamp)
+		.on('link', stamp)
 		.transform(new Response(html))
 		.text();
 };

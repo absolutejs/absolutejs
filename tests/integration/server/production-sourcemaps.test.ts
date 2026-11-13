@@ -28,6 +28,8 @@ let root = '';
 let server: ReturnType<typeof Bun.spawn> | undefined;
 let log = '';
 const responses: Record<string, { body: string; status: number }> = {};
+let serverOutputs: string[] = [];
+let serverOutputStatuses: number[] = [];
 
 const SERVER_TS = `import { Elysia } from 'elysia';
 import { asset, networking, prepare } from '@absolutejs/absolute';
@@ -146,15 +148,18 @@ beforeAll(async () => {
 	responses.bundleCompressed = await get('/server.js.gz');
 	responses.map = await get('/server.js.map');
 	responses.runtime = await get('/absolute-runtime.json');
-	responses.ssrBundle = await get(
-		`/svelte/server/pages/${
-			(
-				await readFile(
-					join(root, 'start-build', 'manifest.json'),
-					'utf8'
-				)
-			).match(/svelte\/server\/pages\/([^"]+\.js)/)?.[1] ?? 'missing.js'
-		}`
+	// Every file the server pass wrote, wherever this project's layout put
+	// it (a single-framework build writes Svelte pages to svelte/pages/).
+	const serverOutputsList: unknown = JSON.parse(
+		await readFile(join(root, 'start-build', 'server-outputs.json'), 'utf8')
+	);
+	serverOutputs = Array.isArray(serverOutputsList)
+		? serverOutputsList.filter(
+				(entry): entry is string => typeof entry === 'string'
+			)
+		: [];
+	serverOutputStatuses = await Promise.all(
+		serverOutputs.map(async (path) => (await get(`/${path}`)).status)
 	);
 	responses.home = await get('/');
 	// Let the server flush its error logs before stopping it.
@@ -204,7 +209,13 @@ describe('server-only build files are not served', () => {
 
 	test('runtime manifests and SSR bundles are 404, pages still render', () => {
 		expect(responses.runtime?.status).toBe(404);
-		expect(responses.ssrBundle?.status).toBe(404);
+		expect(
+			serverOutputs.some((path) => /Boom\.[a-z0-9]+\.js$/.test(path))
+		).toBe(true);
+		expect(serverOutputStatuses.length).toBe(serverOutputs.length);
+		expect(serverOutputStatuses.every((status) => status === 404)).toBe(
+			true
+		);
 		expect(responses.home?.status).toBe(200);
 	});
 });

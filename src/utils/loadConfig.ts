@@ -19,6 +19,7 @@ const RESERVED_TOP_LEVEL_KEYS = new Set([
 	'emberDirectory',
 	'entry',
 	'env',
+	'fileRoutes',
 	'htmlDirectory',
 	'htmxDirectory',
 	'fonts',

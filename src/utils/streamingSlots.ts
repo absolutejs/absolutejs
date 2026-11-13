@@ -75,6 +75,11 @@ type StreamingSlotPolicyValue = {
 };
 
 export type StreamingSlot = {
+	/** Resolve this slot on every request, even when the page is
+	 *  pre-rendered: the cached shell keeps the fallback and the content
+	 *  streams in per request (partial prerendering). Off by default, so a
+	 *  pre-rendered page bakes the slot's content into its HTML. */
+	dynamic?: boolean;
 	errorHtml?: unknown;
 	fallbackHtml?: unknown;
 	id: string;
@@ -347,6 +352,7 @@ const toStreamingSlot = (
 	slot: DeferredStreamingSlot,
 	policy: StreamingSlotPolicyValue
 ): StreamingSlot => ({
+	dynamic: slot.dynamic,
 	errorHtml: slot.errorHtml === undefined ? policy.errorHtml : slot.errorHtml,
 	fallbackHtml: normalizeSlotText(slot.fallbackHtml, policy.fallbackHtml),
 	id: slot.id ?? createStreamingSlotId(),

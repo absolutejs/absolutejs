@@ -188,6 +188,7 @@ export const Head = ({
 	fonts,
 	cssPath,
 	canonical,
+	alternates,
 	openGraph,
 	twitter,
 	robots,
@@ -207,6 +208,14 @@ export const Head = ({
 			type={iconMimeType(icon)}
 		/>
 		{canonical && <link href={canonical} rel="canonical" />}
+		{alternates?.map(({ href, hreflang }) => (
+			<link
+				href={href}
+				hrefLang={hreflang}
+				key={`alternate:${hreflang}`}
+				rel="alternate"
+			/>
+		))}
 		{openGraph && (
 			<OpenGraphTags
 				description={description}

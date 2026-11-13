@@ -1,9 +1,15 @@
 import { build } from '../src/core/build';
 import { devBuild } from '../src/core/devBuild';
 import type { BuildConfig as BunBuildConfig } from 'bun';
+import type { FileRoutesConfig } from './fileRoutes';
 import type { FontsConfig } from './fonts';
 import type { ImageConfig } from './image';
 import type { SitemapConfig } from './sitemap';
+
+/** How Angular pages run change detection. `'zoneless'` (the default)
+ *  uses signals and explicit scheduling; `'zone'` loads zone.js on the
+ *  server and in the browser for apps and libraries that rely on NgZone. */
+export type AngularChangeDetection = 'zone' | 'zoneless';
 
 export type BunBuildPassKey =
 	| 'server'
@@ -523,6 +529,11 @@ export type BaseBuildConfig = {
 		bootstrap?: string;
 	};
 	reactDirectory?: string;
+	/** Opt-in React Server Components. Pages are the files directly in
+	 *  `<dir>/pages`; serve one with `handleReactServerPageRequest({ page:
+	 *  asset(manifest, '<Page>RSC') })`. Requires react-server-dom-webpack
+	 *  at the version of react. */
+	reactServerComponentsDirectory?: string;
 	vueDirectory?: string;
 	angularDirectory?: string;
 	/** Per-framework Angular config. `providers` is the global default
@@ -536,6 +547,9 @@ export type BaseBuildConfig = {
 	 *  come from page-level `export const routes` and are auto-wired by
 	 *  the build — users never write `provideRouter` themselves. */
 	angular?: {
+		/** `'zone'` opts every Angular page into zone.js change detection
+		 *  (zone.js must be installed in the app). Defaults to `'zoneless'`. */
+		changeDetection?: AngularChangeDetection;
 		providers?: ReadonlyArray<
 			| import('@angular/core').Provider
 			| import('@angular/core').EnvironmentProviders
@@ -639,6 +653,11 @@ export type BaseBuildConfig = {
 	vitals?: VitalsConfig;
 	// Sitemap generation — auto-discovers page routes on server start
 	sitemap?: SitemapConfig;
+	/** Opt-in file-system routing: route files under each framework
+	 *  directory's `routes/` folder become GET routes (React and Svelte for
+	 *  now). Explicit routes stay the default and take precedence. See
+	 *  docs/FILE_ROUTER_PLAN.md. */
+	fileRoutes?: boolean | FileRoutesConfig;
 	// OpenAPI docs via @elysia/openapi. `true` serves a Scalar UI at /openapi
 	// derived from your route schemas; an object customizes it. On by default in
 	// dev, opt-in for production builds.

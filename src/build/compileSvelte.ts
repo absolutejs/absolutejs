@@ -14,6 +14,7 @@ import {
 import { env } from 'node:process';
 import { write, file, Transpiler } from 'bun';
 import { resolvePackageImport } from './resolvePackageImport';
+import { fileRouteFor } from './fileRoutes';
 import { getFrameworkGeneratedDir } from '../utils/generatedDir';
 import { buildIslandMetadataExports } from '../islands/sourceMetadata';
 import { createSvelteStylePreprocessor } from './stylePreprocessor';
@@ -321,14 +322,22 @@ export const compileSvelte = async (
 				? transpiler.transformSync(preprocessedClient)
 				: preprocessedClient;
 
-		const rawRel = dirname(relative(svelteRoot, src)).replace(/\\/g, '/');
+		// A file route (src/build/fileRoutes.ts) compiles to `pages/<name>`
+		// under its flat page name, exactly where a page in `pages/` lands,
+		// so its manifest keys and dev index match every other page.
+		const fileRoute = fileRouteFor(src);
+		const rawRel = fileRoute
+			? 'pages'
+			: dirname(relative(svelteRoot, src)).replace(/\\/g, '/');
 		// When a source file lives outside svelteRoot (e.g. src/svelte/components/Head.svelte
 		// imported from example/svelte/pages/), the relative path starts with "../".
 		// Use cwd-relative path so compiled output stays inside generated/.
 		const relDir = rawRel.startsWith('..')
 			? `_ext/${relative(process.cwd(), dirname(src)).replace(/\\/g, '/')}`
 			: rawRel;
-		const baseName = basename(src).replace(/\.svelte(\.(ts|js))?$/, '');
+		const baseName =
+			fileRoute?.name ??
+			basename(src).replace(/\.svelte(\.(ts|js))?$/, '');
 
 		const staticImportPaths = Array.from(
 			transpiledServer.matchAll(/from\s+['"]([^'"]+)['"]/g)
@@ -394,7 +403,9 @@ export const compileSvelte = async (
 			if (!resolved) continue;
 
 			const childRel = relative(svelteRoot, resolved).replace(/\\/g, '/');
-			if (!childRel.startsWith('..')) continue;
+			// A file route's output no longer mirrors its source folder, so
+			// even its in-tree children need explicit paths.
+			if (!childRel.startsWith('..') && !fileRoute) continue;
 
 			const childBuilt = cache.get(resolved);
 			if (!childBuilt) continue;

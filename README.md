@@ -148,6 +148,28 @@ A streamed block's branches are sent as HTML, so they may contain elements and
 is a build error. A page that streams a block isn't hydrated, so use it for
 content that needs no interactivity.
 
+### Partial prerendering
+
+On a route listed in `static.routes`, mark the streaming slots that depend on
+the request as `dynamic`. The build pre-renders the rest of the page as a
+static shell, with every other slot resolved into it. Each request then gets
+the cached shell immediately, even before the route handler runs, and only
+the dynamic slots are rendered and streamed into it:
+
+```tsx
+<StreamSlot
+	dynamic
+	id="greeting"
+	fallbackHtml="<p>…</p>"
+	resolve={() => greet(user)}
+/>
+```
+
+In Svelte, use the `dynamic` prop or `<!-- absolute:stream dynamic -->`. The
+page needs `collectStreamingSlots: true`. The shell's page props are captured
+at build time, so per-user data belongs in dynamic slots. Works for React
+and Svelte pages today. See `docs/PARTIAL_PRERENDERING_PLAN.md`.
+
 ### Svelte router: guards, lazy routes and scroll restoration
 
 `<Router>`, `<Route>` and `<Link>` from `@absolutejs/absolute/svelte/router/*.svelte`
@@ -229,6 +251,37 @@ const { data, error, pending, refresh } = useServerData('posts', loadPosts);
 Keys must be unique within a request, and results must be JSON-serializable. A
 fetcher that throws on the server renders an error state instead of failing
 the page. See [docs/VUE_SERVER_DATA.md](docs/VUE_SERVER_DATA.md).
+
+### File routes (opt-in)
+
+Routes are explicit Elysia calls by default. For React and Svelte pages you
+can opt into file routes instead: with `fileRoutes: true` in
+`absolute.config.ts`, every file under `<reactDirectory>/routes/` or
+`<svelteDirectory>/routes/` is a GET route.
+
+```
+react/routes/index.tsx            → /
+react/routes/blog/index.tsx       → /blog
+react/routes/blog/[slug].tsx      → /blog/:slug
+react/routes/blog/[slug].server.ts  (load + beforeHandle for that route)
+react/routes/_components/Card.tsx   (private: `_` files are not routes)
+```
+
+```ts
+// react/routes/blog/[slug].server.ts
+import type { FileRouteContext } from '@absolutejs/absolute';
+
+export const load = ({ params }: FileRouteContext<'/blog/:slug'>) => ({
+	post: getPost(params.slug)
+});
+```
+
+The build writes `src/routes.gen.ts` (`fileRoutes.output` to move it); serve
+it with `.use(fileRoutes(routeTree, manifest))`. It type-checks each `load`
+against its route's params and its page's props. Explicit routes win over a
+file route for the same path, and `absolute dev` picks up added or removed
+route files without a restart. See
+[docs/FILE_ROUTER_PLAN.md](docs/FILE_ROUTER_PLAN.md).
 
 ### Layouts and partials for HTML pages
 

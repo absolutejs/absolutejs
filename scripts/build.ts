@@ -158,6 +158,7 @@ const SERVER_ENTRY_POINTS = [
 	'src/angular/index.ts',
 	'src/angular/browser.ts',
 	'src/angular/server.ts',
+	'src/i18n/index.ts',
 	'src/islands/browser.ts',
 	'src/islands/index.ts',
 	'src/mobile/browser.ts',
@@ -195,6 +196,9 @@ const EXTERNALS = [
 	'svelte/server',
 	'elysia',
 	'elysia/*',
+	// Form actions re-check bodies with the same TypeBox Elysia uses.
+	'typebox',
+	'typebox/*',
 	'@elysia/openapi',
 	'@elysia/server-timing',
 	'@elysia/static',
@@ -296,9 +300,15 @@ const build = async () => {
 	// the raw-copied Svelte router (`dist/svelte/router/prefetchCache.ts`)
 	// re-exports it by relative path at the user's build time, and it is the
 	// public `@absolutejs/absolute/client/prefetch` subpath.
+	// `src/client/navigation.ts` is the `client/navigation` subpath
+	// (cross-framework document navigation).
 	const clientRuntimeBuild = await Bun.build({
 		define: RUNTIME_NODE_ENV_DEFINE,
-		entrypoints: ['src/client/index.ts', 'src/client/prefetch.ts'],
+		entrypoints: [
+			'src/client/index.ts',
+			'src/client/navigation.ts',
+			'src/client/prefetch.ts'
+		],
 		external: EXTERNALS,
 		format: 'esm',
 		naming: {
@@ -531,6 +541,14 @@ const build = async () => {
 				join('src', 'svelte', 'components', file),
 				join(DIST, 'svelte', 'components', file)
 			)
+	);
+	// Head.svelte imports ../../utils/iconVersion. The components ship as
+	// raw source and are compiled in the consumer's build, so that module
+	// must exist at that path in dist/ (it has no imports of its own).
+	await mkdir(join(DIST, 'utils'), { recursive: true });
+	await cp(
+		join('src', 'utils', 'iconVersion.ts'),
+		join(DIST, 'utils', 'iconVersion.ts')
 	);
 	await copyPublishedSvelteRouterSources();
 	await mkdir(join(DIST, 'vue', 'components'), { recursive: true });

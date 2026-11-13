@@ -20,7 +20,7 @@ afterAll(async () => {
 	);
 });
 
-const PAGE = `<!doctype html><html><head><style nonce="RENDERED">p{}</style></head><body>
+const PAGE = `<!doctype html><html><head><style nonce="RENDERED">p{}</style><link rel="modulepreload" href="/a.js" nonce="RENDERED"></head><body>
 <script nonce="RENDERED">window.ok = 1</script>
 <script nonce="GUESSED">window.injected = 1</script>
 <script>window.plain = 1</script>
@@ -68,6 +68,9 @@ describe('pre-rendered pages under secureHeaders()', () => {
 			"script-src 'nonce-CURRENT'"
 		);
 		expect(html).toContain('<style nonce="CURRENT">');
+		expect(html).toContain(
+			'<link rel="modulepreload" href="/a.js" nonce="CURRENT">'
+		);
 		expect(html).toContain('<script nonce="CURRENT">window.ok');
 		expect(html).toContain('<script nonce="GUESSED">window.injected');
 		expect(html).toContain('<script>window.plain');

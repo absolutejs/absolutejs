@@ -82,6 +82,7 @@ const loadAngularDeps = async () => {
 		NgComponentOutlet: common.NgComponentOutlet,
 		provideClientHydration: platformBrowser.provideClientHydration,
 		provideServerRendering: platformServer.provideServerRendering,
+		provideZoneChangeDetection: core.provideZoneChangeDetection,
 		provideZonelessChangeDetection: core.provideZonelessChangeDetection,
 		reflectComponentType: core.reflectComponentType,
 		renderApplication: platformServer.renderApplication,

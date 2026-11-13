@@ -45,6 +45,7 @@ import {
 } from '../dev/devPrescan';
 import { addFileWatchers, startFileWatching } from '../dev/fileWatcher';
 import { createSvelteDeclarationRefresher } from '../dev/svelteDeclarationRefresher';
+import { createFileRouteRefresher } from '../dev/fileRouteRefresher';
 import { getWatchPaths } from '../dev/pathUtils';
 import { cleanStaleAssets, populateAssetStore } from '../dev/assetStore';
 import { drainPendingQueue, queueFileChange } from '../dev/rebuildTrigger';
@@ -717,8 +718,14 @@ export const devBuild = async (config: BuildConfig) => {
 	 * rebuilds (which also run with live watchers) from self-triggering. */
 	state.isRebuilding = true;
 	const svelteDeclarations = createSvelteDeclarationRefresher(config);
+	// File routes: a route file added or removed rewrites the route module,
+	// which then goes through the watcher pipeline like any server edit.
+	const fileRouteRefresher = createFileRouteRefresher(config, (path) =>
+		queueFileChange(state, path, config, onWatcherRebuildComplete)
+	);
 	startFileWatching(state, config, (filePath: string) => {
 		svelteDeclarations?.onFileChange(filePath);
+		fileRouteRefresher?.onFileChange(filePath);
 		if (state.initialBuildFailed) {
 			void recoverFromColdStartFailure();
 

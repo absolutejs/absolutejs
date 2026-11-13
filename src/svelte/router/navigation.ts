@@ -36,6 +36,8 @@ import { withViewTransition } from './viewTransitions';
 export type RouterNavigationHandle = {
 	/** Guards that apply when navigating to `url`, outermost first. */
 	guardsFor: (url: URL) => GuardEntry[];
+	/** Whether one of this router's routes matches `url`. */
+	matches: (url: URL) => boolean;
 	/** Start loading the lazy route `url` would render, if any. */
 	preload: (url: URL) => void;
 };
@@ -114,6 +116,29 @@ export const preloadRoute = (href: string) => {
 	const url = new URL(href, window.location.href);
 	if (url.origin !== window.location.origin) return;
 	for (const router of routers) router.preload(url);
+};
+
+/* Set by `enableNavigation()` (src/client/navigation.ts) on globalThis, so
+ * the check works whichever bundle copy installed it. */
+const DOCUMENT_NAVIGATION_KEY = Symbol.for('absolutejs.navigation');
+
+/**
+ * @internal Link.svelte: whether a click on `href` belongs to cross-framework
+ * document navigation rather than this router. True only when
+ * `enableNavigation()` is active, the router uses history mode, and no
+ * mounted `<Router>` has a route for the URL: the link points at another
+ * page (possibly another framework's), so `<Link>` leaves the click to the
+ * browser and the navigation layer swaps that page in.
+ */
+export const belongsToDocumentNavigation = (href: string) => {
+	if (typeof window === 'undefined' || activeMode === 'hash') return false;
+	if (Reflect.get(globalThis, DOCUMENT_NAVIGATION_KEY) === undefined) {
+		return false;
+	}
+	const url = new URL(href, window.location.href);
+	if (url.origin !== window.location.origin) return false;
+
+	return !Array.from(routers).some((router) => router.matches(url));
 };
 
 const resolveAbsoluteUrl = (target: string) => {

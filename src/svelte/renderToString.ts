@@ -7,6 +7,7 @@ import type { Component, ComponentProps } from 'svelte';
 import { render } from 'svelte/server';
 import { escapeScriptContent } from '../utils/escapeScriptContent';
 import { SVELTE_PAGE_ROOT_ID } from './renderToReadableStream';
+import { htmlLangAttributes } from '../utils/localeRef';
 
 type SvelteRenderOutput = {
 	body: string;
@@ -68,7 +69,7 @@ export const renderToString = <Comp extends Component<Record<string, unknown>>>(
 			.filter(Boolean)
 			.join('');
 
-		return `<!DOCTYPE html><html lang="en"><head>${nonceSvelteHeadStyles(head, resolvedNonce)}</head><body><div id="${SVELTE_PAGE_ROOT_ID}">${body}</div>${scripts}</body></html>`;
+		return `<!DOCTYPE html><html${htmlLangAttributes()}><head>${nonceSvelteHeadStyles(head, resolvedNonce)}</head><body><div id="${SVELTE_PAGE_ROOT_ID}">${body}</div>${scripts}</body></html>`;
 	} catch (error) {
 		onError(error);
 		throw error;

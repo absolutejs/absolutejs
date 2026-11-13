@@ -8,6 +8,7 @@ import type { Component, ComponentProps } from 'svelte';
 import { render } from 'svelte/server';
 import { DEFAULT_CHUNK_SIZE } from '../constants';
 import { escapeScriptContent } from '../utils/escapeScriptContent';
+import { htmlLangAttributes } from '../utils/localeRef';
 
 type SvelteRenderOutput = {
 	body: string;
@@ -77,7 +78,7 @@ export const renderToPipeableStream = <
 
 		const encoder = new TextEncoder();
 		const full = encoder.encode(
-			`<!DOCTYPE html><html lang="en"><head>${nonceSvelteHeadStyles(head, resolvedNonce)}</head><body>${body}${scripts}</body></html>`
+			`<!DOCTYPE html><html${htmlLangAttributes()}><head>${nonceSvelteHeadStyles(head, resolvedNonce)}</head><body>${body}${scripts}</body></html>`
 		);
 
 		let offset = 0;

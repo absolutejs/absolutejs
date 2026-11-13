@@ -6,6 +6,7 @@ import {
 import type { Component, ComponentProps } from 'svelte';
 import { DEFAULT_CHUNK_SIZE } from '../constants';
 import { escapeScriptContent } from '../utils/escapeScriptContent';
+import { htmlLangAttributes } from '../utils/localeRef';
 
 export const SVELTE_PAGE_ROOT_ID = '__absolute_svelte_root__';
 
@@ -115,7 +116,7 @@ export const renderToReadableStream = async <
 		const encoder = new TextEncoder();
 		// Warning: this encodes the entire document into memory in one buffer
 		const full = encoder.encode(
-			`<!DOCTYPE html><html lang="en"><head>${nonceSvelteHeadStyles(head, resolvedNonce)}${headContent ?? ''}</head><body><div id="${SVELTE_PAGE_ROOT_ID}">${body}</div>${scripts}${bodyContent ?? ''}</body></html>`
+			`<!DOCTYPE html><html${htmlLangAttributes()}><head>${nonceSvelteHeadStyles(head, resolvedNonce)}${headContent ?? ''}</head><body><div id="${SVELTE_PAGE_ROOT_ID}">${body}</div>${scripts}${bodyContent ?? ''}</body></html>`
 		);
 
 		let offset = 0;

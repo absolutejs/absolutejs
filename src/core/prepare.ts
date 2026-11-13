@@ -11,9 +11,11 @@ import { withOpenApi } from '../plugins/openApiPlugin';
 import { withTelemetry } from '../plugins/telemetryPlugin';
 import { loadConfig } from '../utils/loadConfig';
 import { readProductionRuntime } from './productionRuntime';
+import { installAngularZoneRuntime } from '../angular/zoneRuntime';
 import { setIconVersionResolver } from '../utils/iconVersion';
 import { setCurrentIslandManifest } from './islandPageContext';
 import { absoluteRequestContext } from './requestContext';
+import { formActionRuntime } from './formActionFlash';
 import { loadIslandRegistry } from './loadIslandRegistry';
 import { setCurrentIslandRegistry } from './currentIslandRegistry';
 import {
@@ -461,6 +463,8 @@ const prepareDev = async (
 		// page/static/user routes (which mount after `.use(absolutejs)`).
 		.use(requestInspector)
 		.use(absoluteRequestContext)
+		// Renders and clears form-action results (formActionFlash.ts).
+		.use(formActionRuntime())
 		// Server-Timing per lifecycle phase (dev only) — powers the per-phase
 		// timing breakdown in `absolute inspect`.
 		.use(serverTiming())
@@ -641,6 +645,9 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 			: null;
 	const config = built ?? (await loadConfig(configOrPath));
 	recordStep(built ? 'load built config' : 'load config', stepStartedAt);
+	// Angular zone.js mode must patch the process before the app listens.
+	if (config.angular?.changeDetection === 'zone')
+		await installAngularZoneRuntime();
 
 	const buildDir = resolvePath(
 		process.env.ABSOLUTE_BUILD_DIR ?? config.buildDirectory ?? 'build'
@@ -771,6 +778,12 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 
 		// Track routes currently being re-rendered to avoid duplicate work
 		const rerendering = new Set<string>();
+		// Partial prerendering renders a shell's dynamic holes through the
+		// app itself (partialPrerenderServe.ts), captured once it starts.
+		const { readPartialHoles } = await import('./partialPrerender');
+		const { servePartialPrerender } =
+			await import('./partialPrerenderServe');
+		let appHandle: ((request: Request) => Promise<Response>) | undefined;
 
 		const prerenderPlugin = new Elysia({
 			name: 'prerendered-pages'
@@ -805,6 +818,29 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 			// with for this request's (prerenderNonce.ts).
 			const securityHeaders = activeSecurityHeadersFor(request);
 			const nonce = securityHeaders ? getCspNonce(request) : undefined;
+
+			// Partial prerendering: a shell with dynamic holes streams them
+			// in per request. Without the app's handler (never started, as
+			// in app.handle() tests) the route renders fully instead.
+			const holes =
+				request.method === 'GET' ? readPartialHoles(filePath) : [];
+			if (holes.length > 0 && !appHandle) return undefined;
+			if (holes.length > 0 && appHandle) {
+				return servePartialPrerender({
+					bypassHeader: PRERENDER_BYPASS_HEADER,
+					filePath,
+					handle: appHandle,
+					holes,
+					nonce,
+					request,
+					securityHeaders: securityHeaders ?? undefined
+				}).then(({ dropHeaders, response }) => {
+					for (const name of dropHeaders) delete set.headers[name];
+
+					return response;
+				});
+			}
+
 			if (securityHeaders && nonce) {
 				return servePrerenderedPage(
 					filePath,
@@ -822,12 +858,17 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 				headers: { 'content-type': 'text/html; charset=utf-8' }
 			});
 		});
+		prerenderPlugin.onStart((app) => {
+			appHandle = (request) => app.handle(request);
+		});
 
 		stepStartedAt = performance.now();
 		const { imageOptimizer } = await import('../plugins/imageOptimizer');
 		const absolutejs = new Elysia({ name: 'absolutejs-runtime' });
 		absolutejs
 			.use(absoluteRequestContext)
+			// Renders and clears form-action results (formActionFlash.ts).
+			.use(formActionRuntime())
 			.use(mobileAssociationPlugin)
 			.use(mobileCompatibilityPlugin)
 			.use(mobileUpdatePlugin)
@@ -852,6 +893,8 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 	const absolutejs = new Elysia({ name: 'absolutejs-runtime' });
 	absolutejs
 		.use(absoluteRequestContext)
+		// Renders and clears form-action results (formActionFlash.ts).
+		.use(formActionRuntime())
 		.use(mobileAssociationPlugin)
 		.use(mobileCompatibilityPlugin)
 		.use(mobileUpdatePlugin)

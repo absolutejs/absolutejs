@@ -9,6 +9,7 @@
 
 	let {
 		className,
+		dynamic,
 		errorHtml,
 		fallbackHtml = '',
 		id,
@@ -16,6 +17,9 @@
 		timeoutMs
 	}: {
 		className?: string;
+		/** Stream on every request even when the page is pre-rendered
+		 *  (partial prerendering); the cached shell keeps the fallback. */
+		dynamic?: boolean;
 		errorHtml?: string;
 		fallbackHtml?: string;
 		id: string;
@@ -25,6 +29,7 @@
 
 	if (isStreamingSlotCollectionActive()) {
 		registerStreamingSlot({
+			dynamic,
 			errorHtml,
 			fallbackHtml,
 			id,

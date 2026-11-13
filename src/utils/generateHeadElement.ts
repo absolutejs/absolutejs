@@ -1,3 +1,4 @@
+import type { AlternateLink } from '../../types/i18n';
 import type {
 	Metadata,
 	PreloadLink,
@@ -120,6 +121,16 @@ const renderMetaTag = (tag: {
 	return undefined;
 };
 
+const escapeAttribute = (value: string) =>
+	value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+
+/** `<link rel="alternate" hreflang>` tags for a page's localized versions. */
+const renderAlternateLinks = (alternates: AlternateLink[] = []) =>
+	alternates.map(
+		({ href, hreflang }) =>
+			`<link rel="alternate" hreflang="${escapeAttribute(hreflang)}" href="${escapeAttribute(href)}">`
+	);
+
 const renderPreloadLink = (preload: PreloadLink) => {
 	const rel = preload.module ? 'modulepreload' : 'preload';
 	const asAttribute =
@@ -140,6 +151,7 @@ export const generateHeadElement = ({
 	fonts,
 	icon = '/assets/ico/favicon.ico',
 	canonical,
+	alternates,
 	openGraph,
 	twitter,
 	robots,
@@ -159,6 +171,8 @@ export const generateHeadElement = ({
 	if (canonical) {
 		tags.push(`<link rel="canonical" href="${canonical}">`);
 	}
+
+	tags.push(...renderAlternateLinks(alternates));
 
 	tags.push(...renderOpenGraphTags(openGraph, title, description));
 	tags.push(...renderTwitterTags(twitter, title, description));

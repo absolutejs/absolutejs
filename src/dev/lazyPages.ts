@@ -7,6 +7,7 @@ import type {
 	DevPageFramework
 } from '../../types/build';
 import { toPascal } from '../utils/stringModifiers';
+import { fileRouteFor, fileRouteNamed } from '../build/fileRoutes';
 
 /* On-demand page builds for `absolute dev`.
  *
@@ -166,11 +167,19 @@ export const createPageProbe = (config: BuildConfig) => {
 	push(config.angularDirectory, 'angular');
 	push(config.emberDirectory, 'ember');
 
+	// A file route created since the last build: the route watcher has
+	// already rescanned, so its page name is known.
+	const probeFileRoute = (name: string) => {
+		const route = fileRouteNamed(name);
+
+		return route && toDevPageEntry(route.framework, route.source);
+	};
+
 	return (name: string) =>
 		dirs.reduce<DevPageEntry | undefined>(
 			(found, probeDir) => found ?? probeDirForName(probeDir, name),
 			undefined
-		);
+		) ?? probeFileRoute(name);
 };
 
 export const isPageBuilt = (
@@ -229,7 +238,9 @@ export const toDevPageEntry = (framework: DevPageFramework, source: string) => {
 	const resolved = resolve(source);
 	const entry: DevPageEntry = {
 		framework,
-		name: toPascal(basename(resolved, extname(resolved))),
+		name:
+			fileRouteFor(resolved)?.name ??
+			toPascal(basename(resolved, extname(resolved))),
 		source: resolved
 	};
 

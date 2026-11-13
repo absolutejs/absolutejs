@@ -1,5 +1,6 @@
 type StreamSlotProps = {
 	className?: string;
+	dynamic?: boolean;
 	errorHtml?: string;
 	fallbackHtml?: string;
 	id: string;

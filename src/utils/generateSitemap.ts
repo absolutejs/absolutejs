@@ -1,9 +1,11 @@
 import { write } from 'bun';
+import type { AlternateLink, SitemapI18nConfig } from '../../types/i18n';
 import type {
 	ChangeFrequency,
 	SitemapConfig,
 	SitemapRouteOverride
 } from '../../types/sitemap';
+import { alternateLinks, stripLocalePrefix } from '../i18n/routing';
 import {
 	getOriginalPageHandlerSource,
 	isPageHandler
@@ -199,7 +201,94 @@ const normalizeMountFromBaseHref = (baseHref: string) => {
 type ResolvedEntry = {
 	path: string;
 	override?: SitemapRouteOverride;
+	/** i18n: this entry's absolute URL and its hreflang alternates. */
+	url?: string;
+	alternates?: AlternateLink[];
 };
+
+/* ---- i18n: one entry per locale, with hreflang alternates ---------- */
+
+/** A route's path without its locale: `/:locale?/about`, `/:locale/about`
+ *  and `/fr/about` all become `/about`. */
+const unlocalizedPath = (path: string, i18n: SitemapI18nConfig) => {
+	const param = i18n.localeParam ?? 'locale';
+	const [, first = '', ...rest] = path.split('/');
+	const isLocaleParam = first === `:${param}` || first === `:${param}?`;
+	const withoutParam = isLocaleParam ? `/${rest.join('/')}` : path;
+	const base = withoutParam === '' ? '/' : withoutParam;
+
+	return stripLocalePrefix(base, i18n.locales);
+};
+
+const unlocalizeRoutes = (routes: AppRoute[], i18n: SitemapI18nConfig) =>
+	routes.map((route) => ({
+		...route,
+		path: unlocalizedPath(route.path, i18n)
+	}));
+
+/** Unprefixed paths of the routes that carry a locale (`/:locale…` or a
+ *  literal locale segment). Under `prefix` only these are localized. */
+const localizedRoutePaths = (routes: AppRoute[], i18n: SitemapI18nConfig) =>
+	new Set(
+		routes
+			.filter((route) => unlocalizedPath(route.path, i18n) !== route.path)
+			.map((route) => unlocalizedPath(route.path, i18n))
+	);
+
+const isLocalizedPath = (path: string, localized: Set<string>) =>
+	localized.has(path) ||
+	[...localized].some((root) => root !== '/' && path.startsWith(`${root}/`));
+
+/** One entry per locale with hreflang alternates. Under `prefix`, pages
+ *  registered without a locale stay a single entry; under `negotiate`
+ *  (one URL for every locale) every page does. */
+const localizeEntries = (
+	entries: ResolvedEntry[],
+	i18n: SitemapI18nConfig,
+	baseUrl: string,
+	localized: Set<string>
+) => {
+	const isPrefix = (i18n.strategy ?? 'prefix') === 'prefix';
+	const seen = new Set<string>();
+
+	return entries.flatMap((entry) => {
+		const basePath = unlocalizedPath(entry.path, i18n);
+		const hasLocale =
+			basePath !== entry.path || isLocalizedPath(basePath, localized);
+		const alternates =
+			isPrefix && !hasLocale
+				? []
+				: alternateLinks(basePath, i18n, baseUrl);
+		const perLocale = alternates.filter(
+			(link) => link.hreflang !== 'x-default'
+		);
+		const expanded: ResolvedEntry[] =
+			perLocale.length === 0
+				? [entry]
+				: perLocale.map((link) => ({
+						alternates,
+						override: entry.override,
+						path: basePath,
+						url: link.href
+					}));
+
+		return expanded.filter((item) => {
+			const key = item.url ?? item.path;
+			if (seen.has(key)) return false;
+			seen.add(key);
+
+			return true;
+		});
+	});
+};
+
+const renderAlternates = (alternates: AlternateLink[] | undefined) =>
+	(alternates ?? [])
+		.map(
+			(link) =>
+				`\n    <xhtml:link rel="alternate" hreflang="${escapeXml(link.hreflang)}" href="${escapeXml(link.href)}"/>`
+		)
+		.join('');
 
 const buildSitemapXml = (
 	entries: ResolvedEntry[],
@@ -223,9 +312,9 @@ const buildSitemapXml = (
 			config.defaultPriority ??
 			DEFAULT_PRIORITY;
 		const lastmod = configOverride?.lastmod ?? handlerOverride?.lastmod;
-		const url = escapeXml(`${normalizedBase}${entry.path}`);
+		const url = escapeXml(entry.url ?? `${normalizedBase}${entry.path}`);
 
-		let block = `  <url>\n    <loc>${url}</loc>`;
+		let block = `  <url>\n    <loc>${url}</loc>${renderAlternates(entry.alternates)}`;
 		if (lastmod) block += `\n    <lastmod>${lastmod}</lastmod>`;
 		block += `\n    <changefreq>${changefreq}</changefreq>`;
 		block += `\n    <priority>${priority}</priority>`;
@@ -234,9 +323,13 @@ const buildSitemapXml = (
 		xml.push(block);
 	}
 
+	const xhtmlNamespace = config.i18n
+		? ' xmlns:xhtml="http://www.w3.org/1999/xhtml"'
+		: '';
+
 	return [
 		'<?xml version="1.0" encoding="UTF-8"?>',
-		'<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
+		`<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"${xhtmlNamespace}>`,
 		...xml,
 		'</urlset>'
 	].join('\n');
@@ -290,7 +383,10 @@ export const generateSitemap = async (
 	pipelineConfig: SitemapPipelineConfig = {}
 ) => {
 	const exclude = config.exclude ?? [];
-	const discoveredPages = discoverPageRoutes(routes, exclude);
+	const discoveredPages = discoverPageRoutes(
+		config.i18n ? unlocalizeRoutes(routes, config.i18n) : routes,
+		exclude
+	);
 
 	const seenPaths = new Set<string>();
 	const entries: ResolvedEntry[] = [];
@@ -355,7 +451,18 @@ export const generateSitemap = async (
 	}
 
 	const baseUrl = config.baseUrl ?? serverUrl;
-	const xml = buildSitemapXml(entries, baseUrl, config);
+	const xml = buildSitemapXml(
+		config.i18n
+			? localizeEntries(
+					entries,
+					config.i18n,
+					baseUrl,
+					localizedRoutePaths(routes, config.i18n)
+				)
+			: entries,
+		baseUrl,
+		config
+	);
 
 	await write(`${outDir}/sitemap.xml`, xml);
 };

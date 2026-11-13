@@ -15,6 +15,8 @@ import {
 	compileStyleFileIfNeededSync
 } from './stylePreprocessor';
 import { getFrameworkGeneratedDir } from '../utils/generatedDir';
+import { isAngularZoneMode } from '../angular/zoneRuntime';
+import { downlevelAsyncForZone } from './downlevelAsyncForZone';
 import type { StylePreprocessorConfig } from '../../types/build';
 
 type SyncReadFile = (fileName: string) => string | undefined;
@@ -910,6 +912,10 @@ export const compileAngularFiles = async (
 				);
 				processedContent +=
 					islandMetadataByOutputPath.get(resolve(target)) ?? '';
+				processedContent = downlevelAsyncForZone(
+					processedContent,
+					target
+				);
 
 				return { content: processedContent, target };
 			});
@@ -1706,8 +1712,11 @@ export const compileAngularFileJIT = async (
 		actualPath: string,
 		importRewrites: Map<string, string>
 	) => {
-		let processedContent = angularTranspiler.transformSync(
-			hoistExportPastDecorators(sourceCode)
+		let processedContent = downlevelAsyncForZone(
+			angularTranspiler.transformSync(
+				hoistExportPastDecorators(sourceCode)
+			),
+			actualPath
 		);
 		const outputPath = toOutputPath(actualPath);
 		const rewriteBareImport = (
@@ -2381,13 +2390,23 @@ export const compileAngular = async (
 		const hmrPreamble = hmr
 			? `window.__HMR_FRAMEWORK__ = "angular";\nimport "${hmrClientPath}";\n`
 			: '';
+		// Zone mode: zone.js must patch the browser before anything else
+		// runs, and every page bootstraps with zone change detection.
+		const zoneMode = isAngularZoneMode();
+		const zoneImport = zoneMode ? `import 'zone.js';\n` : '';
+		const changeDetectionImport = zoneMode
+			? 'provideZoneChangeDetection'
+			: 'provideZonelessChangeDetection';
+		const changeDetectionProvider = zoneMode
+			? 'provideZoneChangeDetection({ eventCoalescing: true })'
+			: 'provideZonelessChangeDetection()';
 		const hydration = hmr
-			? `${hmrPreamble}
+			? `${zoneImport}${hmrPreamble}
 import '@angular/compiler';
 import { bootstrapApplication } from '@angular/platform-browser';
 import { provideClientHydration } from '@angular/platform-browser';
 import { withHttpTransferCacheOptions } from '@angular/platform-browser';
-import { provideZonelessChangeDetection, REQUEST_CONTEXT } from '@angular/core';
+import { ${changeDetectionImport}, REQUEST_CONTEXT } from '@angular/core';
 import { prepareBrowserTranslationHydration } from '@absolutejs/absolute/client';
 import * as pageModule from '${normalizedImportPath}';
 var ${componentClassName} = pageModule.default;
@@ -2451,7 +2470,7 @@ if (!document.querySelector(_sel)) {
     (document.getElementById('root') || document.body).appendChild(document.createElement(_sel));
 }
 
-var providers = [provideZonelessChangeDetection()];
+var providers = [${changeDetectionProvider}];
 var restoreTranslation = function() {};
 if (!isClientRender && !window.__HMR_SKIP_HYDRATION__ && !pageHasIslands) {
     providers.push(provideClientHydration(withHttpTransferCacheOptions(absoluteHttpTransferCacheOptions)));
@@ -2494,11 +2513,11 @@ window.__ABSOLUTE_PAGE_DISPOSE__ = async function() {
 };
 `.trim()
 			: `
-import '@angular/compiler';
+${zoneImport}import '@angular/compiler';
 import { bootstrapApplication } from '@angular/platform-browser';
 import { provideClientHydration } from '@angular/platform-browser';
 import { withHttpTransferCacheOptions } from '@angular/platform-browser';
-import { enableProdMode, provideZonelessChangeDetection, REQUEST_CONTEXT } from '@angular/core';
+import { enableProdMode, ${changeDetectionImport}, REQUEST_CONTEXT } from '@angular/core';
 import { prepareBrowserTranslationHydration } from '@absolutejs/absolute/client';
 import * as pageModule from '${normalizedImportPath}';
 var ${componentClassName} = pageModule.default;
@@ -2541,7 +2560,7 @@ if (!document.querySelector(_sel)) {
     (document.getElementById('root') || document.body).appendChild(document.createElement(_sel));
 }
 
-var providers = [provideZonelessChangeDetection()].concat(pageProviders).concat(contextProviders);
+var providers = [${changeDetectionProvider}].concat(pageProviders).concat(contextProviders);
 var restoreTranslation = function() {};
 if (!isClientRender && !pageHasIslands) {
     providers.unshift(provideClientHydration(withHttpTransferCacheOptions(absoluteHttpTransferCacheOptions)));
