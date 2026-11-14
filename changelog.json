@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "Importing `@absolutejs/absolute` (and its `build`, `angular`, `angular/server` and `mobile` entry points) loaded the `typescript` package straight away, which takes a few hundred milliseconds of CPU, even though a running server never needs it. TypeScript now loads the first time the framework actually uses it (route scanning, island registries, Angular compilation, config editing), so servers start faster. Nothing you call changed, and those functions stay synchronous.",
+					"kind": "changed",
+					"summary": "Servers start faster: the framework no longer loads TypeScript at import"
+				}
+			],
+			"date": "2026-11-14",
+			"version": "0.20.0-beta.174"
+		},
+		{
+			"changes": [
+				{
 					"detail": "An Angular page with `@defer` blocks streamed its deferred sections correctly, then lost them once the browser hydrated the page, in dev and in production. The browser logged `ReferenceError: process is not defined` from the defer slot, and dev also logged an NG0100 error. The defer slot no longer runs its server-only streaming setup in the browser, and the NODE_ENV check that streaming slots share no longer throws where there is no `process`, which also protects Svelte and Vue streaming slots that reach the browser. Deferred sections now stay resolved after hydration, with no console errors.",
 					"kind": "fixed",
 					"summary": "Angular `@defer` sections stay on the page after hydration"
