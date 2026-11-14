@@ -257,9 +257,10 @@ describe('backend HMR', () => {
 				applyServerChange(path(name), entry),
 				applyServerChange(path(name), entry)
 			]);
+			// A file that is gone has nothing to apply: not a failed update.
 			expect(outcomes.map((outcome) => outcome.status)).toEqual([
-				'failed',
-				'failed'
+				'unchanged',
+				'unchanged'
 			]);
 			expect(call('value')).toBe(before);
 			expect(counter('pools')).toBe(1);
