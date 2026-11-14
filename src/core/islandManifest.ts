@@ -11,6 +11,11 @@ export const ISLAND_BOOTSTRAP_MANIFEST_KEY = 'AbsoluteIslandBootstrap';
  *  before the reserved key existed. */
 export const LEGACY_ISLAND_BOOTSTRAP_MANIFEST_KEY = 'BootstrapClient';
 
+/** Window event a React page's generated index dispatches once it has
+ *  created the page's root. The island runtime holds a React page's
+ *  islands until then (see startIslands in client/islandRuntime.ts). */
+export const REACT_PAGE_ROOT_EVENT = 'absolute:react-page-root';
+
 const toIslandFrameworkSegment = (framework: IslandFramework) =>
 	framework[0]?.toUpperCase() + framework.slice(1);
 

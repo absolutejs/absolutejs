@@ -157,19 +157,50 @@ const buildIslandStyleLinks = (
 		.join('');
 };
 
+/** The framework whose page renders the islands, when its own root
+ *  hydrates the whole document (React). */
+export type IslandHost = 'react';
+
+/* Dev only, and before the islands bootstrap: a stand-in for React's
+ * DevTools hook that remembers each React renderer that registers.
+ *
+ * The bootstrap imports React DOM, and on a React page it can run before
+ * the page's own script: the page's module graph comes from the dev module
+ * server and often arrives later. React DOM registers with the DevTools
+ * hook once, while it loads; with no hook there yet it never registers,
+ * and the Fast Refresh runtime the page installs afterwards finds no
+ * renderer to refresh, so every edit to the page is a silent no-op. With
+ * this stand-in React DOM registers here, and the Fast Refresh runtime
+ * picks the renderer up from `renderers` when it installs (a real DevTools
+ * hook, when the extension is there, does the same). */
+const REACT_HOOK_STAND_IN =
+	'if(!window.__REACT_DEVTOOLS_GLOBAL_HOOK__){var n=0;' +
+	'window.__REACT_DEVTOOLS_GLOBAL_HOOK__={renderers:new Map(),supportsFiber:true,' +
+	'inject:function(r){n+=1;this.renderers.set(n,r);return n},' +
+	'onScheduleFiberRoot:function(){},onCommitFiberRoot:function(){},onCommitFiberUnmount:function(){}}}';
+
 const buildIslandsHeadMarkup = (
 	manifest: Record<string, string>,
-	html?: string
+	html?: string,
+	host?: IslandHost
 ) => {
 	const styleLinks = buildIslandStyleLinks(manifest, html);
 	const manifestScript = `<script${nonceAttr()}>window.__ABSOLUTE_MANIFEST__ = ${escapeScriptContent(JSON.stringify(toBrowserManifest(manifest)))}</script>`;
-	const islandStateScript = `<script${nonceAttr()}>window.__ABS_ISLAND_STATE__ = ${escapeScriptContent(JSON.stringify(globalThis.__ABS_ISLAND_STATE__ ?? {}))}</script>`;
+	// The island runtime waits for a React page's root before it hydrates
+	// any island (see startIslands in client/islandRuntime.ts).
+	const hostAssignment = host
+		? `;window.__ABS_ISLAND_HOST__ = ${JSON.stringify(host)}`
+		: '';
+	const islandStateScript = `<script${nonceAttr()}>window.__ABS_ISLAND_STATE__ = ${escapeScriptContent(JSON.stringify(globalThis.__ABS_ISLAND_STATE__ ?? {}))}${hostAssignment}</script>`;
+	const reactHookScript = isProductionRuntime()
+		? ''
+		: `<script${nonceAttr()}>${REACT_HOOK_STAND_IN}</script>`;
 	const bootstrapPath = getIslandBootstrapPath(manifest);
 	const bootstrapScript = bootstrapPath
 		? `<script${nonceAttr()} type="module" src="${bootstrapPath}"></script>`
 		: '';
 
-	return `${styleLinks}${manifestScript}${islandStateScript}${bootstrapScript}`;
+	return `${styleLinks}${manifestScript}${islandStateScript}${reactHookScript}${bootstrapScript}`;
 };
 
 const injectHeadMarkup = (html: string, markup: string) => {
@@ -517,13 +548,18 @@ export const injectIslandPageContext = (
 	return injectHeadMarkup(html, buildIslandsHeadMarkup(manifest, html));
 };
 
+type IslandPageContextStreamOptions = {
+	hasIslands?: boolean;
+	host?: IslandHost;
+};
+
 export const injectIslandPageContextStream = (
 	stream: ReadableStream<string | Uint8Array>,
-	options?: { hasIslands?: boolean }
+	options?: IslandPageContextStreamOptions
 ) => {
 	const manifest = globalThis.__absoluteManifest;
 	if (!manifest) return stream;
-	const markup = buildIslandsHeadMarkup(manifest);
+	const markup = buildIslandsHeadMarkup(manifest, undefined, options?.host);
 
 	if (options?.hasIslands === true) {
 		warnIfBootstrapMissing(manifest);

@@ -46,6 +46,7 @@ import {
 import { addFileWatchers, startFileWatching } from '../dev/fileWatcher';
 import { createSvelteDeclarationRefresher } from '../dev/svelteDeclarationRefresher';
 import { createFileRouteRefresher } from '../dev/fileRouteRefresher';
+import { createManifestKeysRefresher } from '../dev/manifestKeysRefresher';
 import { getWatchPaths } from '../dev/pathUtils';
 import { cleanStaleAssets, populateAssetStore } from '../dev/assetStore';
 import { drainPendingQueue, queueFileChange } from '../dev/rebuildTrigger';
@@ -723,8 +724,10 @@ export const devBuild = async (config: BuildConfig) => {
 	const fileRouteRefresher = createFileRouteRefresher(config, (path) =>
 		queueFileChange(state, path, config, onWatcherRebuildComplete)
 	);
+	const manifestKeys = createManifestKeysRefresher(config);
 	startFileWatching(state, config, (filePath: string) => {
 		svelteDeclarations?.onFileChange(filePath);
+		manifestKeys.onFileChange(filePath);
 		fileRouteRefresher?.onFileChange(filePath);
 		if (state.initialBuildFailed) {
 			void recoverFromColdStartFailure();

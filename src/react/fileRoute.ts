@@ -4,7 +4,7 @@ import {
 	defineFileRouteWith,
 	type FileRouteAdapterInput
 } from '../core/fileRouteAdapter';
-import { asset } from '../core/lookup';
+import { assetUnchecked } from '../core/lookup';
 import { handleReactPageRequest } from './pageHandler';
 
 type PagePropsOf<PageModule> = PageModule extends {
@@ -51,7 +51,7 @@ export const reactFileRoute = <
 			}
 
 			return handleReactPageRequest<Record<string, unknown>>({
-				index: asset(manifest, `${route.name}Index`),
+				index: assetUnchecked(manifest, `${route.name}Index`),
 				Page,
 				props,
 				request

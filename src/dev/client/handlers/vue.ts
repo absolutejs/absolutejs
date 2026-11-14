@@ -120,6 +120,109 @@ const forceReloadVueComponent = (mod: Record<string, unknown>) => {
 	}
 };
 
+/* A page that exports `routes = defineRoutes([...])` gets its router from
+ * the auto-generated setupApp, which runs once at boot. Re-importing the
+ * edited page module re-evaluates `routes` but leaves the live router on the
+ * boot-time table, so a route added to the page could not be navigated to
+ * (the router saw no match and fell back to a full page load) and a removed
+ * one still rendered. Swap the live router's table for the new one. */
+type RouteMatch = { path: string };
+
+type LiveVueRouter = {
+	addRoute: (route: Record<string, unknown>) => unknown;
+	clearRoutes?: () => void;
+	currentRoute: { value: { fullPath: string; matched: RouteMatch[] } };
+	options?: { routes?: unknown };
+	replace: (to: string) => Promise<unknown>;
+	resolve: (to: string) => { matched: RouteMatch[] };
+};
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+	typeof value === 'object' && value !== null;
+
+const isLiveVueRouter = (value: unknown): value is LiveVueRouter =>
+	isRecord(value) &&
+	typeof value.addRoute === 'function' &&
+	typeof value.resolve === 'function' &&
+	typeof value.replace === 'function' &&
+	isRecord(value.currentRoute);
+
+const readLiveVueRouter = () => {
+	const app = window.__VUE_APP__;
+	const config = app ? Reflect.get(app, 'config') : undefined;
+	const globals = isRecord(config)
+		? Reflect.get(config, 'globalProperties')
+		: undefined;
+	const router = isRecord(globals) ? Reflect.get(globals, '$router') : null;
+
+	return isLiveVueRouter(router) ? router : null;
+};
+
+/* Route shape without the component loaders: the module server re-stamps
+ * import URLs on every edit, which would make every save look like a route
+ * table change and remount the current route. */
+const describeRoutes = (routes: unknown): unknown[] =>
+	Array.isArray(routes)
+		? routes.map((route) =>
+				isRecord(route)
+					? {
+							alias: route.alias,
+							children: describeRoutes(route.children),
+							name:
+								typeof route.name === 'symbol'
+									? String(route.name)
+									: route.name,
+							path: route.path,
+							redirect:
+								typeof route.redirect === 'function'
+									? String(route.redirect)
+									: route.redirect
+						}
+					: null
+			)
+		: [];
+
+const routeTableSignature = (routes: unknown) =>
+	JSON.stringify(describeRoutes(routes));
+
+const appliedRouteTables = new WeakMap<LiveVueRouter, string>();
+
+const matchedPaths = (matched: RouteMatch[]) =>
+	matched.map((record) => record.path).join('\n');
+
+/* Returns `reload` when the change can't be applied in place: the router
+ * predates `clearRoutes` (vue-router < 4.4), or the route the page is on no
+ * longer exists — the server now answers it 404, so load that. */
+const syncVueRoutes = (mod: unknown) => {
+	const routes = isRecord(mod) ? mod.routes : undefined;
+	if (!Array.isArray(routes)) return 'unchanged';
+	const router = readLiveVueRouter();
+	if (!router) return 'unchanged';
+	const next = routeTableSignature(routes);
+	const previous =
+		appliedRouteTables.get(router) ??
+		routeTableSignature(router.options?.routes);
+	if (next === previous) return 'unchanged';
+	if (typeof router.clearRoutes !== 'function') return 'reload';
+
+	router.clearRoutes();
+	for (const route of routes) {
+		if (isRecord(route)) router.addRoute(route);
+	}
+	appliedRouteTables.set(router, next);
+
+	const current = router.currentRoute.value;
+	const resolved = router.resolve(current.fullPath);
+	if (resolved.matched.length === 0) return 'reload';
+	// The current location now resolves to different records (its route was
+	// edited): navigate in place so RouterView renders the new ones.
+	if (matchedPaths(resolved.matched) !== matchedPaths(current.matched)) {
+		void router.replace(current.fullPath);
+	}
+
+	return 'synced';
+};
+
 export const handleVueUpdate = (message: {
 	data: {
 		cssBaseName?: string;
@@ -206,6 +309,19 @@ export const handleVueUpdate = (message: {
 					forceReloadVueComponent(mod);
 				}
 				sessionStorage.removeItem('__HMR_ACTIVE__');
+
+				if (syncVueRoutes(mod) === 'reload') {
+					sendAbsoluteHmrTiming({
+						clientStart,
+						kind: 'component',
+						outcome: 'reloaded',
+						serverMs: message.data.serverDuration,
+						updateId: message.timestamp
+					});
+					window.location.reload();
+
+					return undefined;
+				}
 
 				if (message.data.serverDuration !== undefined) {
 					sendAbsoluteHmrTiming({

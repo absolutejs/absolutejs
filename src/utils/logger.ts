@@ -78,6 +78,7 @@ const log = (
 	action: string,
 	options?: {
 		framework?: string;
+		detail?: string;
 		duration?: number;
 		path?: string;
 		color?: string;
@@ -95,6 +96,8 @@ const log = (
 			: colors.white;
 		message += ` ${pathColor}${formatPath(options.path)}${colors.reset}`;
 	}
+
+	if (options?.detail) message += ` ${options.detail}`;
 
 	// Add duration if present
 	if (options?.duration !== undefined) {
@@ -204,6 +207,27 @@ export const logPageReload = (
 	duration?: number
 ) => {
 	log('page reload', { duration, framework, path });
+};
+
+/**
+ * A page's client-side route table changed
+ * Format: "10:30:45 AM [hmr] routes update /pages/Shell.vue +/app/three -/app/two"
+ */
+export const logRoutesUpdate = (
+	path: string,
+	framework: string,
+	added: string[],
+	removed: string[]
+) => {
+	const changes = [
+		...added.map((route) => `${colors.green}+${route}${colors.reset}`),
+		...removed.map((route) => `${colors.red}-${route}${colors.reset}`)
+	];
+	log('routes update', {
+		detail: changes.length > 0 ? changes.join(' ') : undefined,
+		framework,
+		path
+	});
 };
 
 /**

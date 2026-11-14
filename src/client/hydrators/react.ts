@@ -8,6 +8,8 @@ import { flushSync } from 'react-dom';
 import { prepareBrowserTranslationHydration } from '../browserTranslation';
 
 const reactIslandRoots = new WeakMap<HTMLElement, ReactRoot>();
+// The component each island root renders, for Fast Refresh (below).
+const reactIslandComponents = new WeakMap<HTMLElement, unknown>();
 
 const isPropsRecord = (value: unknown): value is Record<string, unknown> =>
 	typeof value === 'object' && value !== null;
@@ -52,6 +54,7 @@ export const hydrateReactIsland = (
 				? createElement(component, props)
 				: createElement(component)
 		);
+		reactIslandComponents.set(element, component);
 
 		return;
 	}
@@ -70,6 +73,7 @@ export const hydrateReactIsland = (
 			restoreTranslation();
 		}
 		if (root !== undefined) reactIslandRoots.set(element, root);
+		reactIslandComponents.set(element, component);
 	};
 
 	if (!isPropsRecord(props)) {
@@ -116,4 +120,58 @@ export const remountReactIsland = (
 		);
 	});
 	reactIslandRoots.set(element, root);
+	reactIslandComponents.set(element, component);
+};
+
+/* The component an island root rendered in its last commit. */
+const renderedComponent = (root: ReactRoot | undefined) => {
+	const fiberRoot: unknown = root && Reflect.get(root, '_internalRoot');
+	const hostFiber: unknown =
+		fiberRoot && typeof fiberRoot === 'object'
+			? Reflect.get(fiberRoot, 'current')
+			: undefined;
+	const child: unknown =
+		hostFiber && typeof hostFiber === 'object'
+			? Reflect.get(hostFiber, 'child')
+			: undefined;
+
+	return child && typeof child === 'object'
+		? Reflect.get(child, 'type')
+		: undefined;
+};
+
+/** Dev HMR: hand a rebuilt island component to React Fast Refresh. In dev
+ *  the island bundles register their components with Fast Refresh, so when
+ *  the version on screen and the rebuilt one are the same component (one
+ *  Fast Refresh family), a refresh re-renders the island in place: its hook
+ *  state stays when its hooks are unchanged and resets when they changed,
+ *  as on a React page. True when every given island now renders
+ *  `component`; false sends the caller to remountReactIsland (no Fast
+ *  Refresh runtime on the page, a component not registered, or a root
+ *  the refresh did not reach). */
+export const refreshReactIslands = (
+	component: unknown,
+	elements: HTMLElement[]
+) => {
+	const runtime = window.$RefreshRuntime$;
+	const getFamily = runtime?.getFamilyByType;
+	if (!runtime || !getFamily) return false;
+	const family = getFamily(component);
+	if (!family) return false;
+	const sameFamily = elements.every((element) => {
+		const previous = reactIslandComponents.get(element);
+
+		return previous !== undefined && getFamily(previous) === family;
+	});
+	if (!sameFamily) return false;
+	runtime.performReactRefresh();
+	if (family.current !== component) return false;
+
+	return elements.every((element) => {
+		if (renderedComponent(reactIslandRoots.get(element)) !== component)
+			return false;
+		reactIslandComponents.set(element, component);
+
+		return true;
+	});
 };

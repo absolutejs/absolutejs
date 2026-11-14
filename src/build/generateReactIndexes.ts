@@ -3,6 +3,7 @@ import { readdir, rm, writeFile } from 'fs/promises';
 import { basename, join, relative, resolve, sep } from 'path';
 import { Glob } from 'bun';
 import { toPascal } from '../utils/stringModifiers';
+import { REACT_PAGE_ROOT_EVENT } from '../core/islandManifest';
 
 const indexContentCache = new Map<string, string>();
 
@@ -452,6 +453,10 @@ export const generateReactIndexFiles = async (
 			`\t\t};`,
 			`\t}`,
 			`}`,
+			`// Islands on this page wait for the page's root (client/islandRuntime.ts):`,
+			`// a React root created on an island first claims the document's event`,
+			`// listening marker, and the page root created after it gets no events.`,
+			`if (window.__REACT_ROOT__) window.dispatchEvent(new Event('${REACT_PAGE_ROOT_EVENT}'));`,
 			`if (typeof window !== 'undefined') {`,
 			`\twindow.__ABSOLUTE_PAGE_READY__ = Promise.resolve();`,
 			`\twindow.__ABSOLUTE_PAGE_DISPOSE__ = function() {`,

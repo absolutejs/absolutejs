@@ -95,7 +95,9 @@ const extractRoutesFromBody = (body: string) => {
 	return out;
 };
 
-const analyzeFile = async (filePath: string): Promise<SpaHost | null> => {
+export const analyzeSvelteSpaRouteFile = async (
+	filePath: string
+): Promise<SpaHost | null> => {
 	let source: string;
 	try {
 		source = await fs.readFile(filePath, 'utf-8');
@@ -160,7 +162,7 @@ export const analyzeSvelteSpaRoutes = async (svelteDirectory: string) => {
 	await Promise.all(
 		files.map(async (file) => {
 			try {
-				const host = await analyzeFile(file);
+				const host = await analyzeSvelteSpaRouteFile(file);
 				if (host) hosts.push(host);
 			} catch (err) {
 				console.warn(

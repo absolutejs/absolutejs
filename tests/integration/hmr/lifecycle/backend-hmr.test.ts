@@ -181,7 +181,16 @@ describe('editing server code updates the running server in place', () => {
 		mutateFile(file('state.ts'), (text) =>
 			text.replace('STATE_ONE', 'STATE_TWO')
 		);
-		await waitFor('state', 'STATE_TWO:3');
+		// Every poll while waiting also counts a hit, so the exact count is
+		// unknowable; state survived if it kept climbing instead of restarting.
+		const deadline = Date.now() + UPDATE_DEADLINE_MS;
+		let last = '';
+		while (Date.now() < deadline && !last.startsWith('STATE_TWO:')) {
+			last = await get('state');
+			if (!last.startsWith('STATE_TWO:')) await Bun.sleep(POLL_MS);
+		}
+		expect(last).toStartWith('STATE_TWO:');
+		expect(Number(last.slice('STATE_TWO:'.length))).toBeGreaterThan(2);
 		expect(restarted()).toBe(false);
 	}, 30_000);
 

@@ -84,6 +84,7 @@ import { writeSpaSideManifests } from '../build/spaSideManifests';
 import { clearSpaRouteCssCaches } from '../utils/spaRouteCss';
 import { clearSiblingCssCache } from '../utils/inlinePageCss';
 import { detectFramework } from './pathUtils';
+import { refreshSpaRoutesForFiles } from './spaRouteRefresh';
 import { resolveOwningComponents as resolveOwningComponentsSync } from './angular/resolveOwningComponents';
 import { toKebab, toPascal } from '../utils/stringModifiers';
 import { normalizePath } from '../utils/normalizePath';
@@ -5362,6 +5363,12 @@ const runFrameworkFastPaths = async (
 	}) => void
 ) => {
 	const handled = new Set<string>();
+
+	// The fast paths skip `build()`, which is where the SPA route table is
+	// computed. Re-read the edited files' routes first so the server answers
+	// a route added to (or removed from) a page's router config before the
+	// browser navigates to it.
+	await refreshSpaRoutesForFiles(files, state.resolvedPaths);
 
 	const fastPaths: FrameworkFastPathConfig[] = [
 		{

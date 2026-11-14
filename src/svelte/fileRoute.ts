@@ -5,7 +5,7 @@ import {
 	defineFileRouteWith,
 	type FileRouteAdapterInput
 } from '../core/fileRouteAdapter';
-import { asset } from '../core/lookup';
+import { assetUnchecked } from '../core/lookup';
 import { handleSveltePageRequest } from './pageHandler';
 
 type PagePropsOf<PageModule> = PageModule extends { default: infer Page }
@@ -26,8 +26,8 @@ export const svelteFileRoute = <
 ) =>
 	defineFileRouteWith('svelte', route, async ({ manifest, props, request }) =>
 		handleSveltePageRequest<Component<Record<string, unknown>>>({
-			indexPath: asset(manifest, `${route.name}Index`),
-			pagePath: asset(manifest, route.name),
+			indexPath: assetUnchecked(manifest, `${route.name}Index`),
+			pagePath: assetUnchecked(manifest, route.name),
 			props,
 			request
 		})

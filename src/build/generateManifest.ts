@@ -56,6 +56,106 @@ const getArtifactBaseName = (fileName: string, hash: string | null) => {
 	return stem;
 };
 
+const islandFrameworkOf = (segment: string | undefined) =>
+	segment === 'react' ||
+	segment === 'svelte' ||
+	segment === 'vue' ||
+	segment === 'angular'
+		? segment
+		: undefined;
+
+export type ManifestOutputKey = {
+	key: string;
+	/* Island keys never warn on a duplicate: the island passes write each
+	 * one more than once by design. */
+	warnOnDuplicate: boolean;
+};
+
+/**
+ * The manifest key of one build output, from its path relative to the build
+ * directory (`svelte/indexes/pages/Home.js`) and the hash Bun put in its
+ * file name, if any; `null` when the output gets no key.
+ *
+ * This is the one place an output path becomes a key. The build runs every
+ * artifact through it, and so does the derivation that types
+ * `asset(manifest, key)` without building (build/manifestKeys.ts), so the
+ * two cannot name an output differently.
+ */
+export const manifestKeyForOutput = (
+	relativePath: string,
+	hash: string | null = null
+): ManifestOutputKey | null => {
+	const segments = relativePath.replace(/^\/+/, '').split('/');
+	const fileWithHash = segments.pop();
+	if (!fileWithHash) return null;
+
+	const baseName = getArtifactBaseName(fileWithHash, hash);
+	if (!baseName) return null;
+
+	const pascalName = toPascal(baseName);
+	const ext = extname(fileWithHash);
+	const islandIndex = segments.findIndex((seg) => seg === 'islands');
+	const islandFramework = islandFrameworkOf(
+		islandIndex > UNFOUND_INDEX ? segments[islandIndex + 1] : undefined
+	);
+
+	if (ext === '.css') {
+		// Server bundles auto-emit a sibling .css for any CSS imported by
+		// the SSR entry (Vue scoped styles, etc.). It's never linked from
+		// HTML — the indexes-pass CSS is — so skip it to avoid clobbering
+		// the same `${Page}BundledCSS` key.
+		if (segments.includes('server')) return null;
+
+		// The stylesheet the island client pass emits for an island
+		// entry (`islands/<framework>/<Name>.<hash>.css`).
+		if (islandFramework)
+			return {
+				key: getIslandStyleManifestKey(islandFramework, pascalName),
+				warnOnDuplicate: false
+			};
+
+		// Distinguish CSS from different sources to avoid key collisions.
+		// CSS co-emitted from a JS bundle (e.g. CSS Modules) lives under a
+		// framework path like react/generated/indexes/, while global
+		// stylesheets from the styles directory land directly in indexes/.
+		// Vue compiled SFC styles live in assets/css/.
+		return { key: getCssKey(pascalName, segments), warnOnDuplicate: true };
+	}
+
+	if (islandFramework)
+		return {
+			key: getIslandManifestKey(islandFramework, pascalName),
+			warnOnDuplicate: false
+		};
+
+	const idx = segments.findIndex(
+		(seg) => seg === 'indexes' || seg === 'pages' || seg === 'client'
+	);
+	const folder = idx > UNFOUND_INDEX ? segments[idx] : segments[0];
+
+	// Detect framework from path segments
+	const isReact = segments.some((seg) => seg === 'react');
+	const isVue = segments.some((seg) => seg === 'vue');
+	const isSvelte = segments.some((seg) => seg === 'svelte');
+	const isAngular = segments.some((seg) => seg === 'angular');
+
+	// Check if this is a client component (for official HMR)
+	const isClientComponent = segments.includes('client');
+
+	return {
+		key: getManifestKey(
+			folder,
+			pascalName,
+			isClientComponent,
+			isReact,
+			isVue,
+			isSvelte,
+			isAngular
+		),
+		warnOnDuplicate: true
+	};
+};
+
 export const generateManifest = (outputs: BuildArtifact[], buildPath: string) =>
 	outputs.reduce<Record<string, string>>((manifest, artifact) => {
 		// Normalize both paths for consistent comparison across platforms
@@ -67,106 +167,17 @@ export const generateManifest = (outputs: BuildArtifact[], buildPath: string) =>
 			: normalizedArtifactPath;
 		relative = relative.replace(/^\/+/, '');
 
-		const segments = relative.split('/');
-		const fileWithHash = segments.pop();
-		if (!fileWithHash) return manifest;
+		const output = manifestKeyForOutput(relative, artifact.hash);
+		if (!output) return manifest;
+		const { key, warnOnDuplicate } = output;
+		const path = `/${relative}`;
 
-		const baseName = getArtifactBaseName(fileWithHash, artifact.hash);
-		if (!baseName) return manifest;
-
-		const pascalName = toPascal(baseName);
-		const ext = extname(fileWithHash);
-		const islandIndex = segments.findIndex((seg) => seg === 'islands');
-
-		if (ext === '.css') {
-			// Server bundles auto-emit a sibling .css for any CSS imported by
-			// the SSR entry (Vue scoped styles, etc.). It's never linked from
-			// HTML — the indexes-pass CSS is — so skip it to avoid clobbering
-			// the same `${Page}BundledCSS` key.
-			if (segments.includes('server')) return manifest;
-
-			// The stylesheet the island client pass emits for an island
-			// entry (`islands/<framework>/<Name>.<hash>.css`).
-			const islandStyleFramework =
-				islandIndex > UNFOUND_INDEX
-					? segments[islandIndex + 1]
-					: undefined;
-			if (
-				islandStyleFramework === 'react' ||
-				islandStyleFramework === 'svelte' ||
-				islandStyleFramework === 'vue' ||
-				islandStyleFramework === 'angular'
-			) {
-				manifest[
-					getIslandStyleManifestKey(islandStyleFramework, pascalName)
-				] = `/${relative}`;
-
-				return manifest;
-			}
-
-			// Distinguish CSS from different sources to avoid key collisions.
-			// CSS co-emitted from a JS bundle (e.g. CSS Modules) lives under a
-			// framework path like react/generated/indexes/, while global
-			// stylesheets from the styles directory land directly in indexes/.
-			// Vue compiled SFC styles live in assets/css/.
-			const cssKey = getCssKey(pascalName, segments);
-
-			if (manifest[cssKey] && manifest[cssKey] !== `/${relative}`)
-				logWarn(
-					`Duplicate manifest key "${cssKey}" — "${manifest[cssKey]}" will be overwritten by "/${relative}". Use unique page names across frameworks.`
-				);
-
-			manifest[cssKey] = `/${relative}`;
-
-			return manifest;
-		}
-
-		const frameworkSegment =
-			islandIndex > UNFOUND_INDEX ? segments[islandIndex + 1] : undefined;
-		if (
-			frameworkSegment === 'react' ||
-			frameworkSegment === 'svelte' ||
-			frameworkSegment === 'vue' ||
-			frameworkSegment === 'angular'
-		) {
-			const manifestKey = getIslandManifestKey(
-				frameworkSegment,
-				pascalName
-			);
-			manifest[manifestKey] = `/${relative}`;
-
-			return manifest;
-		}
-
-		const idx = segments.findIndex(
-			(seg) => seg === 'indexes' || seg === 'pages' || seg === 'client'
-		);
-		const folder = idx > UNFOUND_INDEX ? segments[idx] : segments[0];
-
-		// Detect framework from path segments
-		const isReact = segments.some((seg) => seg === 'react');
-		const isVue = segments.some((seg) => seg === 'vue');
-		const isSvelte = segments.some((seg) => seg === 'svelte');
-		const isAngular = segments.some((seg) => seg === 'angular');
-
-		// Check if this is a client component (for official HMR)
-		const isClientComponent = segments.includes('client');
-
-		const manifestKey = getManifestKey(
-			folder,
-			pascalName,
-			isClientComponent,
-			isReact,
-			isVue,
-			isSvelte,
-			isAngular
-		);
-		if (manifest[manifestKey] && manifest[manifestKey] !== `/${relative}`) {
+		if (warnOnDuplicate && manifest[key] && manifest[key] !== path) {
 			logWarn(
-				`Duplicate manifest key "${manifestKey}" — "${manifest[manifestKey]}" will be overwritten by "/${relative}". Use unique page names across frameworks.`
+				`Duplicate manifest key "${key}" — "${manifest[key]}" will be overwritten by "${path}". Use unique page names across frameworks.`
 			);
 		}
-		manifest[manifestKey] = `/${relative}`;
+		manifest[key] = path;
 
 		return manifest;
 	}, {});

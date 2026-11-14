@@ -29,6 +29,10 @@ import {
 	tsconfigHasSvelteDeclarationRoot
 } from '../../build/svelteDeclarations';
 import { ensureFileRouteModule } from '../../build/fileRoutes';
+import {
+	MANIFEST_KEYS_DECLARATION,
+	writeManifestKeysDeclaration
+} from '../../build/manifestKeys';
 import { diagnosticKeys, withoutReported } from './typecheckDiagnostics';
 import type {
 	AbsoluteServiceConfig,
@@ -340,20 +344,49 @@ const getProjectDeclarationIncludes = () =>
 let vueShimPath: string | null = null;
 
 const VUE_SHIM_FILE = 'typecheck-vue-shim.d.ts';
-const SKIPPED_VUE_SCAN_DIRECTORIES = new Set(['build', 'node_modules']);
+const SKIPPED_SCAN_DIRECTORIES = new Set([
+	'build',
+	'generated',
+	'node_modules'
+]);
 
-const collectVueFileNames = (dir: string): string[] => {
-	if (!existsSync(dir)) return [];
+/** Every `.vue` and `.svelte` file in the project, wherever it lives: page
+ *  components sit under the framework directories, but islands usually sit
+ *  beside the registry (src/islands/), and both are imported from server
+ *  code. Dot-directories (.absolutejs, .git), node_modules and build output
+ *  are skipped. */
+const isScannedDirectory = (name: string) =>
+	!name.startsWith('.') && !SKIPPED_SCAN_DIRECTORIES.has(name);
+
+const walkComponentFiles = (
+	dir: string,
+	skipped: ReadonlySet<string>
+): string[] => {
+	if (!existsSync(dir) || skipped.has(dir)) return [];
 
 	return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+		const path = join(dir, entry.name);
 		if (entry.isDirectory())
-			return entry.name.startsWith('.') ||
-				SKIPPED_VUE_SCAN_DIRECTORIES.has(entry.name)
-				? []
-				: collectVueFileNames(join(dir, entry.name));
+			return isScannedDirectory(entry.name)
+				? walkComponentFiles(path, skipped)
+				: [];
 
-		return entry.name.endsWith('.vue') ? [entry.name] : [];
+		return entry.name.endsWith('.vue') || entry.name.endsWith('.svelte')
+			? [path]
+			: [];
 	});
+};
+
+export const collectComponentFiles = (
+	dir: string,
+	skipped: ReadonlySet<string> = new Set()
+) => {
+	const files = walkComponentFiles(dir, skipped);
+
+	return {
+		svelte: files.filter((file) => file.endsWith('.svelte')),
+		vue: files.filter((file) => file.endsWith('.vue'))
+	};
 };
 
 export const vueShimSource = (fileNames: readonly string[]) =>
@@ -365,14 +398,108 @@ export const vueShimSource = (fileNames: readonly string[]) =>
 		)
 		.join('\n');
 
-const prepareVueShim = async (cacheDir: string, vueDirs: string[]) => {
-	const fileNames = vueDirs.flatMap((dir) =>
-		collectVueFileNames(resolve(dir))
-	);
+const prepareVueShim = async (cacheDir: string, vueFiles: string[]) => {
+	const fileNames = vueFiles.map((file) => parse(file).base);
 	if (fileNames.length === 0) return;
 	const shimPath = resolve(cacheDir, VUE_SHIM_FILE);
 	await writeFile(shimPath, vueShimSource(fileNames));
 	vueShimPath = shimPath;
+};
+
+/* `.svelte` imports, for the Vue checker. vue-check writes its own
+ * `rootDirs` (the project joined to its generated Vue code), which replaces
+ * the ones joining the project to the generated Svelte declarations, so a
+ * `.svelte` import there (an island registry importing both kinds) is
+ * TS2307 unless the project happens to load Svelte's ambient `*.svelte`.
+ * Svelte props are checked by the plain checker against the real
+ * declarations; here the component only has to resolve, so it gets the
+ * type Svelte's own ambient `*.svelte` gives it (any props), and nothing
+ * typed by it is reported twice. Per file name, for the same
+ * reason as the Vue shim. */
+let svelteShimPath: string | null = null;
+
+const SVELTE_SHIM_FILE = 'typecheck-svelte-shim.d.ts';
+
+export const svelteShimSource = (fileNames: readonly string[]) =>
+	[...new Set(fileNames)]
+		.sort()
+		.map(
+			(fileName) =>
+				`declare module ${JSON.stringify(`*/${fileName}`)} {\n\timport type { SvelteComponent } from 'svelte';\n\timport type { LegacyComponentType } from 'svelte/legacy';\n\tconst component: LegacyComponentType;\n\ttype component = SvelteComponent;\n\texport default component;\n}\n`
+		)
+		.join('\n');
+
+const prepareSvelteShim = async (cacheDir: string, svelteFiles: string[]) => {
+	const fileNames = svelteFiles.map((file) => parse(file).base);
+	if (fileNames.length === 0) return;
+	const shimPath = resolve(cacheDir, SVELTE_SHIM_FILE);
+	await writeFile(shimPath, svelteShimSource(fileNames));
+	svelteShimPath = shimPath;
+};
+
+const isWithin = (dir: string, path: string) => {
+	const rel = relative(dir, path);
+
+	return rel === '' || (!rel.startsWith('..') && !rel.startsWith('/'));
+};
+
+/** The directories Svelte declarations are generated for (and svelte-check
+ *  runs over): each configured svelteDirectory, plus the folder of every
+ *  `.svelte` file outside them (an island beside its registry), with a
+ *  folder inside another one folded into it so no two mirrors overlap.
+ *  Relative to the project root. */
+export const svelteRoots = (
+	projectRoot: string,
+	svelteDirs: readonly string[],
+	svelteFiles: readonly string[]
+) => {
+	const configured = svelteDirs.map((dir) => resolve(projectRoot, dir));
+	const strays = svelteFiles
+		.filter((file) => !configured.some((dir) => isWithin(dir, file)))
+		.map((file) => dirname(file));
+	const candidates = [...new Set([...configured, ...strays])].sort(
+		(left, right) => left.length - right.length
+	);
+	const roots = candidates.reduce<string[]>(
+		(kept, dir) =>
+			kept.some((root) => isWithin(root, dir)) ? kept : [...kept, dir],
+		[]
+	);
+
+	return roots.map((dir) => relative(projectRoot, dir) || '.');
+};
+
+/* The generated manifest-key declarations (build/manifestKeys.ts), one per
+ * project root: listed in each config that checks server code, so
+ * `asset(manifest, 'Abuot')` is an error. They sit under .absolutejs, which
+ * the configs exclude, so they are named in `files`. */
+let manifestKeyDeclarations: string[] = [];
+
+const MANIFEST_KEYS_EDITOR_HINT = `\x1b[33mnote\x1b[0m asset(manifest, key) keys are checked by this command. For the same check in your editor, add "${MANIFEST_KEYS_DECLARATION}" to include in tsconfig.json.`;
+
+const prepareManifestKeys = async (
+	targets: readonly AbsoluteServiceConfig[]
+) => {
+	const byRoot = new Map<string, AbsoluteServiceConfig[]>();
+	for (const target of targets) {
+		const root = resolve(target.cwd ?? '.');
+		byRoot.set(root, [...(byRoot.get(root) ?? []), target]);
+	}
+	const written = await Promise.all(
+		[...byRoot].map(([root, configs]) =>
+			writeManifestKeysDeclaration(configs, root)
+		)
+	);
+	manifestKeyDeclarations = written.filter(
+		(path): path is string => path !== null
+	);
+	const config = readProjectTsconfig();
+	const listed = [
+		...toStringArray(config.include),
+		...toStringArray(config.files)
+	].some((entry) => entry.replace(/^\.\//, '').startsWith('.absolutejs'));
+	if (manifestKeyDeclarations.length > 0 && !listed)
+		console.log(MANIFEST_KEYS_EDITOR_HINT);
 };
 
 /* `rootDirs` for the generated configs once Svelte declarations exist: the
@@ -437,7 +564,10 @@ const buildVueTscCheck = async (cacheDir: string) => {
 				},
 				exclude: getProjectTypecheckExcludes(),
 				extends: resolve('tsconfig.json'),
-				include: getProjectTypecheckIncludes()
+				include: getProjectTypecheckIncludes(),
+				...(manifestKeyDeclarations.length > 0
+					? { files: manifestKeyDeclarations }
+					: {})
 			},
 			null,
 			'\t'
@@ -542,9 +672,13 @@ const writeTypecheckConfig = async (
 ) => {
 	const tscConfigPath = join(cacheDir, TYPECHECK_CONFIG_FILES[checker]);
 	/* The plain checker can't read a .vue file, so it reads each one as
-	 * the shim declares it; vue-check reads the real component instead. */
-	const vueShim =
-		checker !== 'vue' && vueShimPath !== null ? [vueShimPath] : [];
+	 * the shim declares it; vue-check reads the real component instead, and
+	 * reads each .svelte file as its own shim declares it. */
+	const shim = checker === 'vue' ? svelteShimPath : vueShimPath;
+	const shimFiles = [
+		...(shim === null ? [] : [shim]),
+		...manifestKeyDeclarations
+	];
 	await writeFile(
 		tscConfigPath,
 		JSON.stringify(
@@ -567,7 +701,7 @@ const writeTypecheckConfig = async (
 				exclude: getProjectTypecheckExcludes(),
 				extends: resolve('tsconfig.json'),
 				include: getProjectTypecheckIncludes(),
-				...(vueShim.length > 0 ? { files: vueShim } : {})
+				...(shimFiles.length > 0 ? { files: shimFiles } : {})
 			},
 			null,
 			'\t'
@@ -822,9 +956,7 @@ export const typecheck = async (configPath?: string) => {
 	const hasAngular = targets.some((config) =>
 		Boolean(config.angularDirectory)
 	);
-	const hasSvelte = targets.some((config) => Boolean(config.svelteDirectory));
-	const hasVue = targets.some((config) => Boolean(config.vueDirectory));
-	const svelteDirs = [
+	const configuredSvelteDirs = [
 		...new Set(
 			targets
 				.map((config) => config.svelteDirectory)
@@ -834,16 +966,25 @@ export const typecheck = async (configPath?: string) => {
 				)
 		)
 	];
-	const vueDirs = [
-		...new Set(
-			targets
-				.map((config) => config.vueDirectory)
-				.filter(
-					(dir): dir is string =>
-						typeof dir === 'string' && dir.length > 0
-				)
+	const componentFiles = collectComponentFiles(
+		resolve('.'),
+		new Set(
+			targets.flatMap((config) =>
+				config.buildDirectory ? [resolve(config.buildDirectory)] : []
+			)
 		)
-	];
+	);
+	// A `.vue` or `.svelte` file anywhere in the project (an island beside
+	// its registry, with no page directory configured) brings its checker.
+	const hasVue =
+		targets.some((config) => Boolean(config.vueDirectory)) ||
+		componentFiles.vue.length > 0;
+	const svelteDirs = svelteRoots(
+		resolve('.'),
+		configuredSvelteDirs,
+		componentFiles.svelte
+	);
+	const hasSvelte = svelteDirs.length > 0;
 	const angularDirs = [
 		...new Set(
 			targets
@@ -857,6 +998,7 @@ export const typecheck = async (configPath?: string) => {
 
 	const cacheDir = '.absolutejs';
 	await mkdir(cacheDir, { recursive: true });
+	await prepareManifestKeys(targets);
 	if (hasSvelte) await prepareSvelteDeclarations(svelteDirs);
 	// File routes: the route module carries the load/props checks.
 	for (const config of targets) ensureFileRouteModule(config);
@@ -872,7 +1014,9 @@ export const typecheck = async (configPath?: string) => {
 	const useBunCheck = bunCheckSupported();
 	const plainCheck = useBunCheck ? buildBunCheck : buildTscCheck;
 	const vueCheck = useBunCheck ? buildVueCheck : buildVueTscCheck;
-	if (hasVue) await prepareVueShim(cacheDir, vueDirs);
+	if (hasVue) await prepareVueShim(cacheDir, componentFiles.vue);
+	if (hasVue && useBunCheck)
+		await prepareSvelteShim(cacheDir, componentFiles.svelte);
 	checks.push(plainCheck(cacheDir));
 	if (hasVue) checks.push(vueCheck(cacheDir));
 

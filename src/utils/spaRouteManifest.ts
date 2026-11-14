@@ -16,7 +16,7 @@ const isRuntimeSpaHost = (value: unknown): value is RuntimeSpaHost =>
 	value !== null &&
 	typeof Reflect.get(value, 'framework') === 'string';
 
-const getSpaRouteManifest = () => {
+export const getSpaRouteManifest = () => {
 	const value: unknown = Reflect.get(globalThis, SPA_ROUTES_KEY);
 
 	return Array.isArray(value) ? value.filter(isRuntimeSpaHost) : [];

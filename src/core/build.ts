@@ -25,6 +25,7 @@ import { build as bunBuild, type BuildArtifact, Glob } from 'bun';
 import { buildFonts } from '../build/fonts/buildFonts';
 import { injectFontTags } from '../build/fonts/injectFontTags';
 import { generateManifest } from '../build/generateManifest';
+import { writeManifestKeysDeclaration } from '../build/manifestKeys';
 import { verifyAngularCoreUniqueness } from '../build/verifyAngularCoreUniqueness';
 import {
 	collectIslandFrameworkSources,
@@ -2906,6 +2907,11 @@ const buildUnlocked = async ({
 								minify: !isDev,
 								naming: `[dir]/[name].[hash].[ext]`,
 								outdir: buildPath,
+								// React islands register with Fast Refresh in
+								// dev, so an edit refreshes the island in
+								// place and keeps its hook state
+								// (client/hydrators/react.ts).
+								...(hmr ? { reactFastRefresh: true } : {}),
 								plugins: [
 									...missingReactRouterPlugins,
 									...missingClientFrameworkPlugins,
@@ -3937,5 +3943,18 @@ export const build = async (config: BuildConfig) => {
 		projectRoot
 	);
 
-	return withBuildDirectoryLock(buildPath, () => buildUnlocked(config));
+	return withBuildDirectoryLock(buildPath, async () => {
+		// The manifest-key declaration that types `asset(manifest, key)`,
+		// derived from the source tree (not from this build's output, which
+		// in dev holds only the pages built so far). Alongside the build;
+		// it never rejects.
+		const manifestKeys =
+			config.incrementalFiles && config.incrementalFiles.length > 0
+				? undefined
+				: writeManifestKeysDeclaration(config, projectRoot);
+		const result = await buildUnlocked(config);
+		await manifestKeys;
+
+		return result;
+	});
 };

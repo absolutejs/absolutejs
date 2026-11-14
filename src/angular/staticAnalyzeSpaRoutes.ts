@@ -214,7 +214,7 @@ const findAppBaseHrefValue = (sourceFile: TS.SourceFile) => {
 	return found;
 };
 
-const analyzeFile = async (filePath: string) => {
+export const analyzeAngularSpaRouteFile = async (filePath: string) => {
 	let source: string;
 	try {
 		source = await fs.readFile(filePath, 'utf-8');
@@ -309,7 +309,7 @@ export const analyzeAngularSpaRoutes = async (angularDirectory: string) => {
 	await Promise.all(
 		tsFiles.map(async (file) => {
 			try {
-				const page = await analyzeFile(file);
+				const page = await analyzeAngularSpaRouteFile(file);
 				if (page) pages.push(page);
 			} catch (err) {
 				console.warn(

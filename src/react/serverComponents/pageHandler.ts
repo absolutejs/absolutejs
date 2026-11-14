@@ -42,12 +42,17 @@ export type ReactServerPageRequestInput<
 		: { props: NoInfer<Props> });
 
 type FlightRenderOptions = {
+	debugChannel?: { writable: WritableStream<Uint8Array> };
+	filterStackFrame?: (url: string, functionName: string) => boolean;
 	onError: (error: unknown) => void;
 };
 type ReactServerPageModule = {
 	Page: unknown;
 	clientManifest: Record<string, unknown>;
 	createElement: (type: unknown, props?: unknown) => unknown;
+	/** Set by bundles built with React's development Flight server. Absent
+	 *  from bundles built before the dev payload was stripped. */
+	developmentFlight?: boolean;
 	renderToReadableStream: (
 		model: unknown,
 		manifest: Record<string, unknown>,
@@ -63,7 +68,8 @@ type HtmlRenderOptions = {
 type ReactServerRendererModule = {
 	renderHtml: (
 		flight: ReadableStream<Uint8Array>,
-		options: HtmlRenderOptions
+		options: HtmlRenderOptions,
+		debug?: ReadableStream<Uint8Array>
 	) => Promise<ReadableStream<Uint8Array>>;
 	/** Absent from renderers built before SuspenseSlot rendered in RSC. */
 	renderStaticHtml?: (flight: ReadableStream<Uint8Array>) => Promise<string>;
@@ -164,6 +170,27 @@ const createNodeRenderer = (
 	return render;
 };
 
+/* React's development Flight server writes debug info into the payload:
+ * per server component its name, owner, timing, props (a function prop as
+ * `$E` plus its source) and stack frames with absolute source paths. The
+ * payload is inlined into the page, so that would hand the browser the
+ * project's file paths and server function source.
+ *
+ * Given a debug channel, React writes all of that to a second stream
+ * instead and leaves only references to it in the payload, which the
+ * Flight client skips when it has no debug channel of its own. That stream
+ * goes to the SSR renderer (server-rendered errors keep their server
+ * component owners) and never reaches the browser. Error rows (`E`) stay in
+ * the payload, so stack frames are dropped: the browser gets a server
+ * error's message, and the terminal logs the full error via onError. */
+const dropAllStackFrames = () => false;
+
+const createDevelopmentDebugChannel = (pageModule: ReactServerPageModule) => {
+	if (pageModule.developmentFlight !== true) return undefined;
+
+	return new TransformStream<Uint8Array, Uint8Array>();
+};
+
 const createRendererStorage = () =>
 	new AsyncLocalStorage<ReactServerNodeRenderer>();
 
@@ -195,6 +222,7 @@ export const handleReactServerPageRequest = async <
 			]);
 			const renderer = await loadRenderer(runtime.ssr);
 			const nonce = readCspNonce();
+			const debugChannel = createDevelopmentDebugChannel(pageModule);
 			const renderFlight = () =>
 				pageModule.renderToReadableStream(
 					pageModule.createElement(
@@ -202,7 +230,15 @@ export const handleReactServerPageRequest = async <
 						input.props ?? {}
 					),
 					pageModule.clientManifest,
-					{ onError: logRenderError }
+					debugChannel
+						? {
+								debugChannel: {
+									writable: debugChannel.writable
+								},
+								filterStackFrame: dropAllStackFrames,
+								onError: logRenderError
+							}
+						: { onError: logRenderError }
 				);
 			const nodeRenderer = createNodeRenderer(pageModule, renderer);
 			const flight = nodeRenderer
@@ -213,14 +249,18 @@ export const handleReactServerPageRequest = async <
 					)
 				: renderFlight();
 			const [forHtml, forPayload] = flight.tee();
-			const html = await renderer.renderHtml(forHtml, {
-				bootstrapModules: [runtime.client],
-				// Streamed slots wait for hydration (released by the
-				// client entry), as on Svelte and Vue pages.
-				bootstrapScriptContent: `${BROWSER_TRANSLATION_BASELINE_SCRIPT}window.__ABS_SLOT_HYDRATION_PENDING__=true;`,
-				nonce,
-				onError: logRenderError
-			});
+			const html = await renderer.renderHtml(
+				forHtml,
+				{
+					bootstrapModules: [runtime.client],
+					// Streamed slots wait for hydration (released by the
+					// client entry), as on Svelte and Vue pages.
+					bootstrapScriptContent: `${BROWSER_TRANSLATION_BASELINE_SCRIPT}window.__ABS_SLOT_HYDRATION_PENDING__=true;`,
+					nonce,
+					onError: logRenderError
+				},
+				debugChannel?.readable
+			);
 
 			return new Response(injectFlightPayload(html, forPayload, nonce), {
 				headers: streamingPageHeaders()

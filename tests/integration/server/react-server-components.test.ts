@@ -270,6 +270,7 @@ let prodCheck: PageCheck | undefined;
 let prodLog = '';
 let devHtml = '';
 let devAboutHtml = '';
+let devAboutCheck: AboutCheck | undefined;
 let devCheck: PageCheck | undefined;
 let devLog = '';
 let devEditedHtml = '';
@@ -348,6 +349,7 @@ describe.skipIf(!flightPackage)('React Server Components (phase 1)', () => {
 				await fetch(`http://localhost:${DEV_PORT}/about`)
 			).text();
 			devCheck = await checkInBrowser(DEV_PORT);
+			devAboutCheck = await checkAboutInBrowser(DEV_PORT);
 			devEditedHtml = await editAndRefetch(root, DEV_PORT);
 		} finally {
 			await dev.stop();
@@ -383,10 +385,10 @@ describe.skipIf(!flightPackage)('React Server Components (phase 1)', () => {
 			expect(tag).toContain(`nonce="${nonce}"`);
 	});
 
-	/* Dev payloads carry React's development debug info (server stack
+	/* React's development Flight server emits debug info (server stack
 	 * frames with absolute source paths, server component props including
 	 * function source as `$E`); see docs/REACT_SERVER_COMPONENTS_PLAN.md.
-	 * Production payloads must carry none of it. */
+	 * Production payloads carry none of it, and dev keeps it on the server. */
 	test('production: the Flight payload has no debug info or file paths', async () => {
 		const realRoot = await realpath(root);
 		for (const html of [prodHtml, prodAboutHtml]) {
@@ -449,11 +451,31 @@ describe.skipIf(!flightPackage)('React Server Components (phase 1)', () => {
 		expect(devLog).not.toContain('Could not decode sourcemap');
 	});
 
+	/* Dev renders send React's debug rows to a server-side debug channel;
+	 * the inline payload only references them. */
+	test('dev: the Flight payload has no debug info, file paths or server source', async () => {
+		const realRoot = await realpath(root);
+		for (const html of [devHtml, devAboutHtml]) {
+			expect(html).toContain('(self.__absoluteReactServerPayload??=[])');
+			expect(html).not.toContain(root);
+			expect(html).not.toContain(realRoot);
+			expect(html).not.toContain('\\"stack\\"');
+			expect(html).not.toContain('\\"props\\"');
+			expect(html).not.toContain('\\"$E');
+			expect(html).not.toContain('Bun.sleep');
+		}
+	});
+
 	test('dev: SuspenseSlots with React-node content resolve in a server component', () => {
 		expect(devAboutHtml).toContain('stream slot ready');
 		expect(devAboutHtml).toContain('suspense slot ready');
 		expect(devAboutHtml).toContain('node slot ready');
 		expect(devAboutHtml).toMatch(/render prop\\u003C!-- --> ready/);
+		expect(devAboutCheck?.linkHref).toBe('/');
+		expect(devAboutCheck?.suspenseSlot).toBe('suspense slot ready');
+		expect(devAboutCheck?.nodeSlot).toBe('node slot ready');
+		expect(devAboutCheck?.renderSlot).toBe('render prop ready');
+		expect(devAboutCheck?.errors).toEqual([]);
 	});
 
 	test('dev: an edited server component renders on the next request', () => {

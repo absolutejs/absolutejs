@@ -196,7 +196,9 @@ export const handleReactPageRequest = async <
 					console.error('[SSR] React streaming error:', error);
 				}
 			});
-			const htmlStream = injectIslandPageContextStream(stream);
+			const htmlStream = injectIslandPageContextStream(stream, {
+				host: 'react'
+			});
 			if (
 				resolveErrorConventionPath('react', pageName) ||
 				hasErrorConvention('react')

@@ -268,29 +268,16 @@ const readRoutesFromCreateRouterOptions = (
 	return null;
 };
 
-const extractScriptBlockFromVueSfc = (source: string) => {
-	// Crude but effective: capture the first `<script setup>` or `<script>` block.
-	const scriptRe = /<script\b[^>]*?(?:setup)?[^>]*>([\s\S]*?)<\/script>/i;
-	const match = scriptRe.exec(source);
+/* Every `<script>` / `<script setup>` block's body, in source order. A page
+ * that pairs `<script setup>` with a module-level `<script>` declares its
+ * `export const routes = defineRoutes([...])` in the plain block, which may
+ * come second — reading only the first block missed those routes. */
+const extractScriptBlocksFromVueSfc = (source: string) =>
+	[...source.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)].map(
+		(match) => match[1] ?? ''
+	);
 
-	return match ? (match[1] ?? null) : null;
-};
-
-const analyzeFile = async (filePath: string) => {
-	let source: string;
-	try {
-		source = await fs.readFile(filePath, 'utf-8');
-	} catch {
-		return null;
-	}
-
-	let analysisSource = source;
-	if (filePath.endsWith('.vue')) {
-		const script = extractScriptBlockFromVueSfc(source);
-		if (script === null) return null;
-		analysisSource = script;
-	}
-
+const analyzeVueScriptSource = (filePath: string, analysisSource: string) => {
 	if (
 		!analysisSource.includes('createRouter') &&
 		!analysisSource.includes('defineRoutes')
@@ -321,8 +308,31 @@ const analyzeFile = async (filePath: string) => {
 	extractRouteEntries(routesArray, '', routes);
 	const base = findCreateWebHistoryBase(sourceFile) ?? inferBaseHref(routes);
 	const baseHref = base.endsWith('/') ? base : `${base}/`;
+	const host: SpaHost = { baseHref, routes, sourceFile: filePath };
 
-	return { baseHref, routes, sourceFile: filePath };
+	return host;
+};
+
+/** Read one file's SPA host (`null` when it declares no router or no longer
+ *  exists). The dev server re-runs this for each edited file so the route
+ *  table `renderSpaNotFound` consults follows `defineRoutes` edits. */
+export const analyzeVueSpaRouteFile = async (filePath: string) => {
+	let source: string;
+	try {
+		source = await fs.readFile(filePath, 'utf-8');
+	} catch {
+		return null;
+	}
+
+	const scripts = filePath.endsWith('.vue')
+		? extractScriptBlocksFromVueSfc(source)
+		: [source];
+	for (const script of scripts) {
+		const host = analyzeVueScriptSource(filePath, script);
+		if (host) return host;
+	}
+
+	return null;
 };
 
 const walkSourceFiles = async (dir: string, files: string[]) => {
@@ -368,7 +378,7 @@ export const analyzeVueSpaRoutes = async (vueDirectory: string) => {
 	await Promise.all(
 		files.map(async (file) => {
 			try {
-				const host = await analyzeFile(file);
+				const host = await analyzeVueSpaRouteFile(file);
 				if (host) hosts.push(host);
 			} catch (err) {
 				console.warn(

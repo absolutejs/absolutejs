@@ -142,6 +142,10 @@ declare global {
 			createSignatureFunctionForTransform: () => (
 				type: unknown
 			) => unknown;
+			/** In the runtime, missing from its type declarations. */
+			getFamilyByType?: (
+				type: unknown
+			) => { current: unknown } | undefined;
 			injectIntoGlobalHook: (win: Window) => void;
 			performReactRefresh: () => void;
 			register: (type: unknown, id: string) => void;

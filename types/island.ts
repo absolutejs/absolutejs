@@ -40,8 +40,12 @@ type ExtractReactProps<Component> =
 			: Props
 		: Record<string, never>;
 
+/* `internals` is `never`, not `unknown`: a Svelte 5 `Component` takes a
+ * `ComponentInternals`, and under strictFunctionTypes a signature whose
+ * first parameter is narrower than `unknown` does not extend one taking
+ * `unknown`, so every Svelte 5 island's props came out as `never`. */
 type ExtractSvelteProps<Component> = Component extends (
-	internals: unknown,
+	internals: never,
 	props: infer Props,
 	...args: never[]
 ) => unknown

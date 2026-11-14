@@ -252,27 +252,36 @@ convention) or the default export.
   (`nonceAttr(readCspNonce())`); React gets `nonce` for its own scripts.
   The Phase 1 test runs under `secureHeaders()` and checks every inline
   script tag.
-- Dev Flight payloads include React's dev debug info; production payloads
-  do not. This is React's development build of the Flight server (the
-  `process.env.NODE_ENV` the RSC pass defines), not something AbsoluteJS
-  adds, and it is what React DevTools and the browser console's owner
-  stacks read. Per server component it sends:
+- No Flight payload sent to the browser carries React's debug info, in dev
+  or production. React's development Flight server (the
+  `process.env.NODE_ENV` the RSC pass defines for `absolute dev`) produces
+  it per server component:
   - `name`, `env`, `owner` and timing (`D` rows);
   - `stack`: server stack frames as `[function, file, line, column]`,
-    where `file` is the absolute, source-mapped path of the component's
-    source (React's default filter drops `node:` and `node_modules`
-    frames, so in an installed app the framework's own frames are absent);
-  - `props`: the props the component was called with. A function prop
-    (a `resolve` callback, a render-prop `children`) is serialized as
-    `$E` plus the function's source text so DevTools can show it.
-  None of it is executed in the browser. It cannot be scrubbed safely:
-  React's options can only drop stack frames, not rewrite their paths (the
-  owner stacks would go with them), and nothing turns off the props.
-  Moving it to React 19.2's separate `debugChannel` would need a second
-  stream wired to the client. So `absolute dev` is for local development
-  only; do not expose a dev server publicly. `absolute build` /
-  `absolute start` (production React) send none of it: no stacks, no
-  props, no file paths.
+    where `file` is an absolute, source-mapped path;
+  - `props`: the props the component was called with, where a function
+    prop (a `resolve` callback, a render-prop `children`) is serialized as
+    `$E` plus the function's source text;
+  - replayed server `console` calls (`W` rows).
+  In dev, `handleReactServerPageRequest` gives the Flight server a
+  `debugChannel` (React 19.2). React then writes all of the above to that
+  second stream and leaves only `$<id>` references to it in the payload;
+  the browser's Flight client has no debug channel, so it skips them. The
+  debug stream goes to the SSR renderer (`renderHtml`'s third argument),
+  which reads it on the server and discards it. The page bundle exports
+  `developmentFlight` (true when built with the development Flight server)
+  so the handler knows to open the channel; production bundles do not.
+  Error rows (`E`) stay in the payload, so dev also passes
+  `filterStackFrame: () => false`: a server error reaches the browser with
+  its name, message and digest and an empty stack, and the full error is
+  logged in the terminal by `onError`.
+  Trade-off in the browser under `absolute dev`: server components do not
+  appear in React DevTools or in owner stacks, and server `console` calls
+  print only in the terminal. Client components keep their own dev
+  warnings and owner stacks. The Phase 1 test asserts that neither the dev
+  nor the production payload contains the project path (raw or realpath),
+  `stack`, `props`, `$E` or server code. `absolute dev` is still for local
+  development only; do not expose a dev server publicly.
 - Action ids, CSRF, closure encryption, argument validation: Phase 2 above.
 - Known Flight CVEs: version floor in decision 1.
 

@@ -1,3 +1,4 @@
+import type { ManifestKey } from '../../types/manifest';
 import { isProductionRuntime } from '../utils/runtimeMode';
 import { getDevPageWarmer, recordMissingAsset } from './requestContext';
 
@@ -21,7 +22,26 @@ const warnDoubledRscKey = (
 	);
 };
 
-export const asset = (source: Record<string, string>, name: string) => {
+/**
+ * The built path of a manifest entry: `asset(manifest, 'HomeIndex')`.
+ *
+ * The key is checked at compile time against the keys the project's build
+ * writes (see `AbsoluteManifestKeys`), so a misspelled key is a type error
+ * rather than a runtime one. Use `assetUnchecked` for a key computed at
+ * runtime.
+ */
+export const asset = (source: Record<string, string>, name: ManifestKey) =>
+	assetUnchecked(source, name);
+
+/**
+ * `asset` for a key that is only known at runtime (`${name}Index`): the same
+ * lookup, without the compile-time check that the key is one the project's
+ * build writes.
+ */
+export const assetUnchecked = (
+	source: Record<string, string>,
+	name: string
+) => {
 	const assetPath = source[name];
 
 	if (assetPath === undefined) {

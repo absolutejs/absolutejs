@@ -227,6 +227,9 @@ export { ${exportName} as Page } from ${JSON.stringify(pagePath)};
 export { renderToReadableStream } from 'react-server-dom-webpack/server.edge';
 export { createElement } from 'react';
 export { clientManifest } from ${JSON.stringify(MANIFEST_SPECIFIER)};
+// A development Flight server: the page handler moves its debug info to a
+// separate stream that stays on the server.
+export const developmentFlight = process.env.NODE_ENV !== 'production';
 `;
 
 const ssrEntrySource = (modules: ClientModule[]) => {
@@ -256,8 +259,12 @@ for (const id of Object.keys(modules)) {
 	moduleMap[id] = { '*': { chunks: [], id, name: '*' } };
 }
 
-export const renderHtml = (flight, options) => {
+// \`debug\`: a development Flight server's debug channel. It is read here,
+// on the server, so server-rendered errors keep their server component
+// owners; the browser's copy of the payload carries none of it.
+export const renderHtml = (flight, options, debug) => {
 	const root = createFromReadableStream(flight, {
+		...(debug ? { debugChannel: { readable: debug } } : {}),
 		serverConsumerManifest: {
 			moduleLoading: null,
 			moduleMap,

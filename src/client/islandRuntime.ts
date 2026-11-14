@@ -1,6 +1,9 @@
 import type { IslandFramework } from '../../types/island';
 import { getIslandComponent, parseIslandProps } from '../core/islands';
-import { getIslandStyleManifestKey } from '../core/islandManifest';
+import {
+	getIslandStyleManifestKey,
+	REACT_PAGE_ROOT_EVENT
+} from '../core/islandManifest';
 import { readIslandStyleNonce } from '../core/islandStylesheet';
 import { initializeIslandMarkupSnapshot } from './preserveIslandMarkup';
 import { prepareBrowserTranslationHydration } from './browserTranslation';
@@ -406,6 +409,57 @@ const remountIslandElement = async (
 	}
 };
 
+/* Hand the rebuilt component to its framework's own HMR, which keeps the
+ * island's state where that framework would on a page: React Fast Refresh
+ * keeps hook state when the hooks are unchanged, Vue keeps state across a
+ * template or style edit. Svelte's HMR recreates the component it swaps,
+ * so a Svelte island re-mounts (its state starts over either way). False
+ * sends every island to a re-mount. */
+const updateWithFrameworkHmr = async (
+	update: IslandHotUpdate,
+	component: unknown,
+	hydrated: IslandElement[],
+	vueBefore: Record<string, unknown> | undefined
+) => {
+	if (update.framework === 'react') {
+		const { refreshReactIslands } = await import('./hydrators/react');
+
+		return refreshReactIslands(component, hydrated);
+	}
+	if (update.framework !== 'vue' || !vueBefore) return false;
+	const { hotUpdateVueIslands } = await import('./hydrators/vue');
+
+	return hotUpdateVueIslands(vueBefore, component, hydrated);
+};
+
+const updateInPlace = async (
+	update: IslandHotUpdate,
+	component: unknown,
+	elements: IslandElement[],
+	vueBefore: Record<string, unknown> | undefined
+) => {
+	// Not hydrated yet: nothing on screen runs the old code.
+	const hydrated = elements.filter(
+		(element) => element.dataset.hydrated === 'true'
+	);
+	if (hydrated.length === 0) return false;
+	try {
+		return await updateWithFrameworkHmr(
+			update,
+			component,
+			hydrated,
+			vueBefore
+		);
+	} catch (error) {
+		console.warn(
+			`[islands] ${update.framework}:${update.component} could not update in place, re-mounting`,
+			error
+		);
+
+		return false;
+	}
+};
+
 const applyIslandHotUpdate = async (update: IslandHotUpdate) => {
 	const elements = findIslandElements(update.framework, update.component);
 	if (elements.length === 0) return true;
@@ -416,7 +470,13 @@ const applyIslandHotUpdate = async (update: IslandHotUpdate) => {
 			update.component,
 			update.stylePath
 		);
+	const vueBefore =
+		update.framework === 'vue'
+			? (await import('./hydrators/vue')).snapshotVueHmrComponents()
+			: undefined;
 	const loadedModule: { default?: unknown } = await import(update.modulePath);
+	if (await updateInPlace(update, loadedModule.default, elements, vueBefore))
+		return true;
 	const results = await Promise.all(
 		elements.map((element) =>
 			remountIslandElement(update, loadedModule.default, element)
@@ -440,15 +500,38 @@ const applyIslandHotUpdates = async (updates: IslandHotUpdate[]) => {
 	}
 };
 
-export const startIslands = ({
+/* On a React page the page's own root must exist before any island root.
+ * React DOM listens for events once per document: the first root created
+ * in it marks the document as listened to, and a root created on the
+ * document afterwards skips registering its listeners, so the whole page
+ * (everything outside the islands) never handles an event. The islands
+ * bootstrap often runs first, since the page's module graph is larger, so
+ * a React page's islands wait for its root (the page's index dispatches
+ * REACT_PAGE_ROOT_EVENT), or for `load`, by which time the page's script
+ * has run or failed. */
+const waitForReactPageRoot = () => {
+	if (Reflect.get(window, '__ABS_ISLAND_HOST__') !== 'react')
+		return undefined;
+	if (window.__REACT_ROOT__ || document.readyState === 'complete')
+		return undefined;
+
+	return new Promise<void>((resolve) => {
+		const done = () => {
+			window.removeEventListener(REACT_PAGE_ROOT_EVENT, done);
+			window.removeEventListener('load', done);
+			resolve();
+		};
+		window.addEventListener(REACT_PAGE_ROOT_EVENT, done);
+		window.addEventListener('load', done);
+	});
+};
+
+const scheduleIslands = ({
 	registry,
 	resolveComponent,
 	root = document.documentElement
 }: StartIslandsOptions) => {
 	const targetRoot = root instanceof Document ? root.documentElement : root;
-	if (typeof window !== 'undefined') {
-		window.__ABS_ISLAND_HMR__ = applyIslandHotUpdates;
-	}
 
 	const observer =
 		typeof IntersectionObserver === 'undefined'
@@ -491,4 +574,18 @@ export const startIslands = ({
 		childList: true,
 		subtree: true
 	});
+};
+
+export const startIslands = (options: StartIslandsOptions) => {
+	if (typeof window !== 'undefined') {
+		window.__ABS_ISLAND_HMR__ = applyIslandHotUpdates;
+	}
+	const pageRoot =
+		typeof window === 'undefined' ? undefined : waitForReactPageRoot();
+	if (pageRoot) {
+		void pageRoot.then(() => scheduleIslands(options));
+
+		return;
+	}
+	scheduleIslands(options);
 };

@@ -186,7 +186,7 @@ const readBasenameFromOptions = (expression: TS.Expression | undefined) => {
 	return null;
 };
 
-const analyzeFile = async (filePath: string) => {
+export const analyzeReactSpaRouteFile = async (filePath: string) => {
 	let source: string;
 	try {
 		source = await fs.readFile(filePath, 'utf-8');
@@ -280,7 +280,7 @@ export const analyzeReactSpaRoutes = async (reactDirectory: string) => {
 	await Promise.all(
 		files.map(async (file) => {
 			try {
-				const host = await analyzeFile(file);
+				const host = await analyzeReactSpaRouteFile(file);
 				if (host) hosts.push(host);
 			} catch (err) {
 				console.warn(
