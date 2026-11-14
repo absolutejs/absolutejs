@@ -54,3 +54,21 @@ export const getIslandManifestKey = (
 	framework: IslandFramework,
 	component: string
 ) => `Island${toIslandFrameworkSegment(framework)}${component}`;
+
+const ISLAND_STYLE_PREFIX = 'IslandStyle';
+
+/** Every island stylesheet in the manifest, by manifest key. */
+export const getIslandStyleManifestEntries = (
+	manifest: Record<string, string>
+) =>
+	Object.entries(manifest).filter(([key]) =>
+		key.startsWith(ISLAND_STYLE_PREFIX)
+	);
+
+/** Manifest key of the stylesheet the island client pass emits for an
+ *  island (its Svelte/Vue component styles and any CSS it imports). The
+ *  server links it from every page that renders the island. */
+export const getIslandStyleManifestKey = (
+	framework: IslandFramework,
+	component: string
+) => `${ISLAND_STYLE_PREFIX}${toIslandFrameworkSegment(framework)}${component}`;

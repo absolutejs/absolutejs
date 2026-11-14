@@ -1254,6 +1254,11 @@ export const compileVue = async (
 		hmrMetadata: new Map(vueHmrMetadata),
 		vueClientPaths: compiledPages.map((p) => p.clientPath).filter(isString),
 		vueCssPaths: compiledPages.flatMap((result) => result.cssPaths),
+		// Each entry's compiled stylesheet(s), keyed by its resolved source
+		// path: islands import theirs from the island entry.
+		vueCssPathsBySource: new Map(
+			compiledPages.map((page) => [page.sourcePath, page.cssPaths])
+		),
 		vueIndexPaths: compiledPages.map((p) => p.indexPath).filter(isString),
 		vueServerPaths: compiledPages.map((result) => result.serverPath),
 		vueSpaRoutesBySource

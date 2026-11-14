@@ -1,5 +1,7 @@
 import type { IslandFramework } from '../../types/island';
 import { getIslandComponent, parseIslandProps } from '../core/islands';
+import { getIslandStyleManifestKey } from '../core/islandManifest';
+import { readIslandStyleNonce } from '../core/islandStylesheet';
 import { initializeIslandMarkupSnapshot } from './preserveIslandMarkup';
 import { prepareBrowserTranslationHydration } from './browserTranslation';
 
@@ -48,6 +50,99 @@ const isIslandElement = (value: EventTarget | null): value is IslandElement =>
 
 const observedRoots = new WeakSet<Node>();
 const hydratingIslands = new WeakSet<HTMLElement>();
+
+const ISLAND_FRAMEWORKS: readonly IslandFramework[] = [
+	'react',
+	'svelte',
+	'vue',
+	'angular'
+];
+
+const toIslandFramework = (value: string | undefined) =>
+	ISLAND_FRAMEWORKS.find((framework) => framework === value);
+
+const readInjectedManifest = () => {
+	const manifest: unknown = Reflect.get(window, '__ABSOLUTE_MANIFEST__');
+
+	return typeof manifest === 'object' && manifest !== null
+		? manifest
+		: undefined;
+};
+
+const findIslandStyleLinks = (key: string) =>
+	Array.from(
+		document.querySelectorAll<HTMLLinkElement>(
+			'link[rel="stylesheet"][data-island-style]'
+		)
+	).filter((link) => link.dataset.islandStyle === key);
+
+const hasStylesheet = (href: string) => {
+	const target = new URL(href, document.baseURI).href;
+
+	return Array.from(
+		document.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]')
+	).some((link) => link.href === target);
+};
+
+const createIslandStyleLink = (key: string, href: string) => {
+	const link = document.createElement('link');
+	link.rel = 'stylesheet';
+	link.href = href;
+	link.dataset.islandStyle = key;
+	const nonce = readIslandStyleNonce();
+	if (nonce) link.nonce = nonce;
+
+	return link;
+};
+
+/* The server links the stylesheet of every island a page renders: in the
+ * head of a whole document, next to the island on a streamed page (see
+ * core/islandPageContext.ts). An island that arrives some other way (an
+ * HTMX swap, a client-rendered fragment) links its own before it mounts:
+ * a stylesheet, never an inline <style> a nonce-based CSP would block. */
+const ensureIslandStylesheet = (framework: string, component: string) => {
+	const islandFramework = toIslandFramework(framework);
+	const manifest = readInjectedManifest();
+	if (!islandFramework || !manifest) return;
+
+	const key = getIslandStyleManifestKey(islandFramework, component);
+	const href: unknown = Reflect.get(manifest, key);
+	if (typeof href !== 'string' || hasStylesheet(href)) return;
+
+	document.head.appendChild(createIslandStyleLink(key, href));
+};
+
+/* Dev HMR: point an island's stylesheet at its rebuilt file, wherever the
+ * server put the link (the head, or next to the island on a streamed
+ * page). The new link goes in right after the old one, keeping its place
+ * in the cascade and its attributes (React's data-precedence), and the old
+ * one leaves once the new one loads, so the island never shows unstyled. */
+const swapIslandStylesheet = (
+	framework: string,
+	component: string,
+	href: string
+) => {
+	const islandFramework = toIslandFramework(framework);
+	if (!islandFramework || hasStylesheet(href)) return;
+
+	const key = getIslandStyleManifestKey(islandFramework, component);
+	const previous = findIslandStyleLinks(key);
+	const anchor = previous[previous.length - 1];
+	const next = createIslandStyleLink(key, href);
+	if (anchor) {
+		for (const { name, value } of Array.from(anchor.attributes))
+			if (name !== 'href' && name !== 'nonce')
+				next.setAttribute(name, value);
+		anchor.after(next);
+	} else document.head.appendChild(next);
+	const removePrevious = () => {
+		for (const link of previous) link.remove();
+	};
+	next.addEventListener('load', removePrevious, { once: true });
+	next.addEventListener('error', removePrevious, { once: true });
+	const manifest = readInjectedManifest();
+	if (manifest) Reflect.set(manifest, key, href);
+};
 
 const hydratePreservingBrowserTranslation = async (
 	element: HTMLElement,
@@ -165,6 +260,7 @@ const hydrateIsland = async (
 
 	const props = parseIslandProps(element.getAttribute('data-props'));
 	hydratingIslands.add(element);
+	ensureIslandStylesheet(framework, componentName);
 
 	try {
 		await hydrateByFramework(
@@ -237,6 +333,8 @@ type IslandHotUpdate = {
 	component: string;
 	framework: string;
 	modulePath: string;
+	/** The island's rebuilt stylesheet, when it has one. */
+	stylePath?: string;
 };
 
 const remountByFramework = async (
@@ -312,6 +410,12 @@ const applyIslandHotUpdate = async (update: IslandHotUpdate) => {
 	const elements = findIslandElements(update.framework, update.component);
 	if (elements.length === 0) return true;
 
+	if (update.stylePath)
+		swapIslandStylesheet(
+			update.framework,
+			update.component,
+			update.stylePath
+		);
 	const loadedModule: { default?: unknown } = await import(update.modulePath);
 	const results = await Promise.all(
 		elements.map((element) =>

@@ -252,8 +252,27 @@ convention) or the default export.
   (`nonceAttr(readCspNonce())`); React gets `nonce` for its own scripts.
   The Phase 1 test runs under `secureHeaders()` and checks every inline
   script tag.
-- Dev Flight payloads include React's dev debug info (component names,
-  server stack frames); production payloads do not.
+- Dev Flight payloads include React's dev debug info; production payloads
+  do not. This is React's development build of the Flight server (the
+  `process.env.NODE_ENV` the RSC pass defines), not something AbsoluteJS
+  adds, and it is what React DevTools and the browser console's owner
+  stacks read. Per server component it sends:
+  - `name`, `env`, `owner` and timing (`D` rows);
+  - `stack`: server stack frames as `[function, file, line, column]`,
+    where `file` is the absolute, source-mapped path of the component's
+    source (React's default filter drops `node:` and `node_modules`
+    frames, so in an installed app the framework's own frames are absent);
+  - `props`: the props the component was called with. A function prop
+    (a `resolve` callback, a render-prop `children`) is serialized as
+    `$E` plus the function's source text so DevTools can show it.
+  None of it is executed in the browser. It cannot be scrubbed safely:
+  React's options can only drop stack frames, not rewrite their paths (the
+  owner stacks would go with them), and nothing turns off the props.
+  Moving it to React 19.2's separate `debugChannel` would need a second
+  stream wired to the client. So `absolute dev` is for local development
+  only; do not expose a dev server publicly. `absolute build` /
+  `absolute start` (production React) send none of it: no stacks, no
+  props, no file paths.
 - Action ids, CSRF, closure encryption, argument validation: Phase 2 above.
 - Known Flight CVEs: version floor in decision 1.
 

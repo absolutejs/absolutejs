@@ -252,7 +252,8 @@ describe('SSR of a compiled co-located router page', () => {
 			.get('/route-probe/*', ({ request }) =>
 				String(getCurrentAbsoluteRoute(request))
 			)
-			.get('/portal/*', () => renderPortal());
+			.get('/portal/*', () => renderPortal())
+			.get('/', () => renderPortal());
 
 	test('exposes the matched route pattern to the handler', async () => {
 		const response = await app().handle(
@@ -286,6 +287,26 @@ describe('SSR of a compiled co-located router page', () => {
 			expect(rootHtml).not.toContain('id="routed-b"');
 			expect(childHtml).toContain('<p id="routed-b">Routed B</p>');
 			expect(childHtml).not.toContain('id="routed-a"');
+		},
+		COMPILE_TIMEOUT_MS
+	);
+
+	/* Elysia routes `//` to `/`, but the request URL keeps both slashes.
+	 * The handler passed `//` on as the render URL, which platform-server
+	 * parses as a protocol-relative URL (NG05701, a 500, in production
+	 * builds of the Angular version it was reported against). The render
+	 * URL is now `/`. */
+	test(
+		'renders a request for // as the root URL',
+		async () => {
+			const response = await app().handle(
+				new Request('http://absolute.test//')
+			);
+			const html = await response.text();
+
+			expect(response.status).toBe(200);
+			expect(html).not.toContain('NG05701');
+			expect(html).toContain('<p id="routed-a">Routed A</p>');
 		},
 		COMPILE_TIMEOUT_MS
 	);

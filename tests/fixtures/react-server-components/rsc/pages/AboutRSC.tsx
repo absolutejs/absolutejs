@@ -33,6 +33,22 @@ export const AboutRSC = () => (
 					'<p data-testid="suspense-slot">suspense slot ready</p>'
 				}
 			/>
+			{/* React-node slots: their content is rendered through Flight,
+			    since react-dom/server is unavailable to server components. */}
+			<SuspenseSlot
+				fallback={<p>node slot loading</p>}
+				id="node-slot"
+				resolve={async () => (
+					<p data-testid="node-slot">node slot ready</p>
+				)}
+			/>
+			<SuspenseSlot
+				fallback={<p>render slot loading</p>}
+				id="render-slot"
+				promise={Promise.resolve('render prop')}
+			>
+				{(value) => <p data-testid="render-slot">{value} ready</p>}
+			</SuspenseSlot>
 		</body>
 	</html>
 );

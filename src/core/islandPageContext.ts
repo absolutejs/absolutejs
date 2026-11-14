@@ -2,7 +2,12 @@ import { escapeScriptContent } from '../utils/escapeScriptContent';
 import { nonceAttr } from '../utils/cspNonceRef';
 import { isProductionRuntime } from '../utils/runtimeMode';
 import { logWarn } from '../utils/logger';
-import { getIslandBootstrapPath } from './islandManifest';
+import {
+	getIslandBootstrapPath,
+	getIslandStyleManifestEntries,
+	getIslandStyleManifestKey
+} from './islandManifest';
+import type { IslandFramework } from '../../types/island';
 
 const ISLAND_MARKER = 'data-island="true"';
 const MANIFEST_MARKER = '__ABSOLUTE_MANIFEST__';
@@ -89,7 +94,74 @@ export const toBrowserManifest = (manifest: Record<string, string>) => {
 	return browserManifest;
 };
 
-const buildIslandsHeadMarkup = (manifest: Record<string, string>) => {
+const ISLAND_MARKER_TAG = /<[^>]*\bdata-island="true"[^>]*>/g;
+const ISLAND_FRAMEWORKS: readonly IslandFramework[] = [
+	'react',
+	'svelte',
+	'vue',
+	'angular'
+];
+
+const readMarkerAttribute = (tag: string, name: string) =>
+	new RegExp(`\\b${name}="([^"]*)"`)
+		.exec(tag)?.[1]
+		?.replaceAll('&quot;', '"')
+		.replaceAll('&lt;', '<')
+		.replaceAll('&gt;', '>')
+		.replaceAll('&amp;', '&');
+
+const toIslandFramework = (value: string | undefined) =>
+	ISLAND_FRAMEWORKS.find((framework) => framework === value);
+
+/* Manifest keys of the stylesheets of the islands an HTML document renders,
+ * read from its island markers. */
+const collectRenderedIslandStyleKeys = (html: string) => {
+	const keys = new Set<string>();
+	for (const [tag] of html.matchAll(ISLAND_MARKER_TAG)) {
+		const framework = toIslandFramework(
+			readMarkerAttribute(tag, 'data-framework')
+		);
+		const component = readMarkerAttribute(tag, 'data-component');
+		if (framework && component)
+			keys.add(getIslandStyleManifestKey(framework, component));
+	}
+
+	return keys;
+};
+
+/* An island's styles (Svelte/Vue component styles, CSS it imports) are
+ * built into its own stylesheet; link it with the request's nonce, so the
+ * server-rendered island is styled on first paint and no framework runtime
+ * injects an inline <style> a nonce-based CSP would block.
+ *
+ * A whole document (HTML, HTMX, Svelte, Angular and Vue pages) links, in
+ * its head, the stylesheets of the islands it renders, read from its
+ * markers. A streamed page's head is written before its body exists, so
+ * it links none here: its Island components render each stylesheet next
+ * to the island instead (React as a hoisted stylesheet resource, Vue's
+ * streamed render as a link before the island). */
+const buildIslandStyleLinks = (
+	manifest: Record<string, string>,
+	html?: string
+) => {
+	if (html === undefined) return '';
+	const renderedKeys = collectRenderedIslandStyleKeys(html);
+
+	return getIslandStyleManifestEntries(manifest)
+		.filter(([key]) => renderedKeys.has(key))
+		.filter(([, href]) => !html.includes(`href="${href}"`))
+		.map(
+			([key, href]) =>
+				`<link rel="stylesheet" href="${href}" data-island-style="${key}"${nonceAttr()}>`
+		)
+		.join('');
+};
+
+const buildIslandsHeadMarkup = (
+	manifest: Record<string, string>,
+	html?: string
+) => {
+	const styleLinks = buildIslandStyleLinks(manifest, html);
 	const manifestScript = `<script${nonceAttr()}>window.__ABSOLUTE_MANIFEST__ = ${escapeScriptContent(JSON.stringify(toBrowserManifest(manifest)))}</script>`;
 	const islandStateScript = `<script${nonceAttr()}>window.__ABS_ISLAND_STATE__ = ${escapeScriptContent(JSON.stringify(globalThis.__ABS_ISLAND_STATE__ ?? {}))}</script>`;
 	const bootstrapPath = getIslandBootstrapPath(manifest);
@@ -97,7 +169,7 @@ const buildIslandsHeadMarkup = (manifest: Record<string, string>) => {
 		? `<script${nonceAttr()} type="module" src="${bootstrapPath}"></script>`
 		: '';
 
-	return `${manifestScript}${islandStateScript}${bootstrapScript}`;
+	return `${styleLinks}${manifestScript}${islandStateScript}${bootstrapScript}`;
 };
 
 const injectHeadMarkup = (html: string, markup: string) => {
@@ -442,7 +514,7 @@ export const injectIslandPageContext = (
 	}
 	warnIfBootstrapMissing(manifest);
 
-	return injectHeadMarkup(html, buildIslandsHeadMarkup(manifest));
+	return injectHeadMarkup(html, buildIslandsHeadMarkup(manifest, html));
 };
 
 export const injectIslandPageContextStream = (

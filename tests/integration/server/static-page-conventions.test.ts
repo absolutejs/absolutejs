@@ -33,6 +33,8 @@ type Probe = Record<
 	Result
 >;
 type ProbeOutput = Partial<Probe> & {
+	apiNotFound?: Result;
+	apiNotFoundType?: string;
 	logs?: Record<string, number>;
 	noConventionJson?: Result;
 	noConventionPage?: Result;
@@ -127,19 +129,22 @@ if (${JSON.stringify(mode)} === 'production') {
 
 		return body;
 	};
+	const page = { accept: 'text/html,application/xhtml+xml' };
 	probe.home = await read(await request('/'));
-	probe.notFound = await logged('notFound', '/no-such-page', {});
+	probe.notFound = await logged('notFound', '/no-such-page', page);
 	probe.htmxNotFound = await read(
 		await request('/no-such-fragment', { 'HX-Request': 'true' })
 	);
-	const page = { accept: 'text/html,application/xhtml+xml' };
 	probe.routeThrows = await logged('page', '/throws', page);
 	probe.routeThrowsHtmx = await logged('htmx', '/throws', { 'HX-Request': 'true' });
 	probe.routeThrowsApi = await logged('json', '/throws', { accept: 'application/json' });
 	probe.routeThrowsAny = await logged('any', '/throws', { accept: '*/*' });
 	await logged('noAccept', '/throws', {});
 	probe.routeStatus = await logged('status', '/teapot', page);
-	await logged('apiNotFound', '/no-such-api', { accept: 'application/json' });
+	probe.apiNotFound = await logged('apiNotFound', '/no-such-api', { accept: 'application/json' });
+	const apiNotFoundResponse = await request('/no-such-api', { accept: 'application/json' });
+	probe.apiNotFoundType = apiNotFoundResponse.headers.get('content-type') ?? '';
+	await apiNotFoundResponse.text();
 
 	/* No error.html convention at all (a React-only project): every request
 	 * still logs once and gets Elysia's JSON 500. */
@@ -287,6 +292,17 @@ describe('HTML and HTMX not-found conventions', () => {
 
 		expect(status).toBe(404);
 		expect(body).toContain('HTMX_NOT_FOUND');
+	});
+
+	test('a request for JSON gets a JSON 404, not the not-found.html page', () => {
+		const response = results.production?.apiNotFound;
+
+		expect(response?.status).toBe(404);
+		expect(response?.body).not.toContain('HTML_NOT_FOUND');
+		expect(JSON.parse(response?.body ?? '')).toMatchObject({
+			status: 404
+		});
+		expect(results.production?.apiNotFoundType).toContain('json');
 	});
 });
 

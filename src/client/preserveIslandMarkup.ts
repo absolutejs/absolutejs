@@ -152,6 +152,37 @@ export const preserveIslandMarkup = (props: RuntimeIslandRenderProps) => {
 	};
 };
 
+const claimedServerIslands = new WeakSet<Element>();
+
+/* A host framework whose render must reproduce a stylesheet link the server
+ * streamed right before an island (Vue, see vue/islandStyleLink.ts) asks
+ * here whether its island has one. Each browser-side Island instance takes
+ * the first server island element with its signature that no instance has
+ * taken yet (instances set up in document order while hydrating), and gets
+ * the `<link data-island-style>` just before it, if any. Reading the DOM
+ * keeps hydration exact whatever order the server rendered the islands in.
+ * Null on a browser-only render: no server element is left to take. */
+export const claimServerIslandStyleLink = (props: RuntimeIslandRenderProps) => {
+	if (typeof document === 'undefined') return null;
+
+	const element = Array.from(
+		document.querySelectorAll('[data-island="true"]')
+	).find(
+		(candidate) =>
+			!claimedServerIslands.has(candidate) &&
+			isMatchingIslandElement(candidate, props)
+	);
+	if (!element) return null;
+	claimedServerIslands.add(element);
+
+	const previous = element.previousSibling;
+	if (!(previous instanceof HTMLLinkElement)) return null;
+	const key = previous.dataset.islandStyle;
+	const href = previous.getAttribute('href');
+
+	return key && href ? { href, key } : null;
+};
+
 /* React 19 compares `dangerouslySetInnerHTML` by object identity and rewrites
  * `innerHTML` whenever the object changes. A fresh `{ __html }` per render
  * made every host re-render (state change, Fast Refresh) replace the island's

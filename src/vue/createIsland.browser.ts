@@ -1,13 +1,17 @@
-import { defineComponent, h } from 'vue';
+import { defineComponent, h, type VNode } from 'vue';
 import type {
 	IslandRegistry,
 	IslandRegistryInput,
 	RuntimeIslandRenderProps
 } from '../../types/island';
 import { preserveIslandMarkup } from '../client/preserveIslandMarkup';
+import {
+	hydratedIslandStyleLink,
+	withIslandStyleLink
+} from './islandStyleLink';
 
 const defineRuntimeIslandComponent = (
-	setup: (props: RuntimeIslandRenderProps) => () => ReturnType<typeof h>
+	setup: (props: RuntimeIslandRenderProps) => () => VNode | VNode[]
 ) =>
 	defineComponent({
 		name: 'AbsoluteIsland',
@@ -37,11 +41,15 @@ export const createTypedIsland = <T extends IslandRegistryInput>(
 ) =>
 	defineRuntimeIslandComponent((props) => {
 		const { attributes, innerHTML } = preserveIslandMarkup(props);
+		const styleLink = hydratedIslandStyleLink(props);
 
 		return () =>
-			h('div', {
-				...attributes,
-				'data-allow-mismatch': '',
-				innerHTML
-			});
+			withIslandStyleLink(
+				styleLink,
+				h('div', {
+					...attributes,
+					'data-allow-mismatch': '',
+					innerHTML
+				})
+			);
 	});

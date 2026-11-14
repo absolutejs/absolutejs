@@ -3,15 +3,20 @@ import {
 	getStableInnerHtml,
 	preserveIslandMarkup
 } from '../client/preserveIslandMarkup';
+import { IslandWithStylesheet } from './IslandStyleLink';
 
 export const Island = (props: RuntimeIslandRenderProps) => {
 	const { attributes, innerHTML } = preserveIslandMarkup(props);
 
 	return (
-		<div
-			{...attributes}
-			dangerouslySetInnerHTML={getStableInnerHtml(innerHTML)}
-			suppressHydrationWarning
+		<IslandWithStylesheet
+			component={props.component}
+			framework={props.framework}
+			marker={{
+				...attributes,
+				dangerouslySetInnerHTML: getStableInnerHtml(innerHTML),
+				suppressHydrationWarning: true
+			}}
 		/>
 	);
 };

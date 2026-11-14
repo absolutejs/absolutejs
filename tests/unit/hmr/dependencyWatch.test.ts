@@ -2,6 +2,7 @@ import type { BuildConfig } from '../../../types/build';
 import { expect, test } from 'bun:test';
 import {
 	mkdtempSync,
+	realpathSync,
 	mkdirSync,
 	writeFileSync,
 	renameSync,
@@ -15,7 +16,10 @@ import { startFileWatching } from '../../../src/dev/fileWatcher';
 
 test('dependency manifests and lockfiles remain watched without recursive root watching', async () => {
 	const prior = process.cwd(),
-		root = mkdtempSync(join(tmpdir(), 'absolute-dependency-watch-'));
+		// macOS: tmpdir() is under /var, a symlink to /private/var.
+		root = realpathSync(
+			mkdtempSync(join(tmpdir(), 'absolute-dependency-watch-'))
+		);
 	const config: BuildConfig = {
 		dev: { autoWatchDirectories: false },
 		reactDirectory: 'src/react'
@@ -36,6 +40,8 @@ test('dependency manifests and lockfiles remain watched without recursive root w
 		process.chdir(root);
 		state = createHMRState(config);
 		startFileWatching(state, config, (file) => changes.push(file));
+		// macOS FSEvents can miss a write made right after the watch starts.
+		await Bun.sleep(300);
 		writeFileSync(
 			join(root, 'package.json'),
 			'{"dependencies":{"demo":"1.0.0"}}'

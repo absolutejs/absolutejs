@@ -6,6 +6,7 @@ import {
 	mkdtemp,
 	readdir,
 	readFile,
+	realpath,
 	rm,
 	symlink,
 	writeFile
@@ -210,6 +211,8 @@ const checkInBrowser = async (port: number) => {
 type AboutCheck = {
 	errors: string[];
 	linkHref: string | null;
+	nodeSlot: string | null;
+	renderSlot: string | null;
 	streamSlot: string | null;
 	suspenseSlot: string | null;
 };
@@ -228,11 +231,18 @@ const checkAboutInBrowser = async (port: number) => {
 		await session.page.waitForSelector('[data-testid="suspense-slot"]', {
 			timeout: 10_000
 		});
+		await session.page.waitForSelector('[data-testid="render-slot"]', {
+			timeout: 10_000
+		});
 		const result: AboutCheck = {
 			errors,
 			linkHref: await session.page
 				.getByTestId('home-link')
 				.getAttribute('href'),
+			nodeSlot: await session.page.getByTestId('node-slot').textContent(),
+			renderSlot: await session.page
+				.getByTestId('render-slot')
+				.textContent(),
 			streamSlot: await session.page
 				.getByTestId('stream-slot')
 				.textContent(),
@@ -259,6 +269,7 @@ let prodServerBundleStatus = 0;
 let prodCheck: PageCheck | undefined;
 let prodLog = '';
 let devHtml = '';
+let devAboutHtml = '';
 let devCheck: PageCheck | undefined;
 let devLog = '';
 let devEditedHtml = '';
@@ -333,6 +344,9 @@ describe.skipIf(!flightPackage)('React Server Components (phase 1)', () => {
 			devHtml = await (
 				await fetch(`http://localhost:${DEV_PORT}/`)
 			).text();
+			devAboutHtml = await (
+				await fetch(`http://localhost:${DEV_PORT}/about`)
+			).text();
 			devCheck = await checkInBrowser(DEV_PORT);
 			devEditedHtml = await editAndRefetch(root, DEV_PORT);
 		} finally {
@@ -369,6 +383,21 @@ describe.skipIf(!flightPackage)('React Server Components (phase 1)', () => {
 			expect(tag).toContain(`nonce="${nonce}"`);
 	});
 
+	/* Dev payloads carry React's development debug info (server stack
+	 * frames with absolute source paths, server component props including
+	 * function source as `$E`); see docs/REACT_SERVER_COMPONENTS_PLAN.md.
+	 * Production payloads must carry none of it. */
+	test('production: the Flight payload has no debug info or file paths', async () => {
+		const realRoot = await realpath(root);
+		for (const html of [prodHtml, prodAboutHtml]) {
+			expect(html).not.toContain(root);
+			expect(html).not.toContain(realRoot);
+			expect(html).not.toContain('\\"stack\\"');
+			expect(html).not.toContain('$EObject');
+			expect(html).not.toContain('Bun.sleep');
+		}
+	});
+
 	test('production: server component code stays on the server', () => {
 		expect(prodClientJs.length).toBeGreaterThan(0);
 		expect(prodClientJs).not.toContain('Bun.sleep');
@@ -397,10 +426,15 @@ describe.skipIf(!flightPackage)('React Server Components (phase 1)', () => {
 		expect(prodAboutHtml).toContain('href="/"');
 		expect(prodAboutHtml).toContain('stream slot ready');
 		expect(prodAboutHtml).toContain('suspense slot ready');
+		expect(prodAboutHtml).toContain('node slot ready');
+		// Slot content arrives as a JSON-escaped patch script.
+		expect(prodAboutHtml).toMatch(/render prop\\u003C!-- --> ready/);
 		expect(prodLog).not.toContain('createContext is not a function');
 		expect(prodAboutCheck?.linkHref).toBe('/');
 		expect(prodAboutCheck?.streamSlot).toBe('stream slot ready');
 		expect(prodAboutCheck?.suspenseSlot).toBe('suspense slot ready');
+		expect(prodAboutCheck?.nodeSlot).toBe('node slot ready');
+		expect(prodAboutCheck?.renderSlot).toBe('render prop ready');
 		expect(prodAboutCheck?.errors).toEqual([]);
 	});
 
@@ -413,6 +447,13 @@ describe.skipIf(!flightPackage)('React Server Components (phase 1)', () => {
 		expect(devCheck?.errors).toEqual([]);
 		expect(devLog).not.toContain('React Server Components error');
 		expect(devLog).not.toContain('Could not decode sourcemap');
+	});
+
+	test('dev: SuspenseSlots with React-node content resolve in a server component', () => {
+		expect(devAboutHtml).toContain('stream slot ready');
+		expect(devAboutHtml).toContain('suspense slot ready');
+		expect(devAboutHtml).toContain('node slot ready');
+		expect(devAboutHtml).toMatch(/render prop\\u003C!-- --> ready/);
 	});
 
 	test('dev: an edited server component renders on the next request', () => {

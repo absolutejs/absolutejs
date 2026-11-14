@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { readCspNonce } from '../../utils/cspNonceRef';
@@ -20,6 +21,10 @@ import { ssrErrorPage } from '../../utils/ssrErrorPage';
 import { BROWSER_TRANSLATION_BASELINE_SCRIPT } from '../../core/browserTranslation';
 import { REACT_SERVER_RUNTIME_FILE } from './constants';
 import { injectFlightPayload } from './flightPayload';
+import {
+	type ReactServerNodeRenderer,
+	runWithReactServerNodeRenderer
+} from './nodeRendererRef';
 
 export type ReactServerPageRequestInput<
 	Props extends Record<string, unknown> = Record<never, never>
@@ -60,6 +65,8 @@ type ReactServerRendererModule = {
 		flight: ReadableStream<Uint8Array>,
 		options: HtmlRenderOptions
 	) => Promise<ReadableStream<Uint8Array>>;
+	/** Absent from renderers built before SuspenseSlot rendered in RSC. */
+	renderStaticHtml?: (flight: ReadableStream<Uint8Array>) => Promise<string>;
 };
 type ReactServerRuntime = { client: string; ssr: string };
 
@@ -138,6 +145,28 @@ const logRenderError = (error: unknown) => {
 	console.error('[SSR] React Server Components error:', error);
 };
 
+/* What a SuspenseSlot rendered by this page uses to turn its resolved node
+ * into HTML (see nodeRendererRef): the node goes through the page's own
+ * Flight server and the build's SSR renderer. */
+const createNodeRenderer = (
+	pageModule: ReactServerPageModule,
+	renderer: ReactServerRendererModule
+) => {
+	const { renderStaticHtml } = renderer;
+	if (!renderStaticHtml) return undefined;
+	const render: ReactServerNodeRenderer = (node) =>
+		renderStaticHtml(
+			pageModule.renderToReadableStream(node, pageModule.clientManifest, {
+				onError: logRenderError
+			})
+		);
+
+	return render;
+};
+
+const createRendererStorage = () =>
+	new AsyncLocalStorage<ReactServerNodeRenderer>();
+
 export const handleReactServerPageRequest = async <
 	Props extends Record<string, unknown> = Record<never, never>
 >(
@@ -166,15 +195,29 @@ export const handleReactServerPageRequest = async <
 			]);
 			const renderer = await loadRenderer(runtime.ssr);
 			const nonce = readCspNonce();
-			const flight = pageModule.renderToReadableStream(
-				pageModule.createElement(pageModule.Page, input.props ?? {}),
-				pageModule.clientManifest,
-				{ onError: logRenderError }
-			);
+			const renderFlight = () =>
+				pageModule.renderToReadableStream(
+					pageModule.createElement(
+						pageModule.Page,
+						input.props ?? {}
+					),
+					pageModule.clientManifest,
+					{ onError: logRenderError }
+				);
+			const nodeRenderer = createNodeRenderer(pageModule, renderer);
+			const flight = nodeRenderer
+				? runWithReactServerNodeRenderer(
+						nodeRenderer,
+						createRendererStorage,
+						renderFlight
+					)
+				: renderFlight();
 			const [forHtml, forPayload] = flight.tee();
 			const html = await renderer.renderHtml(forHtml, {
 				bootstrapModules: [runtime.client],
-				bootstrapScriptContent: BROWSER_TRANSLATION_BASELINE_SCRIPT,
+				// Streamed slots wait for hydration (released by the
+				// client entry), as on Svelte and Vue pages.
+				bootstrapScriptContent: `${BROWSER_TRANSLATION_BASELINE_SCRIPT}window.__ABS_SLOT_HYDRATION_PENDING__=true;`,
 				nonce,
 				onError: logRenderError
 			});

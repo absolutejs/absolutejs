@@ -1,5 +1,11 @@
-import { mkdirSync, unlinkSync, writeFileSync, readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import {
+	mkdirSync,
+	readFileSync,
+	realpathSync,
+	unlinkSync,
+	writeFileSync
+} from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 
 const heldLocks = new Map<
 	string,
@@ -84,7 +90,25 @@ const unmarkHeldLock = (buildDirectory: string) => {
 type LockMetadata = {
 	pid: number;
 	port: number | null;
+	/** Real path of the project the lock belongs to (the build
+	 *  directory's parent). A project folder copied while its dev server
+	 *  runs carries the original's lock file along; the path tells the
+	 *  copy that the lock is not its own. Absent in lock files written
+	 *  before it was added. */
+	projectRoot?: string;
 	startedAt: string;
+};
+
+/* The real path, so the same project reached through a symlink (or a
+ * differently cased path on a case-insensitive file system) still
+ * matches its own lock. */
+const lockProjectRoot = (buildDirectory: string) => {
+	const projectRoot = dirname(resolve(buildDirectory));
+	try {
+		return realpathSync.native(projectRoot);
+	} catch {
+		return projectRoot;
+	}
 };
 
 const writeLockFileSync = (lockPath: string, metadata: LockMetadata) => {
@@ -102,14 +126,20 @@ const readLockMetadata = (lockPath: string) => {
 			parsed !== null &&
 			typeof parsed.pid === 'number'
 		) {
-			return {
+			const metadata: LockMetadata = {
 				pid: parsed.pid,
 				port: typeof parsed.port === 'number' ? parsed.port : null,
+				projectRoot:
+					typeof parsed.projectRoot === 'string'
+						? parsed.projectRoot
+						: undefined,
 				startedAt:
 					typeof parsed.startedAt === 'string'
 						? parsed.startedAt
 						: new Date().toISOString()
 			};
+
+			return metadata;
 		}
 	} catch {
 		/* unreadable / unparseable — treat as no metadata */
@@ -145,6 +175,17 @@ const removeStaleLockSync = (lockPath: string, pid: number) => {
 	}
 };
 
+const removeForeignLockSync = (lockPath: string, existing: LockMetadata) => {
+	try {
+		unlinkSync(lockPath);
+		console.warn(
+			`[absolutejs] removed a build lock copied from ${existing.projectRoot} (PID ${existing.pid} holds the original project, not this one)`
+		);
+	} catch {
+		/* lock disappeared between read and unlink — fine */
+	}
+};
+
 /** Update the metadata in an already-acquired lock (e.g. fill in the
  *  resolved dev-server port once it's been chosen). No-op if we don't
  *  hold the lock for this build dir. */
@@ -162,6 +203,7 @@ export const updateLockMetadata = (
 	const next: LockMetadata = {
 		pid: updates.pid ?? current.pid,
 		port: updates.port !== undefined ? updates.port : current.port,
+		projectRoot: current.projectRoot,
 		startedAt: current.startedAt
 	};
 	try {
@@ -215,9 +257,12 @@ export const acquireBuildDirectoryLock = async (
 	const start = Date.now();
 
 	const tryCreate = () => {
+		// Created first so the project root exists for its real path.
+		mkdirSync(dirname(lockPath), { recursive: true });
 		writeLockFileSync(lockPath, {
 			pid: process.pid,
 			port: options.port ?? null,
+			projectRoot: lockProjectRoot(buildDirectory),
 			startedAt: new Date().toISOString()
 		});
 	};
@@ -242,6 +287,16 @@ export const acquireBuildDirectoryLock = async (
 
 			if (!isProcessAlive(existing.pid)) {
 				removeStaleLockSync(lockPath, existing.pid);
+				continue;
+			}
+
+			// A lock written for another project path came along when this
+			// folder was copied; its holder works on the original folder.
+			if (
+				existing.projectRoot !== undefined &&
+				existing.projectRoot !== lockProjectRoot(buildDirectory)
+			) {
+				removeForeignLockSync(lockPath, existing);
 				continue;
 			}
 

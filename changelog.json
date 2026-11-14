@@ -5,6 +5,57 @@
 		{
 			"changes": [
 				{
+					"detail": "Elysia routes a request for `//` to the `/` route, but the request URL keeps both slashes, and the page handlers passed that path on as the URL to render. Angular's server renderer reads `//` as a protocol-relative URL, so `GET //` on an Angular page at `/` returned a 500 (NG05701) in production. The URL a page handler renders for now has repeated slashes collapsed (`//` becomes `/`, `//a//b` becomes `/a/b`; the query string is untouched). The same applies to the `url` the React and Svelte page handlers pass in props and to the URL the Vue router renders.",
+					"kind": "fixed",
+					"summary": "`GET //` no longer returns a 500 on an Angular page"
+				},
+				{
+					"detail": "A project folder copied while its dev server was running carried `.absolutejs/build.lock` along, and the copy refused to start with \"AbsoluteJS build lock is held by PID …\", naming the process that serves the original folder. The lock file now records the real path of the project it belongs to, and a lock written for a different path is removed with a warning instead of blocking. Lock files written by earlier versions (without a path) still block while their process is alive.",
+					"kind": "fixed",
+					"summary": "A copied project no longer inherits the original's build lock"
+				},
+				{
+					"detail": "The dev-only `Window.__ABS_ISLAND_HMR__` hook (types/globals.d.ts) takes an optional `stylePath` per island update: the rebuilt island stylesheet the island runtime swaps in for the one the page links.",
+					"kind": "internal",
+					"summary": "`__ABS_ISLAND_HMR__` island updates carry an optional `stylePath`"
+				},
+				{
+					"detail": "Saving a React page, or a component it imports, now sends one hot update instead of two. The backend route file that imports the page was counted as part of the change, so every save ran a full rebuild right after the fast update and the browser received a second update (logged as \"applied\" twice). On pages that render an <Island>, those edits often never appeared until a reload; the first edit after boot could fail the same way on any React page. The browser also applies React updates one at a time now: an update that arrives while another is still loading waits for it, and the newest modules are always the ones applied.",
+					"kind": "fixed",
+					"summary": "React page and component edits on pages with islands apply on every save"
+				},
+				{
+					"detail": "A Svelte island with a `<style>` block had its styles injected at runtime as an inline `<style>` element, which `secureHeaders()` (a nonce-based `style-src`) blocked on every page load, in dev and production, so the island rendered unstyled with a CSP violation. A Vue island's `<style>` / `<style scoped>` was never shipped at all, and its server render stamped a different scope id than the client build used. Island styles (including those of child components and CSS an island imports) are now built into a stylesheet per island, `islands/<framework>/<Name>.<hash>.css`, and the server links it, with the request's CSP nonce, from every page that renders the island, once however many times the island appears, and from no page that doesn't. HTML, HTMX, Svelte, Angular and Vue pages link it in the head; a React page renders it as a stylesheet resource React hoists into the head; a streamed Vue page (streaming slots) renders it just before the island, and hydration reproduces it without a mismatch. An island that arrives later (an HTMX swap) links its stylesheet before it hydrates, and in dev an island style edit swaps the stylesheet in place, wherever it was linked.",
+					"kind": "fixed",
+					"summary": "Svelte and Vue island styles ship as linked stylesheets, only on pages that render the island: no CSP violations under secureHeaders(), and Vue island styles apply"
+				},
+				{
+					"detail": "With a not-found convention page (for example `not-found.html`), every unmatched request got that HTML page with status 404, including fetch and API clients sending `Accept: application/json`. The not-found convention now only answers page requests (a browser navigation, `Accept: text/html`, or an HTMX request), the same rule `error.html` already used for errors thrown by routes. Other requests get Elysia's JSON 404.",
+					"kind": "fixed",
+					"summary": "JSON requests to unknown routes get a JSON 404, not the not-found page"
+				},
+				{
+					"detail": "A `SuspenseSlot` from `@absolutejs/absolute/react/components` used inside a React Server Component with React content (`fallback` plus `resolve`, `promise` or a render-prop `children`) stayed on its fallback forever in dev and production, with no error. Its content was rendered with `react-dom/server`, which React does not allow in server components, so the slot failed silently. The content is now rendered through the page's own Flight server and SSR renderer. An RSC page also holds streamed slot content back until it has hydrated, so a React-node fallback no longer causes a hydration mismatch that put every slot on the page back on its fallback. Slots that use `fallbackHtml` and return HTML strings, and `StreamSlot`, already worked and are unchanged.",
+					"kind": "fixed",
+					"summary": "SuspenseSlot with React content now resolves inside React Server Components"
+				},
+				{
+					"detail": "Since beta.172, `absolute typecheck` in a project with Vue ran vue-check in place of bun check rather than alongside it. vue-check can't see the declarations generated for Svelte components, so a wrong Svelte page prop in a server file passed, and plain TypeScript errors (a wrong React prop) were reported under `vue-check`. Every configured framework's checker now runs: bun check (or tsc) for TypeScript, React and Svelte page props in server files, svelte-check for `.svelte` files, vue-check (or vue-tsc) for `.vue` files and Vue page props, and ngc for Angular templates. Each reports under its own label, an error both TypeScript checkers find is reported once (by bun check), and the check fails if any checker fails. So that bun check can read server code that imports `.vue` files, it gets a generated per-component shim; it does not collide with a project's own `declare module '*.vue'`.",
+					"kind": "fixed",
+					"summary": "`absolute typecheck` checks Svelte page props again in projects that also use Vue, and labels each error with the checker that found it"
+				},
+				{
+					"detail": "A Vue page rendered without streaming slots (the default) left out the island manifest and bootstrap scripts, so the islands it server-rendered never hydrated: they showed their server markup and stayed inert. Those pages now get the island scripts, and the stylesheets of the islands they render, in the head, like every other host page.",
+					"kind": "fixed",
+					"summary": "Islands on Vue pages hydrate again"
+				}
+			],
+			"date": "2026-11-14",
+			"version": "0.20.0-beta.178"
+		},
+		{
+			"changes": [
+				{
 					"detail": "beta.176 kept an unchanged app's `onStop` from running on a hot swap, but only when `networking` was the last thing chained onto the app. `networking` swaps apps while the statement that builds the app is still running, so in `app.use(networking).onStop(shutdown)` the new app did not have its `onStop` yet when the hooks were compared. The swap decided the hooks had changed and shut the replaced app down, closing the database pool, audit log and queues the new app keeps. The swap now waits for that statement to finish before comparing, so the order of `.use(networking)` and the app's lifecycle hooks no longer matters.",
 					"kind": "fixed",
 					"summary": "A hot swap keeps shared resources open wherever `.use(networking)` sits in the app chain"

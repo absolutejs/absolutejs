@@ -1,13 +1,11 @@
 import { readFileSync, realpathSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
-import { dirname, join, relative, resolve } from 'node:path';
+import { basename, dirname, join, relative, resolve } from 'node:path';
 import { Transpiler } from 'bun';
-import { BASE_36_RADIX } from '../constants';
 import { isFile } from '../utils/isFile';
 import { loadVueCompiler } from '../utils/vueCompiler';
+import { toKebab } from '../utils/stringModifiers';
 import { createIslandGenerationGuard } from './islandServerGeneration';
-
-const ISLAND_COMPONENT_ID_LENGTH = 8;
 
 const serverCacheRoot = join(process.cwd(), '.absolutejs', 'islands', 'vue');
 
@@ -108,9 +106,10 @@ export const compileVueServerModule = async (sourcePath: string) => {
 	const compiler = await loadVueCompiler();
 	const source = await Bun.file(sourcePath).text();
 	const { descriptor } = compiler.parse(source, { filename: sourcePath });
-	const componentId = Bun.hash(sourcePath)
-		.toString(BASE_36_RADIX)
-		.slice(0, ISLAND_COMPONENT_ID_LENGTH);
+	// The id the client build gives the component (compileVue.ts): scoped
+	// styles select `data-v-<id>`, so the server render must stamp the same
+	// attribute or the island's shipped stylesheet never matches it.
+	const componentId = toKebab(basename(sourcePath, '.vue'));
 
 	const hasScript = descriptor.script || descriptor.scriptSetup;
 	const compiledScript = hasScript

@@ -1,6 +1,12 @@
 import { expect, test } from 'bun:test';
 import type { BuildConfig } from '../../../types/build';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import {
+	mkdtempSync,
+	mkdirSync,
+	realpathSync,
+	writeFileSync,
+	rmSync
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { getWatchPaths } from '../../../src/dev/pathUtils';
@@ -9,7 +15,10 @@ import { addFileWatchers } from '../../../src/dev/fileWatcher';
 
 test('opt out of automatic root directories while retaining explicit and source roots', async () => {
 	const prior = process.cwd(),
-		root = mkdtempSync(join(tmpdir(), 'absolute-watch-scope-'));
+		// macOS: tmpdir() is under /var, a symlink to /private/var.
+		root = realpathSync(
+			mkdtempSync(join(tmpdir(), 'absolute-watch-scope-'))
+		);
 	const config: BuildConfig = {
 		assetsDirectory: 'media',
 		dev: { autoWatchDirectories: false, watchDirs: ['tools/shared'] },
@@ -58,6 +67,8 @@ test('opt out of automatic root directories while retaining explicit and source 
 		state = createHMRState(config);
 		const changes: string[] = [];
 		addFileWatchers(state, paths, (file) => changes.push(file));
+		// macOS FSEvents can miss a write made right after the watch starts.
+		await Bun.sleep(300);
 		for (const dir of ['docs', 'artifacts'])
 			writeFileSync(join(root, dir, 'report.json'), '{}');
 		const expected = [

@@ -26,7 +26,10 @@ import {
 	loadPageIslandMetadata,
 	setCurrentPageIslandMetadata
 } from '../islands/pageMetadata';
-import { getIslandManifestKey } from '../core/islandManifest';
+import {
+	getIslandManifestKey,
+	getIslandStyleManifestKey
+} from '../core/islandManifest';
 import { bumpIslandServerGeneration } from '../core/islandServerGeneration';
 import {
 	logCssUpdate,
@@ -4237,8 +4240,12 @@ const handleIslandSourceReload = async (
 	const changedIslands = await collectChangedIslands(config, filesToRebuild);
 	const islands = changedIslands.flatMap(({ component, framework }) => {
 		const modulePath = manifest[getIslandManifestKey(framework, component)];
+		const stylePath =
+			manifest[getIslandStyleManifestKey(framework, component)];
 
-		return modulePath ? [{ component, framework, modulePath }] : [];
+		return modulePath
+			? [{ component, framework, modulePath, stylePath }]
+			: [];
 	});
 	if (islands.length === 0) return true;
 
@@ -5406,21 +5413,23 @@ const runFrameworkFastPaths = async (
 		);
 	});
 
-	// `absolute.config.ts` imports configured provider modules, so dependency
-	// expansion adds the config as a dependent when a provider changes. The
-	// Angular fast path already reparses that config before rebuilding pages;
-	// treating the inferred dependent as unhandled would immediately run a
-	// full build after the fast build and clean its generated SSR graph. A
-	// config file that the user actually edited must still take the full path.
-	const configPath = resolvePath(
-		process.env.ABSOLUTE_CONFIG ?? 'absolute.config.ts'
-	);
-	if (
-		affectedFrameworks.includes('angular') &&
-		files.includes(configPath) &&
-		!state.lastUserEditedFiles?.has(configPath)
-	) {
-		handled.add(configPath);
+	// Dependency expansion also lists modules outside every framework
+	// directory that import an edited file: the backend route file that
+	// imports a React page, or `absolute.config.ts`, which imports configured
+	// Angular providers. A build compiles nothing for them (they are not page
+	// or bundle entries; the running server takes such edits through backend
+	// HMR, and the Angular fast path reparses the config itself). Treating one
+	// as unhandled ran a full build right after the fast path, so one save
+	// sent a second `react-update` plus `module-update`/`framework-update`,
+	// and the page often showed neither. A file the user actually edited
+	// still takes the full path.
+	for (const file of files) {
+		if (
+			!handled.has(file) &&
+			detectFramework(file, state.resolvedPaths) === 'unknown' &&
+			!state.lastUserEditedFiles?.has(resolvePath(file))
+		)
+			handled.add(file);
 	}
 
 	// Check if any files weren't handled by a fast path.

@@ -1,3 +1,4 @@
+import { requestRenderUrl } from '../utils/requestRenderUrl';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { lstat, mkdir, readlink, symlink } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
@@ -349,17 +350,8 @@ const withHtmlContentType = (responseInit: ResponseInit = {}) => {
 	return { ...responseInit, headers };
 };
 
-const resolveRequestRenderUrl = (request: Request | undefined) => {
-	if (!request) return '/';
-
-	try {
-		const parsed = new URL(request.url);
-
-		return `${parsed.pathname}${parsed.search}`;
-	} catch {
-		return '/';
-	}
-};
+const resolveRequestRenderUrl = (request: Request | undefined) =>
+	requestRenderUrl(request) ?? '/';
 
 const angularSsrContext = new AsyncLocalStorage<string>();
 setSsrContextGetter(() => angularSsrContext.getStore());

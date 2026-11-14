@@ -1,7 +1,10 @@
 import { extname } from 'node:path';
 import type { BuildArtifact } from 'bun';
 import { UNFOUND_INDEX } from '../constants';
-import { getIslandManifestKey } from '../core/islandManifest';
+import {
+	getIslandManifestKey,
+	getIslandStyleManifestKey
+} from '../core/islandManifest';
 import { logWarn } from '../utils/logger';
 import { normalizePath } from '../utils/normalizePath';
 import { toPascal } from '../utils/stringModifiers';
@@ -81,6 +84,25 @@ export const generateManifest = (outputs: BuildArtifact[], buildPath: string) =>
 			// HTML — the indexes-pass CSS is — so skip it to avoid clobbering
 			// the same `${Page}BundledCSS` key.
 			if (segments.includes('server')) return manifest;
+
+			// The stylesheet the island client pass emits for an island
+			// entry (`islands/<framework>/<Name>.<hash>.css`).
+			const islandStyleFramework =
+				islandIndex > UNFOUND_INDEX
+					? segments[islandIndex + 1]
+					: undefined;
+			if (
+				islandStyleFramework === 'react' ||
+				islandStyleFramework === 'svelte' ||
+				islandStyleFramework === 'vue' ||
+				islandStyleFramework === 'angular'
+			) {
+				manifest[
+					getIslandStyleManifestKey(islandStyleFramework, pascalName)
+				] = `/${relative}`;
+
+				return manifest;
+			}
 
 			// Distinguish CSS from different sources to avoid key collisions.
 			// CSS co-emitted from a JS bundle (e.g. CSS Modules) lives under a

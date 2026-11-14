@@ -1,3 +1,4 @@
+import { requestRenderUrl } from '../utils/requestRenderUrl';
 import { escapeScriptContent } from '../utils/escapeScriptContent';
 import { nonceAttr } from '../utils/cspNonceRef';
 import { isDevelopmentRuntime } from '../utils/runtimeMode';
@@ -7,7 +8,11 @@ import type { VuePropsOf, VueSetupApp } from '../../types/vue';
 import { injectInlineCss, readSiblingCss } from '../utils/inlinePageCss';
 import { resolveSpaChildCss } from '../utils/spaRouteCss';
 import { renderSpaNotFound } from '../utils/spaRouteManifest';
-import { injectIslandPageContextStream } from '../core/islandPageContext';
+import {
+	injectIslandPageContext,
+	injectIslandPageContextStream
+} from '../core/islandPageContext';
+import { INLINE_ISLAND_STYLES_CONTEXT_KEY } from '../core/islandStylesheet';
 import { getCurrentRouteRegistrationCallsite } from '../core/devRouteRegistrationCallsite';
 import {
 	devBuildErrorResponse,
@@ -129,17 +134,8 @@ const readHasSpaRoutes = (value: unknown) =>
 const readDefaultExport = (value: unknown) =>
 	isRecord(value) ? value.default : undefined;
 
-const resolveRequestRenderUrl = (request: Request | undefined) => {
-	if (!request) return '/';
-
-	try {
-		const parsed = new URL(request.url);
-
-		return `${parsed.pathname}${parsed.search}`;
-	} catch {
-		return '/';
-	}
-};
+const resolveRequestRenderUrl = (request: Request | undefined) =>
+	requestRenderUrl(request) ?? '/';
 
 const primeVueStream = async (stream: ReadableStream) => {
 	const reader = stream.getReader();
@@ -428,12 +424,22 @@ export const handleVuePageRequest = async <Component extends VueComponent>(
 			// incremental path below because their contract requires patch delivery.
 			if (resolvedOptions?.collectStreamingSlots !== true) {
 				const body = await renderToString(app, ssrContext);
+				// The whole document is at hand: link exactly the islands
+				// it renders, and inject the manifest and bootstrap that
+				// hydrate them.
+				const html = injectIslandPageContext(
+					`${head}${body}${buildTail()}`,
+					{ hasIslands: resolvedPage.hasIslands ? true : undefined }
+				);
 
-				return new Response(`${head}${body}${buildTail()}`, {
+				return new Response(html, {
 					headers: streamingPageHeaders()
 				});
 			}
 
+			// The head streams before the body exists, so each Island
+			// renders its own stylesheet link, once per stylesheet.
+			ssrContext[INLINE_ISLAND_STYLES_CONTEXT_KEY] = new Set<string>();
 			const bodyStream = renderToWebStream(app, ssrContext);
 			const { firstChunk, reader } = await primeVueStream(bodyStream);
 

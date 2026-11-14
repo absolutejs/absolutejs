@@ -4,28 +4,27 @@ import type {
 	TypedIslandRenderProps
 } from '../../types/island';
 import { getIslandMarkerAttributes } from '../core/islandMarkupAttributes';
-import { renderIslandResult } from '../core/renderIslandMarkup';
+import { ServerIsland } from './Island';
+import { IslandWithStylesheet } from './IslandStyleLink';
 
 export const createTypedIsland = <T extends IslandRegistryInput>(
 	registry: IslandRegistry<T>
 ) => {
-	const Island = async (props: TypedIslandRenderProps<T>) => {
+	const Island = (props: TypedIslandRenderProps<T>) => {
 		if (typeof window !== 'undefined') {
 			return (
-				<div
-					{...getIslandMarkerAttributes(props)}
-					suppressHydrationWarning
+				<IslandWithStylesheet
+					component={props.component}
+					framework={props.framework}
+					marker={{
+						...getIslandMarkerAttributes(props),
+						suppressHydrationWarning: true
+					}}
 				/>
 			);
 		}
-		const result = await renderIslandResult(registry, props);
 
-		return (
-			<div
-				{...result.attributes}
-				dangerouslySetInnerHTML={{ __html: result.html }}
-			/>
-		);
+		return <ServerIsland island={props} registry={registry} />;
 	};
 
 	return Island;

@@ -251,6 +251,9 @@ declare global {
 				component: string;
 				framework: string;
 				modulePath: string;
+				/** The island's rebuilt stylesheet, swapped in for the
+				 *  one the page links. */
+				stylePath?: string;
 			}>
 		) => Promise<boolean>;
 	}

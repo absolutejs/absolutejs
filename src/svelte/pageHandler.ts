@@ -1,8 +1,9 @@
+import { requestRenderUrl } from '../utils/requestRenderUrl';
 import { nonceAttr } from '../utils/cspNonceRef';
 import type { Component as SvelteComponent } from 'svelte';
 import type { SveltePropsOf } from '../../types/svelte';
 import { compileSvelteServerModule } from '../core/svelteServerModule';
-import { injectIslandPageContextStream } from '../core/islandPageContext';
+import { injectIslandPageContext } from '../core/islandPageContext';
 import { getCurrentRouteRegistrationCallsite } from '../core/devRouteRegistrationCallsite';
 import {
 	devBuildErrorResponse,
@@ -62,39 +63,6 @@ const readHasIslands = (value: unknown) => {
 const readDefaultExport = (value: unknown) =>
 	isRecord(value) ? value.default : undefined;
 
-const primeSvelteStream = async <T>(stream: ReadableStream<T>) => {
-	const reader = stream.getReader();
-	const firstChunk = await reader.read();
-
-	return { firstChunk, reader };
-};
-
-const restorePrimedStream = <T>(
-	firstChunk: Awaited<ReturnType<ReadableStreamDefaultReader<T>['read']>>,
-	reader: ReadableStreamDefaultReader<T>
-) =>
-	new ReadableStream<T>({
-		start(controller) {
-			if (!firstChunk.done) controller.enqueue(firstChunk.value);
-			if (firstChunk.done) {
-				controller.close();
-
-				return;
-			}
-			const pumpLoop = () => {
-				reader
-					.read()
-					.then(({ done, value }) =>
-						done
-							? controller.close()
-							: (controller.enqueue(value), pumpLoop())
-					)
-					.catch((err) => controller.error(err));
-			};
-			pumpLoop();
-		}
-	});
-
 export type SveltePageRenderOptions = {
 	collectStreamingSlots?: boolean;
 	bodyContent?: string;
@@ -134,17 +102,8 @@ export type SveltePageRequestInput<
 		? { props?: NoInfer<SveltePropsOf<Component>> }
 		: { props: NoInfer<SveltePropsOf<Component>> });
 
-const resolveRequestPathname = (request: Request | undefined) => {
-	if (!request) return undefined;
-
-	try {
-		const parsed = new URL(request.url);
-
-		return `${parsed.pathname}${parsed.search}`;
-	} catch {
-		return undefined;
-	}
-};
+const resolveRequestPathname = (request: Request | undefined) =>
+	requestRenderUrl(request);
 
 export const handleSveltePageRequest = async <
 	Component extends SvelteComponent<never>
@@ -327,12 +286,16 @@ export const handleSveltePageRequest = async <
 			const routerResponse = routerSsr.response();
 			if (routerResponse) return routerResponse;
 
-			const htmlStream = injectIslandPageContextStream(stream, {
-				hasIslands: resolvedPage.hasIslands ? true : undefined
-			});
-			const { firstChunk, reader } = await primeSvelteStream(htmlStream);
+			// Svelte renders the whole document before its first byte (the
+			// stream only chunks it), so the island context (manifest,
+			// bootstrap, and the stylesheets of exactly the islands the
+			// page renders) goes into its head from the finished HTML.
+			const html = injectIslandPageContext(
+				await new Response(stream).text(),
+				{ hasIslands: resolvedPage.hasIslands ? true : undefined }
+			);
 
-			return new Response(restorePrimedStream(firstChunk, reader), {
+			return new Response(html, {
 				headers: streamingPageHeaders()
 			});
 		};

@@ -1,6 +1,10 @@
 import { defineComponent, h } from 'vue';
 import { preserveIslandMarkup } from '../client/preserveIslandMarkup';
 import { normalizeRuntimeIslandRenderProps } from '../core/normalizeIslandProps';
+import {
+	hydratedIslandStyleLink,
+	withIslandStyleLink
+} from './islandStyleLink';
 
 export const Island = defineComponent({
 	name: 'AbsoluteIsland',
@@ -26,15 +30,19 @@ export const Island = defineComponent({
 	},
 	setup(rawProps) {
 		const props = normalizeRuntimeIslandRenderProps(rawProps);
+		const styleLink = hydratedIslandStyleLink(props);
 
 		return () => {
 			const { attributes, innerHTML } = preserveIslandMarkup(props);
 
-			return h('div', {
-				...attributes,
-				'data-allow-mismatch': '',
-				innerHTML
-			});
+			return withIslandStyleLink(
+				styleLink,
+				h('div', {
+					...attributes,
+					'data-allow-mismatch': '',
+					innerHTML
+				})
+			);
 		};
 	}
 });

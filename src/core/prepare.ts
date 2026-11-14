@@ -26,6 +26,7 @@ import {
 } from '../islands/pageMetadata';
 import {
 	setConventions,
+	isPageRequest,
 	renderFirstNotFound,
 	renderStaticRouteError
 } from '../utils/resolveConvention';
@@ -594,6 +595,10 @@ const createNotFoundPlugin = () =>
 		'global',
 		NotFound,
 		async ({ request }) => {
+			/* The conventions are HTML pages: only navigations and HTMX
+			 * requests get them, as with error.html. A client asking for
+			 * JSON (or anything else) keeps Elysia's JSON 404. */
+			if (!isPageRequest(request)) return undefined;
 			const response = await renderFirstNotFound({
 				preferHtmx: request.headers.get('hx-request') === 'true'
 			});

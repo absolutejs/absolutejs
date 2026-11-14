@@ -1,3 +1,4 @@
+import { requestRenderUrl } from '../utils/requestRenderUrl';
 import { readCspNonce } from '../utils/cspNonceRef';
 import { isProductionRuntime } from '../utils/runtimeMode';
 import type { ComponentType as ReactComponent } from 'react';
@@ -74,17 +75,8 @@ type PropsWithUrlBuilder = <Props extends Record<string, unknown>>(
 const withRequestUrl: PropsWithUrlBuilder = (props, url) =>
 	Object.assign(Object.create(null), props, { url });
 
-const resolveRequestPathname = (request: Request | undefined) => {
-	if (!request) return undefined;
-
-	try {
-		const parsed = new URL(request.url);
-
-		return `${parsed.pathname}${parsed.search}`;
-	} catch {
-		return undefined;
-	}
-};
+const resolveRequestPathname = (request: Request | undefined) =>
+	requestRenderUrl(request);
 
 const buildRefreshSetup = () => {
 	if (isProductionRuntime()) {

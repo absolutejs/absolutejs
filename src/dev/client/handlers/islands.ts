@@ -11,6 +11,8 @@ type IslandUpdate = {
 	component: string;
 	framework: string;
 	modulePath: string;
+	/** The island's rebuilt stylesheet; the island runtime swaps it in. */
+	stylePath?: string;
 };
 
 const isIslandUpdate = (value: unknown): value is IslandUpdate =>

@@ -6,6 +6,7 @@ import {
 	setCurrentIslandManifest
 } from '../../../src/core/islandPageContext';
 import * as logger from '../../../src/utils/logger';
+import { registerCspNonceGetter } from '../../../src/utils/cspNonceRef';
 
 const createStream = (chunks: string[]) => {
 	const encoder = new TextEncoder();
@@ -242,5 +243,67 @@ describe('injected manifest', () => {
 		expect(injectedManifest(html)).toEqual({
 			IslandReactA: '/islands/react/A.abc123de.js'
 		});
+	});
+});
+
+describe('island stylesheet links', () => {
+	const styledManifest: Record<string, string> = {
+		AbsoluteIslandBootstrap: '/islands/absoluteIslandBootstrap.abc.js',
+		IslandStyleReactA: '/islands/react/A.aaa.css',
+		IslandStyleSvelteB: '/islands/svelte/B.bbb.css',
+		IslandStyleVueC: '/islands/vue/C.ccc.css'
+	};
+
+	afterEach(() => {
+		registerCspNonceGetter(() => undefined);
+	});
+
+	test('a document links the stylesheets of the islands it renders, in the head', () => {
+		setCurrentIslandManifest(styledManifest);
+		const html = injectIslandPageContext(
+			'<!DOCTYPE html><html><head></head><body><div data-component="B" data-framework="svelte" data-island="true"></div><div data-island="true" data-framework="react" data-component="A"></div></body></html>'
+		);
+		const head = html.slice(0, html.indexOf('</head>'));
+
+		expect(head).toContain(
+			'<link rel="stylesheet" href="/islands/svelte/B.bbb.css" data-island-style="IslandStyleSvelteB">'
+		);
+		expect(head).toContain(
+			'<link rel="stylesheet" href="/islands/react/A.aaa.css" data-island-style="IslandStyleReactA">'
+		);
+		expect(html).not.toContain('href="/islands/vue/C.ccc.css"');
+	});
+
+	test('a stylesheet the document already links is not linked twice', () => {
+		setCurrentIslandManifest(styledManifest);
+		const html = injectIslandPageContext(
+			'<!DOCTYPE html><html><head><link rel="stylesheet" href="/islands/svelte/B.bbb.css"></head><body><div data-component="B" data-framework="svelte" data-island="true"></div></body></html>'
+		);
+
+		expect(html.split('href="/islands/svelte/B.bbb.css"').length).toBe(2);
+	});
+
+	test("a streamed page's head links no island stylesheet (its Island components link their own)", async () => {
+		setCurrentIslandManifest(styledManifest);
+		const html = await new Response(
+			injectIslandPageContextStream(
+				createStream([
+					'<!DOCTYPE html><html><head></head><body>',
+					'<div data-island="true" data-framework="react" data-component="A"></div></body></html>'
+				])
+			)
+		).text();
+
+		expect(html).toContain('window.__ABSOLUTE_MANIFEST__');
+		expect(html).not.toContain('<link');
+	});
+
+	test('the links carry the CSP nonce when one is set', () => {
+		registerCspNonceGetter(() => 'abc123');
+		setCurrentIslandManifest(styledManifest);
+
+		expect(injectIslandPageContext(ISLAND_PAGE)).toContain(
+			'<link rel="stylesheet" href="/islands/react/A.aaa.css" data-island-style="IslandStyleReactA" nonce="abc123">'
+		);
 	});
 });

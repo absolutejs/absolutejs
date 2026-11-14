@@ -77,18 +77,41 @@ type Built = {
 	/** `.svelte.ts`/`.svelte.js` runes module (compileModule output) — has no
 	 *  component default export, so it must never get a hydration index. */
 	isModule: boolean;
+	/** External-CSS stylesheet the client module imports, if any. */
+	css?: string;
 };
 type Cache = Map<string, Built>;
 
-// Persistent cache across HMR cycles — avoids recompiling unchanged Svelte components
-const persistentCache: Cache = new Map();
+// Persistent cache across HMR cycles — avoids recompiling unchanged Svelte
+// components. Islands compile with external CSS into their own tree, so
+// they keep their own caches: a component used both by a page and as an
+// island compiles once per mode.
+const persistentCaches = {
+	external: new Map<string, Built>(),
+	injected: new Map<string, Built>()
+};
 
 // Content hash cache to detect unchanged source files
-const sourceHashCache = new Map<string, string>();
+const sourceHashCaches = {
+	external: new Map<string, string>(),
+	injected: new Map<string, string>()
+};
 
 export const clearSvelteCompilerCache = () => {
-	persistentCache.clear();
-	sourceHashCache.clear();
+	persistentCaches.external.clear();
+	persistentCaches.injected.clear();
+	sourceHashCaches.external.clear();
+	sourceHashCaches.injected.clear();
+};
+
+export type CompileSvelteOptions = {
+	/** Compile the client with `css: 'external'`: each component's styles
+	 *  go to a `.css` file beside its client module, which imports it, so
+	 *  the bundler emits the entry's stylesheet instead of the runtime
+	 *  injecting an inline `<style>` (blocked by a nonce-based CSP). Used
+	 *  for islands, whose host page never server-renders their styles.
+	 *  Output goes to a separate `islands/` tree. */
+	externalCss?: boolean;
 };
 
 const transpiler = new Transpiler({ loader: 'ts', target: 'browser' });
@@ -228,14 +251,21 @@ export const compileSvelte = async (
 	svelteRoot: string,
 	cache: Cache = new Map(),
 	isDev = false,
-	stylePreprocessors?: StylePreprocessorConfig
+	stylePreprocessors?: StylePreprocessorConfig,
+	options: CompileSvelteOptions = {}
 ) => {
 	const { compile, compileModule, preprocess } =
 		await import('svelte/compiler');
+	const externalCss = options.externalCss === true;
+	const cssMode = externalCss ? 'external' : 'injected';
+	const persistentCache = persistentCaches[cssMode];
+	const sourceHashCache = sourceHashCaches[cssMode];
 
 	// Generated output lives at <projectRoot>/.absolutejs/generated/svelte/.
 	// See `src/utils/generatedDir.ts` for rationale (keeps `src/` clean).
-	const generatedDir = getFrameworkGeneratedDir('svelte');
+	const generatedDir = externalCss
+		? join(getFrameworkGeneratedDir('svelte'), 'islands')
+		: getFrameworkGeneratedDir('svelte');
 	const clientDir = join(generatedDir, 'client');
 	const indexDir = join(generatedDir, 'indexes');
 	const serverDir = join(generatedDir, 'server');
@@ -268,7 +298,8 @@ export const compileSvelte = async (
 			prevHash === contentHash &&
 			persistent &&
 			existsSync(persistent.ssr) &&
-			existsSync(persistent.client)
+			existsSync(persistent.client) &&
+			(!persistent.css || existsSync(persistent.css))
 		) {
 			cache.set(src, persistent);
 
@@ -446,16 +477,19 @@ export const compileSvelte = async (
 		const generate = (mode: 'server' | 'client') => {
 			const transpiled =
 				mode === 'server' ? transpiledServer : transpiledClient;
-			const compiledJs = isModule
+			const compiled = isModule
 				? compileModule(transpiled, {
 						dev: mode === 'client' && dev,
 						experimental: {
 							async: transformedByLowering
 						},
 						filename: src
-					}).js
+					})
 				: compile(transpiled, {
-						css: 'injected',
+						css:
+							externalCss && mode === 'client'
+								? 'external'
+								: 'injected',
 						dev: mode === 'client' && dev,
 						experimental: {
 							async: transformedByLowering
@@ -468,7 +502,8 @@ export const compileSvelte = async (
 						// those anchors fails to hydrate against an HMR client
 						// (every page wrapped in <Router>, for one).
 						hmr: isDev
-					}).js;
+					});
+			const compiledJs = compiled.js;
 			let code = compiledJs.code.replace(
 				/\.svelte(?:\.(?:ts|js))?(['"])/g,
 				'.js$1'
@@ -503,7 +538,12 @@ export const compileSvelte = async (
 
 			code += islandMetadataExports;
 
-			return { code, map: compiledJs.map };
+			const css =
+				!isModule && externalCss && mode === 'client'
+					? (compiled.css?.code ?? '').trim()
+					: '';
+
+			return { code, css, map: compiledJs.map };
 		};
 
 		const ssrPath = join(serverDir, relDir, `${baseName}.js`);
@@ -561,6 +601,7 @@ export const compileSvelte = async (
 				? `${inlineSourceMapComment(withResolvedSources(map, src))}\n`
 				: '';
 
+		let cssFile: string | undefined;
 		if (isModule) {
 			const generated = generate('client');
 			const bundle =
@@ -578,18 +619,30 @@ export const compileSvelte = async (
 				serverCode +
 				sourceExport(serverCode) +
 				inlineMap(serverGen.map);
+			// External CSS (islands): the styles go beside the client
+			// module, which imports them so the bundler emits them as the
+			// entry's stylesheet. The import goes last (imports hoist) so
+			// it shifts no line the inline sourcemap points at.
+			const cssPath = clientPath.replace(/\.js$/, '.css');
+			const cssImport = clientGen.css
+				? `\nimport ${JSON.stringify(`./${basename(cssPath)}`)};\n`
+				: '';
 			const clientBundle =
 				rewriteExternalImports(clientGen.code, 'client') +
 				lazyRegistrations +
+				cssImport +
 				inlineMap(clientGen.map);
+			cssFile = clientGen.css ? cssPath : undefined;
 			await Promise.all([
 				write(ssrPath, serverBundle),
-				write(clientPath, clientBundle)
+				write(clientPath, clientBundle),
+				...(clientGen.css ? [write(cssPath, clientGen.css)] : [])
 			]);
 		}
 
 		const built: Built = {
 			client: clientPath,
+			css: cssFile,
 			hasAwaitSlot:
 				loweredAwaitServerSource.transformed ||
 				loweredAwaitClientSource.transformed ||

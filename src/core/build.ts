@@ -1933,7 +1933,10 @@ const buildUnlocked = async ({
 		{ clientPaths: angularClientPaths, serverPaths: angularServerPaths },
 		{ serverPaths: emberServerPaths },
 		{ svelteClientPaths: islandSvelteClientPaths },
-		{ vueClientPaths: islandVueClientPaths },
+		{
+			vueClientPaths: islandVueClientPaths,
+			vueCssPathsBySource: islandVueCssPathsBySource
+		},
 		{ clientPaths: islandAngularClientPaths }
 	] = await Promise.all([
 		shouldCompileSvelte
@@ -2047,12 +2050,16 @@ const buildUnlocked = async ({
 		shouldCompileIslandSvelte
 			? tracePhase('compile/island-svelte', () =>
 					import('../build/compileSvelte').then((mod) =>
+						// External CSS: an island's styles ship as a linked
+						// stylesheet, never a runtime-injected inline
+						// <style> a nonce-based CSP would block.
 						mod.compileSvelte(
 							islandSvelteSources,
 							svelteDir,
 							new Map(),
 							hmr,
-							styleTransformConfig
+							styleTransformConfig,
+							{ externalCss: true }
 						)
 					)
 				)
@@ -2071,7 +2078,8 @@ const buildUnlocked = async ({
 					)
 				)
 			: {
-					vueClientPaths: [...emptyStringArray]
+					vueClientPaths: [...emptyStringArray],
+					vueCssPathsBySource: new Map<string, string[]>()
 				},
 		shouldCompileIslandAngular
 			? tracePhase('compile/island-angular', () =>
@@ -2364,6 +2372,9 @@ const buildUnlocked = async ({
 						angular: islandAngularClientPathMap,
 						svelte: islandSvelteClientPathMap,
 						vue: islandVueClientPathMap
+					},
+					cssPathMaps: {
+						vue: islandVueCssPathsBySource
 					}
 				})
 			)

@@ -4,6 +4,10 @@ import {
 	registerStreamingSlot,
 	warnMissingStreamingSlotCollector
 } from '../../core/streamingSlotRegistrar';
+import {
+	getReactServerNodeRenderer,
+	type ReactServerNodeRenderer
+} from '../serverComponents/nodeRendererRef';
 
 type LegacySuspenseSlotProps = {
 	className?: string;
@@ -71,7 +75,13 @@ const isLegacyProps = <T,>(
  * production server bundle (it is ~4,000 lines nothing else uses), so
  * renderToStaticMarkup is undefined there and every SuspenseSlot patch
  * failed in production. */
-const renderReactNodeToHtml = async (node: ReactNode) => {
+const renderReactNodeToHtml = async (
+	node: ReactNode,
+	serverNodeRenderer: ReactServerNodeRenderer | undefined
+) => {
+	// Inside a React Server Component react-dom/server is unavailable; the
+	// RSC page handler renders the node through Flight instead.
+	if (serverNodeRenderer) return serverNodeRenderer(node);
 	const { Fragment } = await import('react');
 	const { renderToReadableStream } = await import('react-dom/server');
 	const stream = await renderToReadableStream(<Fragment>{node}</Fragment>);
@@ -119,14 +129,18 @@ async function resolveNodeSuspenseValue(props: FrameworkSuspenseNodeProps) {
 
 const renderErrorFallback = async <T,>(
 	props: FrameworkSuspenseSlotProps<T>,
-	error: unknown
+	error: unknown,
+	serverNodeRenderer: ReactServerNodeRenderer | undefined
 ) => {
 	if (typeof props.errorFallback === 'function') {
-		return renderReactNodeToHtml(props.errorFallback(error));
+		return renderReactNodeToHtml(
+			props.errorFallback(error),
+			serverNodeRenderer
+		);
 	}
 
 	if (props.errorFallback !== undefined) {
-		return renderReactNodeToHtml(props.errorFallback);
+		return renderReactNodeToHtml(props.errorFallback, serverNodeRenderer);
 	}
 
 	throw error;
@@ -146,6 +160,9 @@ const registerLegacySuspenseSlot = (props: LegacySuspenseSlotProps) => {
 const registerFrameworkSuspenseSlot = <T,>(
 	props: FrameworkSuspenseSlotProps<T>
 ) => {
+	// Read while the page renders: the slot resolves after the render,
+	// outside the React Server Components render's async context.
+	const serverNodeRenderer = getReactServerNodeRenderer();
 	registerStreamingSlot({
 		dynamic: props.dynamic,
 		id: props.id,
@@ -158,9 +175,9 @@ const registerFrameworkSuspenseSlot = <T,>(
 						(await resolveNodeSuspenseValue(props)) ??
 						null);
 
-				return renderReactNodeToHtml(content);
+				return renderReactNodeToHtml(content, serverNodeRenderer);
 			} catch (error) {
-				return renderErrorFallback(props, error);
+				return renderErrorFallback(props, error, serverNodeRenderer);
 			}
 		}
 	});

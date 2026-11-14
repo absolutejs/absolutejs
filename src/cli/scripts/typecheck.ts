@@ -1,5 +1,5 @@
 import { dirname, join, parse, relative, resolve } from 'node:path';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { parse as parseJsonc } from 'jsonc-parser';
 import {
@@ -29,6 +29,7 @@ import {
 	tsconfigHasSvelteDeclarationRoot
 } from '../../build/svelteDeclarations';
 import { ensureFileRouteModule } from '../../build/fileRoutes';
+import { diagnosticKeys, withoutReported } from './typecheckDiagnostics';
 import type {
 	AbsoluteServiceConfig,
 	ServiceConfig
@@ -326,6 +327,54 @@ const getProjectDeclarationIncludes = () =>
 		toGeneratedConfigPath
 	);
 
+/* `.vue` imports, for the plain checker (bun check or tsc) in a project
+ * with Vue. That checker is the one that sees Svelte page props, so it runs
+ * over the server code alongside vue-check rather than being replaced by
+ * it, and it can't resolve a `.vue` file on its own (TS2307).
+ *
+ * One declaration per component file name (`*\/Profile.vue`), not a single
+ * `*.vue`: a project that ships its own `declare module '*.vue'` would merge
+ * with that and fail on two default exports (TS2300). The type is the
+ * permissive shim Vue projects used before Volar; the component's real props
+ * are checked by vue-check, which never reads this file. */
+let vueShimPath: string | null = null;
+
+const VUE_SHIM_FILE = 'typecheck-vue-shim.d.ts';
+const SKIPPED_VUE_SCAN_DIRECTORIES = new Set(['build', 'node_modules']);
+
+const collectVueFileNames = (dir: string): string[] => {
+	if (!existsSync(dir)) return [];
+
+	return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+		if (entry.isDirectory())
+			return entry.name.startsWith('.') ||
+				SKIPPED_VUE_SCAN_DIRECTORIES.has(entry.name)
+				? []
+				: collectVueFileNames(join(dir, entry.name));
+
+		return entry.name.endsWith('.vue') ? [entry.name] : [];
+	});
+};
+
+export const vueShimSource = (fileNames: readonly string[]) =>
+	[...new Set(fileNames)]
+		.sort()
+		.map(
+			(fileName) =>
+				`declare module ${JSON.stringify(`*/${fileName}`)} {\n\timport type { DefineComponent } from 'vue';\n\tconst component: DefineComponent<{}, {}, any>;\n\texport default component;\n}\n`
+		)
+		.join('\n');
+
+const prepareVueShim = async (cacheDir: string, vueDirs: string[]) => {
+	const fileNames = vueDirs.flatMap((dir) =>
+		collectVueFileNames(resolve(dir))
+	);
+	if (fileNames.length === 0) return;
+	const shimPath = resolve(cacheDir, VUE_SHIM_FILE);
+	await writeFile(shimPath, vueShimSource(fileNames));
+	vueShimPath = shimPath;
+};
+
 /* `rootDirs` for the generated configs once Svelte declarations exist: the
  * project's own entries (re-anchored on the cache directory) plus the
  * declaration mirror, so `import type Page from './Page.svelte'` in server
@@ -417,7 +466,7 @@ const buildVueTscCheck = async (cacheDir: string) => {
  * the same program bun check does, and keeps its generated TypeScript in the
  * cache, never the project. */
 const buildVueCheck = async (cacheDir: string) => {
-	const configPath = await writeTypecheckConfig(cacheDir, 'bun');
+	const configPath = await writeTypecheckConfig(cacheDir, 'vue');
 	const vueCheck = join(
 		dirname(
 			Bun.resolveSync(
@@ -476,18 +525,26 @@ const buildAngularCheck = async (cacheDir: string, angularDir: string) => {
 	);
 };
 
-/* The program tsc and bun check both read: the project's own tsconfig,
- * minus the directories AbsoluteJS generates, plus its style shims. */
+type TypecheckProgram = 'bun' | 'tsc' | 'vue';
+
+const TYPECHECK_CONFIG_FILES: Record<TypecheckProgram, string> = {
+	bun: 'tsconfig.typecheck.bun.json',
+	tsc: 'tsconfig.typecheck.json',
+	vue: 'tsconfig.typecheck.vue.json'
+};
+
+/* The program tsc, bun check and vue-check read: the project's own
+ * tsconfig, minus the directories AbsoluteJS generates, plus its style
+ * shims. Each gets its own file, since they are written concurrently. */
 const writeTypecheckConfig = async (
 	cacheDir: string,
-	checker: 'bun' | 'tsc'
+	checker: TypecheckProgram
 ) => {
-	const tscConfigPath = join(
-		cacheDir,
-		checker === 'tsc'
-			? 'tsconfig.typecheck.json'
-			: 'tsconfig.typecheck.bun.json'
-	);
+	const tscConfigPath = join(cacheDir, TYPECHECK_CONFIG_FILES[checker]);
+	/* The plain checker can't read a .vue file, so it reads each one as
+	 * the shim declares it; vue-check reads the real component instead. */
+	const vueShim =
+		checker !== 'vue' && vueShimPath !== null ? [vueShimPath] : [];
 	await writeFile(
 		tscConfigPath,
 		JSON.stringify(
@@ -509,7 +566,8 @@ const writeTypecheckConfig = async (
 				},
 				exclude: getProjectTypecheckExcludes(),
 				extends: resolve('tsconfig.json'),
-				include: getProjectTypecheckIncludes()
+				include: getProjectTypecheckIncludes(),
+				...(vueShim.length > 0 ? { files: vueShim } : {})
 			},
 			null,
 			'\t'
@@ -731,6 +789,33 @@ const prepareSvelteDeclarations = async (svelteDirs: string[]) => {
 		console.log(SVELTE_EDITOR_HINT);
 };
 
+const VUE_CHECKERS = new Set(['vue-check', 'vue-tsc']);
+const PLAIN_CHECKERS = new Set(['bun check', 'tsc']);
+
+/* vue-check reads every .ts file bun check reads, so an error in plain
+ * TypeScript (a React prop, say) is in both outputs. It is reported once,
+ * under the plain checker; vue-check keeps the errors only it can see — in
+ * .vue files, and in .ts code typed by a Vue component. When nothing is
+ * left, vue-check passed: all it found is already reported. A run that
+ * printed no positioned error at all (a crash, exit 3) still fails. */
+export const dedupeVueResult = (results: CheckerResult[]) => {
+	const plain = results.find((res) => PLAIN_CHECKERS.has(res.name));
+	if (!plain || plain.exitCode === 0) return results;
+	const reported = diagnosticKeys(plain.output);
+
+	return results.map((res) => {
+		if (!VUE_CHECKERS.has(res.name) || res.exitCode === 0) return res;
+		const { dropped, output, remaining } = withoutReported(
+			res.output,
+			reported
+		);
+		if (dropped === 0) return res;
+		const passed = remaining === 0 && output.length === 0;
+
+		return { ...res, exitCode: passed ? 0 : res.exitCode, output };
+	});
+};
+
 export const typecheck = async (configPath?: string) => {
 	const targets = await getTypecheckTargets(configPath);
 
@@ -743,6 +828,16 @@ export const typecheck = async (configPath?: string) => {
 		...new Set(
 			targets
 				.map((config) => config.svelteDirectory)
+				.filter(
+					(dir): dir is string =>
+						typeof dir === 'string' && dir.length > 0
+				)
+		)
+	];
+	const vueDirs = [
+		...new Set(
+			targets
+				.map((config) => config.vueDirectory)
 				.filter(
 					(dir): dir is string =>
 						typeof dir === 'string' && dir.length > 0
@@ -767,14 +862,19 @@ export const typecheck = async (configPath?: string) => {
 	for (const config of targets) ensureFileRouteModule(config);
 	const checks: Promise<CheckerResult>[] = [];
 
-	// bun check does tsc's job (Bun 1.4.4+). With Vue, vue-check does
-	// vue-tsc's: a Vue checker covers .ts, .tsx AND .vue files, since any .ts
-	// file can import from .vue. tsc and vue-tsc remain the fallback on older
-	// Bun or with ABSOLUTE_TYPECHECK_CHECKER=tsc.
+	// bun check does tsc's job (Bun 1.4.4+), and runs in every project: it
+	// is the checker that resolves Svelte components to their generated
+	// declarations. With Vue, vue-check (vue-tsc's job) runs beside it, not
+	// in its place: it covers .vue files and the .ts code that imports them,
+	// and reports only what bun check didn't (dedupeVueResult). tsc and
+	// vue-tsc remain the fallback on older Bun or with
+	// ABSOLUTE_TYPECHECK_CHECKER=tsc.
 	const useBunCheck = bunCheckSupported();
 	const plainCheck = useBunCheck ? buildBunCheck : buildTscCheck;
 	const vueCheck = useBunCheck ? buildVueCheck : buildVueTscCheck;
-	checks.push(hasVue ? vueCheck(cacheDir) : plainCheck(cacheDir));
+	if (hasVue) await prepareVueShim(cacheDir, vueDirs);
+	checks.push(plainCheck(cacheDir));
+	if (hasVue) checks.push(vueCheck(cacheDir));
 
 	// svelte-check scoped to the Svelte directory only
 	for (const svelteDir of hasSvelte ? svelteDirs : []) {
@@ -785,7 +885,7 @@ export const typecheck = async (configPath?: string) => {
 		checks.push(buildAngularCheck(cacheDir, angularDir));
 	}
 
-	const results = await Promise.all(checks);
+	const results = dedupeVueResult(await Promise.all(checks));
 	const failed = results.filter((res) => res.exitCode !== 0);
 	const detailedAdvice = importAdviceRequested();
 

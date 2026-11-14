@@ -310,6 +310,17 @@ const tryFrameworkErrorConvention = async (
 	return null;
 };
 
+/* Whether a request is a page navigation or an HTMX request, the only
+ * requests the HTML error and not-found conventions answer (see
+ * renderStaticRouteError below). A fetch or API client asking for JSON gets
+ * Elysia's JSON response, not an HTML page. */
+export const isPageRequest = (request: Request) => {
+	if (request.headers.get('hx-request') === 'true') return true;
+	if (request.headers.get('sec-fetch-dest') === 'document') return true;
+
+	return (request.headers.get('accept') ?? '').includes('text/html');
+};
+
 export const renderConventionError = async (
 	framework: keyof ConventionsMap,
 	pageName: string,
@@ -348,13 +359,6 @@ export const renderConventionError = async (
  * the HTMX directory's error.html first. Outside development
  * buildErrorProps gives the page a generic message and no stack, so no file
  * paths or internals leak. */
-
-const isPageRequest = (request: Request) => {
-	if (request.headers.get('hx-request') === 'true') return true;
-	if (request.headers.get('sec-fetch-dest') === 'document') return true;
-
-	return (request.headers.get('accept') ?? '').includes('text/html');
-};
 
 export const renderStaticRouteError = async (
 	request: Request,

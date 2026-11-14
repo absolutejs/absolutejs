@@ -268,6 +268,22 @@ export const renderHtml = (flight, options) => {
 
 	return renderToReadableStream(createElement(Root), options);
 };
+
+// A fragment (a SuspenseSlot's resolved content) rendered to an HTML string.
+export const renderStaticHtml = async (flight) => {
+	const root = createFromReadableStream(flight, {
+		serverConsumerManifest: {
+			moduleLoading: null,
+			moduleMap,
+			serverModuleMap: null
+		}
+	});
+	const Root = () => use(root);
+	const stream = await renderToReadableStream(createElement(Root));
+	await stream.allReady;
+
+	return new Response(stream).text();
+};
 `;
 };
 
@@ -304,7 +320,7 @@ const clientEntrySource = () =>
 	`import './ReactServerClientRuntime';
 import { createFromReadableStream } from 'react-server-dom-webpack/client.browser';
 import { hydrateRoot } from 'react-dom/client';
-import { createElement, use } from 'react';
+import { createElement, use, useEffect } from 'react';
 
 const encoder = new TextEncoder();
 const stream = new ReadableStream({
@@ -326,7 +342,21 @@ const stream = new ReadableStream({
 	}
 });
 const root = createFromReadableStream(stream);
-const Root = () => use(root);
+// The page's inline bootstrap holds streamed slot content back
+// (__ABS_SLOT_HYDRATION_PENDING__) so hydration compares against the HTML the
+// server rendered: a slot whose fallback is a React node would otherwise
+// mismatch, and React's client re-render would drop every patched slot.
+const releaseStreamingSlots = () => {
+	self.__ABS_SLOT_HYDRATION_PENDING__ = false;
+	if (typeof self.__ABS_SLOT_FLUSH__ === 'function') self.__ABS_SLOT_FLUSH__();
+};
+const Root = () => {
+	useEffect(() => {
+		setTimeout(releaseStreamingSlots, 0);
+	}, []);
+
+	return use(root);
+};
 hydrateRoot(document, createElement(Root));
 `;
 

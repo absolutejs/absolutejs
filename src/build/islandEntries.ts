@@ -48,6 +48,10 @@ type IslandEntryPathMaps = Partial<
 	Record<IslandFramework, Map<string, string>>
 >;
 
+type IslandEntryCssPathMaps = Partial<
+	Record<IslandFramework, Map<string, readonly string[]>>
+>;
+
 const frameworks: IslandFramework[] = ['react', 'svelte', 'vue', 'angular'];
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -541,14 +545,28 @@ export const collectIslandFrameworkSources = (
 
 	return sources;
 };
+/* Stylesheets compiled apart from the island's module (Vue SFC styles)
+ * are imported by the island entry, so the island client pass emits them
+ * as the island's own stylesheet (`islands/<framework>/<Name>.<hash>.css`),
+ * which the server links from the host page. */
+const createCssImports = (entryPath: string, cssPaths: readonly string[]) =>
+	cssPaths
+		.map(
+			(cssPath) =>
+				`import ${JSON.stringify(normalizeImportPath(entryPath, cssPath))};\n`
+		)
+		.join('');
+
 export const generateIslandEntryPoints = async ({
 	buildInfo,
 	buildPath,
-	clientPathMaps = {}
+	clientPathMaps = {},
+	cssPathMaps = {}
 }: {
 	buildInfo: IslandRegistryBuildInfo;
 	buildPath: string;
 	clientPathMaps?: IslandEntryPathMaps;
+	cssPathMaps?: IslandEntryCssPathMaps;
 }) => {
 	const generatedRoot = join(buildPath, '_island_entries');
 
@@ -591,8 +609,15 @@ export const generateIslandEntryPoints = async ({
 						definition.component
 					);
 
+		const cssPaths = source
+			? (cssPathMaps[definition.framework]?.get(source) ?? [])
+			: [];
+
 		mkdirSync(dirname(entryPath), { recursive: true });
-		writeFileSync(entryPath, entrySource);
+		writeFileSync(
+			entryPath,
+			`${createCssImports(entryPath, cssPaths)}${entrySource}`
+		);
 		entries.push({
 			component: definition.component,
 			entryPath,
