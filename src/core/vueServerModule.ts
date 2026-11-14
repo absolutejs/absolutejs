@@ -80,15 +80,29 @@ const mergeVueImports = (code: string) => {
 		: nonVueLines.join('\n');
 };
 
-const extractRelativeVueImports = (sourceCode: string) =>
-	Array.from(sourceCode.matchAll(/import\s+[\s\S]+?['"]([^'"]+)['"]/g))
-		.map((match) => match[1])
-		.filter(
-			(importPath): importPath is string =>
-				typeof importPath === 'string' &&
-				importPath.startsWith('.') &&
-				importPath.endsWith('.vue')
-		);
+/* A relative specifier in an import, a dynamic import or a re-export. */
+const RELATIVE_SPECIFIER_PATTERN =
+	/(\bfrom\s*|\bimport\s*\(\s*|\bimport\s+)(['"])(?<spec>\.{1,2}\/[^'"]*)\2/g;
+
+const extractRelativeImports = (code: string) =>
+	Array.from(
+		new Set(
+			Array.from(
+				code.matchAll(RELATIVE_SPECIFIER_PATTERN),
+				(match) => match.groups?.spec
+			).filter((spec): spec is string => spec !== undefined)
+		)
+	);
+
+/* The file a relative non-SFC import names, resolved from the island's
+ * source, as Bun would resolve it there (extensions, index files). */
+const resolveFromSource = (spec: string, sourcePath: string) => {
+	try {
+		return Bun.resolveSync(spec, dirname(sourcePath));
+	} catch {
+		return null;
+	}
+};
 
 /* Compile a `.vue` SFC source file into a JS module suitable for a
    server-side `await import(...)`. Mirrors `compileSvelteServerModule`:
@@ -144,14 +158,16 @@ export const compileVueServerModule = async (sourcePath: string) => {
 			}).code
 		: 'const ssrRender = () => {};';
 
-	const childImportPaths = extractRelativeVueImports(compiledScript.content);
+	const relativeImports = extractRelativeImports(compiledScript.content);
 	const compiledChildren = await Promise.all(
-		childImportPaths.map(async (relativeImport) => ({
-			compiledPath: await compileVueServerModule(
-				resolve(dirname(sourcePath), relativeImport)
-			),
-			spec: relativeImport
-		}))
+		relativeImports
+			.filter((spec) => spec.endsWith('.vue'))
+			.map(async (spec) => ({
+				compiledPath: await compileVueServerModule(
+					resolve(dirname(sourcePath), spec)
+				),
+				spec
+			}))
 	);
 
 	const strippedScript = stripExports(compiledScript.content);
@@ -166,14 +182,36 @@ export const compileVueServerModule = async (sourcePath: string) => {
 		].join('\n')
 	);
 
+	/* The module is written under `.absolutejs/islands/vue/`, so every
+	   relative specifier has to be rewritten: a child SFC to its compiled
+	   module, anything else (`../shared/store`) to the file it names next
+	   to the source. Left as written, it resolved against the generated
+	   file and the import failed. */
 	const compiledModulePath = getCachedModulePath(sourcePath);
-	let rewritten = assembled;
+	const rewrittenSpecifiers = new Map<string, string>();
 	for (const child of compiledChildren) {
-		rewritten = rewritten.replaceAll(
+		rewrittenSpecifiers.set(
 			child.spec,
 			ensureRelativeImportPath(compiledModulePath, child.compiledPath)
 		);
 	}
+	for (const spec of extractRelativeImports(assembled)) {
+		if (rewrittenSpecifiers.has(spec)) continue;
+		const resolvedImport = resolveFromSource(spec, sourcePath);
+		if (!resolvedImport) continue;
+		rewrittenSpecifiers.set(
+			spec,
+			ensureRelativeImportPath(compiledModulePath, resolvedImport)
+		);
+	}
+	const rewritten = assembled.replace(
+		RELATIVE_SPECIFIER_PATTERN,
+		(match, prefix: string, quote: string, spec: string) => {
+			const target = rewrittenSpecifiers.get(spec);
+
+			return target ? `${prefix}${quote}${target}${quote}` : match;
+		}
+	);
 
 	await mkdir(dirname(compiledModulePath), { recursive: true });
 	await writeIfChanged(compiledModulePath, rewritten);

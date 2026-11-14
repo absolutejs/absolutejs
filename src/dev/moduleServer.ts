@@ -1082,7 +1082,9 @@ const compileVueTemplate = (
 ) => {
 	const compiler = getLoadedVueCompiler();
 	const scriptContent = compiledScript.content;
-	if (!descriptor.template) return scriptContent;
+	if (!descriptor.template) {
+		return `${scriptContent}\nexport default __script__;`;
+	}
 
 	const isScoped = descriptor.styles.some((style) => style.scoped);
 	const templateResult = compiler.compileTemplate({
@@ -1098,8 +1100,7 @@ const compileVueTemplate = (
 		source: descriptor.template.content
 	});
 
-	let code = scriptContent.replace('export default', 'const __script__ =');
-	code += `\n${templateResult.code}`;
+	let code = `${scriptContent}\n${templateResult.code}`;
 	code += '\n__script__.render = render;';
 	// __scopeId tells Vue's runtime to apply the scope-id attribute to every
 	// element created via `_createElementVNode` during render. SSR sets it on
@@ -1201,7 +1202,7 @@ const transformVueFile = async (
 
 	// Template-only components (no `<script>` or `<script setup>`) are
 	// valid Vue SFCs. compileScript throws on them, so synthesize a
-	// minimal default-export when there's no script block — the same
+	// minimal component object when there's no script block — the same
 	// fallback the build-time compiler uses (compileVue.ts).
 	const hasScript = descriptor.script || descriptor.scriptSetup;
 	const compiledScript = hasScript
@@ -1212,10 +1213,16 @@ const transformVueFile = async (
 					readFile: (file) =>
 						isFile(file) ? readFileSync(file, 'utf-8') : undefined
 				},
+				// Bind the component to `__script__` instead of emitting
+				// `export default`: a plain `<script>` with no default
+				// export (a defineRoutes SPA shell) still gets a component
+				// object, and compileScript handles every default-export
+				// form (`export { x as default }` included).
+				genDefaultAs: '__script__',
 				id: componentId,
 				inlineTemplate: false
 			})
-		: { bindings: {}, content: 'export default {};' };
+		: { bindings: {}, content: 'const __script__ = {};' };
 	const compiledSfcScript: VueSFCCompiledScript = {
 		bindings: compiledScript.bindings ?? {},
 		content: compiledScript.content

@@ -31,6 +31,18 @@ const ensureRelativeImportPath = (from: string, target: string) => {
 	return importPath.startsWith('.') ? importPath : `./${importPath}`;
 };
 
+const escapeRegExp = (value: string) =>
+	value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/* Replace `spec` only where it is a whole quoted string. A plain
+ * `replaceAll` also rewrote it inside a longer specifier, so with both
+ * `../shared` and `../shared/store` imported the second one broke. */
+const replaceQuotedSpecifier = (code: string, spec: string, target: string) =>
+	code.replace(
+		new RegExp(`(['"])${escapeRegExp(spec)}\\1`, 'g'),
+		(_match, quote: string) => `${quote}${target}${quote}`
+	);
+
 const processDirectoryEntries = (
 	entries: Dirent<string>[],
 	dir: string,
@@ -117,18 +129,21 @@ const resolveRelativeModule = async (spec: string, from: string) => {
 	}
 
 	const basePath = resolve(dirname(from), spec);
+	const extensions = [
+		'.ts',
+		'.tsx',
+		'.mts',
+		'.cts',
+		'.js',
+		'.jsx',
+		'.mjs',
+		'.cjs',
+		'.json'
+	];
 	const candidates = [
 		basePath,
-		`${basePath}.ts`,
-		`${basePath}.js`,
-		`${basePath}.mjs`,
-		`${basePath}.cjs`,
-		`${basePath}.json`,
-		join(basePath, 'index.ts'),
-		join(basePath, 'index.js'),
-		join(basePath, 'index.mjs'),
-		join(basePath, 'index.cjs'),
-		join(basePath, 'index.json')
+		...extensions.map((extension) => `${basePath}${extension}`),
+		...extensions.map((extension) => join(basePath, `index${extension}`))
 	];
 
 	const existResults = await Promise.all(
@@ -282,7 +297,11 @@ export const compileSvelteServerModule = async (sourcePath: string) => {
 	}
 
 	for (const [spec, resolvedModuleImport] of rewrittenModulePaths) {
-		transpiled = transpiled.replaceAll(spec, resolvedModuleImport);
+		transpiled = replaceQuotedSpecifier(
+			transpiled,
+			spec,
+			resolvedModuleImport
+		);
 	}
 
 	let compiledCode = compile(transpiled, {
@@ -299,7 +318,8 @@ export const compileSvelteServerModule = async (sourcePath: string) => {
 	}).js.code;
 
 	for (const [spec, compiledChildPath] of childModulePaths) {
-		compiledCode = compiledCode.replaceAll(
+		compiledCode = replaceQuotedSpecifier(
+			compiledCode,
 			spec,
 			ensureRelativeImportPath(
 				getCachedModulePath(sourcePath),
@@ -309,7 +329,11 @@ export const compileSvelteServerModule = async (sourcePath: string) => {
 	}
 
 	for (const [spec, resolvedModuleImport] of rewrittenModulePaths) {
-		compiledCode = compiledCode.replaceAll(spec, resolvedModuleImport);
+		compiledCode = replaceQuotedSpecifier(
+			compiledCode,
+			spec,
+			resolvedModuleImport
+		);
 	}
 
 	// Name the source, as compileSvelte does, so a lazy route rendered

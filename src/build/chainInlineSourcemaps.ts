@@ -219,8 +219,8 @@ const extractInlineMap = (text: string): SourceMap | null => {
  * to `after` text (the final intermediate JS as written to disk).
  *
  * The intermediate goes through several non-line-preserving passes —
- * stripExports (line-preserving), Bun.Transpiler (drops blank lines
- * + whole-line type declarations), mergeVueImports (removes every
+ * Bun.Transpiler (drops blank lines + whole-line type
+ * declarations), mergeVueImports (removes every
  * `import ... from "vue"` line and prepends one consolidated). For
  * the sourcemap chain to map back to the .vue file from the final
  * intermediate's actual line numbers, we need to know where each

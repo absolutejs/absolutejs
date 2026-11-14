@@ -361,6 +361,134 @@ export const routes = defineRoutes([
 			await rm(root, { force: true, recursive: true });
 		}
 	});
+
+	test('compiles pages whose only script block is a plain <script>', async () => {
+		const root = await projectFixtureDir('compile-vue-plain-script-');
+		const pages: Record<string, string> = {
+			BothScripts: `<script lang="ts">
+export const pageLabel = 'BOTH';
+</script>
+
+<script setup lang="ts">
+const word = 'BOTH_SCRIPTS';
+</script>
+
+<template><p>{{ word }}</p></template>`,
+			NamedOnly: `<script lang="ts">
+export const pageLabel = 'NAMED';
+</script>
+
+<template><p>NAMED_ONLY</p></template>`,
+			NoScript: `<template><p>NO_SCRIPT</p></template>`,
+			PlainDefault: `<script lang="ts">
+import { defineComponent, ref } from 'vue';
+
+export default defineComponent({
+  setup() {
+    return { count: ref(7) };
+  }
+});
+</script>
+
+<template><p>PLAIN {{ count }}</p></template>`,
+			RoutedShell: `<script lang="ts">
+export const routes = [
+  { path: '/app/one', component: () => import('./RouteOne.vue').then((m) => m.default) },
+  { path: '/app/two', component: () => import('./RouteTwo.vue').then((m) => m.default) }
+];
+</script>
+
+<template><RouterView /></template>`
+		};
+
+		try {
+			await Promise.all([
+				...Object.entries(pages).map(([name, source]) =>
+					writeTempFile(join(root, `${name}.vue`), source)
+				),
+				writeTempFile(
+					join(root, 'RouteOne.vue'),
+					`<template><h1>ROUTE_ONE <RouterLink to="/app/two">two</RouterLink></h1></template>`
+				),
+				writeTempFile(
+					join(root, 'RouteTwo.vue'),
+					`<template><h1>ROUTE_TWO</h1></template>`
+				)
+			]);
+			const pagePaths = Object.keys(pages).map((name) =>
+				join(root, `${name}.vue`)
+			);
+			const { vueServerPaths } = await compileVue(pagePaths, root, false);
+			const serverEntries = Object.keys(pages).map((name) => {
+				const entry = vueServerPaths.find((path) =>
+					path.endsWith(`/${name}.js`)
+				);
+				if (!entry) throw new Error(`no server output for ${name}`);
+
+				return entry;
+			});
+			const bundled = await Bun.build({
+				entrypoints: serverEntries,
+				// Share this test's Vue runtime: a second bundled copy
+				// would not see the components app.use(router) registers.
+				external: ['vue', 'vue-router', 'vue/server-renderer'],
+				outdir: join(root, 'bundle'),
+				target: 'bun'
+			});
+			expect(bundled.success).toBe(true);
+			const load = async (name: string) => {
+				const output = bundled.outputs.find(
+					(artifact) =>
+						artifact.kind === 'entry-point' &&
+						artifact.path.endsWith(`/${name}.js`)
+				);
+				if (!output) throw new Error(`no bundle for ${name}`);
+
+				return import(`${pathToFileURL(output.path).href}?t=${Date.now()}`);
+			};
+
+			const expected: Record<string, string> = {
+				BothScripts: 'BOTH_SCRIPTS',
+				NamedOnly: 'NAMED_ONLY',
+				NoScript: 'NO_SCRIPT',
+				PlainDefault: 'PLAIN 7'
+			};
+			for (const [name, text] of Object.entries(expected)) {
+				const pageModule = await load(name);
+				const html = await renderToString(
+					createSSRApp(pageModule.default)
+				);
+				expect({ html: html.includes(text), name }).toEqual({
+					html: true,
+					name
+				});
+			}
+			expect((await load('NamedOnly')).pageLabel).toBe('NAMED');
+			expect((await load('BothScripts')).pageLabel).toBe('BOTH');
+
+			const routed = await load('RoutedShell');
+			expect(Array.isArray(routed.routes)).toBe(true);
+			for (const [url, text] of [
+				['/app/one', 'ROUTE_ONE'],
+				['/app/two', 'ROUTE_TWO']
+			] as const) {
+				const app = createSSRApp(routed.default);
+				let notFound = false;
+				await routed.setupApp(app, {
+					isServer: true,
+					setNotFound: () => {
+						notFound = true;
+					},
+					url
+				});
+				expect(notFound).toBe(false);
+				const html = await renderToString(app);
+				expect(html).toContain(text);
+			}
+		} finally {
+			await rm(root, { force: true, recursive: true });
+		}
+	});
 });
 
 

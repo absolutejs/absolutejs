@@ -66,14 +66,6 @@ const toJs = (filePath: string, sourceDir?: string) => {
 	return `${filePath}.js`;
 };
 
-const stripExports = (code: string) =>
-	// Only strip `export default ...` (the SFC script object) — `assembleModule`
-	// re-emits `export default script` at the end. User-defined named exports
-	// from a plain `<script>` block (e.g. `export const setupApp = ...` for
-	// vue-router cooperation) MUST be preserved so the auto-generated client
-	// index can import them via `import * as PageModule`.
-	code.replace(/export\s+default/, 'const script =');
-
 const mergeVueImports = (code: string) => {
 	const lines = code.split('\n');
 	const specifierSet = new Set<string>();
@@ -198,11 +190,20 @@ export const compileVueSfc = async ({
 						return content;
 					}
 				},
+				// Bind the component object to `script` instead of
+				// emitting `export default`; `assembleModule` re-exports
+				// it at the end. compileScript handles every form here: a
+				// plain `<script>` without a default export (a
+				// defineRoutes SPA shell) gets `const script = {}`, and
+				// `export { x as default }` is rewritten too. Named exports
+				// (`routes`, `setupApp`) stay so the generated client
+				// index can import them via `import * as PageModule`.
+				genDefaultAs: 'script',
 				id: componentId,
 				inlineTemplate: false,
 				sourceMap: true
 			})
-		: { bindings: {}, content: 'export default {};', map: undefined };
+		: { bindings: {}, content: 'const script = {};', map: undefined };
 	// `deps` lists every file the script's imported types were resolved
 	// from. Vue caches those scopes in-process, so the fs adapter above
 	// only observes the first read — `deps` is the authoritative list.
@@ -212,10 +213,10 @@ export const compileVueSfc = async ({
 		if (dep in typeDepHashes || !existsSync(dep)) continue;
 		typeDepHashes[dep] = hashContent(readFileSync(dep, 'utf-8'));
 	}
-	const strippedScript = stripExports(compiledScript.content);
+	const scriptCode = compiledScript.content;
 	const sourceDir = dirname(sourceFilePath);
 	const transpiledScript = rewriteRelativeImports(
-		transpiler.transformSync(strippedScript),
+		transpiler.transformSync(scriptCode),
 		sourceDir
 	);
 
@@ -355,7 +356,7 @@ if (typeof __VUE_HMR_RUNTIME__ !== 'undefined') {
 	// (docs/BUN_SOURCEMAP_CHAIN_BUG.md).
 	const inlineSourceMapFor = (finalContent: string) => {
 		if (!compiledScript.map || !hasScript) return '';
-		const remap = buildLineRemap(strippedScript, finalContent);
+		const remap = buildLineRemap(scriptCode, finalContent);
 		const mappings = remapGeneratedLines(
 			compiledScript.map.mappings,
 			remap
