@@ -3,7 +3,13 @@ import { relative } from 'node:path';
 import { importersOf } from '../backendGraph';
 import type { HotModuleAnalysis } from './analyze';
 import { analyzeSource, isHotManaged } from './plugin';
-import { moduleRecord, nextTag, rollback, setCurrent } from './runtime';
+import {
+	managedModulePaths,
+	moduleRecord,
+	nextTag,
+	rollback,
+	setCurrent
+} from './runtime';
 
 /* Applying an edit to a server module (see docs/BACKEND_HMR.md): import the
  * module's next version, make it current, then re-run — as new versions —
@@ -180,7 +186,8 @@ const advance = async (path: string): Promise<Advanced> => {
 
 const apply = async (
 	changedPath: string,
-	entryPath: string
+	entryPath: string,
+	reloadEntry = true
 ): Promise<ServerChangeOutcome> => {
 	const path = realPath(changedPath);
 	const entry = realPath(entryPath);
@@ -224,7 +231,7 @@ const apply = async (
 	);
 	if (failure) return failure;
 	const { entryAffected, modules } = propagation;
-	if (entryAffected) {
+	if (entryAffected && reloadEntry) {
 		const reloaded = await globalThis.__absoluteReloadEntry?.(
 			`${display(path)} changed`
 		);
@@ -310,11 +317,45 @@ const reportFailure = (path: string, error: unknown) => {
 
 // One queue for every bundle that applies edits (see `records` in runtime).
 
-/** Apply an edit to a server module. Edits apply one at a time. */
-export const applyServerChange = (path: string, entryPath: string) => {
+const enqueue = <Result>(work: () => Promise<Result>) => {
 	const previous = globalThis.__absoluteHotApplyChain ?? Promise.resolve();
-	const result = previous.then(() => apply(path, entryPath));
+	const result = previous.then(work);
 	globalThis.__absoluteHotApplyChain = result.catch(() => undefined);
 
 	return result;
 };
+
+/** Apply an edit to a server module. Edits apply one at a time. */
+export const applyServerChange = (path: string, entryPath: string) =>
+	enqueue(() => apply(path, entryPath));
+
+const readSource = (path: string) => {
+	try {
+		return readFileSync(path, 'utf-8');
+	} catch {
+		return undefined;
+	}
+};
+
+/** Before the server entry re-runs for its own edit: apply every module it
+ *  imports whose file changed since it was loaded but whose edit never
+ *  arrived (a missed or misrouted watcher event). The entry re-runs next
+ *  and sees their new versions, so they do not re-run it themselves. */
+export const applyStaleModules = (entryPath: string) =>
+	enqueue(async () => {
+		const entry = realPath(entryPath);
+		const stale = managedModulePaths().filter((path) => {
+			if (path === entry || !isHotManaged(path)) return false;
+			const known = moduleRecord(path)?.source;
+			const source = readSource(path);
+
+			return (
+				known !== undefined && source !== undefined && source !== known
+			);
+		});
+		// One after another, so each sees the versions before it.
+		await stale.reduce<Promise<unknown>>(
+			(previous, path) => previous.then(() => apply(path, entry, false)),
+			Promise.resolve()
+		);
+	});

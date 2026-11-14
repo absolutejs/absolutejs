@@ -22,7 +22,14 @@
 
 const ENV_VAR = 'NODE_ENV';
 
-export const getNodeEnv = () => process.env[ENV_VAR];
-export const isDevelopmentRuntime = () =>
-	process.env[ENV_VAR] === 'development';
-export const isProductionRuntime = () => process.env[ENV_VAR] === 'production';
+/* These helpers are written for server code, but a shared module can pull
+ * them into a browser bundle (the Angular defer slot did, through the
+ * streaming-slot registrar). Browsers have no `process`, and a bare
+ * `process.env` read there throws `ReferenceError: process is not defined`,
+ * so read through a guard: with no `process`, NODE_ENV is simply unset. */
+const readEnv = () =>
+	typeof process === 'undefined' ? undefined : process.env?.[ENV_VAR];
+
+export const getNodeEnv = () => readEnv();
+export const isDevelopmentRuntime = () => readEnv() === 'development';
+export const isProductionRuntime = () => readEnv() === 'production';

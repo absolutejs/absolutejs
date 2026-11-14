@@ -114,6 +114,40 @@ describe('detectFramework', () => {
 	test('returns unknown for unrecognized files', () => {
 		expect(detectFramework('/random/path/file.rs')).toBe('unknown');
 	});
+
+	test('server code in a project whose path names a framework is not that framework', () => {
+		const paths = makePaths({
+			angularDir: '/work/vue-angular-app/src/frontend/angular',
+			emberDir: undefined
+		});
+		expect(
+			detectFramework('/work/vue-angular-app/src/backend/api.ts', paths)
+		).toBe('unknown');
+		expect(
+			detectFramework(
+				'/work/vue-angular-app/src/backend/api.ts',
+				makePaths({ angularDir: undefined, emberDir: undefined })
+			)
+		).toBe('unknown');
+		expect(
+			detectFramework('/work/member-portal/src/backend/api.ts', paths)
+		).toBe('unknown');
+		expect(
+			detectFramework(
+				'/work/vue-angular-app/src/frontend/angular/pages/home.ts',
+				paths
+			)
+		).toBe('angular');
+	});
+
+	test('a framework directory owns only paths under it', () => {
+		expect(
+			detectFramework(
+				'/project/example/angular-utils/format.ts',
+				makePaths()
+			)
+		).toBe('unknown');
+	});
 });
 
 describe('shouldIgnorePath', () => {

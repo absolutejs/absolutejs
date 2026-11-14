@@ -20,8 +20,14 @@ export const detectFramework = (
 
 	const normalized = filePath.replace(/\\/g, '/');
 
-	const startsWithDir = (dir?: string) =>
-		dir ? normalized.startsWith(dir.replace(/\\/g, '/')) : false;
+	// A directory prefix ends at a path separator: `src/frontend/angular`
+	// does not own `src/frontend/angular-utils/format.ts`.
+	const startsWithDir = (dir?: string) => {
+		if (!dir) return false;
+		const root = dir.replace(/\\/g, '/').replace(/\/$/, '');
+
+		return normalized === root || normalized.startsWith(`${root}/`);
+	};
 
 	// Prefer resolved directory prefixes when available
 	if (resolved) {
@@ -53,9 +59,18 @@ export const detectFramework = (
 	if (normalized.endsWith('.gjs') || normalized.endsWith('.gts'))
 		return 'ember';
 	if (normalized.endsWith('.html')) return 'html';
-	if (normalized.endsWith('.ts') && normalized.includes('angular'))
+	// Only a guess when the configured directories are unknown. With them,
+	// a .ts file outside every framework directory is server or shared code
+	// (an `api.ts` in a project folder named `vue-angular-app` included),
+	// which backend HMR applies; Angular components that import it are found
+	// through the dependency graph.
+	if (
+		!resolved &&
+		normalized.endsWith('.ts') &&
+		normalized.includes('angular')
+	)
 		return 'angular';
-	if (normalized.endsWith('.ts') && normalized.includes('ember'))
+	if (!resolved && normalized.endsWith('.ts') && normalized.includes('ember'))
 		return 'ember';
 
 	// Generic assets (styles in root /assets/, images, etc.)

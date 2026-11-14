@@ -6,6 +6,7 @@ import { describe, expect, test } from 'bun:test';
 import { createSSRApp } from 'vue';
 import { renderToString } from 'vue/server-renderer';
 import { clearVueHmrCaches, compileVue } from '../../../src/build/compileVue';
+import { projectFixtureDir } from '../../helpers/projectFixtureDir';
 
 const writeTempFile = async (path: string, content: string) => {
 	await Bun.write(path, content);
@@ -46,7 +47,7 @@ defineProps<{ status: Status }>();
 	});
 
 	test('copies helpers that are only re-exported (export { } from, export * from)', async () => {
-		const root = await mkdtemp(join(tmpdir(), 'absolutejs-compile-vue-'));
+		const root = await projectFixtureDir('compile-vue-');
 		const pagePath = join(root, 'SignalsPage.vue');
 
 		try {
@@ -94,7 +95,7 @@ const label = shout(level(2));
 	});
 
 	test('compiles Vue components referenced only by literal dynamic imports', async () => {
-		const root = await mkdtemp(join(tmpdir(), 'absolutejs-compile-vue-'));
+		const root = await projectFixtureDir('compile-vue-');
 		const pagePath = join(root, 'LazyPage.vue');
 		const childPath = join(root, 'components', 'LazyPanel.vue');
 

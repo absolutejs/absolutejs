@@ -1,4 +1,3 @@
-import { isProductionRuntime } from '../utils/runtimeMode';
 import type { StreamingSlot } from '../utils/streamingSlots';
 
 type StreamingSlotRegistrar = (slot: StreamingSlot) => void;
@@ -84,8 +83,11 @@ export const setStreamingSlotWarningController = (
 ) => {
 	Reflect.set(globalThis, STREAMING_SLOT_WARNING_STORAGE_KEY, controller);
 };
+/* Warns in production too: a slot that silently stays on its fallback is
+ * worse there. The controller logs each distinct warning once per process
+ * in production. */
 export const warnMissingStreamingSlotCollector = (primitiveName: string) => {
-	if (isProductionRuntime() || isStreamingSlotCollectionActive()) {
+	if (isStreamingSlotCollectionActive()) {
 		return;
 	}
 

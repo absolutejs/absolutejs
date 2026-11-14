@@ -3,7 +3,7 @@ import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { DEFAULT_PORT } from '../../constants';
 import { loadRawConfig } from '../../utils/loadConfig';
-import { scanListeners } from '../../utils/portScan';
+import { isPortInUse, portListenerPids } from '../../utils/portInUse';
 import { colors } from '../tuiPrimitives';
 import {
 	ANGULAR_RUNTIME_PACKAGES,
@@ -98,23 +98,42 @@ const envCheck = async () => {
 	);
 };
 
-const devPort = (config: object) => {
-	const dev: unknown = Reflect.get(config, 'dev');
-	const port =
+/** The port the dev server would take, resolved the way `absolute dev` does:
+ *  ABSOLUTE_PORT, then PORT, then `dev.port` in the config, then the default. */
+export const devPort = (
+	config: object | null,
+	env: Record<string, string | undefined> = process.env
+) => {
+	const dev: unknown = config ? Reflect.get(config, 'dev') : undefined;
+	const configured =
 		dev && typeof dev === 'object' ? Reflect.get(dev, 'port') : undefined;
 
-	return typeof port === 'number' ? port : DEFAULT_PORT;
+	return (
+		Number(env.ABSOLUTE_PORT) ||
+		Number(env.PORT) ||
+		(typeof configured === 'number' && configured > 0
+			? configured
+			: DEFAULT_PORT)
+	);
 };
 
-const portCheck = async (config: object) => {
-	const port = devPort(config);
-	const holder = (await scanListeners()).find(
-		(listener) => listener.port === port
-	);
+export const portCheck = async (
+	config: object | null,
+	env: Record<string, string | undefined> = process.env
+) => {
+	const port = devPort(config, env);
+	if (!(await isPortInUse(port))) {
+		return check('ok', 'Dev port', `${port} free`);
+	}
+	const pids = portListenerPids(port);
 
-	return holder
-		? check('warn', 'Dev port', `${port} in use by pid ${holder.pid}`)
-		: check('ok', 'Dev port', `${port} free`);
+	return check(
+		'warn',
+		'Dev port',
+		pids.length > 0
+			? `${port} in use by pid ${pids.join(', ')}`
+			: `${port} in use`
+	);
 };
 
 const typeGraphCheck = () => {
@@ -210,12 +229,7 @@ const gatherChecks = async () => {
 		config === null
 			? check('fail', 'Config', 'absolute.config.ts not found or invalid')
 			: check('ok', 'Config', 'absolute.config.ts loaded');
-	const [env, port] = await Promise.all([
-		envCheck(),
-		config === null
-			? check('warn', 'Dev port', 'skipped (no config)')
-			: portCheck(config)
-	]);
+	const [env, port] = await Promise.all([envCheck(), portCheck(config)]);
 
 	return [
 		checkBun(),

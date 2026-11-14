@@ -196,4 +196,51 @@ describe('injected manifest', () => {
 			IslandReactA: '/islands/react/A.abc123de.js'
 		});
 	});
+
+	/* A production server bundle can hold several copies of this module (one
+	 * per package entry point). prepare() sets the manifest through one copy
+	 * and a framework page handler injects it through another. */
+	test('a second copy of the module filters with the build directory the first one set', async () => {
+		// A query string makes Bun load a separate instance of the module.
+		const secondCopySpecifier =
+			'../../../src/core/islandPageContext.ts?second-copy';
+		const otherCopy: typeof import('../../../src/core/islandPageContext') =
+			await import(secondCopySpecifier);
+		expect(otherCopy.injectIslandPageContext).not.toBe(
+			injectIslandPageContext
+		);
+		setCurrentIslandManifest(
+			{
+				IslandReactA: '/islands/react/A.abc123de.js',
+				SvelteExample:
+					'/srv/app/build/svelte/server/pages/Svelte.abc.js'
+			},
+			'/srv/app/build'
+		);
+		const html = await new Response(
+			otherCopy.injectIslandPageContextStream(
+				createStream([ISLAND_PAGE]),
+				{ hasIslands: true }
+			)
+		).text();
+
+		expect(html).not.toContain('/srv/app/build');
+		expect(injectedManifest(html)).toEqual({
+			IslandReactA: '/islands/react/A.abc123de.js'
+		});
+	});
+
+	test('paths inside the project root are dropped even without a build directory', () => {
+		const projectFile = `${process.cwd()}/dist/react/server/rsc/Page.abc.js`;
+		setCurrentIslandManifest({
+			IslandReactA: '/islands/react/A.abc123de.js',
+			ServerPage: projectFile
+		});
+		const html = injectIslandPageContext(ISLAND_PAGE);
+
+		expect(html).not.toContain(projectFile);
+		expect(injectedManifest(html)).toEqual({
+			IslandReactA: '/islands/react/A.abc123de.js'
+		});
+	});
 });

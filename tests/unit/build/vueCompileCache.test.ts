@@ -10,6 +10,7 @@ import {
 	vueCompileCacheDir
 } from '../../../src/build/vueCompileCache';
 import { getFrameworkGeneratedDir } from '../../../src/utils/generatedDir';
+import { projectFixtureDir } from '../../helpers/projectFixtureDir';
 
 const FILE_NAME_HASH_LENGTH = 32;
 const cacheFileFor = (sourcePath: string) =>
@@ -70,7 +71,7 @@ afterEach(async () => {
 
 describe('vue compile cache', () => {
 	test('survives a restart, invalidates on child and type-dependency edits', async () => {
-		const root = await mkdtemp(join(tmpdir(), 'absolutejs-vue-cache-'));
+		const root = await projectFixtureDir('vue-cache-');
 		cleanups.push(root);
 		const parentPath = join(root, 'Parent.vue');
 		const childPath = join(root, 'components', 'Child.vue');

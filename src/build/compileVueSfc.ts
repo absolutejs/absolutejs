@@ -9,7 +9,7 @@
  * byte-for-byte identical. */
 
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
-import { dirname, relative, resolve } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
 import { Transpiler } from 'bun';
 import type {
 	VueSfcCompileInput,
@@ -23,6 +23,7 @@ import { isStylePath } from './stylePreprocessor';
 import { inlineCssImports } from './inlineCssImports';
 import { hashContent } from './vueCompileCache';
 import { inlineSourceMapComment } from './inlineSourceMapComment';
+import { vueMirrorImport } from './vueModuleOutputPath';
 
 const transpiler = new Transpiler({ loader: 'ts', target: 'browser' });
 
@@ -135,11 +136,27 @@ const ${localName} = (source) => ${importedName}(
 	);
 };
 
+/* The compiled module lives in the generated source mirror, which keeps
+ * the source layout only within one region (see vueModuleOutputPath.ts),
+ * so an import that crosses into another region is re-derived from the two
+ * generated locations. */
+const toOutputImport = (specifier: string, sourceDir: string) =>
+	specifier.startsWith('./') || specifier.startsWith('../')
+		? vueMirrorImport(
+				join(sourceDir, '__importer__'),
+				specifier,
+				resolve(sourceDir, specifier)
+			)
+		: specifier;
+
 const rewriteRelativeImports = (code: string, sourceDir: string) =>
 	code.replace(
 		/(['"])(\.{1,2}\/[^'"]+)(['"])/g,
 		(_, quoteStart, relativeImport, quoteEnd) =>
-			`${quoteStart}${toJs(relativeImport, sourceDir)}${quoteEnd}`
+			`${quoteStart}${toOutputImport(
+				toJs(relativeImport, sourceDir),
+				sourceDir
+			)}${quoteEnd}`
 	);
 
 export const compileVueSfc = async ({

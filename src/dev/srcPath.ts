@@ -19,9 +19,22 @@ const mapLeading = (path: string, source: string, target: string) => {
 	return segments.join('/');
 };
 
-/** `@up/core/x.ts` → `../core/x.ts`, for resolving against the app folder. */
+/* A browser percent-encodes characters such as spaces when it requests a
+ * module (`/@src/@up/My Folder/x.ts` arrives as `My%20Folder`), so the URL
+ * path has to be decoded before it is used as a file path. A path that isn't
+ * valid percent-encoding (a literal `%` in a file name) is used as written. */
+const decodeUrlPath = (path: string) => {
+	try {
+		return decodeURIComponent(path);
+	} catch {
+		return path;
+	}
+};
+
+/** `@up/core/x.ts` → `../core/x.ts`, for resolving against the app folder.
+ *  Percent-encoding the browser added (`%20` for a space) is decoded. */
 export const decodeSrcPath = (srcPath: string) =>
-	mapLeading(srcPath, UP_SEGMENT, PARENT_SEGMENT);
+	mapLeading(decodeUrlPath(srcPath), UP_SEGMENT, PARENT_SEGMENT);
 
 /** `../core/x.ts` → `@up/core/x.ts`; a path inside the app is unchanged. */
 export const encodeSrcPath = (relativePath: string) =>

@@ -12,7 +12,7 @@ persistent layout can stay mounted (later phase).
 
 | Piece | Where | What it does today |
 | --- | --- | --- |
-| React `<Link>` | `src/react/router/Link.tsx` | Prefetches (`usePrefetch`). Inside `<UniversalRouter>` it `preventDefault`s and calls react-router only when `navigation.matches(href)`; otherwise the click falls through to the browser. |
+| React `<Link>` | `src/react/router/Link.tsx` | Prefetches (`usePrefetch`). Inside `<UniversalRouter>` it `preventDefault`s and calls react-router only when `navigation.matches(href)`; otherwise the click falls through to the browser. Import it from `@absolutejs/absolute/react/components` in a project without react-router: the `react/router` entry also exports `<UniversalRouter>`, so it needs react-router (a build without it fails with that advice). |
 | React router | `src/react/router/UniversalRouter.tsx` | React Router 7, its own `popstate` handling. No scroll handling. |
 | Svelte `<Link>` | `src/svelte/router/Link.svelte` | Always `preventDefault`s a same-origin click and calls the router's `navigate()`, even when no `<Router>` matches (or none is mounted): the URL changes, nothing renders. |
 | Svelte router | `src/svelte/router/*` | Guards, lazy routes, View Transitions, scroll restoration (`history.scrollRestoration = 'manual'` while mounted). `history.state` is `{ __absoluteRouter: { key, index, scroll? }, user }`. Outermost `<Router>` listens to `popstate`. |

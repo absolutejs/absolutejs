@@ -35,6 +35,11 @@ import {
 import { BROWSER_TRANSLATION_BASELINE_SCRIPT } from '../core/browserTranslation';
 
 type ReactPageRenderOptions = StreamingSlotEnhancerOptions & {
+	/** Collect `<SuspenseSlot>` / `<StreamSlot>` registrations during the
+	 *  render and stream their resolved content after the shell. On by
+	 *  default: a page that renders no slot gets byte-identical output and
+	 *  no extra work. Set `false` to turn collection off for this route;
+	 *  slots then stay on their fallback and a warning is logged once. */
 	collectStreamingSlots?: boolean;
 	/** Buffer this page's stream so it can carry a content-hash `ETag` and
 	 *  serve a `304` on repeat visits, at the cost of streaming's fast first
@@ -160,11 +165,13 @@ export const handleReactPageRequest = async <
 	try {
 		const spaNotFound = await renderSpaNotFound('react', pageName, request);
 		if (spaNotFound) return withPageCacheHeaders(spaNotFound, request);
-		const handlerCallsite =
-			options?.collectStreamingSlots === true
-				? undefined
-				: (getCurrentRouteRegistrationCallsite() ??
-					captureStreamingSlotWarningCallsite());
+		// Slot collection is on unless the handler opts out with `false`:
+		// installing the collector costs nothing when no slot registers.
+		const collectStreamingSlots = options?.collectStreamingSlots !== false;
+		const handlerCallsite = collectStreamingSlots
+			? undefined
+			: (getCurrentRouteRegistrationCallsite() ??
+				captureStreamingSlotWarningCallsite());
 		const renderPageResponse = async () => {
 			const { createElement } = await import('react');
 			const { renderToReadableStream } = await import('react-dom/server');
@@ -216,10 +223,10 @@ export const handleReactPageRequest = async <
 
 		const pageResponse = await runWithStreamingSlotWarningScope(
 			() =>
-				options?.collectStreamingSlots === true
+				collectStreamingSlots
 					? withRegisteredStreamingSlots(renderPageResponse, options)
 					: renderPageResponse(),
-			{ handlerCallsite }
+			{ explicitlyDisabled: !collectStreamingSlots, handlerCallsite }
 		);
 
 		return withPageCacheHeaders(pageResponse, request, {

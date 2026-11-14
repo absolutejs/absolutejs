@@ -307,7 +307,8 @@ export const resolveVueComposableModuleId = (
 
 	const sourcePath = vueModuleSourcePath(
 		resolve(generatedVueDir, 'client'),
-		absolutePath
+		absolutePath,
+		options.projectRoot
 	);
 	if (!sourcePath) return absolutePath;
 	const stem = sourcePath.replace(/\.[cm]?js$/, '');

@@ -194,7 +194,7 @@ describe('resolveVueComposableModuleId', () => {
 
 		expect(
 			resolveVueComposableModuleId(
-				vueModuleOutputPath(join(generatedVueDir, 'client'), join(vueDir, 'composables/useAuth.ts')),
+				vueModuleOutputPath(join(generatedVueDir, 'client'), join(vueDir, 'composables/useAuth.ts'), projectRoot),
 				options
 			)
 		).toBe(join(vueDir, 'composables', 'useAuth.ts'));
@@ -202,14 +202,14 @@ describe('resolveVueComposableModuleId', () => {
 		// server wraps) instead of pointing at the generated intermediate.
 		expect(
 			resolveVueComposableModuleId(
-				vueModuleOutputPath(join(generatedVueDir, 'client'), join(vueDir, 'composables/useMissing.ts')),
+				vueModuleOutputPath(join(generatedVueDir, 'client'), join(vueDir, 'composables/useMissing.ts'), projectRoot),
 				options
 			)
 		).toBe(join(vueDir, 'composables', 'useMissing.ts'));
 		// Helpers outside vueDir stay inside the client tree and retain their identity.
 		expect(
 			resolveVueComposableModuleId(
-				vueModuleOutputPath(join(generatedVueDir, 'client'), resolve(vueDir, '..', 'shared/useShared.ts')),
+				vueModuleOutputPath(join(generatedVueDir, 'client'), resolve(vueDir, '..', 'shared/useShared.ts'), projectRoot),
 				options
 			)
 		).toBe(resolve(vueDir, '..', 'shared', 'useShared.ts'));

@@ -34,22 +34,48 @@ export const resetIslandBootstrapWarning = () => {
 	warnedMissingBootstrap = false;
 };
 
-let manifestBuildDir: string | undefined;
+const MANIFEST_BUILD_DIR_KEY = Symbol.for('absolutejs.islandManifestBuildDir');
+
+/* One value per process: dist/index.js and each framework entry
+ * (dist/react/index.js, dist/svelte/index.js, ...) carry their own copy of
+ * this module, and a production server bundle can inline several of them.
+ * prepare() sets the build directory through one copy while a page handler
+ * injects the manifest through another, so the value lives on globalThis. */
+const getManifestBuildDir = () => {
+	const value: unknown = Reflect.get(globalThis, MANIFEST_BUILD_DIR_KEY);
+
+	return typeof value === 'string' ? value : undefined;
+};
 
 const WINDOWS_ABSOLUTE_PATH = /^[A-Za-z]:[\\/]|^\\\\/;
+
+const withTrailingSlash = (path: string) =>
+	path.endsWith('/') ? path : `${path}/`;
+
+const currentWorkingRoot = () => {
+	try {
+		return withTrailingSlash(process.cwd().replaceAll('\\', '/'));
+	} catch {
+		return undefined;
+	}
+};
 
 /* The build manifest also maps SSR pages and server bundles to absolute
  * paths on the server's disk (the server imports them from there). Those
  * entries mean nothing to a browser and would publish the server's file
- * layout in every page with islands, so only web paths are sent. */
+ * layout in every page with islands, so only web paths are sent. Browser
+ * entries are root-relative URLs such as `/react/pages/Foo.abc.js`; a value
+ * is a server path when it is a Windows path or sits inside the build
+ * directory or the project root. The project-root check keeps the filter
+ * working even if the build directory was never recorded. */
 const isServerFilePath = (value: string) => {
 	if (WINDOWS_ABSOLUTE_PATH.test(value)) return true;
-	if (!manifestBuildDir) return false;
-	const root = manifestBuildDir.endsWith('/')
-		? manifestBuildDir
-		: `${manifestBuildDir}/`;
+	const buildDir = getManifestBuildDir();
+	if (buildDir && value.startsWith(withTrailingSlash(buildDir))) return true;
+	const root = currentWorkingRoot();
+	if (root && root !== '/' && value.startsWith(root)) return true;
 
-	return value.startsWith(root);
+	return false;
 };
 
 /** The part of the build manifest a browser may see. */
@@ -447,5 +473,9 @@ export const setCurrentIslandManifest = (
 	buildDir?: string
 ) => {
 	globalThis.__absoluteManifest = manifest;
-	manifestBuildDir = buildDir?.replaceAll('\\', '/');
+	Reflect.set(
+		globalThis,
+		MANIFEST_BUILD_DIR_KEY,
+		buildDir?.replaceAll('\\', '/')
+	);
 };

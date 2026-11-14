@@ -9,7 +9,8 @@ import { renderToString } from 'vue/server-renderer';
 import { clearVueHmrCaches, compileVue } from '../../../src/build/compileVue';
 import {
 	vueModuleOutputPath,
-	vueModuleSourcePath
+	vueModuleSourcePath,
+	vueRelativeOutputImport
 } from '../../../src/build/vueModuleOutputPath';
 import { getFrameworkGeneratedDir } from '../../../src/utils/generatedDir';
 
@@ -114,18 +115,163 @@ test('package Vue components, nested components and helpers keep separate browse
 
 test('generated source identities reject escaped or malformed paths', () => {
 	const root = join(tmpdir(), 'vue-output-identity');
-	const source = join(tmpdir(), 'outside', 'useCredits.ts');
+	const projectRoot = join(root, 'app');
+	const source = join(root, 'outside', 'useCredits.ts');
 	const client = join(root, 'client');
-	expect(
-		vueModuleSourcePath(client, vueModuleOutputPath(client, source))
-	).toBe(source.replace(/\.ts$/, '.js'));
-	expect(
-		vueModuleSourcePath(client, join(root, 'server', 'other.js'))
-	).toBeNull();
 	expect(
 		vueModuleSourcePath(
 			client,
-			join(client, 'sources', '%invalid', 'other.js')
+			vueModuleOutputPath(client, source, projectRoot),
+			projectRoot
 		)
+	).toBe(source.replace(/\.ts$/, '.js'));
+	// A file sharing only the filesystem root gets an opaque directory:
+	// no identity, and none of its absolute path.
+	const unrelated = vueModuleOutputPath(
+		client,
+		source,
+		join('/', 'unrelated-project')
+	);
+	expect(relative(client, unrelated)).toMatch(
+		/^sources[\\/]_external[\\/]h-[0-9a-z]{13}[\\/]useCredits\.js$/
+	);
+	expect(vueModuleSourcePath(client, unrelated, join('/', 'unrelated-project'))).toBeNull();
+	expect(
+		vueModuleSourcePath(client, join(root, 'server', 'other.js'))
 	).toBeNull();
+	for (const malformed of [
+		['_external', 'x', 'other.js'],
+		['_external', '0', 'other.js'],
+		['_external', '2'],
+		['_external', 'h-0123456789abc', 'other.js']
+	])
+		expect(
+			vueModuleSourcePath(client, join(client, 'sources', ...malformed))
+		).toBeNull();
+});
+
+test('generated source paths never contain the project root', () => {
+	const projectRoot = join(tmpdir(), 'vue-mirror', 'machine', 'app');
+	const client = join(projectRoot, '.absolutejs', 'generated', 'vue', 'client');
+	const inside = join(projectRoot, 'src', 'frontend', 'vue', 'Lazy.vue');
+	const sibling = join(projectRoot, '..', 'shared', 'useShared.ts');
+	const hoisted = join(projectRoot, '..', '..', 'node_modules', 'ui', 'Btn.vue');
+	const contained = (output: string) => relative(client, output);
+
+	expect(contained(vueModuleOutputPath(client, inside, projectRoot))).toBe(
+		join('sources', 'src', 'frontend', 'vue', 'Lazy.js')
+	);
+	expect(contained(vueModuleOutputPath(client, sibling, projectRoot))).toBe(
+		join('sources', '_external', '1', 'shared', 'useShared.js')
+	);
+	expect(contained(vueModuleOutputPath(client, hoisted, projectRoot))).toBe(
+		join('sources', '_external', '2', 'node_modules', 'ui', 'Btn.js')
+	);
+	for (const source of [inside, sibling, hoisted]) {
+		const output = contained(
+			vueModuleOutputPath(client, source, projectRoot)
+		);
+		expect(output).not.toContain('vue-mirror');
+		expect(output).not.toContain('machine');
+		expect(output).not.toContain('%2F');
+		expect(
+			vueModuleSourcePath(
+				client,
+				vueModuleOutputPath(client, source, projectRoot),
+				projectRoot
+			)
+		).toBe(source.replace(/\.(vue|ts)$/, '.js'));
+	}
+
+	// Imports inside one region keep their shape; imports across the
+	// project-root edge follow the generated layout.
+	expect(
+		vueRelativeOutputImport(
+			inside,
+			join(projectRoot, 'src', 'frontend', 'vue', 'Child.js'),
+			projectRoot
+		)
+	).toBe('./Child.js');
+	expect(
+		vueRelativeOutputImport(
+			inside,
+			sibling.replace(/\.ts$/, '.js'),
+			projectRoot
+		)
+	).toBe('../../../_external/1/shared/useShared.js');
+	expect(
+		vueRelativeOutputImport(
+			sibling,
+			join(projectRoot, 'src', 'util.js'),
+			projectRoot
+		)
+	).toBe('../../../src/util.js');
+	expect(
+		vueRelativeOutputImport(sibling, hoisted.replace(/\.vue$/, '.js'), projectRoot)
+	).toBe('../../2/node_modules/ui/Btn.js');
+});
+
+test('a Vue tree outside the project builds without its absolute path', async () => {
+	// tmpdir shares only the filesystem root with the project, so every
+	// directory of this fixture mirrors to its own hashed directory and the
+	// imports between them (relative, directory index, lazy) are rewritten.
+	const root = await mkdtemp(join(tmpdir(), 'vue-unrelated-tree-'));
+	const vueRoot = join(root, 'vue');
+	const page = join(vueRoot, 'pages', 'TreePage.vue');
+	try {
+		await Bun.write(
+			page,
+			`<script setup>import {defineAsyncComponent} from 'vue';import Card from '../components/Card.vue';import {label} from '../state';const Lazy=defineAsyncComponent(()=>import('../components/nested/Lazy.vue'));</script><template><main><Card />{{label}}<Lazy /></main></template>`
+		);
+		await Bun.write(
+			join(vueRoot, 'components', 'Card.vue'),
+			`<script setup>import {base} from '../state/base';</script><template><b>card {{base}}</b></template>`
+		);
+		await Bun.write(
+			join(vueRoot, 'components', 'nested', 'Lazy.vue'),
+			'<template><i>lazy</i></template>'
+		);
+		await Bun.write(
+			join(vueRoot, 'state', 'index.ts'),
+			"import {base} from './base';import {suffix} from '../shared/suffix';export const label=`${base}${suffix}`;"
+		);
+		await Bun.write(join(vueRoot, 'state', 'base.ts'), 'export const base=4;');
+		await Bun.write(
+			join(vueRoot, 'shared', 'suffix.ts'),
+			"export const suffix='2';"
+		);
+		clearVueHmrCaches();
+		const result = await compileVue([page], vueRoot, false);
+		const browser = await Bun.build({
+			entrypoints: [result.vueClientPaths[0]!],
+			outdir: join(root, 'browser'),
+			splitting: true,
+			target: 'browser'
+		});
+		expect(browser.success).toBe(true);
+		const generated = getFrameworkGeneratedDir('vue');
+		for (const output of browser.outputs)
+			expect(relative(join(root, 'browser'), output.path)).not.toContain(
+				'vue-unrelated-tree-'
+			);
+		expect(
+			relative(generated, result.vueClientPaths[0]!)
+		).not.toContain('vue-unrelated-tree-');
+		const server = await Bun.build({
+			entrypoints: [result.vueServerPaths[0]!],
+			outdir: join(root, 'bun'),
+			target: 'bun'
+		});
+		expect(server.success).toBe(true);
+		const entry = server.outputs.find((output) =>
+			output.path.endsWith('.js')
+		)!;
+		const module = await import(pathToFileURL(entry.path).href);
+		const html = await renderToString(createSSRApp(module.default));
+		expect(html).toContain('card 4');
+		expect(html).toContain('42');
+	} finally {
+		clearVueHmrCaches();
+		await rm(root, { recursive: true, force: true });
+	}
 });

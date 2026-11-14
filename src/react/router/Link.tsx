@@ -47,8 +47,13 @@ const isModifierClick = (event: MouseEvent<HTMLAnchorElement>) =>
  * `<Route>`s navigates client-side through react-router; anything else is
  * a real navigation to that page.
  *
- *   import { Link } from '@absolutejs/absolute/react/router';
+ *   import { Link } from '@absolutejs/absolute/react/components';
  *   <Link href="/pricing" prefetch="viewport">Pricing</Link>
+ *
+ * `@absolutejs/absolute/react/router` exports the same component next to
+ * `<UniversalRouter>`, so importing from it needs react-router installed;
+ * `react/components` doesn't. Without a `<UniversalRouter>`, a click falls
+ * through to the document, where `enableNavigation()` soft-navigates it.
  */
 export const Link = ({
 	href,

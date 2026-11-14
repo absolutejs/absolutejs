@@ -57,6 +57,7 @@ import {
 	createMissingClientFrameworkPlugin,
 	resolveMissingClientFrameworks
 } from '../build/missingClientFrameworks';
+import { createMissingReactRouterPlugin } from '../build/missingReactRouter';
 import { ISLAND_BOOTSTRAP_MANIFEST_KEY } from './islandManifest';
 import { scanRouteRegistrations } from '../build/scanRouteRegistrations';
 import { generateSitemap } from '../utils/generateSitemap';
@@ -1052,6 +1053,15 @@ const buildUnlocked = async ({
 					projectRoot
 				})
 			]
+		: [];
+	// react-router is an optional peer: without it, a react-router import
+	// (including `react/router`'s own, behind `<UniversalRouter>`) fails the
+	// build with install advice and the react-router-free `<Link>` instead
+	// of a bare "Could not resolve" — see src/build/missingReactRouter.ts.
+	const missingReactRouterPlugin =
+		createMissingReactRouterPlugin(projectRoot);
+	const missingReactRouterPlugins = missingReactRouterPlugin
+		? [missingReactRouterPlugin]
 		: [];
 	const traceEnabled = isBuildTraceEnabled();
 	const traceEvents: BuildTraceEvent[] = [];
@@ -2675,6 +2685,7 @@ const buildUnlocked = async ({
 								}
 							: {}),
 						plugins: [
+							...missingReactRouterPlugins,
 							stylePreprocessorPlugin,
 							...islandRegistryPlugins
 						],
@@ -2733,6 +2744,7 @@ const buildUnlocked = async ({
 								naming: `[dir]/[name].[hash].[ext]`,
 								outdir: serverOutDir,
 								plugins: [
+									...missingReactRouterPlugins,
 									...devServerExternalsPlugins,
 									stylePreprocessorPlugin,
 									...islandRegistryPlugins,
@@ -2782,6 +2794,7 @@ const buildUnlocked = async ({
 								naming: `[dir]/[name].[hash].[ext]`,
 								outdir: buildPath,
 								plugins: [
+									...missingReactRouterPlugins,
 									...missingClientFrameworkPlugins,
 									stylePreprocessorPlugin,
 									...islandRegistryPlugins,
@@ -2883,6 +2896,7 @@ const buildUnlocked = async ({
 								naming: `[dir]/[name].[hash].[ext]`,
 								outdir: buildPath,
 								plugins: [
+									...missingReactRouterPlugins,
 									...missingClientFrameworkPlugins,
 									stylePreprocessorPlugin,
 									...islandRegistryPlugins,

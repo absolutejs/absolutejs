@@ -6,9 +6,10 @@ import {
 	ContentChild,
 	Input,
 	inject,
+	PLATFORM_ID,
 	signal
 } from '@angular/core';
-import { NgTemplateOutlet } from '@angular/common';
+import { isPlatformServer, NgTemplateOutlet } from '@angular/common';
 import {
 	isStreamingSlotCollectionActive,
 	registerStreamingSlot,
@@ -57,6 +58,10 @@ type AbsoluteSlotWindow = Window & {
 })
 export class DeferSlotComponent implements AfterViewInit {
 	private readonly cdr = inject(ChangeDetectorRef);
+	// Streaming slots exist only in the server render. In the browser the
+	// slot waits for the streamed payload instead, and must never touch the
+	// server-side registrar: its dev warning path reads NODE_ENV.
+	private readonly isServer = isPlatformServer(inject(PLATFORM_ID));
 	private readonly runtimeReady = signal(false);
 	private serverSlotRegistered = false;
 
@@ -105,7 +110,9 @@ export class DeferSlotComponent implements AfterViewInit {
 		const { id } = this;
 		if (!id) return;
 
-		if (this.registerServerSlot()) {
+		if (this.isServer) {
+			this.registerServerSlot();
+
 			return;
 		}
 
@@ -121,8 +128,11 @@ export class DeferSlotComponent implements AfterViewInit {
 	}
 
 	ngAfterViewInit() {
-		if (this.registerServerSlot()) return;
-		if (typeof window === 'undefined') return;
+		if (this.isServer) {
+			this.registerServerSlot();
+
+			return;
+		}
 
 		requestAnimationFrame(() => {
 			this.runtimeReady.set(true);
@@ -133,7 +143,7 @@ export class DeferSlotComponent implements AfterViewInit {
 	}
 
 	ngOnDestroy() {
-		if (typeof window === 'undefined') return;
+		if (this.isServer) return;
 		const { id } = this;
 		if (!id) return;
 		const absoluteWindow: AbsoluteSlotWindow = window;

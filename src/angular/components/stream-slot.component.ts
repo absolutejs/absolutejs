@@ -86,8 +86,10 @@ export class StreamSlotComponent {
 
 			return;
 		}
-		warnMissingStreamingSlotCollector('StreamSlot');
 		if (typeof window === 'undefined') {
+			// The collector warning is for server renders only; in the
+			// browser there is never a collector and nothing to warn about.
+			warnMissingStreamingSlotCollector('StreamSlot');
 			this.currentHtml.set(
 				this.sanitizer.bypassSecurityTrustHtml(this.fallbackHtml)
 			);

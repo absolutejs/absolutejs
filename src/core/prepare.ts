@@ -71,13 +71,13 @@ const retryStaticPlugin = async (
 	}
 };
 
-/* Vue mirrors each source file under `sources/<encoded filesystem root>/…`
- * (build/vueModuleOutputPath.ts), so on disk one directory is literally
- * named `%2F`. A lazily imported route component is requested at that path,
- * and Elysia's decoded `*` param turned the `%2F` into a slash, so every
- * lazy Vue route chunk 404ed in production. Decode each segment of the raw
- * path, but keep a segment that decodes to a separator in its encoded form,
- * which is how it was written. */
+/* A generated asset's directory name can contain an encoded separator (Vue
+ * builds before beta.173 mirrored sources under a directory literally named
+ * `%2F`; build/vueModuleOutputPath.ts now uses project-relative paths).
+ * Elysia's decoded `*` param turns `%2F` into a slash, which made such a
+ * lazy route chunk 404. Decode each segment of the raw path, but keep a
+ * segment that decodes to a separator in its encoded form, which is how it
+ * was written. */
 const generatedAssetRelativePath = (pathname: string) =>
 	pathname
 		.replace(/^\/\.absolutejs\/?/, '')

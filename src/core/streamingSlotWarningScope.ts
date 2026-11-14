@@ -4,6 +4,7 @@ import { logWarn } from '../utils/logger';
 import { setStreamingSlotWarningController } from './streamingSlotRegistrar';
 
 type WarningStore = {
+	explicitlyDisabled: boolean;
 	handlerCallsite?: string;
 	hasWarned: boolean;
 };
@@ -87,9 +88,18 @@ const extractCallsiteFromStack = (stack: string) => {
 
 const buildMissingCollectorWarning = (
 	primitiveName: string,
-	handlerCallsite?: string
-) =>
-	`${primitiveName} rendered during SSR without streaming slot collection enabled. Add { collectStreamingSlots: true } to this page handler to enable out-of-order streaming for this route.${handlerCallsite ? ` Update ${formatWarningCallsite(handlerCallsite)}.` : ''}`;
+	{ explicitlyDisabled, handlerCallsite }: WarningStore
+) => {
+	const fix = explicitlyDisabled
+		? 'This page handler sets { collectStreamingSlots: false }, so the slot stays on its fallback and never streams. Remove the option (or set it to true) to stream this route.'
+		: 'The slot stays on its fallback and never streams. Add { collectStreamingSlots: true } to this page handler to enable out-of-order streaming for this route.';
+
+	return `${primitiveName} rendered during SSR without streaming slot collection enabled. ${fix}${handlerCallsite ? ` Update ${formatWarningCallsite(handlerCallsite)}.` : ''}`;
+};
+
+/* Production logs each distinct warning once per process instead of once
+ * per render, so a busy route doesn't flood the log. */
+const productionWarnings = new Set<string>();
 
 setStreamingSlotWarningController({
 	maybeWarn: (primitiveName: string) => {
@@ -99,9 +109,12 @@ setStreamingSlotWarningController({
 		}
 
 		store.hasWarned = true;
-		logWarn(
-			buildMissingCollectorWarning(primitiveName, store.handlerCallsite)
-		);
+		const message = buildMissingCollectorWarning(primitiveName, store);
+		if (isProductionRuntime()) {
+			if (productionWarnings.has(message)) return;
+			productionWarnings.add(message);
+		}
+		logWarn(message);
 	}
 });
 
@@ -121,10 +134,17 @@ export const captureStreamingSlotWarningCallsite = () => {
 export const runWithStreamingSlotWarningScope = <T>(
 	task: () => Promise<T> | T,
 	metadata?: {
+		/** The handler turned collection off with `collectStreamingSlots: false`
+		 *  (rather than leaving it at a framework default of off). */
+		explicitlyDisabled?: boolean;
 		handlerCallsite?: string;
 	}
 ) =>
 	ensureWarningStorage().run(
-		{ handlerCallsite: metadata?.handlerCallsite, hasWarned: false },
+		{
+			explicitlyDisabled: metadata?.explicitlyDisabled === true,
+			handlerCallsite: metadata?.handlerCallsite,
+			hasWarned: false
+		},
 		task
 	);

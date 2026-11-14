@@ -181,6 +181,14 @@ export const startServerEntryWatcher = () => {
 			const startedAt = performance.now();
 			if (!force && !reportsUpdate)
 				console.log(`[hmr] reloading server entry (${cause})`);
+			// An imported module edited without its update arriving would
+			// otherwise keep serving its old version through this re-run.
+			// Not on a forced re-run: that one comes from a module update
+			// already holding the apply queue.
+			if (reportsUpdate) {
+				const { applyStaleModules } = await import('./hot/reload');
+				await applyStaleModules(entryPath);
+			}
 			await importFreshEntry();
 			// A forced re-run is part of a module update, which reports itself.
 			if (reportsUpdate) {

@@ -24,9 +24,9 @@
  */
 
 import { file, Transpiler, write } from 'bun';
-import { copyFileSync, existsSync, readdirSync } from 'node:fs';
+import { copyFileSync, existsSync, readdirSync, statSync } from 'node:fs';
 import { mkdir, rename, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve, sep } from 'node:path';
 import type {
 	TsHelperEmitInput,
 	TsHelperEmitOutput
@@ -38,9 +38,12 @@ import {
 	hashParts,
 	vueCompileCacheEnabled
 } from './vueCompileCache';
+import { vueMirrorImport } from './vueModuleOutputPath';
 
 const CACHE_DIR_NAME = 'vue-helpers';
-const CACHE_FORMAT_VERSION = 1;
+/* 2: relative imports that cross the project-root edge of the generated
+ * source mirror are rewritten (see `rewriteMirrorImports`). */
+const CACHE_FORMAT_VERSION = 2;
 const HASH_LENGTH = 24;
 
 /* One transpiler per thread. `loader: 'ts'` + `target: 'browser'` matches
@@ -153,6 +156,67 @@ const copyBoth = async (
 	copyFileSync(cachedPath, serverOutputPath);
 };
 
+/* The generated mirror keeps the source layout only within one region (see
+ * vueModuleOutputPath.ts). A relative import that crosses into another
+ * region is re-derived from the two generated locations, so it has to name
+ * the file it really resolves to; every other specifier is left as is. */
+const QUOTES = ['"', "'"];
+const MIRRORED_MODULE = /\.(?:[cm]?[jt]s|vue)$/;
+const IMPORT_CANDIDATE_SUFFIXES = [
+	'',
+	'.ts',
+	'.js',
+	'.mjs',
+	`${sep}index.ts`,
+	`${sep}index.js`
+];
+
+const isFilePath = (path: string) => {
+	try {
+		return statSync(path).isFile();
+	} catch {
+		return false;
+	}
+};
+
+const resolveImportTarget = (sourceDir: string, specifier: string) => {
+	const base = resolve(sourceDir, specifier);
+
+	return (
+		IMPORT_CANDIDATE_SUFFIXES.map((suffix) => `${base}${suffix}`).find(
+			isFilePath
+		) ?? base
+	);
+};
+
+const rewriteMirrorImports = (code: string, sourcePath: string) => {
+	const sourceDir = dirname(sourcePath);
+	const rewrites = new Map<string, string>();
+	for (const { path } of transpiler.scanImports(code)) {
+		if (!path.startsWith('./') && !path.startsWith('../')) continue;
+		const target = resolveImportTarget(sourceDir, path);
+		// Only modules land in the mirror; leave style or asset imports be.
+		if (!MIRRORED_MODULE.test(target)) continue;
+		const specifier = vueMirrorImport(sourcePath, path, target);
+		if (specifier !== path) rewrites.set(path, specifier);
+	}
+	const replacements = Array.from(rewrites).flatMap(([written, mirrored]) =>
+		QUOTES.map(
+			(quote) =>
+				[
+					`${quote}${written}${quote}`,
+					`${quote}${mirrored}${quote}`
+				] as const
+		)
+	);
+
+	return replacements.reduce(
+		(rewritten, [written, mirrored]) =>
+			rewritten.replaceAll(written, mirrored),
+		code
+	);
+};
+
 const emitOne = async ({
 	clientOutputPath,
 	serverOutputPath,
@@ -168,7 +232,10 @@ const emitOne = async ({
 
 		return;
 	}
-	const transpiledCode = transpiler.transformSync(sourceCode);
+	const transpiledCode = rewriteMirrorImports(
+		transpiler.transformSync(sourceCode),
+		sourcePath
+	);
 	// Append an inline map back to the .ts source (TS-stripping is
 	// line-preserving) so the production external-sourcemap chain
 	// resolves stacks to the .ts, not this transpiled intermediate.

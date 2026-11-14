@@ -26,6 +26,8 @@ export type ReactServerPageRequestInput<
 > = StreamingSlotEnhancerOptions & {
 	/** Buffer the response so it can carry a content-hash `ETag`. */
 	bufferStreamForEtag?: boolean;
+	/** Collect streaming slots rendered by the page. On by default; set
+	 *  `false` to turn it off (slots then keep their fallback). */
 	collectStreamingSlots?: boolean;
 	/** `asset(manifest, '<Page>RSC')`: the page's react-server bundle. */
 	page: string;
@@ -150,11 +152,13 @@ export const handleReactServerPageRequest = async <
 	}
 
 	try {
-		const handlerCallsite =
-			input.collectStreamingSlots === true
-				? undefined
-				: (getCurrentRouteRegistrationCallsite() ??
-					captureStreamingSlotWarningCallsite());
+		// Slot collection is on unless the handler opts out with `false`:
+		// installing the collector costs nothing when no slot registers.
+		const collectStreamingSlots = input.collectStreamingSlots !== false;
+		const handlerCallsite = collectStreamingSlots
+			? undefined
+			: (getCurrentRouteRegistrationCallsite() ??
+				captureStreamingSlotWarningCallsite());
 		const renderPageResponse = async () => {
 			const [pageModule, runtime] = await Promise.all([
 				loadPageModule(input.page),
@@ -182,10 +186,10 @@ export const handleReactServerPageRequest = async <
 
 		const pageResponse = await runWithStreamingSlotWarningScope(
 			() =>
-				input.collectStreamingSlots === true
+				collectStreamingSlots
 					? withRegisteredStreamingSlots(renderPageResponse, input)
 					: renderPageResponse(),
-			{ handlerCallsite }
+			{ explicitlyDisabled: !collectStreamingSlots, handlerCallsite }
 		);
 
 		return withPageCacheHeaders(pageResponse, request, {

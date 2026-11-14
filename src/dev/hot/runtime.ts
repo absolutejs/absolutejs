@@ -482,6 +482,8 @@ const forward = (
 
 export const currentTag = (path: string) => records.get(path)?.tag ?? 0;
 export const managedModule = (path: string) => records.has(path);
+/** Every module the hot runtime has loaded. */
+export const managedModulePaths = () => [...records.keys()];
 export const moduleRecord = (path: string) => records.get(path);
 export const nextTag = (path: string) => {
 	const record = recordFor(path);

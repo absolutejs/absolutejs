@@ -165,8 +165,9 @@ the dynamic slots are rendered and streamed into it:
 />
 ```
 
-In Svelte, use the `dynamic` prop or `<!-- absolute:stream dynamic -->`. The
-page needs `collectStreamingSlots: true`. The shell's page props are captured
+In Svelte, use the `dynamic` prop or `<!-- absolute:stream dynamic -->`. Svelte
+pages need `collectStreamingSlots: true`; React pages collect streaming slots
+by default (pass `collectStreamingSlots: false` to turn it off). The shell's page props are captured
 at build time, so per-user data belongs in dynamic slots. Works for React
 and Svelte pages today. See `docs/PARTIAL_PRERENDERING_PLAN.md`.
 
