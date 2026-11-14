@@ -15,7 +15,8 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, isAbsolute, join } from 'node:path';
-import ts from 'typescript';
+import type TS from 'typescript';
+import { ts } from '../utils/lazyTypescript';
 
 export type AngularProvidersImport = {
 	/** Local binding name as referenced in the config (e.g. `appProviders`). */
@@ -27,11 +28,11 @@ export type AngularProvidersImport = {
 };
 
 const findDefineConfigCall = (
-	sf: ts.SourceFile
-): ts.ObjectLiteralExpression | null => {
-	let result: ts.ObjectLiteralExpression | null = null;
+	sf: TS.SourceFile
+): TS.ObjectLiteralExpression | null => {
+	let result: TS.ObjectLiteralExpression | null = null;
 
-	const visit = (node: ts.Node) => {
+	const visit = (node: TS.Node) => {
 		if (result) return;
 		if (
 			ts.isCallExpression(node) &&
@@ -54,9 +55,9 @@ const findDefineConfigCall = (
 };
 
 const findPropertyInitializer = (
-	object: ts.ObjectLiteralExpression,
+	object: TS.ObjectLiteralExpression,
 	name: string
-): ts.Expression | null => {
+): TS.Expression | null => {
 	for (const prop of object.properties) {
 		if (!ts.isPropertyAssignment(prop)) continue;
 		if (!prop.name) continue;
@@ -72,7 +73,7 @@ const findPropertyInitializer = (
 };
 
 const findImportForBinding = (
-	sf: ts.SourceFile,
+	sf: TS.SourceFile,
 	binding: string
 ): { source: string; importedName: string } | null => {
 	for (const statement of sf.statements) {

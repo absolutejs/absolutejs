@@ -5,20 +5,21 @@
  *  TypeScript AST so redirect-only entries cannot accidentally consume the
  *  dynamic import from the following route.
  */
-import ts from 'typescript';
+import type TS from 'typescript';
+import { ts } from '../utils/lazyTypescript';
 
 export type ParsedVueSpaRoute = {
 	path: string;
 	importPath: string;
 };
 
-const propertyName = (node: ts.PropertyName) =>
+const propertyName = (node: TS.PropertyName) =>
 	ts.isIdentifier(node) || ts.isStringLiteralLike(node) ? node.text : null;
 
-const stringValue = (node: ts.Expression) =>
+const stringValue = (node: TS.Expression) =>
 	ts.isStringLiteralLike(node) ? node.text : null;
 
-const findVueImport = (node: ts.Node): string | null => {
+const findVueImport = (node: TS.Node): string | null => {
 	if (
 		ts.isCallExpression(node) &&
 		node.expression.kind === ts.SyntaxKind.ImportKeyword
@@ -37,7 +38,7 @@ const findVueImport = (node: ts.Node): string | null => {
 	return found;
 };
 
-const parseRoute = (node: ts.Expression): ParsedVueSpaRoute | null => {
+const parseRoute = (node: TS.Expression): ParsedVueSpaRoute | null => {
 	if (!ts.isObjectLiteralExpression(node)) return null;
 	let path: string | null = null;
 	let importPath: string | null = null;
@@ -63,7 +64,7 @@ export const parseVueSpaRoutes = (source: string): ParsedVueSpaRoute[] => {
 	);
 	const entries: ParsedVueSpaRoute[] = [];
 
-	const visit = (node: ts.Node) => {
+	const visit = (node: TS.Node) => {
 		if (
 			ts.isCallExpression(node) &&
 			ts.isIdentifier(node.expression) &&

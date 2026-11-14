@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
-import ts from 'typescript';
+import type TS from 'typescript';
+import { ts } from '../utils/lazyTypescript';
 import {
 	existsSync,
 	readdirSync,
@@ -16,8 +17,8 @@ import {
 
 type AssetUrlEdit = { end: number; start: number; value: string };
 const assetUrlEdit = (
-	node: ts.Node,
-	tree: ts.SourceFile,
+	node: TS.Node,
+	tree: TS.SourceFile,
 	urls: Record<string, string>
 ) => {
 	if (
@@ -58,7 +59,7 @@ const rewriteAssetUrlConstructors = (
 		ts.ScriptKind.JS
 	);
 	const edits: AssetUrlEdit[] = [];
-	const visit = (node: ts.Node) => {
+	const visit = (node: TS.Node) => {
 		const edit = assetUrlEdit(node, tree, urls);
 		if (edit) edits.push(edit);
 		ts.forEachChild(node, visit);
@@ -75,8 +76,8 @@ const rewriteAssetUrlConstructors = (
 };
 
 const referencedAsset = (
-	node: ts.Node,
-	tree: ts.SourceFile,
+	node: TS.Node,
+	tree: TS.SourceFile,
 	file: string,
 	directory: string
 ) => {
@@ -119,7 +120,7 @@ const includeUrlDependencies = (
 			true,
 			ts.ScriptKind.JS
 		);
-		const visit = (node: ts.Node) => {
+		const visit = (node: TS.Node) => {
 			const target = referencedAsset(node, tree, file, directory);
 			if (target && allowed.has(target) && !included.has(target)) {
 				included.add(target);

@@ -12,7 +12,7 @@
 
 import { readdirSync, readFileSync, type Dirent } from 'node:fs';
 import { basename, join } from 'node:path';
-import ts from 'typescript';
+import { ts } from '../utils/lazyTypescript';
 import { toPascal } from '../utils/stringModifiers';
 
 const SOURCE_EXTENSIONS = new Set(['.ts', '.tsx', '.mts', '.cts']);

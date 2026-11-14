@@ -27,7 +27,8 @@
 
 import { readdirSync, readFileSync, type Dirent } from 'node:fs';
 import { join } from 'node:path';
-import ts from 'typescript';
+import type TS from 'typescript';
+import { ts } from '../utils/lazyTypescript';
 import { createStampedFileCache } from './stampedFileCache';
 
 const SKIP_DIRS = new Set([
@@ -93,7 +94,7 @@ const collectSourceFiles = (root: string) => {
 const fileMayContainVueHandler = (source: string) =>
 	source.includes('handleVuePageRequest');
 
-const isHandleVuePageRequestCallee = (expression: ts.Expression) => {
+const isHandleVuePageRequestCallee = (expression: TS.Expression) => {
 	if (ts.isIdentifier(expression)) {
 		return expression.text === 'handleVuePageRequest';
 	}
@@ -107,7 +108,7 @@ const isHandleVuePageRequestCallee = (expression: ts.Expression) => {
 	return false;
 };
 
-const getPropertyName = (name: ts.PropertyName) => {
+const getPropertyName = (name: TS.PropertyName) => {
 	if (ts.isIdentifier(name) || ts.isStringLiteral(name)) {
 		return name.text;
 	}
@@ -119,7 +120,7 @@ const getPropertyName = (name: ts.PropertyName) => {
  *  once with different values (shadowing) maps to null: unknown. */
 type ConstStrings = Map<string, string | null>;
 
-const unwrapExpression = (node: ts.Expression): ts.Expression => {
+const unwrapExpression = (node: TS.Expression): TS.Expression => {
 	if (
 		ts.isAsExpression(node) ||
 		ts.isSatisfiesExpression(node) ||
@@ -132,7 +133,7 @@ const unwrapExpression = (node: ts.Expression): ts.Expression => {
 	return node;
 };
 
-const readLiteral = (node: ts.Expression) => {
+const readLiteral = (node: TS.Expression) => {
 	const inner = unwrapExpression(node);
 	if (
 		ts.isStringLiteral(inner) ||
@@ -144,13 +145,13 @@ const readLiteral = (node: ts.Expression) => {
 	return null;
 };
 
-const isConstDeclaration = (declaration: ts.VariableDeclaration) =>
+const isConstDeclaration = (declaration: TS.VariableDeclaration) =>
 	ts.isVariableDeclarationList(declaration.parent) &&
 	(declaration.parent.flags & ts.NodeFlags.Const) !== 0;
 
-const collectConstStrings = (sourceFile: ts.SourceFile) => {
+const collectConstStrings = (sourceFile: TS.SourceFile) => {
 	const constants: ConstStrings = new Map();
-	const visit = (node: ts.Node) => {
+	const visit = (node: TS.Node) => {
 		if (
 			ts.isVariableDeclaration(node) &&
 			ts.isIdentifier(node.name) &&
@@ -172,14 +173,14 @@ const collectConstStrings = (sourceFile: ts.SourceFile) => {
 	return constants;
 };
 
-const readStringValue = (node: ts.Expression, constants: ConstStrings) => {
+const readStringValue = (node: TS.Expression, constants: ConstStrings) => {
 	const inner = unwrapExpression(node);
 	if (ts.isIdentifier(inner)) return constants.get(inner.text) ?? null;
 
 	return readLiteral(inner);
 };
 
-const isAssetCall = (node: ts.Expression) => {
+const isAssetCall = (node: TS.Expression) => {
 	if (!ts.isCallExpression(node)) return false;
 	if (!ts.isIdentifier(node.expression)) return false;
 
@@ -192,7 +193,7 @@ const isAssetCall = (node: ts.Expression) => {
  *  the literal second arg. Non-literal second args make the page
  *  un-resolvable at build time; fall back to keeping the client bundle. */
 const extractAssetLiteralKey = (
-	call: ts.CallExpression,
+	call: TS.CallExpression,
 	constants: ConstStrings
 ) => {
 	if (call.arguments.length < 2) return null;
@@ -203,7 +204,7 @@ const extractAssetLiteralKey = (
 };
 
 const extractPagePathAssetKey = (
-	initializer: ts.Expression,
+	initializer: TS.Expression,
 	constants: ConstStrings
 ) => {
 	if (!isAssetCall(initializer)) return null;
@@ -214,7 +215,7 @@ const extractPagePathAssetKey = (
 
 /** The property's name and value expression; `{ client }` reads the
  *  same-file binding named `client`. */
-const readProperty = (property: ts.ObjectLiteralElementLike) => {
+const readProperty = (property: TS.ObjectLiteralElementLike) => {
 	if (ts.isShorthandPropertyAssignment(property)) {
 		return { name: property.name.text, value: property.name };
 	}
@@ -225,7 +226,7 @@ const readProperty = (property: ts.ObjectLiteralElementLike) => {
 };
 
 const extractSsrOnlyPageName = (
-	objectLiteral: ts.ObjectLiteralExpression,
+	objectLiteral: TS.ObjectLiteralExpression,
 	constants: ConstStrings
 ): string | null => {
 	let hasClientNone = false;
@@ -271,7 +272,7 @@ const extractFromFile = (filePath: string) => {
 	);
 
 	const constants = collectConstStrings(sourceFile);
-	const visit = (node: ts.Node) => {
+	const visit = (node: TS.Node) => {
 		if (
 			ts.isCallExpression(node) &&
 			isHandleVuePageRequestCallee(node.expression)

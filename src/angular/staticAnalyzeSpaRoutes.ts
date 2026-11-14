@@ -1,6 +1,7 @@
 import { existsSync, promises as fs } from 'node:fs';
 import { join } from 'node:path';
-import ts from 'typescript';
+import type TS from 'typescript';
+import { ts } from '../utils/lazyTypescript';
 import type { SpaHost, SpaRoute } from '../utils/spaRouteTypes';
 
 const DYNAMIC_SEGMENT_PATTERN = /^[:*]/;
@@ -11,7 +12,7 @@ const pathHasDynamic = (path: string) =>
 		.some((seg) => DYNAMIC_SEGMENT_PATTERN.test(seg) || seg === '**');
 
 const importsSymbolFrom = (
-	sourceFile: ts.SourceFile,
+	sourceFile: TS.SourceFile,
 	localName: string,
 	moduleSpecifier: string
 ) => {
@@ -29,7 +30,7 @@ const importsSymbolFrom = (
 	return false;
 };
 
-const readStringLiteral = (expression: ts.Expression) => {
+const readStringLiteral = (expression: TS.Expression) => {
 	if (
 		ts.isStringLiteral(expression) ||
 		ts.isNoSubstitutionTemplateLiteral(expression)
@@ -40,7 +41,7 @@ const readStringLiteral = (expression: ts.Expression) => {
 	return null;
 };
 
-const readPropertyKey = (property: ts.ObjectLiteralElementLike) => {
+const readPropertyKey = (property: TS.ObjectLiteralElementLike) => {
 	if (ts.isPropertyAssignment(property)) {
 		const { name } = property;
 		if (ts.isIdentifier(name) || ts.isStringLiteral(name)) return name.text;
@@ -53,12 +54,12 @@ const readPropertyKey = (property: ts.ObjectLiteralElementLike) => {
 };
 
 const findRoutesArrayDeclaration = (
-	sourceFile: ts.SourceFile,
+	sourceFile: TS.SourceFile,
 	identifierName: string
 ) => {
-	let found: ts.ArrayLiteralExpression | null = null;
+	let found: TS.ArrayLiteralExpression | null = null;
 
-	const visit = (node: ts.Node) => {
+	const visit = (node: TS.Node) => {
 		if (found) return;
 		if (
 			ts.isVariableDeclaration(node) &&
@@ -79,7 +80,7 @@ const findRoutesArrayDeclaration = (
 	return found;
 };
 
-const extractSitemapData = (dataLiteral: ts.ObjectLiteralExpression) => {
+const extractSitemapData = (dataLiteral: TS.ObjectLiteralExpression) => {
 	for (const prop of dataLiteral.properties) {
 		const key = readPropertyKey(prop);
 		if (key !== 'sitemap') continue;
@@ -99,7 +100,7 @@ const joinSegments = (parent: string, child: string) => {
 };
 
 const extractRoutePaths = (
-	routeArray: ts.ArrayLiteralExpression,
+	routeArray: TS.ArrayLiteralExpression,
 	parentPath: string,
 	parentExcluded: boolean,
 	routes: SpaRoute[]
@@ -110,7 +111,7 @@ const extractRoutePaths = (
 		let pathSegment: string | null = null;
 		let redirected = false;
 		let sitemapExcluded = parentExcluded;
-		let childrenLiteral: ts.ArrayLiteralExpression | null = null;
+		let childrenLiteral: TS.ArrayLiteralExpression | null = null;
 
 		for (const property of element.properties) {
 			const key = readPropertyKey(property);
@@ -155,10 +156,10 @@ const extractRoutePaths = (
 	}
 };
 
-const findProvideRouterFirstArg = (sourceFile: ts.SourceFile) => {
-	const result: { found: ts.Expression | null } = { found: null };
+const findProvideRouterFirstArg = (sourceFile: TS.SourceFile) => {
+	const result: { found: TS.Expression | null } = { found: null };
 
-	const visit = (node: ts.Node) => {
+	const visit = (node: TS.Node) => {
 		if (result.found) return;
 		if (
 			ts.isCallExpression(node) &&
@@ -177,10 +178,10 @@ const findProvideRouterFirstArg = (sourceFile: ts.SourceFile) => {
 	return result.found;
 };
 
-const findAppBaseHrefValue = (sourceFile: ts.SourceFile) => {
+const findAppBaseHrefValue = (sourceFile: TS.SourceFile) => {
 	let found: string | null = null;
 
-	const visit = (node: ts.Node) => {
+	const visit = (node: TS.Node) => {
 		if (found) return;
 		if (ts.isObjectLiteralExpression(node)) {
 			let isAppBaseHref = false;
@@ -248,7 +249,7 @@ const analyzeFile = async (filePath: string) => {
 	const firstArg = findProvideRouterFirstArg(sourceFile);
 	if (!firstArg) return null;
 
-	let routesArray: ts.ArrayLiteralExpression | null = null;
+	let routesArray: TS.ArrayLiteralExpression | null = null;
 	if (ts.isIdentifier(firstArg)) {
 		routesArray = findRoutesArrayDeclaration(sourceFile, firstArg.text);
 	} else if (ts.isArrayLiteralExpression(firstArg)) {

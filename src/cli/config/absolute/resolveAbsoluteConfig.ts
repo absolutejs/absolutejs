@@ -1,4 +1,5 @@
-import ts from 'typescript';
+import type TS from 'typescript';
+import { ts } from '../../../utils/lazyTypescript';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { introspectType } from '../schema/fromType';
@@ -37,7 +38,7 @@ const parseSource = (configPath: string, text: string) =>
 
 // Locate the object literal passed to defineConfig({...}) — or a bare default
 // export object — so both the reader and the editor work off the same node.
-export const findConfigObject = (sourceFile: ts.Node) => {
+export const findConfigObject = (sourceFile: TS.Node) => {
 	const pending = [sourceFile];
 	while (pending.length > 0) {
 		const node = pending.pop();
@@ -78,7 +79,7 @@ export const parseConfigObject = (configPath: string) => {
 // for anything that isn't pure data (identifier refs like `appProviders`, calls,
 // spreads, template expressions) — those stay file-only so we never clobber code.
 const evalLiteral = (
-	node: ts.Expression
+	node: TS.Expression
 ): { opaque: boolean; value: unknown } => {
 	if (ts.isStringLiteralLike(node)) {
 		return { opaque: false, value: node.text };

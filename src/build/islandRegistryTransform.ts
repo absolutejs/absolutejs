@@ -22,7 +22,8 @@
 
 import { basename } from 'node:path';
 import type { BunPlugin } from 'bun';
-import ts from 'typescript';
+import type TS from 'typescript';
+import { ts } from '../utils/lazyTypescript';
 import type { IslandFramework } from '../../types/island';
 
 type IslandDefinitionLite = {
@@ -43,7 +44,7 @@ const VALID_FRAMEWORKS: IslandFramework[] = [
 	'angular'
 ];
 
-const getObjectPropertyName = (name: ts.PropertyName) =>
+const getObjectPropertyName = (name: TS.PropertyName) =>
 	ts.isIdentifier(name) || ts.isStringLiteral(name) ? name.text : null;
 
 const isIslandRegistryHelperImport = (source: string) =>
@@ -52,7 +53,7 @@ const isIslandRegistryHelperImport = (source: string) =>
 	source.endsWith('/core/islands');
 
 // Local names bound to `defineIslandRegistry` (named import or namespace).
-const collectRegistryFactory = (sourceFile: ts.SourceFile) => {
+const collectRegistryFactory = (sourceFile: TS.SourceFile) => {
 	const factoryNames = new Set<string>();
 	const namespaceNames = new Set<string>();
 
@@ -80,7 +81,7 @@ const collectRegistryFactory = (sourceFile: ts.SourceFile) => {
 };
 
 const isDefineIslandRegistryCall = (
-	expression: ts.Expression,
+	expression: TS.Expression,
 	factoryNames: Set<string>,
 	namespaceNames: Set<string>
 ) => {
@@ -95,13 +96,13 @@ const isDefineIslandRegistryCall = (
 };
 
 const findDefineIslandRegistryCall = (
-	sourceFile: ts.SourceFile,
+	sourceFile: TS.SourceFile,
 	factoryNames: Set<string>,
 	namespaceNames: Set<string>
-): ts.CallExpression | null => {
-	let found: ts.CallExpression | null = null;
+): TS.CallExpression | null => {
+	let found: TS.CallExpression | null = null;
 
-	const visit = (node: ts.Node) => {
+	const visit = (node: TS.Node) => {
 		if (found) return;
 		const [firstArg] = ts.isCallExpression(node) ? node.arguments : [];
 		if (
@@ -202,7 +203,7 @@ export const transformIslandRegistrySource = (
 			.properties) {
 			let componentKey: string | null = null;
 			let localName: string | null = null;
-			let replaceNode: ts.Node | null = null;
+			let replaceNode: TS.Node | null = null;
 			let replacementText = '';
 
 			if (ts.isShorthandPropertyAssignment(componentProperty)) {

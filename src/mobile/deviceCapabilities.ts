@@ -1,7 +1,8 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { extname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import ts from 'typescript';
+import type TS from 'typescript';
+import { ts } from '../utils/lazyTypescript';
 
 export type AbsoluteDeviceCapabilityProvider = {
 	factory: string;
@@ -384,7 +385,7 @@ const isIgnored = (path: string) =>
 const importedCapabilities = (source: string, file: string) => {
 	const names = new Set<string>();
 	const namespaces = new Set<string>();
-	const visit = (node: ts.Node) => {
+	const visit = (node: TS.Node) => {
 		if (
 			ts.isImportDeclaration(node) &&
 			ts.isStringLiteral(node.moduleSpecifier) &&

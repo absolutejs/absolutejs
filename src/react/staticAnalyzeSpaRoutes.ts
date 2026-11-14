@@ -1,6 +1,7 @@
 import { existsSync, promises as fs } from 'node:fs';
 import { join } from 'node:path';
-import ts from 'typescript';
+import type TS from 'typescript';
+import { ts } from '../utils/lazyTypescript';
 import type { SpaHost, SpaRoute } from '../utils/spaRouteTypes';
 
 const DYNAMIC_SEGMENT_PATTERN = /^[:*]/;
@@ -10,7 +11,7 @@ const pathHasDynamic = (path: string) =>
 		.split('/')
 		.some((seg) => DYNAMIC_SEGMENT_PATTERN.test(seg) || seg === '**');
 
-const readStringLiteral = (expression: ts.Expression) => {
+const readStringLiteral = (expression: TS.Expression) => {
 	if (
 		ts.isStringLiteral(expression) ||
 		ts.isNoSubstitutionTemplateLiteral(expression)
@@ -21,7 +22,7 @@ const readStringLiteral = (expression: ts.Expression) => {
 	return null;
 };
 
-const readPropertyKey = (property: ts.ObjectLiteralElementLike) => {
+const readPropertyKey = (property: TS.ObjectLiteralElementLike) => {
 	if (ts.isPropertyAssignment(property)) {
 		const { name } = property;
 		if (ts.isIdentifier(name) || ts.isStringLiteral(name)) return name.text;
@@ -34,7 +35,7 @@ const readPropertyKey = (property: ts.ObjectLiteralElementLike) => {
 };
 
 const importsSymbolFromAny = (
-	sourceFile: ts.SourceFile,
+	sourceFile: TS.SourceFile,
 	localName: string,
 	moduleSpecifiers: string[]
 ) => {
@@ -54,11 +55,11 @@ const importsSymbolFromAny = (
 };
 
 const findVariableArrayDeclaration = (
-	sourceFile: ts.SourceFile,
+	sourceFile: TS.SourceFile,
 	identifierName: string
 ) => {
-	let found: ts.ArrayLiteralExpression | null = null;
-	const visit = (node: ts.Node) => {
+	let found: TS.ArrayLiteralExpression | null = null;
+	const visit = (node: TS.Node) => {
 		if (found) return;
 		if (
 			ts.isVariableDeclaration(node) &&
@@ -86,7 +87,7 @@ const joinSegments = (parent: string, child: string) => {
 };
 
 const extractRouteEntries = (
-	routeArray: ts.ArrayLiteralExpression,
+	routeArray: TS.ArrayLiteralExpression,
 	parentPath: string,
 	routes: SpaRoute[]
 ) => {
@@ -96,7 +97,7 @@ const extractRouteEntries = (
 		let pathSegment: string | null = null;
 		let redirected = false;
 		let sitemapExcluded = false;
-		let childrenLiteral: ts.ArrayLiteralExpression | null = null;
+		let childrenLiteral: TS.ArrayLiteralExpression | null = null;
 		let isIndex = false;
 
 		for (const property of element.properties) {
@@ -152,9 +153,9 @@ const extractRouteEntries = (
 	}
 };
 
-const findCreateBrowserRouterCall = (sourceFile: ts.SourceFile) => {
-	const result: { found: ts.CallExpression | null } = { found: null };
-	const visit = (node: ts.Node) => {
+const findCreateBrowserRouterCall = (sourceFile: TS.SourceFile) => {
+	const result: { found: TS.CallExpression | null } = { found: null };
+	const visit = (node: TS.Node) => {
 		if (result.found) return;
 		if (
 			ts.isCallExpression(node) &&
@@ -172,7 +173,7 @@ const findCreateBrowserRouterCall = (sourceFile: ts.SourceFile) => {
 	return result.found;
 };
 
-const readBasenameFromOptions = (expression: ts.Expression | undefined) => {
+const readBasenameFromOptions = (expression: TS.Expression | undefined) => {
 	if (!expression || !ts.isObjectLiteralExpression(expression)) return null;
 	for (const property of expression.properties) {
 		const key = readPropertyKey(property);
@@ -218,7 +219,7 @@ const analyzeFile = async (filePath: string) => {
 	const [routesArg] = call.arguments;
 	if (!routesArg) return null;
 
-	let routesArray: ts.ArrayLiteralExpression | null = null;
+	let routesArray: TS.ArrayLiteralExpression | null = null;
 	if (ts.isArrayLiteralExpression(routesArg)) {
 		routesArray = routesArg;
 	} else if (ts.isIdentifier(routesArg)) {

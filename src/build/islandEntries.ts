@@ -1,6 +1,7 @@
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, extname, join, relative, resolve } from 'node:path';
-import ts from 'typescript';
+import type TS from 'typescript';
+import { ts } from '../utils/lazyTypescript';
 import type { IslandFramework, IslandRegistryInput } from '../../types/island';
 import { getIslandBuildReference } from '../core/islands';
 
@@ -83,7 +84,7 @@ const resolveIslandSourcePath = (registryPath: string, sourcePath: string) => {
 	return resolve(dirname(registryPath), sourcePath);
 };
 
-const getObjectPropertyName = (name: ts.PropertyName) => {
+const getObjectPropertyName = (name: TS.PropertyName) => {
 	if (ts.isIdentifier(name) || ts.isStringLiteral(name)) {
 		return name.text;
 	}
@@ -93,7 +94,7 @@ const getObjectPropertyName = (name: ts.PropertyName) => {
 
 const collectDefaultImport = (
 	imports: Map<string, ParsedImportReference>,
-	importClause: ts.ImportClause,
+	importClause: TS.ImportClause,
 	source: string
 ) => {
 	if (!importClause.name) return;
@@ -106,7 +107,7 @@ const collectDefaultImport = (
 
 const collectNamedImports = (
 	imports: Map<string, ParsedImportReference>,
-	importClause: ts.ImportClause,
+	importClause: TS.ImportClause,
 	source: string
 ) => {
 	const bindings = importClause.namedBindings;
@@ -126,7 +127,7 @@ const isIslandRegistryHelperImport = (source: string) =>
 	source.endsWith('/core/islands');
 
 const collectRegistryHelperImports = (
-	importClause: ts.ImportClause,
+	importClause: TS.ImportClause,
 	source: string,
 	registryFactoryNames: Set<string>,
 	registryNamespaceNames: Set<string>
@@ -157,7 +158,7 @@ const createRegistryEntryValue = (reference: ParsedImportReference) => ({
 });
 
 const addRegistryEntries = (
-	frameworkNode: ts.ObjectLiteralExpression,
+	frameworkNode: TS.ObjectLiteralExpression,
 	framework: IslandFramework,
 	imports: Map<string, ParsedImportReference>,
 	definitions: IslandDefinition[],
@@ -194,7 +195,7 @@ const addRegistryEntries = (
 };
 
 const processDefineIslandRegistry = (
-	node: ts.CallExpression,
+	node: TS.CallExpression,
 	imports: Map<string, ParsedImportReference>,
 	definitions: IslandDefinition[],
 	registry: IslandRegistryInput
@@ -227,7 +228,7 @@ const processDefineIslandRegistry = (
 };
 
 const walkRegistryNode = (
-	node: ts.Node,
+	node: TS.Node,
 	imports: Map<string, ParsedImportReference>,
 	registryFactoryNames: Set<string>,
 	registryNamespaceNames: Set<string>,
@@ -258,7 +259,7 @@ const walkRegistryNode = (
 };
 
 const isDefineIslandRegistryCall = (
-	expression: ts.Expression,
+	expression: TS.Expression,
 	registryFactoryNames: Set<string>,
 	registryNamespaceNames: Set<string>
 ) => {
@@ -274,7 +275,7 @@ const isDefineIslandRegistryCall = (
 	);
 };
 
-const hasIslandRegistryNamedExport = (sourceFile: ts.SourceFile) => {
+const hasIslandRegistryNamedExport = (sourceFile: TS.SourceFile) => {
 	for (const statement of sourceFile.statements) {
 		if (
 			ts.isVariableStatement(statement) &&
@@ -307,7 +308,7 @@ const hasIslandRegistryNamedExport = (sourceFile: ts.SourceFile) => {
 };
 
 const collectImportDeclarations = (
-	sourceFile: ts.SourceFile,
+	sourceFile: TS.SourceFile,
 	registryPath: string,
 	imports: Map<string, ParsedImportReference>,
 	registryFactoryNames: Set<string>,

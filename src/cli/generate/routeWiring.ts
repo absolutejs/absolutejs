@@ -1,4 +1,5 @@
-import ts from 'typescript';
+import type TS from 'typescript';
+import { ts } from '../../utils/lazyTypescript';
 import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { toModuleSpecifier } from './context';
@@ -35,9 +36,9 @@ const stripExtension = (path: string) => path.replace(/\.[^./\\]+$/, '');
 const parse = (path: string, text: string) =>
 	ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true);
 
-const findElysiaNew = (sourceFile: ts.SourceFile) => {
-	let found: ts.NewExpression | null = null;
-	const visit = (node: ts.Node) => {
+const findElysiaNew = (sourceFile: TS.SourceFile) => {
+	let found: TS.NewExpression | null = null;
+	const visit = (node: TS.Node) => {
 		if (found) return;
 		if (
 			ts.isNewExpression(node) &&
@@ -55,7 +56,7 @@ const findElysiaNew = (sourceFile: ts.SourceFile) => {
 	return found;
 };
 
-const climbChain = (start: ts.Expression) => {
+const climbChain = (start: TS.Expression) => {
 	let top = start;
 	while (
 		ts.isPropertyAccessExpression(top.parent) &&
@@ -69,8 +70,8 @@ const climbChain = (start: ts.Expression) => {
 	return top;
 };
 
-const collectCalls = (top: ts.Expression) => {
-	const calls: ts.CallExpression[] = [];
+const collectCalls = (top: TS.Expression) => {
+	const calls: TS.CallExpression[] = [];
 	let node = top;
 	while (
 		ts.isCallExpression(node) &&
@@ -83,12 +84,12 @@ const collectCalls = (top: ts.Expression) => {
 	return calls.reverse();
 };
 
-const methodName = (call: ts.CallExpression) =>
+const methodName = (call: TS.CallExpression) =>
 	ts.isPropertyAccessExpression(call.expression)
 		? call.expression.name.text
 		: null;
 
-const isBoundary = (call: ts.CallExpression) => {
+const isBoundary = (call: TS.CallExpression) => {
 	const name = methodName(call);
 	const [arg] = call.arguments;
 	if (name === 'use' && arg && ts.isIdentifier(arg)) {
@@ -98,7 +99,7 @@ const isBoundary = (call: ts.CallExpression) => {
 	return name === 'on' && arg !== undefined && ts.isStringLiteralLike(arg);
 };
 
-const receiverEnd = (call: ts.CallExpression) =>
+const receiverEnd = (call: TS.CallExpression) =>
 	ts.isPropertyAccessExpression(call.expression)
 		? call.expression.expression.getEnd()
 		: call.getEnd();
@@ -111,7 +112,7 @@ const separatorBefore = (text: string, offset: number) => {
 	return match ? match[1] : DEFAULT_SEPARATOR;
 };
 
-const findRouteInsertion = (text: string, top: ts.Expression) => {
+const findRouteInsertion = (text: string, top: TS.Expression) => {
 	const calls = collectCalls(top);
 	const boundary = calls.find(isBoundary);
 	if (boundary) {
@@ -126,9 +127,9 @@ const findRouteInsertion = (text: string, top: ts.Expression) => {
 	return { offset, separator: separatorBefore(text, sepProbe) };
 };
 
-const namedImportDecl = (sourceFile: ts.SourceFile, module: string) =>
+const namedImportDecl = (sourceFile: TS.SourceFile, module: string) =>
 	sourceFile.statements.find(
-		(statement): statement is ts.ImportDeclaration =>
+		(statement): statement is TS.ImportDeclaration =>
 			ts.isImportDeclaration(statement) &&
 			ts.isStringLiteral(statement.moduleSpecifier) &&
 			statement.moduleSpecifier.text === module &&
@@ -138,7 +139,7 @@ const namedImportDecl = (sourceFile: ts.SourceFile, module: string) =>
 			ts.isNamedImports(statement.importClause.namedBindings)
 	);
 
-const importedNames = (decl: ts.ImportDeclaration) => {
+const importedNames = (decl: TS.ImportDeclaration) => {
 	const bindings = decl.importClause?.namedBindings;
 	if (!bindings || !ts.isNamedImports(bindings)) return new Set<string>();
 
@@ -149,7 +150,7 @@ const importedNames = (decl: ts.ImportDeclaration) => {
 	);
 };
 
-const lastImportEnd = (sourceFile: ts.SourceFile) => {
+const lastImportEnd = (sourceFile: TS.SourceFile) => {
 	let end = 0;
 	for (const statement of sourceFile.statements) {
 		if (ts.isImportDeclaration(statement)) end = statement.getEnd();
@@ -159,7 +160,7 @@ const lastImportEnd = (sourceFile: ts.SourceFile) => {
 };
 
 const hasTypeImport = (
-	sourceFile: ts.SourceFile,
+	sourceFile: TS.SourceFile,
 	module: string,
 	local: string
 ) =>
@@ -195,8 +196,8 @@ const groupNamed = (specs: ImportSpec[]) => {
 };
 
 const mergeNamedEdit = (
-	decl: ts.ImportDeclaration,
-	sourceFile: ts.SourceFile,
+	decl: TS.ImportDeclaration,
+	sourceFile: TS.SourceFile,
 	missing: string[]
 ) => {
 	const bindings = decl.importClause?.namedBindings;
@@ -216,8 +217,8 @@ const mergeNamedEdit = (
 };
 
 const missingNamesEdit = (
-	decl: ts.ImportDeclaration,
-	sourceFile: ts.SourceFile,
+	decl: TS.ImportDeclaration,
+	sourceFile: TS.SourceFile,
 	names: Set<string>
 ) => {
 	const existing = importedNames(decl);
@@ -229,7 +230,7 @@ const missingNamesEdit = (
 // Builds the set of text edits that add every required import — merging named
 // imports into an existing declaration for the same module when possible, and
 // appending new declarations (named + type) after the last import otherwise.
-const buildImportEdits = (sourceFile: ts.SourceFile, specs: ImportSpec[]) => {
+const buildImportEdits = (sourceFile: TS.SourceFile, specs: ImportSpec[]) => {
 	const edits: Edit[] = [];
 	const newLines: string[] = [];
 	for (const [module, names] of groupNamed(specs)) {

@@ -5,7 +5,8 @@
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file at https://angular.dev/license
  */
-import ts from 'typescript';
+import type TS from 'typescript';
+import { ts } from '../../../../utils/lazyTypescript';
 
 import {
 	AstFactory,
@@ -40,13 +41,13 @@ enum PureAnnotation {
  * A TypeScript flavoured implementation of the AstFactory.
  */
 export class TypeScriptAstFactory
-	implements AstFactory<ts.Statement, ts.Expression, ts.TypeNode>
+	implements AstFactory<TS.Statement, TS.Expression, TS.TypeNode>
 {
-	private externalSourceFiles = new Map<string, ts.SourceMapSource>();
+	private externalSourceFiles = new Map<string, TS.SourceMapSource>();
 
 	private readonly UNARY_OPERATORS: Record<
 		UnaryOperator,
-		ts.PrefixUnaryOperator
+		TS.PrefixUnaryOperator
 	> = /* @__PURE__ */ (() => ({
 		'+': ts.SyntaxKind.PlusToken,
 		'-': ts.SyntaxKind.MinusToken,
@@ -55,7 +56,7 @@ export class TypeScriptAstFactory
 
 	private readonly BINARY_OPERATORS: Record<
 		BinaryOperator,
-		ts.BinaryOperator
+		TS.BinaryOperator
 	> = /* @__PURE__ */ (() => ({
 		'&&': ts.SyntaxKind.AmpersandAmpersandToken,
 		'>': ts.SyntaxKind.GreaterThanToken,
@@ -90,7 +91,7 @@ export class TypeScriptAstFactory
 		instanceof: ts.SyntaxKind.InstanceOfKeyword
 	}))();
 
-	private readonly VAR_TYPES: Record<VariableDeclarationType, ts.NodeFlags> =
+	private readonly VAR_TYPES: Record<VariableDeclarationType, TS.NodeFlags> =
 		/* @__PURE__ */ (() => ({
 			const: ts.NodeFlags.Const,
 			let: ts.NodeFlags.Let,
@@ -104,10 +105,10 @@ export class TypeScriptAstFactory
 	createArrayLiteral = ts.factory.createArrayLiteralExpression;
 
 	createAssignment(
-		target: ts.Expression,
+		target: TS.Expression,
 		operator: BinaryOperator,
-		value: ts.Expression
-	): ts.Expression {
+		value: TS.Expression
+	): TS.Expression {
 		return ts.factory.createBinaryExpression(
 			target,
 			this.BINARY_OPERATORS[operator],
@@ -116,10 +117,10 @@ export class TypeScriptAstFactory
 	}
 
 	createBinaryExpression(
-		leftOperand: ts.Expression,
+		leftOperand: TS.Expression,
 		operator: BinaryOperator,
-		rightOperand: ts.Expression
-	): ts.Expression {
+		rightOperand: TS.Expression
+	): TS.Expression {
 		return ts.factory.createBinaryExpression(
 			leftOperand,
 			this.BINARY_OPERATORS[operator],
@@ -127,15 +128,15 @@ export class TypeScriptAstFactory
 		);
 	}
 
-	createBlock(body: ts.Statement[]): ts.Statement {
+	createBlock(body: TS.Statement[]): TS.Statement {
 		return ts.factory.createBlock(body);
 	}
 
 	createCallExpression(
-		callee: ts.Expression,
-		args: ts.Expression[],
+		callee: TS.Expression,
+		args: TS.Expression[],
 		pure: boolean
-	): ts.Expression {
+	): TS.Expression {
 		const call = ts.factory.createCallExpression(callee, undefined, args);
 		if (pure) {
 			ts.addSyntheticLeadingComment(
@@ -151,10 +152,10 @@ export class TypeScriptAstFactory
 	}
 
 	createConditional(
-		condition: ts.Expression,
-		whenTrue: ts.Expression,
-		whenFalse: ts.Expression
-	): ts.Expression {
+		condition: TS.Expression,
+		whenTrue: TS.Expression,
+		whenFalse: TS.Expression
+	): TS.Expression {
 		return ts.factory.createConditionalExpression(
 			condition,
 			undefined,
@@ -168,11 +169,11 @@ export class TypeScriptAstFactory
 
 	createExpressionStatement = ts.factory.createExpressionStatement;
 
-	createDynamicImport(url: string | ts.Expression) {
+	createDynamicImport(url: string | TS.Expression) {
 		return ts.factory.createCallExpression(
 			ts.factory.createToken(
 				ts.SyntaxKind.ImportKeyword
-			) as ts.ImportExpression,
+			) as TS.ImportExpression,
 			/* type */ undefined,
 			[
 				typeof url === 'string'
@@ -184,9 +185,9 @@ export class TypeScriptAstFactory
 
 	createFunctionDeclaration(
 		functionName: string,
-		parameters: Parameter<ts.TypeNode>[],
-		body: ts.Statement
-	): ts.Statement {
+		parameters: Parameter<TS.TypeNode>[],
+		body: TS.Statement
+	): TS.Statement {
 		if (!ts.isBlock(body)) {
 			throw new Error(
 				`Invalid syntax, expected a block, but got ${ts.SyntaxKind[body.kind]}.`
@@ -205,9 +206,9 @@ export class TypeScriptAstFactory
 
 	createFunctionExpression(
 		functionName: string | null,
-		parameters: Parameter<ts.TypeNode>[],
-		body: ts.Statement
-	): ts.Expression {
+		parameters: Parameter<TS.TypeNode>[],
+		body: TS.Statement
+	): TS.Expression {
 		if (!ts.isBlock(body)) {
 			throw new Error(
 				`Invalid syntax, expected a block, but got ${ts.SyntaxKind[body.kind]}.`
@@ -225,9 +226,9 @@ export class TypeScriptAstFactory
 	}
 
 	createArrowFunctionExpression(
-		parameters: Parameter<ts.TypeNode>[],
-		body: ts.Statement | ts.Expression
-	): ts.Expression {
+		parameters: Parameter<TS.TypeNode>[],
+		body: TS.Statement | TS.Expression
+	): TS.Expression {
 		if (ts.isStatement(body) && !ts.isBlock(body)) {
 			throw new Error(
 				`Invalid syntax, expected a block, but got ${ts.SyntaxKind[body.kind]}.`
@@ -245,8 +246,8 @@ export class TypeScriptAstFactory
 	}
 
 	private createParameter(
-		param: Parameter<ts.TypeNode>
-	): ts.ParameterDeclaration {
+		param: Parameter<TS.TypeNode>
+	): TS.ParameterDeclaration {
 		return ts.factory.createParameterDeclaration(
 			undefined,
 			undefined,
@@ -259,10 +260,10 @@ export class TypeScriptAstFactory
 	createIdentifier = ts.factory.createIdentifier;
 
 	createIfStatement(
-		condition: ts.Expression,
-		thenStatement: ts.Statement,
-		elseStatement: ts.Statement | null
-	): ts.Statement {
+		condition: TS.Expression,
+		thenStatement: TS.Statement,
+		elseStatement: TS.Statement | null
+	): TS.Statement {
 		return ts.factory.createIfStatement(
 			condition,
 			thenStatement,
@@ -272,7 +273,7 @@ export class TypeScriptAstFactory
 
 	createLiteral(
 		value: string | number | boolean | null | undefined
-	): ts.Expression {
+	): TS.Expression {
 		if (value === undefined) {
 			return ts.factory.createIdentifier('undefined');
 		} else if (value === null) {
@@ -287,15 +288,15 @@ export class TypeScriptAstFactory
 	}
 
 	createNewExpression(
-		expression: ts.Expression,
-		args: ts.Expression[]
-	): ts.Expression {
+		expression: TS.Expression,
+		args: TS.Expression[]
+	): TS.Expression {
 		return ts.factory.createNewExpression(expression, undefined, args);
 	}
 
 	createObjectLiteral(
-		properties: ObjectLiteralProperty<ts.Expression>[]
-	): ts.Expression {
+		properties: ObjectLiteralProperty<TS.Expression>[]
+	): TS.Expression {
 		return ts.factory.createObjectLiteralExpression(
 			properties.map((prop) => {
 				if (prop.kind === 'spread') {
@@ -318,14 +319,14 @@ export class TypeScriptAstFactory
 
 	createSpreadElement = ts.factory.createSpreadElement;
 
-	createReturnStatement(expression: ts.Expression | null): ts.Statement {
+	createReturnStatement(expression: TS.Expression | null): TS.Statement {
 		return ts.factory.createReturnStatement(expression ?? undefined);
 	}
 
 	createTaggedTemplate(
-		tag: ts.Expression,
-		template: TemplateLiteral<ts.Expression>
-	): ts.Expression {
+		tag: TS.Expression,
+		template: TemplateLiteral<TS.Expression>
+	): TS.Expression {
 		return ts.factory.createTaggedTemplateExpression(
 			tag,
 			undefined,
@@ -334,9 +335,9 @@ export class TypeScriptAstFactory
 	}
 
 	createTemplateLiteral(
-		template: TemplateLiteral<ts.Expression>
-	): ts.TemplateLiteral {
-		let templateLiteral: ts.TemplateLiteral;
+		template: TemplateLiteral<TS.Expression>
+	): TS.TemplateLiteral {
+		let templateLiteral: TS.TemplateLiteral;
 		const length = template.elements.length;
 		const head = template.elements[0];
 		if (head === undefined) {
@@ -348,7 +349,7 @@ export class TypeScriptAstFactory
 				head.raw
 			);
 		} else {
-			const spans: ts.TemplateSpan[] = [];
+			const spans: TS.TemplateSpan[] = [];
 			// Create the middle parts
 			for (let i = 1; i < length - 1; i++) {
 				const element = template.elements[i];
@@ -406,8 +407,8 @@ export class TypeScriptAstFactory
 
 	createUnaryExpression(
 		operator: UnaryOperator,
-		operand: ts.Expression
-	): ts.Expression {
+		operand: TS.Expression
+	): TS.Expression {
 		return ts.factory.createPrefixUnaryExpression(
 			this.UNARY_OPERATORS[operator],
 			operand
@@ -416,10 +417,10 @@ export class TypeScriptAstFactory
 
 	createVariableDeclaration(
 		variableName: string,
-		initializer: ts.Expression | null,
+		initializer: TS.Expression | null,
 		variableType: VariableDeclarationType,
-		type: ts.TypeNode | null
-	): ts.Statement {
+		type: TS.TypeNode | null
+	): TS.Statement {
 		return ts.factory.createVariableStatement(
 			undefined,
 			ts.factory.createVariableDeclarationList(
@@ -439,13 +440,13 @@ export class TypeScriptAstFactory
 	createRegularExpressionLiteral(
 		body: string,
 		flags: string | null
-	): ts.Expression {
+	): TS.Expression {
 		return ts.factory.createRegularExpressionLiteral(
 			`/${body}/${flags ?? ''}`
 		);
 	}
 
-	setSourceMapRange<T extends ts.Node>(
+	setSourceMapRange<T extends TS.Node>(
 		node: T,
 		sourceMapRange: SourceMapRange | null
 	): T {
@@ -473,7 +474,7 @@ export class TypeScriptAstFactory
 		return node;
 	}
 
-	createBuiltInType(type: BuiltInType): ts.TypeNode {
+	createBuiltInType(type: BuiltInType): TS.TypeNode {
 		switch (type) {
 			case 'any':
 				return ts.factory.createKeywordTypeNode(
@@ -507,9 +508,9 @@ export class TypeScriptAstFactory
 	}
 
 	createExpressionType(
-		expression: ts.Expression,
-		typeParams: ts.TypeNode[] | null
-	): ts.TypeNode {
+		expression: TS.Expression,
+		typeParams: TS.TypeNode[] | null
+	): TS.TypeNode {
 		const typeName = getEntityTypeFromExpression(expression);
 		return ts.factory.createTypeReferenceNode(
 			typeName,
@@ -517,11 +518,11 @@ export class TypeScriptAstFactory
 		);
 	}
 
-	createArrayType(elementType: ts.TypeNode): ts.TypeNode {
+	createArrayType(elementType: TS.TypeNode): TS.TypeNode {
 		return ts.factory.createArrayTypeNode(elementType);
 	}
 
-	createMapType(valueType: ts.TypeNode): ts.TypeNode {
+	createMapType(valueType: TS.TypeNode): TS.TypeNode {
 		return ts.factory.createTypeLiteralNode([
 			ts.factory.createIndexSignature(
 				undefined,
@@ -541,7 +542,7 @@ export class TypeScriptAstFactory
 		]);
 	}
 
-	transplantType(type: ts.TypeNode): ts.TypeNode {
+	transplantType(type: TS.TypeNode): TS.TypeNode {
 		if (
 			typeof type.kind === 'number' &&
 			typeof type.getSourceFile === 'function' &&
@@ -561,13 +562,13 @@ export class TypeScriptAstFactory
 export function createTemplateMiddle(
 	cooked: string,
 	raw: string
-): ts.TemplateMiddle {
-	const node: ts.TemplateLiteralLikeNode = ts.factory.createTemplateHead(
+): TS.TemplateMiddle {
+	const node: TS.TemplateLiteralLikeNode = ts.factory.createTemplateHead(
 		cooked,
 		raw
 	);
-	(node.kind as ts.SyntaxKind) = ts.SyntaxKind.TemplateMiddle;
-	return node as ts.TemplateMiddle;
+	(node.kind as TS.SyntaxKind) = ts.SyntaxKind.TemplateMiddle;
+	return node as TS.TemplateMiddle;
 }
 
 // HACK: Use this in place of `ts.createTemplateTail()`.
@@ -575,13 +576,13 @@ export function createTemplateMiddle(
 export function createTemplateTail(
 	cooked: string,
 	raw: string
-): ts.TemplateTail {
-	const node: ts.TemplateLiteralLikeNode = ts.factory.createTemplateHead(
+): TS.TemplateTail {
+	const node: TS.TemplateLiteralLikeNode = ts.factory.createTemplateHead(
 		cooked,
 		raw
 	);
-	(node.kind as ts.SyntaxKind) = ts.SyntaxKind.TemplateTail;
-	return node as ts.TemplateTail;
+	(node.kind as TS.SyntaxKind) = ts.SyntaxKind.TemplateTail;
+	return node as TS.TemplateTail;
 }
 
 /**
@@ -591,7 +592,7 @@ export function createTemplateTail(
  * @param leadingComments The comments to attach to the statement.
  */
 export function attachComments(
-	statement: ts.Statement | ts.Expression,
+	statement: TS.Statement | TS.Expression,
 	leadingComments: LeadingComment[]
 ): void {
 	for (const comment of leadingComments) {
@@ -618,7 +619,7 @@ export function attachComments(
 	}
 }
 
-function getEntityTypeFromExpression(expression: ts.Expression): ts.EntityName {
+function getEntityTypeFromExpression(expression: TS.Expression): TS.EntityName {
 	if (ts.isIdentifier(expression)) {
 		return expression;
 	}

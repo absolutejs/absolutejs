@@ -7,7 +7,8 @@
  */
 
 import * as o from '@angular/compiler';
-import ts from 'typescript';
+import type TS from 'typescript';
+import { ts } from '../../../../utils/lazyTypescript';
 
 import { ImportGenerator } from './api/import_generator';
 import { Context } from './context';
@@ -15,17 +16,17 @@ import { ExpressionTranslatorVisitor, TranslatorOptions } from './translator';
 import { TypeScriptAstFactory } from './typescript_ast_factory';
 
 export function translateExpression(
-	contextFile: ts.SourceFile,
+	contextFile: TS.SourceFile,
 	expression: o.Expression,
-	imports: ImportGenerator<ts.SourceFile, ts.Expression>,
-	options: TranslatorOptions<ts.Expression> = {}
-): ts.Expression {
+	imports: ImportGenerator<TS.SourceFile, TS.Expression>,
+	options: TranslatorOptions<TS.Expression> = {}
+): TS.Expression {
 	return expression.visitExpression(
 		new ExpressionTranslatorVisitor<
-			ts.SourceFile,
-			ts.Statement,
-			ts.Expression,
-			ts.TypeNode
+			TS.SourceFile,
+			TS.Statement,
+			TS.Expression,
+			TS.TypeNode
 		>(
 			new TypeScriptAstFactory(
 				options.annotateForClosureCompiler === true
@@ -39,17 +40,17 @@ export function translateExpression(
 }
 
 export function translateStatement(
-	contextFile: ts.SourceFile,
+	contextFile: TS.SourceFile,
 	statement: o.Statement,
-	imports: ImportGenerator<ts.SourceFile, ts.Expression>,
-	options: TranslatorOptions<ts.Expression> = {}
-): ts.Statement {
+	imports: ImportGenerator<TS.SourceFile, TS.Expression>,
+	options: TranslatorOptions<TS.Expression> = {}
+): TS.Statement {
 	return statement.visitStatement(
 		new ExpressionTranslatorVisitor<
-			ts.SourceFile,
-			ts.Statement,
-			ts.Expression,
-			ts.TypeNode
+			TS.SourceFile,
+			TS.Statement,
+			TS.Expression,
+			TS.TypeNode
 		>(
 			new TypeScriptAstFactory(
 				options.annotateForClosureCompiler === true

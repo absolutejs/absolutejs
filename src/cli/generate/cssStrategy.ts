@@ -1,4 +1,5 @@
-import ts from 'typescript';
+import type TS from 'typescript';
+import { ts } from '../../utils/lazyTypescript';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { toKebabCase } from './naming';
@@ -18,7 +19,7 @@ const DEFAULT_CSS = `main {
 }
 `;
 
-const cssAssetArg = (node: ts.Node) => {
+const cssAssetArg = (node: TS.Node) => {
 	if (
 		!ts.isCallExpression(node) ||
 		!ts.isIdentifier(node.expression) ||
@@ -47,7 +48,7 @@ const detectSharedKey = (routingText: string) => {
 	);
 	let hoisted: string | null = null;
 	const inlineCounts = new Map<string, number>();
-	const visit = (node: ts.Node) => {
+	const visit = (node: TS.Node) => {
 		const key = cssAssetArg(node);
 		if (key) {
 			if (ts.isVariableDeclaration(node.parent)) hoisted ??= key;

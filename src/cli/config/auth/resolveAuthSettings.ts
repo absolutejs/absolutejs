@@ -1,4 +1,5 @@
-import ts from 'typescript';
+import type TS from 'typescript';
+import { ts } from '../../../utils/lazyTypescript';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { introspectType } from '../schema/fromType';
@@ -29,7 +30,7 @@ const parseSource = (configPath: string, text: string) =>
 
 // Locate the object literal passed to defineAuthSettings({...}) — or a bare default
 // export object — so the reader and the editor work off the same node.
-export const findAuthSettingsObject = (sourceFile: ts.Node) => {
+export const findAuthSettingsObject = (sourceFile: TS.Node) => {
 	const pending = [sourceFile];
 	while (pending.length > 0) {
 		const node = pending.pop();
@@ -72,7 +73,7 @@ export const parseAuthSettingsObject = (configPath: string) => {
 // Recursively evaluate a literal initializer to a JSON value; opaque for anything
 // that isn't pure data (identifier refs, calls, spreads) so we never clobber code.
 const evalLiteral = (
-	node: ts.Expression
+	node: TS.Expression
 ): { opaque: boolean; value: unknown } => {
 	if (ts.isStringLiteralLike(node))
 		return { opaque: false, value: node.text };

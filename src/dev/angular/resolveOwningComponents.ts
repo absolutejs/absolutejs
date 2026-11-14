@@ -20,7 +20,8 @@
 
 import { type Dirent, readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, extname, join, resolve } from 'node:path';
-import ts from 'typescript';
+import type TS from 'typescript';
+import { ts } from '../../utils/lazyTypescript';
 
 export type AngularEntityKind = 'component' | 'directive' | 'pipe' | 'service';
 
@@ -85,7 +86,7 @@ type DecoratedClass = {
 };
 
 const getStringPropertyValue = (
-	obj: ts.ObjectLiteralExpression,
+	obj: TS.ObjectLiteralExpression,
 	name: string
 ) => {
 	for (const prop of obj.properties) {
@@ -108,7 +109,7 @@ const getStringPropertyValue = (
 };
 
 const getStringArrayProperty = (
-	obj: ts.ObjectLiteralExpression,
+	obj: TS.ObjectLiteralExpression,
 	name: string
 ) => {
 	const out: string[] = [];
@@ -155,7 +156,7 @@ const parseDecoratedClasses = (filePath: string) => {
 	);
 
 	const out: DecoratedClass[] = [];
-	const visit = (node: ts.Node) => {
+	const visit = (node: TS.Node) => {
 		if (ts.isClassDeclaration(node) && node.name) {
 			for (const decorator of ts.getDecorators(node) ?? []) {
 				const expr = decorator.expression;

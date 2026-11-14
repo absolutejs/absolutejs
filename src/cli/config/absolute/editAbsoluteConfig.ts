@@ -1,4 +1,5 @@
-import ts from 'typescript';
+import type TS from 'typescript';
+import { ts } from '../../../utils/lazyTypescript';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { findConfigObject } from './resolveAbsoluteConfig';
 import { serializeValue } from '../schema/serialize';
@@ -14,9 +15,9 @@ const lineStartOffset = (text: string, position: number) => {
 const indentBefore = (text: string, position: number) =>
 	text.slice(lineStartOffset(text, position), position);
 
-const findProperty = (object: ts.ObjectLiteralExpression, name: string) =>
+const findProperty = (object: TS.ObjectLiteralExpression, name: string) =>
 	object.properties.find(
-		(property): property is ts.PropertyAssignment =>
+		(property): property is TS.PropertyAssignment =>
 			ts.isPropertyAssignment(property) &&
 			(ts.isIdentifier(property.name) ||
 				ts.isStringLiteral(property.name)) &&
