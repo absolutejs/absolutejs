@@ -476,6 +476,9 @@
 			"optional": true
 		}
 	},
+	"publishConfig": {
+		"tag": "latest"
+	},
 	"repository": {
 		"type": "git",
 		"url": "git+https://github.com/absolutejs/absolutejs.git"
