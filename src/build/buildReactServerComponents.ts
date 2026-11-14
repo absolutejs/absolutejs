@@ -15,6 +15,7 @@ import {
 	REACT_SERVER_RENDERER_MANIFEST_KEY,
 	REACT_SERVER_RUNTIME_FILE
 } from '../react/serverComponents/constants';
+import { logWarn } from '../utils/logger';
 import { normalizePath } from '../utils/normalizePath';
 import { toPascal } from '../utils/stringModifiers';
 import { validateSafePath } from '../utils/validateSafePath';
@@ -93,9 +94,13 @@ const scanExportNames = (path: string, source: string) => {
 	return transpiler.scan(source).exports;
 };
 
-const clientReferenceSource = (module: ClientModule) => {
+/* `flightServer` is react-server-dom-webpack/server.edge resolved from the
+ * application: the replacement source is loaded at the client module's own
+ * path, and a "use client" module inside a package (this framework's Link)
+ * cannot necessarily see the app's react-server-dom-webpack from there. */
+const clientReferenceSource = (module: ClientModule, flightServer: string) => {
 	const lines = [
-		`import { registerClientReference } from 'react-server-dom-webpack/server.edge';`,
+		`import { registerClientReference } from ${JSON.stringify(flightServer)};`,
 		`import { clientManifest } from ${JSON.stringify(MANIFEST_SPECIFIER)};`,
 		`const id = ${JSON.stringify(module.id)};`,
 		`clientManifest[id] = { chunks: [id, id], id, name: '' };`,
@@ -112,10 +117,39 @@ const clientReferenceSource = (module: ClientModule) => {
 	return `${lines.join('\n')}\n`;
 };
 
+const REACT_COMPONENTS_SPECIFIER = /^@absolutejs\/absolute\/react\/components$/;
+
+/* `@absolutejs/absolute/react/components` imported from a server component
+ * gets its server entry (dist/react/components/server/index.js, next to the
+ * regular one): the regular entry also defines Link's context at module
+ * scope, and React's react-server build has no createContext. The server
+ * entry renders the slots on the server and takes Link from a "use client"
+ * file, which the onLoad hook below turns into a client reference. Done
+ * here rather than as a `react-server` export condition, which would have to
+ * precede `import` in package.json's key-sorted exports. Undefined (default
+ * resolution) for a package version without the server entry. */
+const resolveReactComponentsServerEntry = (importer: string) => {
+	try {
+		const regularEntry = Bun.resolveSync(
+			'@absolutejs/absolute/react/components',
+			dirname(importer)
+		);
+		const serverEntry = join(dirname(regularEntry), 'server', 'index.js');
+
+		return existsSync(serverEntry) ? serverEntry : undefined;
+	} catch {
+		return undefined;
+	}
+};
+
 const createClientReferencePlugin = (
 	projectRoot: string,
 	clientModules: Map<string, ClientModule>
 ) => {
+	const flightServer = Bun.resolveSync(
+		'react-server-dom-webpack/server.edge',
+		projectRoot
+	);
 	const plugin: BunPlugin = {
 		name: 'absolute-react-server-client-references',
 		setup(builder) {
@@ -133,6 +167,16 @@ const createClientReferencePlugin = (
 					loader: 'js'
 				})
 			);
+			builder.onResolve(
+				{ filter: REACT_COMPONENTS_SPECIFIER },
+				(args) => {
+					const path = resolveReactComponentsServerEntry(
+						args.importer
+					);
+
+					return path ? { path } : undefined;
+				}
+			);
 			builder.onLoad({ filter: SOURCE_FILTER }, (args) => {
 				const source = readFileSync(args.path, 'utf8');
 				const loader = loaderFor(args.path);
@@ -147,7 +191,7 @@ const createClientReferencePlugin = (
 				clientModules.set(module.id, module);
 
 				return {
-					contents: clientReferenceSource(module),
+					contents: clientReferenceSource(module, flightServer),
 					loader: 'js'
 				};
 			});
@@ -324,6 +368,28 @@ const writeGeneratedFile = (path: string, contents: string) => {
 const pageEntryName = (pagePath: string) =>
 	toPascal(basename(pagePath, extname(pagePath)));
 
+const endsWithPageSuffix = (name: string) =>
+	name.length > REACT_SERVER_PAGE_MANIFEST_SUFFIX.length &&
+	name.endsWith(REACT_SERVER_PAGE_MANIFEST_SUFFIX);
+
+/* Manifest keys for each RSC page: `<Page>RSC`, without doubling the suffix
+ * when the file name already ends in it (pages/HomeRSC.tsx → `HomeRSC`).
+ * Such a page also keeps the doubled key (`HomeRSCRSC`) it had before
+ * this release as a deprecated alias. When pages/Home.tsx exists too, it
+ * owns `HomeRSC` (its key has not changed) and HomeRSC.tsx keeps only the
+ * doubled key. */
+const pageManifestKeys = (name: string, names: Set<string>) => {
+	const doubled = `${name}${REACT_SERVER_PAGE_MANIFEST_SUFFIX}`;
+	if (!endsWithPageSuffix(name)) return { keys: [doubled] };
+	const base = name.slice(0, -REACT_SERVER_PAGE_MANIFEST_SUFFIX.length);
+	if (!names.has(base)) return { keys: [name, doubled] };
+
+	return {
+		collision: `React Server Components pages ${base} and ${name} both map to the manifest key "${name}"; ${base} keeps it and ${name} is only reachable as "${doubled}". Rename one of them.`,
+		keys: [doubled]
+	};
+};
+
 export const buildReactServerComponents = async ({
 	buildPath,
 	directory,
@@ -462,11 +528,15 @@ export const buildReactServerComponents = async ({
 		[REACT_SERVER_CLIENT_MANIFEST_KEY]: clientUrl,
 		[REACT_SERVER_RENDERER_MANIFEST_KEY]: resolve(ssrOutput.path)
 	};
+	const pageKeys = reactServerPageManifestKeys(
+		pageEntries.map((page) => page.name)
+	);
+	for (const collision of pageKeys.collisions) logWarn(collision);
 	for (const page of pageEntries) {
 		const output = findOutput(serverResult.outputs, page.name);
-		if (output)
-			manifest[`${page.name}${REACT_SERVER_PAGE_MANIFEST_SUFFIX}`] =
-				resolve(output.path);
+		if (!output) continue;
+		for (const key of pageKeys.keys.get(page.name) ?? [])
+			manifest[key] = resolve(output.path);
 	}
 
 	const result: ReactServerBuildResult = {
@@ -511,4 +581,17 @@ export const buildReactServerComponentsPass = async ({
 		...options,
 		directory: absoluteDirectory
 	});
+};
+
+export const reactServerPageManifestKeys = (pageNames: string[]) => {
+	const names = new Set(pageNames);
+	const keys = new Map<string, string[]>();
+	const collisions: string[] = [];
+	for (const name of pageNames) {
+		const page = pageManifestKeys(name, names);
+		keys.set(name, page.keys);
+		if (page.collision) collisions.push(page.collision);
+	}
+
+	return { collisions, keys };
 };

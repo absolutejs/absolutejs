@@ -5,12 +5,18 @@ import { Transpiler } from 'bun';
 import { BASE_36_RADIX } from '../constants';
 import { isFile } from '../utils/isFile';
 import { loadVueCompiler } from '../utils/vueCompiler';
+import { createIslandGenerationGuard } from './islandServerGeneration';
 
 const ISLAND_COMPONENT_ID_LENGTH = 8;
 
 const serverCacheRoot = join(process.cwd(), '.absolutejs', 'islands', 'vue');
 
 const compiledModuleCache = new Map<string, string>();
+// Dev: an island edit moves the generation; compile again into new files
+// so Bun imports the edit instead of its cached module.
+const syncIslandGeneration = createIslandGenerationGuard(() => {
+	compiledModuleCache.clear();
+});
 
 const transpiler = new Transpiler({ loader: 'ts', target: 'browser' });
 
@@ -29,7 +35,13 @@ const getCachedModulePath = (sourcePath: string) => {
 		? sourcePath.replace(/[:\\/]/g, '_')
 		: relativeSourcePath;
 
-	return join(serverCacheRoot, `${normalizedSourcePath}.server.js`);
+	const generation = syncIslandGeneration();
+	const generationSuffix = generation > 0 ? `.g${generation}` : '';
+
+	return join(
+		serverCacheRoot,
+		`${normalizedSourcePath}${generationSuffix}.server.js`
+	);
 };
 
 const writeIfChanged = async (path: string, content: string) => {
@@ -89,6 +101,7 @@ const extractRelativeVueImports = (sourceCode: string) =>
    runtime `.vue` loader, so this helper produces a cached JS file the
    resolver can dynamically import. */
 export const compileVueServerModule = async (sourcePath: string) => {
+	syncIslandGeneration();
 	const cachedModulePath = compiledModuleCache.get(sourcePath);
 	if (cachedModulePath) return cachedModulePath;
 

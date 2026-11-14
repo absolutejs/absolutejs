@@ -32,6 +32,12 @@ type Probe = Record<
 	| 'routeThrowsAppHandler',
 	Result
 >;
+type ProbeOutput = Partial<Probe> & {
+	logs?: Record<string, number>;
+	noConventionJson?: Result;
+	noConventionPage?: Result;
+	routeThrowsAny?: Result;
+};
 
 const FILES: Record<string, string> = {
 	'absolute.config.ts': `export default {
@@ -76,10 +82,22 @@ const result = await build({
 });
 const manifest = result?.manifest ?? {};
 setConventions(JSON.parse(readFileSync(join(buildDir, 'conventions.json'), 'utf8')));
-console.error = () => undefined;
+/* Count the server-side '[SSR] <METHOD> <path> threw:' lines each request
+ * writes (with the stack in the logged error), per probe. */
+const errorLines = [];
+console.error = (...args) => {
+	errorLines.push(args.map((arg) => (arg instanceof Error ? 'ERROR:' + arg.stack : String(arg))).join(' '));
+};
+const countThrows = (from, path) =>
+	errorLines
+		.slice(from)
+		.filter((line) => line.startsWith('[SSR] GET ' + path + ' threw:') && line.includes('ERROR:Error: route secret'))
+		.length;
+const countAll = (from) => errorLines.length - from;
 
 const read = async (response) => ({ body: await response.text(), status: response.status });
 const probe = {
+	logs: {},
 	htmlError: await read(await handleHTMLPageRequest(join(buildDir, 'html', 'pages', 'Missing.html'))),
 	htmxError: await read(await handleHTMXPageRequest(manifest.Fragment))
 };
@@ -98,20 +116,38 @@ if (${JSON.stringify(mode)} === 'production') {
 		});
 	const request = (path, headers = {}) =>
 		app.handle(new Request('http://localhost' + path, { headers }));
+	/* Runs one request and records how many '[SSR] ... threw:' lines it
+	 * logged (and, under logKey + 'All', how many console.error lines). */
+	const logged = async (logKey, path, headers) => {
+		const from = errorLines.length;
+		const response = await request(path, headers);
+		const body = await read(response);
+		probe.logs[logKey] = countThrows(from, path);
+		probe.logs[logKey + 'All'] = countAll(from);
+
+		return body;
+	};
 	probe.home = await read(await request('/'));
-	probe.notFound = await read(await request('/no-such-page'));
+	probe.notFound = await logged('notFound', '/no-such-page', {});
 	probe.htmxNotFound = await read(
 		await request('/no-such-fragment', { 'HX-Request': 'true' })
 	);
 	const page = { accept: 'text/html,application/xhtml+xml' };
-	probe.routeThrows = await read(await request('/throws', page));
-	probe.routeThrowsHtmx = await read(
-		await request('/throws', { 'HX-Request': 'true' })
-	);
-	probe.routeThrowsApi = await read(
-		await request('/throws', { accept: 'application/json' })
-	);
-	probe.routeStatus = await read(await request('/teapot', page));
+	probe.routeThrows = await logged('page', '/throws', page);
+	probe.routeThrowsHtmx = await logged('htmx', '/throws', { 'HX-Request': 'true' });
+	probe.routeThrowsApi = await logged('json', '/throws', { accept: 'application/json' });
+	probe.routeThrowsAny = await logged('any', '/throws', { accept: '*/*' });
+	await logged('noAccept', '/throws', {});
+	probe.routeStatus = await logged('status', '/teapot', page);
+	await logged('apiNotFound', '/no-such-api', { accept: 'application/json' });
+
+	/* No error.html convention at all (a React-only project): every request
+	 * still logs once and gets Elysia's JSON 500. */
+	const savedConventions = JSON.parse(readFileSync(join(buildDir, 'conventions.json'), 'utf8'));
+	setConventions({});
+	probe.noConventionPage = await logged('noConventionPage', '/throws', page);
+	probe.noConventionJson = await logged('noConventionJson', '/throws', { accept: 'application/json' });
+	setConventions(savedConventions);
 
 	/* An app with its own onError, registered after .use(absolutejs), keeps
 	 * handling these errors itself. The app is found when it starts, so this
@@ -123,11 +159,13 @@ if (${JSON.stringify(mode)} === 'production') {
 			throw new Error('route secret at /srv/app/server.ts');
 		})
 		.listen(0);
+	const appHandlerFrom = errorLines.length;
 	probe.routeThrowsAppHandler = await read(
 		await fetch('http://localhost:' + withHandler.server.port + '/throws', {
 			headers: page
 		})
 	);
+	probe.logs.appHandler = countThrows(appHandlerFrom, '/throws');
 	await withHandler.stop();
 }
 
@@ -158,12 +196,12 @@ const run = async (mode: Mode) => {
 	if (exitCode !== 0 || !line) {
 		throw new Error(`probe (${mode}) failed:\n${stdout}\n${stderr}`);
 	}
-	const probe: Partial<Probe> = JSON.parse(line.slice('PROBE'.length));
+	const probe: ProbeOutput = JSON.parse(line.slice('PROBE'.length));
 
 	return probe;
 };
 
-const results: Partial<Record<Mode, Partial<Probe>>> = {};
+const results: Partial<Record<Mode, ProbeOutput>> = {};
 const result = (mode: Mode, key: keyof Probe) => {
 	const value = results[mode]?.[key];
 	if (!value) throw new Error(`no ${mode} ${key} result`);
@@ -292,5 +330,55 @@ describe('Errors thrown by route handlers', () => {
 		const teapot = result('production', 'routeStatus');
 		expect(teapot.status).toBe(418);
 		expect(teapot.body).toContain('TEAPOT');
+	});
+});
+
+/* With no app onError, AbsoluteJS's fallback is the only thing that sees a
+ * thrown route, so it logs every one once (method, path, stack) whatever the
+ * Accept header. Fetch and curl clients used to get a JSON 500 and nothing in
+ * the log. */
+describe('Logging errors thrown by route handlers', () => {
+	const logs = () => {
+		const value = results.production?.logs;
+		if (!value) throw new Error('no production logs');
+
+		return value;
+	};
+
+	test('each request that throws is logged exactly once, whatever it accepts', () => {
+		const counts = logs();
+		for (const key of ['page', 'htmx', 'json', 'any', 'noAccept']) {
+			expect({ count: counts[key], key }).toEqual({ count: 1, key });
+			// The page and HTMX ones render error.html; nothing else logs.
+			expect({ all: counts[`${key}All`], key }).toEqual({ all: 1, key });
+		}
+	});
+
+	test('the response to a non-page request stays generic', () => {
+		const json = result('production', 'routeThrowsApi');
+		expect(json.status).toBe(500);
+		expect(json.body).not.toContain('/srv/app');
+		const any = results.production?.routeThrowsAny;
+		expect(any?.status).toBe(500);
+		expect(any?.body).not.toContain('/srv/app');
+	});
+
+	test('a project with no error.html convention still logs once', () => {
+		const counts = logs();
+		expect(counts.noConventionPage).toBe(1);
+		expect(counts.noConventionJson).toBe(1);
+		expect(results.production?.noConventionPage?.status).toBe(500);
+		expect(results.production?.noConventionJson?.status).toBe(500);
+	});
+
+	test('not-found routes and thrown status responses log nothing', () => {
+		const counts = logs();
+		expect(counts.notFoundAll).toBe(0);
+		expect(counts.apiNotFoundAll).toBe(0);
+		expect(counts.statusAll).toBe(0);
+	});
+
+	test("an app's own onError takes over, so the fallback logs nothing", () => {
+		expect(logs().appHandler).toBe(0);
 	});
 });

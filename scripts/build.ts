@@ -421,6 +421,52 @@ const build = async () => {
 		process.exit(1);
 	}
 
+	// `react/components` for React Server Components: the RSC build pass
+	// resolves the specifier to dist/react/components/server/index.js when a
+	// server component imports it. Link and usePrefetch live in a separate
+	// "use client" file the server entry imports, not inlines, so an RSC
+	// build sees the directive and makes them client references.
+	console.log('Building React components (server components entry)...');
+	const reactComponentsClientBuild = await Bun.build({
+		banner: '"use client";',
+		define: RUNTIME_NODE_ENV_DEFINE,
+		entrypoints: ['src/react/components/client.ts'],
+		external: EXTERNALS,
+		jsx: { development: false },
+		outdir: join(DIST, 'react', 'components'),
+		target: 'bun'
+	});
+	const keepClientImportExternal: BunPlugin = {
+		name: 'absolutejs-react-components-client-external',
+		setup(builder) {
+			builder.onResolve({ filter: /^\.\.\/client$/ }, () => ({
+				external: true,
+				path: '../client.js'
+			}));
+		}
+	};
+	const reactComponentsServerBuild = await Bun.build({
+		define: RUNTIME_NODE_ENV_DEFINE,
+		entrypoints: ['src/react/components/server/index.ts'],
+		external: EXTERNALS,
+		jsx: { development: false },
+		outdir: join(DIST, 'react', 'components', 'server'),
+		plugins: [keepClientImportExternal],
+		target: 'bun'
+	});
+
+	for (const result of [
+		reactComponentsClientBuild,
+		reactComponentsServerBuild
+	]) {
+		if (result.success) continue;
+		console.error(
+			'React components (server components entry) build failed:'
+		);
+		for (const log of result.logs) console.error(log);
+		process.exit(1);
+	}
+
 	console.log('Building CLI...');
 	// The config server is built as a separate bundle below (it carries React
 	// for SSR). The CLI imports it via a runtime-resolved specifier, so the
@@ -1216,7 +1262,10 @@ const verifyExports = async () => {
 			join(DIST, 'build', 'buildWorker.js'),
 			join(DIST, 'dev', 'importCostPreload.js'),
 			join(DIST, 'dev', 'importCostReport.js'),
-			join(DIST, 'dev', 'serverBootstrap.js')
+			join(DIST, 'dev', 'serverBootstrap.js'),
+			// `react/components` for React Server Components.
+			join(DIST, 'react', 'components', 'client.js'),
+			join(DIST, 'react', 'components', 'server', 'index.js')
 		],
 		async (entryPath) => {
 			if (!(await Bun.file(entryPath).exists()))

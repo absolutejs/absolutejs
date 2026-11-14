@@ -182,7 +182,8 @@ describe('the library build keeps NODE_ENV a runtime read', () => {
 			.map((call, index) => ({ head: call.slice(0, 200), index }))
 			.filter(
 				({ head }) =>
-					!/^\s*define: (?:RUNTIME_NODE_ENV_DEFINE|\{ 'process\.env\.NODE_ENV')/.test(
+					// Options are sorted, so `define` can follow `banner`.
+					!/^\s*(?:banner: [^\n]*\n\s*)?define: (?:RUNTIME_NODE_ENV_DEFINE|\{ 'process\.env\.NODE_ENV')/.test(
 						head
 					)
 			);

@@ -1,9 +1,12 @@
 import { describe, test, afterEach } from 'bun:test';
+import { rmSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { startDevServer, type DevServer } from '../../../helpers/devServer';
 import { createFile, restoreAllFiles } from '../../../helpers/file';
 
 const PROJECT_ROOT = resolve(import.meta.dir, '..', '..', '..', '..');
+
+const COLLIDING = 'CollisionExample';
 
 let server: DevServer | undefined;
 
@@ -13,6 +16,18 @@ afterEach(async () => {
 		server = undefined;
 	}
 	restoreAllFiles();
+	/* The dev build copies both pages into example/build. Left behind, they
+	 * keep colliding with each other, and every later dev test that opens
+	 * the example app gets the build-error overlay. */
+	for (const framework of ['html', 'htmx']) {
+		rmSync(
+			resolve(
+				PROJECT_ROOT,
+				`example/build/${framework}/pages/${COLLIDING}.html`
+			),
+			{ force: true }
+		);
+	}
 });
 
 /* Bug #223: page files with the same basename across the
@@ -27,7 +42,7 @@ afterEach(async () => {
  * populated. */
 describe('Manifest key collision across framework dirs (bug #223)', () => {
 	test('creating same-basename pages in html/ and htmx/ fires the collision warning on dev startup', async () => {
-		const colliding = 'CollisionExample';
+		const colliding = COLLIDING;
 		const htmlPage = resolve(
 			PROJECT_ROOT,
 			`example/html/pages/${colliding}.html`
@@ -52,11 +67,10 @@ describe('Manifest key collision across framework dirs (bug #223)', () => {
 
 		server = await startDevServer();
 
-		// `logWarn` writes `[hmr] warning ...` to stdout. The
-		// collision message contains the key name, so we match
-		// on that for specificity.
+		// The collision is logged as an error naming the key and both
+		// pages, so we match on the key for specificity.
 		await server.waitForOutput(
-			new RegExp(`Manifest key collision: "${colliding}"`),
+			new RegExp(`Manifest key "${colliding}" belongs to two pages`),
 			{ timeoutMs: 30_000 }
 		);
 	}, 60_000);

@@ -1,5 +1,7 @@
 import { describe, expect, test } from 'bun:test';
-import { resolve } from 'node:path';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { changeNeedsRestart } from '../../../src/dev/restartScope';
 
 const loaded = new Set(['/app/src/backend/routes.ts', '/app/src/lib/db.js']);
@@ -45,5 +47,19 @@ describe('changeNeedsRestart', () => {
 			)
 		).toBe(true);
 		expect(changeNeedsRestart('/nowhere/never-imported.ts')).toBe(false);
+	});
+
+	test('a directory never restarts the server', () => {
+		const root = mkdtempSync(join(tmpdir(), 'restart-scope-'));
+		try {
+			const assets = join(root, 'assets');
+			mkdirSync(assets);
+			writeFileSync(join(root, '.env'), 'A=1\n');
+			expect(changeNeedsRestart(assets, isLoaded)).toBe(false);
+			// An extensionless file next to it still does.
+			expect(changeNeedsRestart(join(root, '.env'), isLoaded)).toBe(true);
+		} finally {
+			rmSync(root, { force: true, recursive: true });
+		}
 	});
 });

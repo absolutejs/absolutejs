@@ -1,4 +1,4 @@
-import { realpathSync } from 'node:fs';
+import { realpathSync, statSync } from 'node:fs';
 import { isTestSourcePath } from '../utils/isTestSourcePath';
 
 /* Which file changes need the dev server process restarted. Files no HMR
@@ -8,6 +8,10 @@ import { isTestSourcePath } from '../utils/isTestSourcePath';
  *   - code modules do only when this process has loaded them (Bun's
  *     `require.cache` lists static and dynamic imports alike). A module
  *     nothing has imported yet loads fresh on first use anyway;
+ *   - directories never do: the server reads files, and every file
+ *     change inside a directory arrives as its own event. Watchers also
+ *     report a bare directory (an mtime touch, e.g. right after a project
+ *     is copied and first booted), which used to restart for nothing;
  *   - anything else (`.env`, `package.json`, `tsconfig.json`, …) still
  *     does, since it is read once at startup. */
 
@@ -22,6 +26,14 @@ const realPath = (path: string) => {
 	}
 };
 
+const isDirectory = (path: string) => {
+	try {
+		return statSync(path).isDirectory();
+	} catch {
+		return false;
+	}
+};
+
 const isLoadedByThisProcess = (path: string) =>
 	path in require.cache || realPath(path) in require.cache;
 
@@ -32,5 +44,5 @@ export const changeNeedsRestart = (
 	if (DOCUMENT_FILE.test(path) || isTestSourcePath(path)) return false;
 	if (MODULE_FILE.test(path)) return isLoaded(path);
 
-	return true;
+	return !isDirectory(path);
 };

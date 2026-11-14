@@ -1,6 +1,26 @@
 import { isProductionRuntime } from '../utils/runtimeMode';
 import { getDevPageWarmer, recordMissingAsset } from './requestContext';
 
+const DOUBLED_RSC_SUFFIX = 'RSCRSC';
+const warnedDoubledRscKeys = new Set<string>();
+
+/* A React Server Components page whose file name ends in RSC (HomeRSC.tsx)
+ * used to get the key `HomeRSCRSC`; it is now `HomeRSC`, and the old key is
+ * kept as a deprecated alias pointing at the same bundle. */
+const warnDoubledRscKey = (
+	source: Record<string, string>,
+	name: string,
+	assetPath: string
+) => {
+	if (!name.endsWith(DOUBLED_RSC_SUFFIX)) return;
+	const current = name.slice(0, -'RSC'.length);
+	if (source[current] !== assetPath || warnedDoubledRscKeys.has(name)) return;
+	warnedDoubledRscKeys.add(name);
+	console.warn(
+		`[asset] key "${name}" is deprecated: React Server Components pages whose file name ends in RSC no longer get the suffix twice. Use asset(manifest, '${current}').`
+	);
+};
+
 export const asset = (source: Record<string, string>, name: string) => {
 	const assetPath = source[name];
 
@@ -27,6 +47,8 @@ export const asset = (source: Record<string, string>, name: string) => {
 
 		return '';
 	}
+
+	if (!isProductionRuntime()) warnDoubledRscKey(source, name, assetPath);
 
 	return assetPath;
 };

@@ -7,11 +7,18 @@ import { lowerSvelteAwaitSlotSyntax } from '../svelte/lowerAwaitSlotSyntax';
 import { createSvelteStylePreprocessor } from '../build/stylePreprocessor';
 import { LAZY_SOURCE_EXPORT } from '../svelte/router/lazyModule';
 import { isDevelopmentRuntime } from '../utils/runtimeMode';
+import { createIslandGenerationGuard } from './islandServerGeneration';
 
 const serverCacheRoot = join(process.cwd(), '.absolutejs', 'islands', 'svelte');
 
 const compiledModuleCache = new Map<string, string>();
 const originalSourcePathCache = new Map<string, string>();
+// Dev: an island edit moves the generation; compile again into new files
+// so Bun imports the edit instead of its cached module.
+const syncIslandGeneration = createIslandGenerationGuard(() => {
+	compiledModuleCache.clear();
+	originalSourcePathCache.clear();
+});
 
 const transpiler = new Bun.Transpiler({
 	loader: 'ts',
@@ -141,7 +148,13 @@ const getCachedModulePath = (sourcePath: string) => {
 		? sourcePath.replace(/[:\\/]/g, '_')
 		: relativeSourcePath;
 
-	return join(serverCacheRoot, `${normalizedSourcePath}.server.js`);
+	const generation = syncIslandGeneration();
+	const generationSuffix = generation > 0 ? `.g${generation}` : '';
+
+	return join(
+		serverCacheRoot,
+		`${normalizedSourcePath}${generationSuffix}.server.js`
+	);
 };
 
 const resolveSvelteImport = async (spec: string, from: string) => {
@@ -186,6 +199,7 @@ const writeIfChanged = async (path: string, content: string) => {
 };
 
 export const compileSvelteServerModule = async (sourcePath: string) => {
+	syncIslandGeneration();
 	const cachedModulePath = compiledModuleCache.get(sourcePath);
 	if (cachedModulePath) {
 		return cachedModulePath;

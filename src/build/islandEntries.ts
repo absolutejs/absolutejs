@@ -1,5 +1,6 @@
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, extname, join, relative, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type TS from 'typescript';
 import { ts } from '../utils/lazyTypescript';
 import type { IslandFramework, IslandRegistryInput } from '../../types/island';
@@ -78,10 +79,36 @@ const isIdentifier = (value: string) =>
 
 const resolveIslandSourcePath = (registryPath: string, sourcePath: string) => {
 	if (sourcePath.startsWith('file://')) {
-		return new URL(sourcePath).pathname;
+		// `URL.pathname` keeps percent-escapes (`Local%20Documents`).
+		return fileURLToPath(sourcePath);
 	}
 
 	return resolve(dirname(registryPath), sourcePath);
+};
+
+const isExistingFile = (path: string) => {
+	try {
+		return statSync(path).isFile();
+	} catch {
+		return false;
+	}
+};
+
+/** The file an island registry entry's source points at. Registries import
+ *  components the way any module does (`./ReactCounter`, no extension), so
+ *  the joined path is often not a file; resolve it like the bundler does.
+ *  The dev watcher compares edited files against this path. */
+export const resolveIslandSourceFile = (
+	registryPath: string,
+	sourcePath: string
+) => {
+	const joinedPath = resolveIslandSourcePath(registryPath, sourcePath);
+	if (isExistingFile(joinedPath)) return joinedPath;
+	try {
+		return Bun.resolveSync(joinedPath, dirname(registryPath));
+	} catch {
+		return joinedPath;
+	}
 };
 
 const getObjectPropertyName = (name: TS.PropertyName) => {

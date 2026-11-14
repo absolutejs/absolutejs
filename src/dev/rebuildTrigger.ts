@@ -17,12 +17,17 @@ import { build } from '../core/build';
 import type { BuildConfig, DevPageEntry } from '../../types/build';
 import { updateLazyPageRegistry } from './lazyPages';
 import { scanEntryPoints } from '../build/scanEntryPoints';
-import { loadIslandRegistryBuildInfo } from '../build/islandEntries';
 import {
-	getPagesUsingIslandSource,
+	loadIslandRegistryBuildInfo,
+	resolveIslandSourceFile
+} from '../build/islandEntries';
+import {
+	getCurrentPageIslandMetadata,
 	loadPageIslandMetadata,
 	setCurrentPageIslandMetadata
 } from '../islands/pageMetadata';
+import { getIslandManifestKey } from '../core/islandManifest';
+import { bumpIslandServerGeneration } from '../core/islandServerGeneration';
 import {
 	logCssUpdate,
 	logHmrUpdate,
@@ -778,6 +783,12 @@ export const queueFileChange = async (
 	if (!hasFileChanged(filePath, currentHash, state.fileHashes)) {
 		return;
 	}
+	// One save usually arrives as several watcher events. Files outside every
+	// framework are handled right here (no debounced rebuild records their
+	// hash), so claim this content before the first await: otherwise each
+	// event passes the check above and logs "hmr update" for the same save.
+	if (framework === 'unknown')
+		state.fileHashes.set(normalizePath(filePath), currentHash);
 
 	// `public/` and `assets/` directory edits: copy the file into
 	// `buildDir`, refresh the asset store with the new bytes, and
@@ -4053,13 +4064,14 @@ const resolveIslandDefinitionSource = (
 		return;
 	}
 
-	const sourcePath = buildReference.source.startsWith('file://')
-		? new URL(buildReference.source).pathname
-		: resolvePath(
-				dirname(buildInfo.resolvedRegistryPath),
+	islandFiles.add(
+		resolvePath(
+			resolveIslandSourceFile(
+				buildInfo.resolvedRegistryPath,
 				buildReference.source
-			);
-	islandFiles.add(resolvePath(sourcePath));
+			)
+		)
+	);
 };
 
 const resolveIslandSourceFiles = async (config: BuildConfig) => {
@@ -4092,30 +4104,70 @@ const didStaticPagesNeedIslandRefresh = async (
 	return filesToRebuild.some((file) => islandFiles.has(resolvePath(file)));
 };
 
-const handleIslandSourceReload = async (
+/* The registry entries whose component file is in this batch. A batch holds
+ * the edited file plus everything that imports it, so an edit to a helper an
+ * island imports lists that island here too. */
+const collectChangedIslands = async (
+	config: BuildConfig,
+	filesToRebuild: string[]
+) => {
+	const registryPath = config.islands?.registry;
+	if (!registryPath) return [];
+	const buildInfo = await loadIslandRegistryBuildInfo(registryPath);
+	const changedFiles = new Set(
+		filesToRebuild.map((file) => resolvePath(file))
+	);
+
+	return buildInfo.definitions.filter((definition) => {
+		const source = definition.buildReference?.source;
+		if (!source) return false;
+
+		return changedFiles.has(
+			resolvePath(
+				resolveIslandSourceFile(buildInfo.resolvedRegistryPath, source)
+			)
+		);
+	});
+};
+
+/* The files of an island batch that also reach a page some other way than
+ * through the island registry (an island component a page imports directly,
+ * or the page itself). Only those need their framework's fast path; for the
+ * rest the island update is the whole story, and e.g. the Vue fast path
+ * fails on a component outside the Vue directory. */
+const filterFilesReachingPages = async (
 	state: HMRState,
 	config: BuildConfig,
-	filesToRebuild: string[],
-	manifest: Record<string, string>,
-	serverDuration: number
+	files: string[]
 ) => {
-	const shouldReload = await didStaticPagesNeedIslandRefresh(
-		config,
-		filesToRebuild
-	);
-	if (!shouldReload) {
-		return false;
-	}
+	const islandFiles = await resolveIslandSourceFiles(config);
 
-	setCurrentPageIslandMetadata(await loadPageIslandMetadata(config));
-	const affectedPages = filesToRebuild.flatMap((file) =>
-		getPagesUsingIslandSource(file)
-	);
-	// Registry membership alone does not mean a static page renders this
-	// island. The component may instead be imported normally by its framework
-	// page; in that case the post-build surgical path below is sufficient and
-	// no browser should receive a full reload.
-	if (affectedPages.length === 0) return true;
+	return files.filter((file) => {
+		const resolvedFile = resolvePath(file);
+		const dependents = getAffectedFiles(
+			state.dependencyGraph,
+			resolvedFile
+		).filter((dependent) => dependent !== resolvedFile);
+		if (dependents.length === 0) return !islandFiles.has(resolvedFile);
+
+		return dependents.some((dependent) => !islandFiles.has(dependent));
+	});
+};
+
+const isRegistryEdit = (state: HMRState, config: BuildConfig) => {
+	const registryPath = config.islands?.registry;
+	if (!registryPath) return false;
+
+	return state.lastUserEditedFiles?.has(resolvePath(registryPath)) === true;
+};
+
+const broadcastIslandFullReload = (
+	state: HMRState,
+	affectedPages: string[],
+	manifest: Record<string, string>,
+	serverDuration: number,
+	sourceFile: string | undefined
+) => {
 	const affectedFrameworks = [
 		...new Set(
 			affectedPages
@@ -4131,9 +4183,77 @@ const handleIslandSourceReload = async (
 			framework: 'islands',
 			manifest,
 			serverDuration,
-			sourceFile: filesToRebuild[0]
+			sourceFile
 		},
 		type: 'full-reload'
+	});
+};
+
+const handleIslandSourceReload = async (
+	state: HMRState,
+	config: BuildConfig,
+	filesToRebuild: string[],
+	manifest: Record<string, string>,
+	serverDuration: number
+) => {
+	const shouldReload = await didStaticPagesNeedIslandRefresh(
+		config,
+		filesToRebuild
+	);
+	if (!shouldReload) {
+		return false;
+	}
+
+	// Server renders of islands compile and cache each component once; drop
+	// those copies so the next request renders the edited component and
+	// matches the rebuilt client bundle.
+	bumpIslandServerGeneration();
+	setCurrentPageIslandMetadata(await loadPageIslandMetadata(config));
+	const [sourceFile] = filesToRebuild;
+
+	// An edited registry can add, remove or rename islands: reload the pages
+	// that render any island.
+	if (isRegistryEdit(state, config)) {
+		const pagesWithIslands = [...getCurrentPageIslandMetadata().values()]
+			.filter((metadata) => metadata.islands.length > 0)
+			.map((metadata) => metadata.pagePath);
+		if (pagesWithIslands.length > 0)
+			broadcastIslandFullReload(
+				state,
+				pagesWithIslands,
+				manifest,
+				serverDuration,
+				sourceFile
+			);
+
+		return true;
+	}
+
+	// Every open page re-imports the rebuilt bundle of each changed island it
+	// renders and re-mounts that island in place (src/client/islandRuntime.ts).
+	// Pages that render none of them ignore the message; a page that imports
+	// the component directly is updated by its framework's fast path, which
+	// runs after this.
+	const changedIslands = await collectChangedIslands(config, filesToRebuild);
+	const islands = changedIslands.flatMap(({ component, framework }) => {
+		const modulePath = manifest[getIslandManifestKey(framework, component)];
+
+		return modulePath ? [{ component, framework, modulePath }] : [];
+	});
+	if (islands.length === 0) return true;
+
+	logHmrUpdate(
+		relative(process.cwd(), sourceFile ?? ''),
+		'islands',
+		serverDuration
+	);
+	broadcastToClients(state, {
+		data: {
+			islands,
+			serverDuration,
+			sourceFile
+		},
+		type: 'island-update'
 	});
 
 	return true;
@@ -5319,6 +5439,35 @@ export type TriggerRebuildOptions = {
 	onDemandPage?: DevPageEntry;
 };
 
+/* A full build maps each React page's hydration index to its bundled copy.
+ * Boot and on-demand page builds point it at the module server instead
+ * (`/@src/…/_src_indexes/`), the module graph React Fast Refresh patches.
+ * Keep it there: a page loaded from the bundle after a rebuild has its own
+ * copy of every module, so later edits re-render the bundle's copies against
+ * the module server's (islands remount without hydrating) or miss them. */
+const keepReactIndexesOnModuleServer = async (
+	state: HMRState,
+	manifest: Record<string, string>
+) => {
+	const reactIndexes = Object.fromEntries(
+		Object.entries(manifest).filter(
+			([key, value]) =>
+				key.endsWith('Index') &&
+				value.includes('/indexes/') &&
+				value.includes('/react/')
+		)
+	);
+	if (Object.keys(reactIndexes).length === 0) return;
+	const { patchManifestIndexes } = await import('../core/prepare');
+	const { SRC_URL_PREFIX } = await import('./moduleServer');
+	patchManifestIndexes(
+		reactIndexes,
+		resolvePath(state.resolvedPaths.buildDir, '_src_indexes'),
+		SRC_URL_PREFIX
+	);
+	Object.assign(manifest, reactIndexes);
+};
+
 const performFullRebuild = async (
 	state: HMRState,
 	config: BuildConfig,
@@ -5343,13 +5492,21 @@ const performFullRebuild = async (
 	const hasManifest = Object.keys(state.manifest).length > 0;
 	const files = filesToRebuild ?? [];
 	const onDemandPage = options?.onDemandPage;
-	let allHandled = !onDemandPage && files.length > 0 && hasManifest;
 	const hasIslandSourceChanges =
 		files.length > 0
 			? await didStaticPagesNeedIslandRefresh(config, files)
 			: false;
+	// An island source (or the registry) changed: the island client bundles
+	// are built only by the full build, so the framework fast paths cannot
+	// handle the batch. Leaving `allHandled` true here skipped the build
+	// entirely and kept serving the old island bundle.
+	let allHandled =
+		!onDemandPage &&
+		files.length > 0 &&
+		hasManifest &&
+		!hasIslandSourceChanges;
 
-	if (allHandled && !hasIslandSourceChanges) {
+	if (allHandled) {
 		allHandled = await runFrameworkFastPaths(
 			state,
 			config,
@@ -5405,13 +5562,13 @@ const performFullRebuild = async (
 			throwOnError: true
 		}
 	};
-
 	const buildResult = await build(buildConfig);
 
 	if (!buildResult?.manifest) {
 		throw new Error('Build failed - no manifest generated');
 	}
 	const { manifest } = buildResult;
+	await keepReactIndexesOnModuleServer(state, manifest);
 	// Every build re-scans the page directories; keep the on-demand key →
 	// source registry current so a page added since boot resolves.
 	if (state.lazyPages && buildResult.pageEntries) {
@@ -5578,14 +5735,20 @@ const performFullRebuild = async (
 		// surgical module URL. Static island consumers receive the targeted
 		// reload above, while (for example) an active React page remounts the
 		// now-stable changed module without navigating through transient SSR.
-		await runFrameworkFastPaths(
+		const pageFiles = await filterFilesReachingPages(
 			state,
 			config,
-			affectedFrameworks,
-			filesToRebuild ?? [],
-			startTime,
-			onRebuildComplete
+			filesToRebuild ?? []
 		);
+		if (pageFiles.length > 0)
+			await runFrameworkFastPaths(
+				state,
+				config,
+				affectedFrameworks,
+				pageFiles,
+				startTime,
+				onRebuildComplete
+			);
 		onRebuildComplete({ hmrState: state, manifest });
 
 		return manifest;

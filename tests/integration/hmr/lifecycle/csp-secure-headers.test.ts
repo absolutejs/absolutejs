@@ -18,6 +18,22 @@ const sveltePage = resolve(
 	PROJECT_ROOT,
 	'example/svelte/pages/SvelteExample.svelte'
 );
+const svelteCounter = resolve(
+	PROJECT_ROOT,
+	'example/svelte/components/Counter.svelte'
+);
+const vueButton = resolve(
+	PROJECT_ROOT,
+	'example/vue/components/CountButton.vue'
+);
+const angularTemplate = resolve(
+	PROJECT_ROOT,
+	'example/angular/templates/app.component.html'
+);
+const angularCounterStyle = resolve(
+	PROJECT_ROOT,
+	'example/styles/counter.component.css'
+);
 
 const ROUTES = ['/html', '/htmx', '/react', '/svelte', '/vue', '/angular'];
 
@@ -163,4 +179,83 @@ describe('secureHeaders() in dev', () => {
 			)
 		).toEqual([]);
 	}, 180_000);
+
+	/* Hot updates that add <style> elements in the browser (Angular's
+	 * renderer, Vue SFC and Svelte component styles) give them the page's
+	 * nonce. Angular's used to have none, so every template or style edit
+	 * logged a style-src violation and the new styles were dropped. */
+	test('Angular, Vue and Svelte style and template hot updates carry the nonce', async () => {
+		installSecureHeaders();
+		server = await startDevServer();
+		client = await connectHMR(server.port);
+		await client.waitFor('manifest');
+		await client.waitFor('connected');
+		const { baseUrl } = server;
+
+		session = await openReadyPage(`${baseUrl}/angular`, async (page) => {
+			await watchViolations(page);
+		});
+		const { page } = session;
+		const openRoute = async (route: string) => {
+			await page.goto(`${baseUrl}${route}`, { waitUntil: 'load' });
+			await page.waitForTimeout(1_500);
+			expect(await readViolations(page)).toEqual([]);
+		};
+		// Each wait ends when the update shows up or a violation is
+		// reported (a blocked <style> never applies).
+		const violatedOr = (applied: string) =>
+			`(() => { const v = window.__cspViolations; return (Array.isArray(v) && v.length > 0) || (${applied}); })()`;
+		const buttonSpacing = (value: string) =>
+			violatedOr(
+				`getComputedStyle(document.querySelector('button') ?? document.body).letterSpacing === '${value}'`
+			);
+
+		await openRoute('/angular');
+		mutateFile(angularTemplate, (source) =>
+			source.replace(
+				'<h1>AbsoluteJS + Angular</h1>',
+				'<h1>ANGULAR_CSP_HMR</h1>'
+			)
+		);
+		await page.waitForFunction(
+			violatedOr(`document.body.innerText.includes('ANGULAR_CSP_HMR')`),
+			undefined,
+			{ timeout: 30_000 }
+		);
+		expect(await readViolations(page)).toEqual([]);
+		expect(await page.innerText('body')).toContain('ANGULAR_CSP_HMR');
+
+		mutateFile(
+			angularCounterStyle,
+			(source) => `${source}\nbutton {\n\tletter-spacing: 3px;\n}\n`
+		);
+		await page.waitForFunction(buttonSpacing('3px'), undefined, {
+			timeout: 30_000
+		});
+		expect(await readViolations(page)).toEqual([]);
+
+		await openRoute('/vue');
+		mutateFile(vueButton, (source) =>
+			source.replace(
+				'\ttransition: border-color 0.25s;\n}',
+				'\ttransition: border-color 0.25s;\n\tletter-spacing: 4px;\n}'
+			)
+		);
+		await page.waitForFunction(buttonSpacing('4px'), undefined, {
+			timeout: 30_000
+		});
+		expect(await readViolations(page)).toEqual([]);
+
+		await openRoute('/svelte');
+		mutateFile(svelteCounter, (source) =>
+			source.replace(
+				'<style>',
+				'<style>\n\tbutton {\n\t\tletter-spacing: 5px;\n\t}'
+			)
+		);
+		await page.waitForFunction(buttonSpacing('5px'), undefined, {
+			timeout: 30_000
+		});
+		expect(await readViolations(page)).toEqual([]);
+	}, 240_000);
 });

@@ -982,7 +982,10 @@ const compileSvelteComponent = (
 	if (compiled.css?.code) {
 		const cssPath = `${filePath}.css`;
 		svelteExternalCss.set(cssPath, compiled.css.code);
-		const cssUrl = srcUrl(relative(projectRoot, cssPath), projectRoot);
+		// The virtual file has no mtime for srcUrl() to version, so version
+		// it by content: a style edit must change the URL, or the browser
+		// reuses the old module and the new <style> is never injected.
+		const cssUrl = `${SRC_PREFIX}${encodeSrcPath(relative(projectRoot, cssPath))}?v=${Bun.hash(compiled.css.code).toString(BASE_36_RADIX)}`;
 		code = `import "${cssUrl}";\n${code}`;
 	}
 

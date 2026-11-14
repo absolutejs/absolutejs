@@ -66,6 +66,9 @@ export const server = new Elysia()
 			props: { greeting: 'Hello from a server component' }
 		})
 	)
+	.get('/about', () =>
+		handleReactServerPageRequest({ page: asset(manifest, 'AboutRSC') })
+	)
 	.get('/manifest', () => manifest)
 	.use(networking);
 `;
@@ -204,8 +207,52 @@ const checkInBrowser = async (port: number) => {
 	}
 };
 
+type AboutCheck = {
+	errors: string[];
+	linkHref: string | null;
+	streamSlot: string | null;
+	suspenseSlot: string | null;
+};
+
+/* The page that imports react/components from a server component: the
+ * slots stream in and Link (a client reference) hydrates without errors. */
+const checkAboutInBrowser = async (port: number) => {
+	const errors: string[] = [];
+	const session = await openPage(`http://localhost:${port}/about`, {
+		consoleLog: (message) => {
+			if (/error|refused|violat/i.test(message)) errors.push(message);
+		}
+	});
+	try {
+		session.page.on('pageerror', (error) => errors.push(error.message));
+		await session.page.waitForSelector('[data-testid="suspense-slot"]', {
+			timeout: 10_000
+		});
+		const result: AboutCheck = {
+			errors,
+			linkHref: await session.page
+				.getByTestId('home-link')
+				.getAttribute('href'),
+			streamSlot: await session.page
+				.getByTestId('stream-slot')
+				.textContent(),
+			suspenseSlot: await session.page
+				.getByTestId('suspense-slot')
+				.textContent()
+		};
+
+		return result;
+	} finally {
+		await session.close();
+	}
+};
+
 let root = '';
+let prodAboutCheck: AboutCheck | undefined;
 let prodHtml = '';
+let prodAboutHtml = '';
+let prodAboutStatus = 0;
+let prodManifest: Record<string, string> = {};
 let prodHeaders = new Headers();
 let prodClientJs = '';
 let prodServerBundleStatus = 0;
@@ -250,6 +297,10 @@ describe.skipIf(!flightPackage)('React Server Components (phase 1)', () => {
 			const manifest: Record<string, string> = await (
 				await fetch(`http://localhost:${PROD_PORT}/manifest`)
 			).json();
+			prodManifest = manifest;
+			const about = await fetch(`http://localhost:${PROD_PORT}/about`);
+			prodAboutStatus = about.status;
+			prodAboutHtml = await about.text();
 			const clientUrl = manifest.ReactServerClient ?? '';
 			const clientDir = join(root, 'dist', dirname(clientUrl));
 			const clientFiles = (await readdir(clientDir)).filter((name) =>
@@ -270,6 +321,7 @@ describe.skipIf(!flightPackage)('React Server Components (phase 1)', () => {
 				await fetch(`http://localhost:${PROD_PORT}${relativeBundle}`)
 			).status;
 			prodCheck = await checkInBrowser(PROD_PORT);
+			prodAboutCheck = await checkAboutInBrowser(PROD_PORT);
 		} finally {
 			await prod.stop();
 			prodLog = await prod.log();
@@ -330,6 +382,26 @@ describe.skipIf(!flightPackage)('React Server Components (phase 1)', () => {
 		expect(prodCheck?.slowNote).toBe('streamed after the shell');
 		expect(prodCheck?.errors).toEqual([]);
 		expect(prodLog).not.toContain('React Server Components error');
+	});
+
+	test('production: a page file ending in RSC gets one RSC suffix, the doubled key stays as an alias', () => {
+		expect(prodManifest.AboutRSC).toBeTruthy();
+		expect(prodManifest.AboutRSCRSC).toBe(prodManifest.AboutRSC);
+		expect(prodManifest.HomeRSC).toBeTruthy();
+		expect(prodManifest.HomeRSCRSC).toBeUndefined();
+	});
+
+	test('production: a server component imports react/components directly', () => {
+		expect(prodAboutStatus).toBe(200);
+		expect(prodAboutHtml).toContain('data-testid="about"');
+		expect(prodAboutHtml).toContain('href="/"');
+		expect(prodAboutHtml).toContain('stream slot ready');
+		expect(prodAboutHtml).toContain('suspense slot ready');
+		expect(prodLog).not.toContain('createContext is not a function');
+		expect(prodAboutCheck?.linkHref).toBe('/');
+		expect(prodAboutCheck?.streamSlot).toBe('stream slot ready');
+		expect(prodAboutCheck?.suspenseSlot).toBe('suspense slot ready');
+		expect(prodAboutCheck?.errors).toEqual([]);
 	});
 
 	test('dev: the page renders and hydrates under absolute dev', () => {

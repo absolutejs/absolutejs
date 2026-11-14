@@ -1,5 +1,8 @@
 import type { RuntimeIslandRenderProps } from '../../types/island';
-import { preserveIslandMarkup } from '../client/preserveIslandMarkup';
+import {
+	getStableInnerHtml,
+	preserveIslandMarkup
+} from '../client/preserveIslandMarkup';
 
 export const Island = (props: RuntimeIslandRenderProps) => {
 	const { attributes, innerHTML } = preserveIslandMarkup(props);
@@ -7,7 +10,7 @@ export const Island = (props: RuntimeIslandRenderProps) => {
 	return (
 		<div
 			{...attributes}
-			dangerouslySetInnerHTML={{ __html: innerHTML }}
+			dangerouslySetInnerHTML={getStableInnerHtml(innerHTML)}
 			suppressHydrationWarning
 		/>
 	);

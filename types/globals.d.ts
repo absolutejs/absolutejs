@@ -16,6 +16,10 @@ declare global {
 		| undefined;
 	var __absoluteReloadEntry:
 		((cause: string) => Promise<boolean>) | undefined;
+	/** Bumped by the dev rebuild after an island component changes; the
+	 *  island server renderers drop their compiled/resolved copies when it
+	 *  moves (src/core/islandServerGeneration.ts). */
+	var __absoluteIslandServerGeneration: number | undefined;
 	/* Server-side globals (Bun --hot reload state) */
 	var __hmrServerStartup: boolean | undefined;
 	var __hmrBuildDuration: number | undefined;
@@ -238,6 +242,17 @@ declare global {
 			string,
 			Array<{ attributes: Record<string, string>; innerHTML: string }>
 		>;
+		/** Dev only: re-mounts the islands on this page that render a
+		 *  rebuilt island bundle. Installed by the island runtime, called by
+		 *  the HMR client; resolves false when an island could not be swapped
+		 *  in place (the client then reloads). */
+		__ABS_ISLAND_HMR__?: (
+			updates: Array<{
+				component: string;
+				framework: string;
+				modulePath: string;
+			}>
+		) => Promise<boolean>;
 	}
 
 	/**

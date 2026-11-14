@@ -1,8 +1,11 @@
 import { readFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { resolve } from 'node:path';
 import type { BuildConfig } from '../../types/build';
 import type { IslandFramework } from '../../types/island';
-import { loadIslandRegistryBuildInfo } from '../build/islandEntries';
+import {
+	loadIslandRegistryBuildInfo,
+	resolveIslandSourceFile
+} from '../build/islandEntries';
 import { scanEntryPoints } from '../build/scanEntryPoints';
 import {
 	extractIslandUsagesFromSource,
@@ -67,13 +70,11 @@ const buildIslandSourceLookup = async (config: BuildConfig) => {
 		const source = definition.buildReference?.source;
 		if (!source) continue;
 
-		const resolvedSource = source.startsWith('file://')
-			? new URL(source).pathname
-			: resolve(dirname(buildInfo.resolvedRegistryPath), source);
-
 		lookup.set(
 			`${definition.framework}:${definition.component}`,
-			resolve(resolvedSource)
+			resolve(
+				resolveIslandSourceFile(buildInfo.resolvedRegistryPath, source)
+			)
 		);
 	}
 

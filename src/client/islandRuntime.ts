@@ -233,12 +233,118 @@ const collectIslandElements = (node: Node) => {
 	return islands;
 };
 
+type IslandHotUpdate = {
+	component: string;
+	framework: string;
+	modulePath: string;
+};
+
+const remountByFramework = async (
+	framework: string,
+	component: unknown,
+	element: IslandElement,
+	props: unknown
+) => {
+	if (framework === 'react') {
+		const { remountReactIsland, isReactComponent } =
+			await import('./hydrators/react');
+		if (!isReactComponent(component)) return false;
+		remountReactIsland(component, element, props);
+
+		return true;
+	}
+	if (framework === 'svelte') {
+		const { remountSvelteIsland, isSvelteComponent } =
+			await import('./hydrators/svelte');
+		if (!isSvelteComponent(component)) return false;
+		await remountSvelteIsland(component, element, props);
+
+		return true;
+	}
+	if (framework === 'vue') {
+		const { remountVueIsland, isVueComponent } =
+			await import('./hydrators/vue');
+		if (!isVueComponent(component)) return false;
+		remountVueIsland(component, element, props);
+
+		return true;
+	}
+
+	// Angular islands are bootstrapped applications; reload instead.
+	return false;
+};
+
+const findIslandElements = (framework: string, component: string) =>
+	Array.from(
+		document.querySelectorAll<IslandElement>('[data-island="true"]')
+	).filter(
+		(element) =>
+			element.dataset.framework === framework &&
+			element.dataset.component === component
+	);
+
+const remountIslandElement = async (
+	update: IslandHotUpdate,
+	component: unknown,
+	element: IslandElement
+) => {
+	// Not hydrated yet (`visible`/`idle`/`none`): its first hydration
+	// happens later; nothing on screen runs the old code.
+	if (element.dataset.hydrated !== 'true') return true;
+	try {
+		return await remountByFramework(
+			update.framework,
+			component,
+			element,
+			parseIslandProps(element.getAttribute('data-props'))
+		);
+	} catch (error) {
+		console.error(
+			`[islands] Failed to update ${update.framework}:${update.component}`,
+			error
+		);
+
+		return false;
+	}
+};
+
+const applyIslandHotUpdate = async (update: IslandHotUpdate) => {
+	const elements = findIslandElements(update.framework, update.component);
+	if (elements.length === 0) return true;
+
+	const loadedModule: { default?: unknown } = await import(update.modulePath);
+	const results = await Promise.all(
+		elements.map((element) =>
+			remountIslandElement(update, loadedModule.default, element)
+		)
+	);
+
+	return results.every(Boolean);
+};
+
+/* Dev HMR entry point (see Window['__ABS_ISLAND_HMR__']): re-mount every
+ * island on this page that renders one of the rebuilt components. */
+const applyIslandHotUpdates = async (updates: IslandHotUpdate[]) => {
+	try {
+		const results = await Promise.all(updates.map(applyIslandHotUpdate));
+
+		return results.every(Boolean);
+	} catch (error) {
+		console.error('[islands] Failed to load an updated island', error);
+
+		return false;
+	}
+};
+
 export const startIslands = ({
 	registry,
 	resolveComponent,
 	root = document.documentElement
 }: StartIslandsOptions) => {
 	const targetRoot = root instanceof Document ? root.documentElement : root;
+	if (typeof window !== 'undefined') {
+		window.__ABS_ISLAND_HMR__ = applyIslandHotUpdates;
+	}
 
 	const observer =
 		typeof IntersectionObserver === 'undefined'

@@ -2495,7 +2495,7 @@ import '@angular/compiler';
 import { bootstrapApplication } from '@angular/platform-browser';
 import { provideClientHydration } from '@angular/platform-browser';
 import { withHttpTransferCacheOptions } from '@angular/platform-browser';
-import { ${changeDetectionImport}, REQUEST_CONTEXT } from '@angular/core';
+import { ${changeDetectionImport}, CSP_NONCE, REQUEST_CONTEXT } from '@angular/core';
 import { APP_BASE_HREF as __abs_APP_BASE_HREF } from '@angular/common';
 import { prepareBrowserTranslationHydration } from '@absolutejs/absolute/client';
 import * as pageModule from '${normalizedImportPath}';
@@ -2512,6 +2512,12 @@ var pageHasRawStreamingSlots = Boolean(document.querySelector('[data-absolute-ra
 var pageHasStreamingSlots = Boolean(document.querySelector('[data-absolute-slot="true"]'));
 var isClientRender = window.__ABSOLUTE_PAGE_RENDER_MODE__ === 'client';
 var contextProviders = [{ provide: REQUEST_CONTEXT, useValue: requestContext }];
+// Under secureHeaders() the policy only allows <style> elements that carry
+// the page's nonce. Angular adds one for every component it renders or
+// hot-updates in the browser, so hand it the nonce the server put on the
+// page (browsers hide the attribute's value; the property keeps it).
+var cspNonce = (document.querySelector('script[nonce], style[nonce]') || {}).nonce;
+if (cspNonce) contextProviders.push({ provide: CSP_NONCE, useValue: cspNonce });
 // Page-level providers are injected directly into the page module's
 // server output by \`compileAngular\`'s providers-injection step
 // (\`...appProviders, provideRouter(routes), { APP_BASE_HREF }\`),
@@ -2616,7 +2622,7 @@ ${zoneImport}import '@angular/compiler';
 import { bootstrapApplication } from '@angular/platform-browser';
 import { provideClientHydration } from '@angular/platform-browser';
 import { withHttpTransferCacheOptions } from '@angular/platform-browser';
-import { enableProdMode, ${changeDetectionImport}, REQUEST_CONTEXT } from '@angular/core';
+import { enableProdMode, ${changeDetectionImport}, CSP_NONCE, REQUEST_CONTEXT } from '@angular/core';
 import { APP_BASE_HREF as __abs_APP_BASE_HREF } from '@angular/common';
 import { prepareBrowserTranslationHydration } from '@absolutejs/absolute/client';
 import * as pageModule from '${normalizedImportPath}';
@@ -2633,6 +2639,12 @@ var pageHasRawStreamingSlots = Boolean(document.querySelector('[data-absolute-ra
 var pageHasStreamingSlots = Boolean(document.querySelector('[data-absolute-slot="true"]'));
 var isClientRender = window.__ABSOLUTE_PAGE_RENDER_MODE__ === 'client';
 var contextProviders = [{ provide: REQUEST_CONTEXT, useValue: requestContext }];
+// Under secureHeaders() the policy only allows <style> elements that carry
+// the page's nonce. Angular adds one for every component it renders or
+// hot-updates in the browser, so hand it the nonce the server put on the
+// page (browsers hide the attribute's value; the property keeps it).
+var cspNonce = (document.querySelector('script[nonce], style[nonce]') || {}).nonce;
+if (cspNonce) contextProviders.push({ provide: CSP_NONCE, useValue: cspNonce });
 // Page-level providers are injected directly into the page module's
 // server output by \`compileAngular\`'s providers-injection step
 // (\`...appProviders, provideRouter(routes), { APP_BASE_HREF }\`),

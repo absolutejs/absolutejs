@@ -96,7 +96,10 @@ current pipeline byte for byte.
    across builds, no file-system layout in the page.
 5. **Manifest/asset() model.** `asset(manifest, '<Page>RSC')` → absolute
    path of the page's react-server bundle (server-only, under
-   `react/server/rsc/`). Shared keys: `ReactServerClient` (web path of the
+   `react/server/rsc/`). A page file whose name already ends in `RSC` is not
+   suffixed twice (`pages/HomeRSC.tsx` → `HomeRSC`); its old doubled key
+   (`HomeRSCRSC`) stays as a deprecated alias that warns in dev, and when
+   `pages/Home.tsx` also exists, `Home.tsx` keeps `HomeRSC`. Shared keys: `ReactServerClient` (web path of the
    hydration entry, so the dev asset store loads it) and
    `ReactServerRenderer` (disk path of the SSR bundle, listed so dev cleanup
    keeps it). A `react-server-runtime.json` next to the page bundles ties a

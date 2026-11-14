@@ -2,7 +2,8 @@
 
 /** Manifest key of the browser entry that hydrates every RSC page. */
 export const REACT_SERVER_CLIENT_MANIFEST_KEY = 'ReactServerClient';
-/** `asset(manifest, '<Page>RSC')` names a page's react-server bundle. */
+/** `asset(manifest, '<Page>RSC')` names a page's react-server bundle. A
+ *  page whose name already ends in RSC is not suffixed twice. */
 export const REACT_SERVER_PAGE_MANIFEST_SUFFIX = 'RSC';
 /** Global array the inline Flight payload scripts push into. */
 export const REACT_SERVER_PAYLOAD_GLOBAL = '__absoluteReactServerPayload';

@@ -1,6 +1,7 @@
 import { getAngularDeps } from './angularDeps';
 import { withSuppressedAngularDevLogs } from './ssrRender';
 import { getSsrContextId } from '../utils/registerClientScript';
+import { readPageNonce } from '../dev/client/cspNonce';
 
 const angularIslandSelector = 'abs-angular-island';
 
@@ -47,11 +48,17 @@ const getClientAngularComponentSelector = (
 };
 
 const createAngularIslandApp = async () => {
-	const { EnvironmentInjector, provideZonelessChangeDetection } =
+	const { CSP_NONCE, EnvironmentInjector, provideZonelessChangeDetection } =
 		await import('@angular/core');
 	const { createApplication } = await import('@angular/platform-browser');
+	// Under secureHeaders(), the <style> elements Angular adds for island
+	// components need the page's nonce.
+	const nonce = readPageNonce();
 	const app = await createApplication({
-		providers: [provideZonelessChangeDetection()]
+		providers: [
+			provideZonelessChangeDetection(),
+			...(nonce ? [{ provide: CSP_NONCE, useValue: nonce }] : [])
+		]
 	});
 	const environmentInjector = app.injector.get(EnvironmentInjector);
 

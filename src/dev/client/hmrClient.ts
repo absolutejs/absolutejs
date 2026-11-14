@@ -27,6 +27,7 @@ import {
 	dispatchAngularComponentUpdate
 } from './handlers/angularHmrShim';
 import { installAngularRemountGlobal } from './handlers/angularRemountWiring';
+import { handleIslandUpdate } from './handlers/islands';
 import { handleReactUpdate } from './handlers/react';
 import { handleHTMLUpdate, handleScriptUpdate } from './handlers/html';
 import { handleHTMXUpdate } from './handlers/htmx';
@@ -203,6 +204,7 @@ const hmrUpdateTypes = new Set([
 	'htmx-update',
 	'vue-update',
 	'svelte-update',
+	'island-update',
 	'style-update',
 	'module-update',
 	'rebuild-start'
@@ -222,6 +224,7 @@ type HMRMessage = {
 		hasCSSChanges?: boolean;
 		hasComponentChanges?: boolean;
 		html?: string;
+		islands?: unknown;
 		line?: number;
 		lineText?: string;
 		manifest?: Record<string, string>;
@@ -278,6 +281,9 @@ const handleHMRMessage = (message: HMRMessage) => {
 			break;
 		case 'react-update':
 			handleReactUpdate(message);
+			break;
+		case 'island-update':
+			handleIslandUpdate(message);
 			break;
 		case 'script-update':
 			hideErrorOverlay();

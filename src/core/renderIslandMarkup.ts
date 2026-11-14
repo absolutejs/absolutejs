@@ -17,10 +17,16 @@ import {
 	serializeIslandAttributes
 } from './islandMarkupAttributes';
 import { getIslandBuildReference, getIslandComponent } from './islands';
+import { createIslandGenerationGuard } from './islandServerGeneration';
 
 let islandSequence = 0;
 const resolvedServerComponentCache = new Map<unknown, Promise<unknown>>();
 const resolvedServerBuildComponentCache = new Map<string, Promise<unknown>>();
+// Dev: an island edit moves the generation; resolve components again.
+const syncIslandGeneration = createIslandGenerationGuard(() => {
+	resolvedServerComponentCache.clear();
+	resolvedServerBuildComponentCache.clear();
+});
 
 const nextIslandId = () => {
 	islandSequence += 1;
@@ -76,6 +82,7 @@ const loadAndCompileServerBuildComponent = async (
 };
 
 const loadServerBuildComponent = async (buildReferencePath: string) => {
+	syncIslandGeneration();
 	const cachedBuildComponent =
 		resolvedServerBuildComponentCache.get(buildReferencePath);
 	if (cachedBuildComponent) {
@@ -140,6 +147,7 @@ const resolveIslandComponent = async (component: unknown) => {
 };
 
 const resolveServerIslandComponent = async (component: unknown) => {
+	syncIslandGeneration();
 	const cachedResolvedComponent = resolvedServerComponentCache.get(component);
 	if (cachedResolvedComponent) {
 		return cachedResolvedComponent;

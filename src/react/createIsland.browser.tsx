@@ -3,7 +3,10 @@ import type {
 	IslandRegistryInput,
 	TypedIslandRenderProps
 } from '../../types/island';
-import { preserveIslandMarkup } from '../client/preserveIslandMarkup';
+import {
+	getStableInnerHtml,
+	preserveIslandMarkup
+} from '../client/preserveIslandMarkup';
 
 export const createTypedIsland = <T extends IslandRegistryInput>(
 	_registry: IslandRegistry<T>
@@ -14,7 +17,7 @@ export const createTypedIsland = <T extends IslandRegistryInput>(
 		return (
 			<div
 				{...attributes}
-				dangerouslySetInnerHTML={{ __html: innerHTML }}
+				dangerouslySetInnerHTML={getStableInnerHtml(innerHTML)}
 				suppressHydrationWarning
 			/>
 		);

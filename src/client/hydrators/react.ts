@@ -1,5 +1,9 @@
 import { type ComponentType, createElement, type ReactNode } from 'react';
-import { hydrateRoot, type Root as ReactRoot } from 'react-dom/client';
+import {
+	createRoot,
+	hydrateRoot,
+	type Root as ReactRoot
+} from 'react-dom/client';
 import { flushSync } from 'react-dom';
 import { prepareBrowserTranslationHydration } from '../browserTranslation';
 
@@ -80,3 +84,36 @@ export const isReactComponent = (
 	value: unknown
 ): value is ComponentType<Record<string, unknown>> =>
 	typeof value === 'function';
+
+/** Dev HMR: replace a hydrated island with a fresh root rendering the
+ *  rebuilt component. Its local state starts over; island stores keep
+ *  theirs. A new root rather than `render()` on the old one: the host page
+ *  may have re-rendered the marker since, re-attaching its own React props
+ *  to it, and the old root's tree would then be reconciled against nodes
+ *  React no longer considers its own. */
+export const remountReactIsland = (
+	component: ComponentType<Record<string, unknown>>,
+	element: HTMLElement,
+	props: unknown
+) => {
+	try {
+		reactIslandRoots.get(element)?.unmount();
+	} catch {
+		// The old tree's nodes may already be gone; the marker is cleared
+		// below either way.
+	}
+	element.replaceChildren();
+	detachFromHostReactRoot(element);
+	const root = createRoot(element);
+	// Commit now, while the marker carries none of the host root's
+	// expandos (see detachFromHostReactRoot): a host re-render in between
+	// re-attaches them and React rejects the marker as a container.
+	flushSync(() => {
+		root.render(
+			isPropsRecord(props)
+				? createElement(component, props)
+				: createElement(component)
+		);
+	});
+	reactIslandRoots.set(element, root);
+};

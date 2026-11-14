@@ -605,12 +605,16 @@ const createNotFoundPlugin = () =>
 
 /* A route handler that throws (before or around handleHTMLPageRequest /
  * handleHTMXPageRequest, which render their own errors) would otherwise get
- * Elysia's JSON 500. For page navigations and HTMX requests, render the
- * HTML/HTMX error.html instead (renderStaticRouteError). Only unexpected
+ * Elysia's JSON 500. Log it, whatever the request, and for page navigations
+ * and HTMX requests render the HTML/HTMX error.html instead
+ * (renderStaticRouteError). Only unexpected
  * throws qualify: Elysia's own errors (not found, validation, parse) and
  * thrown `status(...)` responses keep their status and handlers. Returns
  * undefined otherwise so later onError handlers still run. */
-const isUnexpectedRouteError = (error: unknown, statusCode: unknown) => {
+const isUnexpectedRouteError = (
+	error: unknown,
+	statusCode: unknown
+): error is Error => {
 	if (!(error instanceof Error)) return false;
 	if (error instanceof ElysiaError && !(error instanceof InternalServerError))
 		return false;
@@ -629,6 +633,9 @@ const isUnexpectedRouteError = (error: unknown, statusCode: unknown) => {
  * a backend HMR edit takes effect without a restart. */
 const createStaticErrorPlugin = (owner: () => unknown) => {
 	let startedApp: unknown;
+	/* Elysia can run global onError more than once for one failure (an error
+	 * rethrown from a later lifecycle hook); log each error object once. */
+	const loggedErrors = new WeakSet<Error>();
 
 	return new Elysia({ name: 'absolutejs-static-error' })
 		.onStart((app) => {
@@ -638,14 +645,22 @@ const createStaticErrorPlugin = (owner: () => unknown) => {
 			if (!isUnexpectedRouteError(error, set.status)) return undefined;
 			const app = globalThis.__absoluteLiveApp ?? startedApp;
 			if (hasForeignErrorHook(app, owner())) return undefined;
-			const response = await renderStaticRouteError(request, error);
-			if (!response) return undefined;
-			console.error(
-				`[SSR] ${request.method} ${new URL(request.url).pathname} threw:`,
-				error
-			);
+			/* With no app onError nothing else reports the throw, so log it
+			 * (server-side only, with its stack) for every request, not just
+			 * page and HTMX ones: a fetch or curl client (any Accept, JSON
+			 * included) still gets Elysia's generic JSON 500, and without
+			 * this line the failure left no trace. Framework page
+			 * handlers catch and log their own render errors and return a
+			 * response, so those never reach here and aren't logged twice. */
+			if (!loggedErrors.has(error)) {
+				loggedErrors.add(error);
+				console.error(
+					`[SSR] ${request.method} ${new URL(request.url).pathname} threw:`,
+					error
+				);
+			}
 
-			return response;
+			return (await renderStaticRouteError(request, error)) ?? undefined;
 		});
 };
 

@@ -60,6 +60,20 @@ const isMatchingIslandElement = (
 	);
 };
 
+/* Attributes the island runtime adds while hydrating. A host framework that
+ * re-creates the marker (a remount, an HMR update) must not copy them, or the
+ * runtime takes the new, unhydrated marker for a hydrated one and leaves it
+ * dead. */
+const RUNTIME_ISLAND_ATTRIBUTES = new Set(['data-error', 'data-hydrated']);
+
+const readMarkerAttributes = (element: Element) =>
+	Object.fromEntries(
+		element
+			.getAttributeNames()
+			.filter((name) => !RUNTIME_ISLAND_ATTRIBUTES.has(name))
+			.map((name) => [name, element.getAttribute(name) ?? ''])
+	);
+
 const snapshotIslandElement = (
 	element: HTMLElement,
 	snapshotMap: Map<string, PreservedIslandMarkup[]>
@@ -71,13 +85,8 @@ const snapshotIslandElement = (
 		element.dataset.props ?? '{}'
 	].join('::');
 	const existing = snapshotMap.get(signature) ?? [];
-	const attributes = Object.fromEntries(
-		element
-			.getAttributeNames()
-			.map((name) => [name, element.getAttribute(name) ?? ''])
-	);
 	existing.push({
-		attributes,
+		attributes: readMarkerAttributes(element),
 		innerHTML: element.innerHTML
 	});
 	snapshotMap.set(signature, existing);
@@ -138,11 +147,25 @@ export const preserveIslandMarkup = (props: RuntimeIslandRenderProps) => {
 	}
 
 	return {
-		attributes: Object.fromEntries(
-			liveCandidate
-				.getAttributeNames()
-				.map((name) => [name, liveCandidate.getAttribute(name) ?? ''])
-		),
+		attributes: readMarkerAttributes(liveCandidate),
 		innerHTML: liveCandidate.innerHTML
 	};
+};
+
+/* React 19 compares `dangerouslySetInnerHTML` by object identity and rewrites
+ * `innerHTML` whenever the object changes. A fresh `{ __html }` per render
+ * made every host re-render (state change, Fast Refresh) replace the island's
+ * hydrated DOM with its server markup, leaving a dead copy on screen. One
+ * object per markup string keeps the boundary untouched. */
+type InnerHtml = { __html: string };
+
+const innerHtmlObjects = new Map<string, InnerHtml>();
+
+export const getStableInnerHtml = (html: string) => {
+	const existing = innerHtmlObjects.get(html);
+	if (existing) return existing;
+	const created: InnerHtml = { __html: html };
+	innerHtmlObjects.set(html, created);
+
+	return created;
 };

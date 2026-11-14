@@ -269,6 +269,18 @@ const collectPositiveWatchRoots = (
 		}
 	}
 
+	// The island registry and the components it imports can live outside
+	// every framework directory (`src/islands/`). Watch its directory even
+	// when `autoWatchDirectories` is off; never the project root itself.
+	const registryPath = config.islands?.registry;
+	if (registryPath) {
+		const registryDir = normalizePath(dirname(resolve(cwd, registryPath)));
+		const isWatched = roots.some(
+			(root) => registryDir === root || registryDir.startsWith(`${root}/`)
+		);
+		if (!isWatched && registryDir !== normalizePath(cwd)) push(registryDir);
+	}
+
 	// User-supplied extra dirs from absolute.config.ts → dev.watchDirs.
 	const extraDirs = config.dev?.watchDirs ?? [];
 	for (const dir of extraDirs) push(dir);

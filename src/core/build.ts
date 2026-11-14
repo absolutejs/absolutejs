@@ -3661,9 +3661,28 @@ const buildUnlocked = async ({
 		}
 	};
 
+	// The HTML/HTMX convention copies (error.html, not-found.html,
+	// loading.html) in build/conventions/ still carry their source-relative
+	// stylesheet and script URLs, which 404 once served. Rewrite them to the
+	// hashed assets the same way as the pages.
+	const processStaticConventions = async () => {
+		const conventionDirs = (['html', 'htmx'] as const)
+			.filter((framework) => conventionsMap[framework])
+			.map((framework) => join(buildPath, 'conventions', framework))
+			.filter((dir) => existsSync(dir));
+		await Promise.all(
+			conventionDirs.map(async (dir) => {
+				await updateAssetPaths(manifest, dir);
+				if (fonts && fonts.injectHtml !== false)
+					await injectFontTags(dir, fontAssets(manifest));
+			})
+		);
+	};
+
 	await Promise.all([
 		tracePhase('postprocess/html-pages', processHtmlPages),
-		tracePhase('postprocess/htmx-pages', processHtmxPages)
+		tracePhase('postprocess/htmx-pages', processHtmxPages),
+		tracePhase('postprocess/static-conventions', processStaticConventions)
 	]);
 
 	if (manifestKeyCollisions.length > 0) {

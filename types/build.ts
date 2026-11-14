@@ -531,8 +531,9 @@ export type BaseBuildConfig = {
 	reactDirectory?: string;
 	/** Opt-in React Server Components. Pages are the files directly in
 	 *  `<dir>/pages`; serve one with `handleReactServerPageRequest({ page:
-	 *  asset(manifest, '<Page>RSC') })`. Requires react-server-dom-webpack
-	 *  at the version of react. */
+	 *  asset(manifest, '<Page>RSC') })`; a file whose name already ends in
+	 *  RSC keeps its name (pages/HomeRSC.tsx → `'HomeRSC'`). Requires
+	 *  react-server-dom-webpack at the version of react. */
 	reactServerComponentsDirectory?: string;
 	vueDirectory?: string;
 	angularDirectory?: string;
