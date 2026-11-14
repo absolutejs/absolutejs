@@ -38,6 +38,18 @@ const waitFor = async (path: string, expected: string) => {
 	);
 };
 
+/** Poll until `path` answers something other than `previous`. */
+const changedFrom = async (path: string, previous: string) => {
+	const deadline = Date.now() + UPDATE_DEADLINE_MS;
+	let last = previous;
+	while (Date.now() < deadline && last === previous) {
+		await Bun.sleep(POLL_MS);
+		last = await get(path);
+	}
+
+	return last;
+};
+
 const restarted = () =>
 	server.outputLines.some(
 		(line) => line.includes('[abs:restart]') || line.includes('restarting')
@@ -56,7 +68,7 @@ const ticksOver = async (ms: number) => {
 beforeAll(async () => {
 	createFile(
 		file('stores.ts'),
-		'export const stores = { boots: 0, cleanups: 0, setups: 0, ticks: 0 };\n'
+		"export const stores = { boots: 0, cleanups: 0, resource: 'open', setups: 0, ticks: 0 };\n"
 	);
 	createFile(
 		file('greeting.ts'),
@@ -108,6 +120,7 @@ beforeAll(async () => {
 			"\t\t.get('/hmr-backend/ticks', () => String(stores.ticks))",
 			"\t\t.get('/hmr-backend/lifecycle', () => `${stores.setups}:${stores.cleanups}`)",
 			"\t\t.get('/hmr-backend/boots', () => String(stores.boots))",
+			"\t\t.get('/hmr-backend/resource', () => stores.resource)",
 			"\t\t.get('/hmr-backend/pid', () => String(process.pid))",
 			"\t\t.get('/hmr-backend/route', () => 'ROUTE_ONE');",
 			''
@@ -121,7 +134,10 @@ beforeAll(async () => {
 			)
 			.replace(
 				'export const server: AnyElysia = new Elysia()',
-				'export const server: AnyElysia = new Elysia()\n\t.use(backendRoutes())'
+				// Like a real app's shutdown: the entry's onStop closes a
+				// resource an unchanged top-level statement created, which
+				// every version of the app shares.
+				"export const server: AnyElysia = new Elysia()\n\t.use(backendRoutes())\n\t.onStop(() => {\n\t\tstores.resource = 'closed';\n\t})"
 			)
 	);
 	server = await startDevServer();
@@ -164,15 +180,35 @@ describe('editing server code updates the running server in place', () => {
 	}, 30_000);
 
 	test('a plugin edit rebuilds the app, not the rest of the entry', async () => {
-		const before = (await get('lifecycle')).split(':').map(Number);
+		const before = await get('lifecycle');
 		mutateFile(file('plugin.ts'), (text) =>
 			text.replace("'ROUTE_ONE'", "'ROUTE_TWO'")
 		);
 		await waitFor('route', 'ROUTE_TWO');
 		expect(await get('boots')).toBe('1');
-		// The replaced app's cleanup ran and the new app's setup ran, once each.
 		await Bun.sleep(100);
-		const after = (await get('lifecycle')).split(':').map(Number);
+		// The app's lifecycle hooks are unchanged, so their effect carries
+		// across the swap like an unchanged statement's value: the replaced
+		// app is not shut down, and the resource every version shares
+		// stays open.
+		expect(await get('lifecycle')).toBe(before);
+		expect(await get('resource')).toBe('open');
+		expect(restarted()).toBe(false);
+	}, 30_000);
+
+	test('editing a lifecycle hook stops the replaced app and starts the new one', async () => {
+		const lifecycle = await get('lifecycle');
+		const before = lifecycle.split(':').map(Number);
+		mutateFile(file('plugin.ts'), (text) =>
+			text.replace(
+				'\t\t\tstores.setups += 1;',
+				'\t\t\tstores.setups = stores.setups + 1;'
+			)
+		);
+		const after = (await changedFrom('lifecycle', lifecycle))
+			.split(':')
+			.map(Number);
+		// The replaced app's cleanup ran and the new app's setup ran, once each.
 		expect(after[0]).toBe((before[0] ?? 0) + 1);
 		expect(after[1]).toBe((before[1] ?? 0) + 1);
 		expect(restarted()).toBe(false);
@@ -218,9 +254,18 @@ describe('editing server code updates the running server in place', () => {
 		const original = readFileSync(target, 'utf8');
 		const pid = await get('pid');
 		try {
+			const failuresBefore = server.outputLines.filter((line) =>
+				line.includes('failed to update')
+			).length;
 			rmSync(target);
 			await Bun.sleep(800);
 			expect(await get('greeting')).toBe('GREETING_THREE');
+			// A deleted file is not a failed update: nothing changed to apply.
+			expect(
+				server.outputLines.filter((line) =>
+					line.includes('failed to update')
+				).length
+			).toBe(failuresBefore);
 			expect(await get('pid')).toBe(pid);
 			writeFileSync(
 				target,

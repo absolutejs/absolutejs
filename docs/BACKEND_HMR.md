@@ -65,8 +65,15 @@ from a request, are not dependencies: the facade's forwarder is stable.
    is imported too — and again only the affected statements re-run. This
    repeats up the import graph.
 4. If the entry re-ran the statement that builds the app, `networking()` swaps
-   the live `Bun.serve` handler, runs the old app's Elysia `cleanup` hooks and
-   the new app's `setup` hooks.
+   the live `Bun.serve` handler. Lifecycle hooks are treated like statements:
+   when the new app's `onStart`/`onStop` hooks are the same code as the
+   replaced app's, what they started carries across the swap and neither
+   runs. An app's `onStop` is usually its shutdown -- closing the database
+   pool, the audit log, the queues that unchanged statements created and the
+   new app keeps -- so running it on every swap left the new app holding
+   closed resources. When any hook was added, removed or edited, the old
+   app's `cleanup` hooks and the new app's `setup` hooks run, once each, so a
+   start and its stop stay paired.
 
 A typical handler edit re-runs one module and nothing else.
 

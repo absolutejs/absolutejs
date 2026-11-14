@@ -101,6 +101,9 @@ const importNextVersion = async (path: string) => {
 	return Object.fromEntries(Object.entries(namespace));
 };
 
+const isMissingFile = (error: unknown) =>
+	error instanceof Error && 'code' in error && error.code === 'ENOENT';
+
 const display = (path: string) => relative(process.cwd(), path) || path;
 
 const SLOW_UPDATE_MS = 500;
@@ -201,7 +204,11 @@ const apply = async (
 	} catch (error) {
 		// Atomic saves, deletes and moves can remove a watched module before
 		// its queued event runs. Nothing has advanced yet; retain the serving
-		// version and let subsequent edits retry through the same queue.
+		// version and let subsequent edits retry through the same queue. A
+		// file that is gone is not a failed update -- there is nothing to
+		// apply, and its importers change through their own edits -- so it
+		// is not reported as one.
+		if (isMissingFile(error)) return { status: 'unchanged' };
 		reportFailure(path, error);
 
 		return { error, status: 'failed' };
