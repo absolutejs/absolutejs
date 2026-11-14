@@ -134,10 +134,16 @@ beforeAll(async () => {
 			)
 			.replace(
 				'export const server: AnyElysia = new Elysia()',
-				// Like a real app's shutdown: the entry's onStop closes a
-				// resource an unchanged top-level statement created, which
-				// every version of the app shares.
-				"export const server: AnyElysia = new Elysia()\n\t.use(backendRoutes())\n\t.onStop(() => {\n\t\tstores.resource = 'closed';\n\t})"
+				'export const server: AnyElysia = new Elysia()\n\t.use(backendRoutes())'
+			)
+			// Like a real app's shutdown, chained after networking as PAAS
+			// does: the entry's onStop closes a resource an unchanged
+			// top-level statement created, which every version of the app
+			// shares. networking() swaps apps while this chain is still
+			// being built, so the swap must not judge the app before it is.
+			.replace(
+				'\t.use(networking);',
+				"\t.use(networking)\n\t.onStop(() => {\n\t\tstores.resource = 'closed';\n\t});"
 			)
 	);
 	server = await startDevServer();

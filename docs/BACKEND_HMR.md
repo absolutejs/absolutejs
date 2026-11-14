@@ -73,7 +73,8 @@ from a request, are not dependencies: the facade's forwarder is stable.
    new app keeps -- so running it on every swap left the new app holding
    closed resources. When any hook was added, removed or edited, the old
    app's `cleanup` hooks and the new app's `setup` hooks run, once each, so a
-   start and its stop stay paired.
+   start and its stop stay paired. The comparison waits for the statement that builds the
+   app to finish, so hooks chained after `.use(networking)` count too.
 
 A typical handler edit re-runs one module and nothing else.
 
