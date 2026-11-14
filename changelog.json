@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "beta.176 kept an unchanged app's `onStop` from running on a hot swap, but only when `networking` was the last thing chained onto the app. `networking` swaps apps while the statement that builds the app is still running, so in `app.use(networking).onStop(shutdown)` the new app did not have its `onStop` yet when the hooks were compared. The swap decided the hooks had changed and shut the replaced app down, closing the database pool, audit log and queues the new app keeps. The swap now waits for that statement to finish before comparing, so the order of `.use(networking)` and the app's lifecycle hooks no longer matters.",
+					"kind": "fixed",
+					"summary": "A hot swap keeps shared resources open wherever `.use(networking)` sits in the app chain"
+				}
+			],
+			"date": "2026-11-14",
+			"version": "0.20.0-beta.177"
+		},
+		{
+			"changes": [
+				{
 					"detail": "Deleting a server module logged \"failed to update; the previous version keeps serving\" with an ENOENT error, though nothing failed: there is nothing to apply, and the modules that imported it change through their own edits. A deleted module is now an unchanged outcome and logs nothing. Recreating it still applies as an edit.",
 					"kind": "fixed",
 					"summary": "Deleting a server module no longer reports a failed hot update"

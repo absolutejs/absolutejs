@@ -108,6 +108,12 @@ export const adoptListeningApp = (app: object) => {
 
 /** Hand the running server from the live app to `next`. */
 export const swapApp = async (next: object) => {
+	// `networking()` swaps while the statement that builds the app is still
+	// chaining it: `app.use(networking).onStop(shutdown)` has not added
+	// `onStop` yet. Judged then, the new app looks like it lost a hook and
+	// the replaced app is shut down. That statement is synchronous, so one
+	// microtask later the app is complete.
+	await Promise.resolve();
 	const previous = globalThis.__absoluteLiveApp;
 	globalThis.__absoluteLiveApp = next;
 	if (previous === next) return;
