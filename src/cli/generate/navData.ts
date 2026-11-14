@@ -1,4 +1,5 @@
-import ts from 'typescript';
+import type TS from 'typescript';
+import { ts } from '../../utils/lazyTypescript';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 
@@ -22,10 +23,10 @@ const NAV_DATA_TEMPLATE = `type NavItem = {
 export const navData: NavItem[] = [];
 `;
 
-const findNavArray = (sourceFile: ts.SourceFile) => {
-	let found: ts.ArrayLiteralExpression | null = null;
+const findNavArray = (sourceFile: TS.SourceFile) => {
+	let found: TS.ArrayLiteralExpression | null = null;
 
-	const visit = (node: ts.Node) => {
+	const visit = (node: TS.Node) => {
 		if (found) return;
 		if (
 			ts.isVariableDeclaration(node) &&
@@ -46,11 +47,11 @@ const findNavArray = (sourceFile: ts.SourceFile) => {
 };
 
 const readStringProperty = (
-	object: ts.ObjectLiteralExpression,
+	object: TS.ObjectLiteralExpression,
 	name: string
 ) => {
 	const property = object.properties.find(
-		(candidate): candidate is ts.PropertyAssignment =>
+		(candidate): candidate is TS.PropertyAssignment =>
 			ts.isPropertyAssignment(candidate) &&
 			ts.isIdentifier(candidate.name) &&
 			candidate.name.text === name
@@ -62,7 +63,7 @@ const readStringProperty = (
 	return property.initializer.text;
 };
 
-const parseNavItems = (array: ts.ArrayLiteralExpression) => {
+const parseNavItems = (array: TS.ArrayLiteralExpression) => {
 	const items: NavItem[] = [];
 	for (const element of array.elements) {
 		if (!ts.isObjectLiteralExpression(element)) continue;
@@ -99,8 +100,8 @@ const indentOf = (text: string, position: number) => {
 
 const insertElement = (
 	text: string,
-	array: ts.ArrayLiteralExpression,
-	sourceFile: ts.SourceFile,
+	array: TS.ArrayLiteralExpression,
+	sourceFile: TS.SourceFile,
 	entry: string
 ) => {
 	const { elements } = array;

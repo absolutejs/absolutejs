@@ -1,6 +1,7 @@
 import { extname } from 'node:path';
 import type { BunPlugin, Loader } from 'bun';
-import ts from 'typescript';
+import type TS from 'typescript';
+import { ts } from '../utils/lazyTypescript';
 
 const NON_ASCII = /[^\x00-\x7f]/;
 
@@ -23,7 +24,7 @@ const getLoader = (filePath: string): Loader => {
 	return 'js';
 };
 
-const isStringRawTag = (node: ts.TaggedTemplateExpression) =>
+const isStringRawTag = (node: TS.TaggedTemplateExpression) =>
 	ts.isPropertyAccessExpression(node.tag) &&
 	ts.isIdentifier(node.tag.expression) &&
 	node.tag.expression.text === 'String' &&
@@ -31,10 +32,10 @@ const isStringRawTag = (node: ts.TaggedTemplateExpression) =>
 
 const getRawText = (
 	node:
-		| ts.NoSubstitutionTemplateLiteral
-		| ts.TemplateHead
-		| ts.TemplateMiddle
-		| ts.TemplateTail
+		| TS.NoSubstitutionTemplateLiteral
+		| TS.TemplateHead
+		| TS.TemplateMiddle
+		| TS.TemplateTail
 ) => node.rawText ?? node.text;
 
 /**
@@ -62,7 +63,7 @@ export const rewriteBunStringRawUnicode = (
 	);
 	const replacements: { end: number; start: number; value: string }[] = [];
 
-	const visit = (node: ts.Node) => {
+	const visit = (node: TS.Node) => {
 		if (ts.isTaggedTemplateExpression(node) && isStringRawTag(node)) {
 			const rawSegments = ts.isNoSubstitutionTemplateLiteral(
 				node.template

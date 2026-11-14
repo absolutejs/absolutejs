@@ -2,7 +2,8 @@ import { existsSync, readFileSync, promises as fs } from 'fs';
 import { join, basename, sep, dirname, resolve, relative } from 'path';
 import type { CompilerOptions } from '@angular/compiler-cli';
 import { Glob } from 'bun';
-import ts from 'typescript';
+import type TS from 'typescript';
+import { ts } from '../utils/lazyTypescript';
 import { BASE_36_RADIX } from '../constants';
 import { toPascal } from '../utils/stringModifiers';
 import { buildIslandMetadataExports } from '../islands/sourceMetadata';
@@ -273,7 +274,7 @@ const hmrClientPath = join(devClientDir, 'hmrClient.ts').replace(/\\/g, '/');
  * that still appends per-component HMR scaffolding, and it does
  * so for the surgical `__ng_hmr_load` listener instead. */
 
-const formatDiagnosticMessage = (diagnostic: ts.Diagnostic) => {
+const formatDiagnosticMessage = (diagnostic: TS.Diagnostic) => {
 	try {
 		return ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n');
 	} catch {
@@ -282,7 +283,7 @@ const formatDiagnosticMessage = (diagnostic: ts.Diagnostic) => {
 };
 
 const throwOnCompilationErrors = (
-	diagnostics: readonly ts.Diagnostic[] | undefined
+	diagnostics: readonly TS.Diagnostic[] | undefined
 ) => {
 	if (!diagnostics?.length) return;
 
@@ -367,13 +368,13 @@ const extractLocalImportSpecifiers = (source: string, fileName: string) => {
 		ts.ScriptKind.TS
 	);
 	const specifiers: string[] = [];
-	const addSpecifier = (node: ts.Node | undefined) => {
+	const addSpecifier = (node: TS.Node | undefined) => {
 		if (!node || !ts.isStringLiteralLike(node)) return;
 		const specifier = node.text;
 		if (isRelativeModuleSpecifier(specifier)) specifiers.push(specifier);
 	};
 
-	const visit = (node: ts.Node) => {
+	const visit = (node: TS.Node) => {
 		if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) {
 			addSpecifier(node.moduleSpecifier);
 		} else if (
@@ -732,7 +733,7 @@ export const compileAngularFiles = async (
 		(originalGetDefaultLibLocation ? originalGetDefaultLibLocation() : '');
 
 	const originalGetDefaultLibFileName = host.getDefaultLibFileName;
-	host.getDefaultLibFileName = (opts: ts.CompilerOptions) => {
+	host.getDefaultLibFileName = (opts: TS.CompilerOptions) => {
 		const fileName = originalGetDefaultLibFileName
 			? originalGetDefaultLibFileName(opts)
 			: 'lib.d.ts';
@@ -743,7 +744,7 @@ export const compileAngularFiles = async (
 	const originalGetSourceFile = host.getSourceFile;
 	host.getSourceFile = (
 		fileName: string,
-		languageVersion: ts.ScriptTarget,
+		languageVersion: TS.ScriptTarget,
 		onError?: (message: string) => void
 	) => {
 		if (
@@ -812,7 +813,7 @@ export const compileAngularFiles = async (
 	const originalGetSourceFileForCompile = host.getSourceFile;
 	host.getSourceFile = (
 		fileName: string,
-		languageVersion: ts.ScriptTarget,
+		languageVersion: TS.ScriptTarget,
 		onError?: (message: string) => void
 	) => {
 		const source = transformedSources.get(resolve(fileName));
@@ -828,7 +829,7 @@ export const compileAngularFiles = async (
 		);
 	};
 
-	let diagnostics: readonly ts.Diagnostic[] | undefined;
+	let diagnostics: readonly TS.Diagnostic[] | undefined;
 	try {
 		({ diagnostics } = await traceAngularPhase(
 			'aot/perform-compilation',
@@ -1981,7 +1982,7 @@ export type AngularProvidersInjection = {
 const ROUTER_OUTLET_PATTERN = /router-outlet|\bRouterOutlet\b/;
 const COMPONENT_MARKER_PATTERN = /ɵcmp|ɵɵngDeclareComponent|\bComponent\s*\(/;
 
-const isExportedClass = (statement: ts.Statement) =>
+const isExportedClass = (statement: TS.Statement) =>
 	ts.isClassDeclaration(statement) &&
 	statement.name !== undefined &&
 	(ts.getModifiers(statement) ?? []).some(
@@ -1989,9 +1990,9 @@ const isExportedClass = (statement: ts.Statement) =>
 	);
 
 const statementReferencesClass = (
-	statement: ts.Statement,
+	statement: TS.Statement,
 	className: string,
-	sourceFile: ts.SourceFile
+	sourceFile: TS.SourceFile
 ) => {
 	if (!ts.isExpressionStatement(statement)) return false;
 	const text = statement.getText(sourceFile);

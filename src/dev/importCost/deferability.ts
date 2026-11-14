@@ -17,7 +17,8 @@
  * is deferred it says "used at module scope", so it can under-report a
  * deferrable import but never claim one that is not. */
 
-import ts from 'typescript';
+import type TS from 'typescript';
+import { ts } from '../../utils/lazyTypescript';
 
 export type EntryImport = {
 	line: number;
@@ -51,7 +52,7 @@ const scriptKindFor = (fileName: string) => {
 	return ts.ScriptKind.TS;
 };
 
-const namedBindings = (clause: ts.ImportClause) => {
+const namedBindings = (clause: TS.ImportClause) => {
 	const names = clause.name === undefined ? [] : [clause.name.text];
 	const { namedBindings: bindings } = clause;
 	if (bindings === undefined) return names;
@@ -66,8 +67,8 @@ const namedBindings = (clause: ts.ImportClause) => {
 };
 
 const declarationFrom = (
-	statement: ts.ImportDeclaration,
-	source: ts.SourceFile
+	statement: TS.ImportDeclaration,
+	source: TS.SourceFile
 ) => {
 	const specifier = statement.moduleSpecifier;
 	if (!ts.isStringLiteral(specifier)) return null;
@@ -87,10 +88,10 @@ const declarationFrom = (
 	return declaration;
 };
 
-const isTypePosition = (node: ts.Node) =>
+const isTypePosition = (node: TS.Node) =>
 	ts.isTypeNode(node) && !ts.isExpressionWithTypeArguments(node);
 
-const isDeferredPosition = (current: ts.Node, child: ts.Node) => {
+const isDeferredPosition = (current: TS.Node, child: TS.Node) => {
 	if (Reflect.get(current, 'body') === child) return true;
 	const parameters = Reflect.get(current, 'parameters');
 
@@ -102,7 +103,7 @@ const isDeferredPosition = (current: ts.Node, child: ts.Node) => {
 
 /** `null` means "keep climbing"; `DEFERRED` means safe; anything else is the
  *  reason the import has to stay at the top. */
-const classifyAncestor = (current: ts.Node, child: ts.Node) => {
+const classifyAncestor = (current: TS.Node, child: TS.Node) => {
 	if (ts.isExportSpecifier(current)) return 're-exported by the entry';
 	if (ts.isDecorator(current)) return 'decorator';
 	if (ts.isPropertyDeclaration(current) && current.initializer === child) {
@@ -121,9 +122,9 @@ const classifyAncestor = (current: ts.Node, child: ts.Node) => {
    is remembered rather than returned, because a decorator or a field
    initializer inside a function only runs when that function runs: reaching a
    function *body* clears it. Reaching the source file does not. */
-const classifyUsage = (node: ts.Identifier) => {
-	let child: ts.Node = node;
-	let current: ts.Node | undefined = node.parent;
+const classifyUsage = (node: TS.Identifier) => {
+	let child: TS.Node = node;
+	let current: TS.Node | undefined = node.parent;
 	let pending: string | null = null;
 	while (current !== undefined) {
 		const verdict = classifyAncestor(current, child);
@@ -136,14 +137,14 @@ const classifyUsage = (node: ts.Identifier) => {
 	return pending ?? 'module scope';
 };
 
-const isDeclarationName = (parent: ts.Node, node: ts.Identifier) => {
+const isDeclarationName = (parent: TS.Node, node: TS.Identifier) => {
 	if (ts.isExportSpecifier(parent)) return false;
 	if (ts.isShorthandPropertyAssignment(parent)) return false;
 
 	return Reflect.get(parent, 'name') === node;
 };
 
-const isReferencePosition = (node: ts.Identifier) => {
+const isReferencePosition = (node: TS.Identifier) => {
 	const { parent } = node;
 	if (parent === undefined) return false;
 	if (ts.isQualifiedName(parent) && parent.right === node) return false;
@@ -152,7 +153,7 @@ const isReferencePosition = (node: ts.Identifier) => {
 };
 
 const recordUsage = (
-	node: ts.Identifier,
+	node: TS.Identifier,
 	owners: ReadonlyMap<string, number>,
 	reasons: Map<number, string>
 ) => {
@@ -164,11 +165,11 @@ const recordUsage = (
 };
 
 const collectUnsafeReasons = (
-	source: ts.SourceFile,
+	source: TS.SourceFile,
 	owners: ReadonlyMap<string, number>
 ) => {
 	const reasons = new Map<number, string>();
-	const visit = (node: ts.Node) => {
+	const visit = (node: TS.Node) => {
 		if (ts.isImportDeclaration(node)) return;
 		if (ts.isIdentifier(node)) recordUsage(node, owners, reasons);
 		ts.forEachChild(node, visit);
@@ -189,7 +190,7 @@ const verdictFor = (
 	return 'deferrable';
 };
 
-const reExportOf = (statement: ts.ExportDeclaration, source: ts.SourceFile) => {
+const reExportOf = (statement: TS.ExportDeclaration, source: TS.SourceFile) => {
 	const specifier = statement.moduleSpecifier;
 	if (specifier === undefined || !ts.isStringLiteral(specifier)) return null;
 	if (statement.isTypeOnly) return null;

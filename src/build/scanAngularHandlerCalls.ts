@@ -22,7 +22,8 @@
 
 import { readdirSync, readFileSync, type Dirent } from 'node:fs';
 import { join } from 'node:path';
-import ts from 'typescript';
+import type TS from 'typescript';
+import { ts } from '../utils/lazyTypescript';
 
 const ELYSIA_ROUTE_METHODS = new Set([
 	'all',
@@ -119,7 +120,7 @@ const fileMayContainAngularHandler = (source: string) =>
 /** Look for the manifest key string in something like
  *  `pagePath: asset(manifest, "Foo")`. Returns null if the value isn't
  *  shaped that way (e.g. dynamic computation). */
-const extractManifestKey = (pagePathValue: ts.Expression): string | null => {
+const extractManifestKey = (pagePathValue: TS.Expression): string | null => {
 	if (!ts.isCallExpression(pagePathValue)) return null;
 	const callee = pagePathValue.expression;
 	if (!ts.isIdentifier(callee) || callee.text !== 'asset') return null;
@@ -132,8 +133,8 @@ const extractManifestKey = (pagePathValue: ts.Expression): string | null => {
 
 /** Find the enclosing `.method("/path", ...)` Elysia call (if any) by
  *  walking up the AST from `node`. The path argument is returned. */
-const findEnclosingMountPath = (node: ts.Node): string | null => {
-	let cursor: ts.Node | undefined = node.parent;
+const findEnclosingMountPath = (node: TS.Node): string | null => {
+	let cursor: TS.Node | undefined = node.parent;
 	while (cursor) {
 		if (ts.isCallExpression(cursor)) {
 			const callee = cursor.expression;
@@ -179,7 +180,7 @@ const extractCallsFromFile = (
 		getScriptKind(filePath)
 	);
 
-	const visit = (node: ts.Node) => {
+	const visit = (node: TS.Node) => {
 		if (
 			ts.isCallExpression(node) &&
 			ts.isIdentifier(node.expression) &&

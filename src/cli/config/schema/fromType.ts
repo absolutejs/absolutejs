@@ -1,4 +1,5 @@
-import ts from 'typescript';
+import type TS from 'typescript';
+import { ts } from '../../../utils/lazyTypescript';
 import {
 	existsSync,
 	mkdirSync,
@@ -31,7 +32,7 @@ const compilerOptionsFor = (cwd: string) => {
 		ts.sys.fileExists,
 		'tsconfig.json'
 	);
-	const parseConfigHost: ts.ParseConfigFileHost = {
+	const parseConfigHost: TS.ParseConfigFileHost = {
 		...ts.sys,
 		onUnRecoverableConfigFileDiagnostic: () => {
 			/* shape only — ignore config file errors */
@@ -169,10 +170,10 @@ const writeDiskCache = (
 	}
 };
 
-const docOf = (symbol: ts.Symbol, checker: ts.TypeChecker) =>
+const docOf = (symbol: TS.Symbol, checker: TS.TypeChecker) =>
 	ts.displayPartsToString(symbol.getDocumentationComment(checker)).trim();
 
-const typeOfSymbol = (symbol: ts.Symbol, checker: ts.TypeChecker) => {
+const typeOfSymbol = (symbol: TS.Symbol, checker: TS.TypeChecker) => {
 	const declaration = symbol.valueDeclaration ?? symbol.declarations?.[0];
 
 	return declaration
@@ -180,12 +181,12 @@ const typeOfSymbol = (symbol: ts.Symbol, checker: ts.TypeChecker) => {
 		: checker.getDeclaredTypeOfSymbol(symbol);
 };
 
-const hasFlag = (type: ts.Type, flag: ts.TypeFlags) =>
+const hasFlag = (type: TS.Type, flag: TS.TypeFlags) =>
 	(type.flags & flag) !== 0;
 
-const unionParts = (type: ts.Type) => (type.isUnion() ? type.types : [type]);
+const unionParts = (type: TS.Type) => (type.isUnion() ? type.types : [type]);
 
-const literalChoice = (type: ts.Type) => {
+const literalChoice = (type: TS.Type) => {
 	if (type.isStringLiteral()) return type.value;
 	if (type.isNumberLiteral()) return type.value;
 
@@ -193,15 +194,15 @@ const literalChoice = (type: ts.Type) => {
 };
 
 const toSchema: (
-	type: ts.Type,
-	checker: ts.TypeChecker,
+	type: TS.Type,
+	checker: TS.TypeChecker,
 	depth: number,
-	seen: Set<ts.Type>
+	seen: Set<TS.Type>
 ) => FieldSchema = (
-	type: ts.Type,
-	checker: ts.TypeChecker,
+	type: TS.Type,
+	checker: TS.TypeChecker,
 	depth: number,
-	seen: Set<ts.Type>
+	seen: Set<TS.Type>
 ) => {
 	const opaque = (): FieldSchema => ({
 		kind: 'opaque',
@@ -238,15 +239,15 @@ const toSchema: (
 };
 
 const single: (
-	type: ts.Type,
-	checker: ts.TypeChecker,
+	type: TS.Type,
+	checker: TS.TypeChecker,
 	depth: number,
-	seen: Set<ts.Type>
+	seen: Set<TS.Type>
 ) => FieldSchema = (
-	type: ts.Type,
-	checker: ts.TypeChecker,
+	type: TS.Type,
+	checker: TS.TypeChecker,
 	depth: number,
-	seen: Set<ts.Type>
+	seen: Set<TS.Type>
 ) => {
 	const opaque = (): FieldSchema => ({
 		kind: 'opaque',
@@ -308,7 +309,7 @@ const introspectFrom = (
 	cwd: string,
 	specifier: string,
 	typeName: string,
-	options: ts.CompilerOptions,
+	options: TS.CompilerOptions,
 	exclude: Set<string>
 ) => {
 	const virtualPath = resolve(cwd, VIRTUAL_NAME);

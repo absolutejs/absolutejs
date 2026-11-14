@@ -6,7 +6,7 @@
  * TypeScript at ES2016 turns `async`/`await` into generators driven by
  * the (zone-patched) global Promise. Code without `async` is returned
  * untouched. */
-import ts from 'typescript';
+import { ts } from '../utils/lazyTypescript';
 import { isAngularZoneMode } from '../angular/zoneRuntime';
 
 const ASYNC_KEYWORD = /\basync\b/;

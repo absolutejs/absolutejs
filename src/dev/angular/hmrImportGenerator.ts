@@ -13,7 +13,8 @@
  * `ɵɵnamespaces` parameter and we resolve to a property access on
  * the local namespace alias. */
 
-import ts from 'typescript';
+import type TS from 'typescript';
+import { ts } from '../../utils/lazyTypescript';
 import type {
 	ImportGenerator,
 	ImportRequest
@@ -21,8 +22,8 @@ import type {
 
 export const createHmrImportGenerator = (
 	namespaceMap: Map<string, string>
-): ImportGenerator<ts.SourceFile, ts.Expression> => ({
-	addImport(request: ImportRequest<ts.SourceFile>) {
+): ImportGenerator<TS.SourceFile, TS.Expression> => ({
+	addImport(request: ImportRequest<TS.SourceFile>) {
 		const namespace = namespaceMap.get(request.exportModuleSpecifier);
 		if (!namespace) {
 			throw new Error(

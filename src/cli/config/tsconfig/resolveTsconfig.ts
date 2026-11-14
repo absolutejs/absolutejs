@@ -1,4 +1,4 @@
-import ts from 'typescript';
+import { ts } from '../../../utils/lazyTypescript';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { isRecord } from '../guards';

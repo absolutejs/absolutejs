@@ -1,7 +1,8 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, extname, relative, resolve } from 'node:path';
 import type { BunPlugin } from 'bun';
-import ts from 'typescript';
+import type TS from 'typescript';
+import { ts } from '../utils/lazyTypescript';
 import { ABSOLUTE_MOBILE_PAGE_PROTOCOL_VERSION } from './pageProtocol';
 import { hashAbsoluteMobilePropsSchema } from './releaseArtifact';
 import {
@@ -36,9 +37,9 @@ type PageHandlerDefinition = {
 };
 
 type AssetKeyResolver = (
-	expression: ts.Expression | undefined,
-	checker: ts.TypeChecker,
-	seen?: Set<ts.Symbol>
+	expression: TS.Expression | undefined,
+	checker: TS.TypeChecker,
+	seen?: Set<TS.Symbol>
 ) => string | undefined;
 
 const ROUTE_METHODS = new Set(['get', 'head']);
@@ -119,7 +120,7 @@ const createProgram = (entry: string, projectRoot: string) => {
 	return ts.createProgram(parsed.fileNames, parsed.options);
 };
 
-const propertyName = (property: ts.ObjectLiteralElementLike) => {
+const propertyName = (property: TS.ObjectLiteralElementLike) => {
 	if (!('name' in property) || !property.name) return undefined;
 	if (ts.isIdentifier(property.name)) return property.name.text;
 	if (ts.isStringLiteralLike(property.name)) return property.name.text;
@@ -128,7 +129,7 @@ const propertyName = (property: ts.ObjectLiteralElementLike) => {
 };
 
 const objectPropertyExpression = (
-	object: ts.ObjectLiteralExpression,
+	object: TS.ObjectLiteralExpression,
 	name: string
 ) => {
 	const property = object.properties.find(
@@ -145,9 +146,9 @@ const objectPropertyExpression = (
 };
 
 const serializeType = (
-	type: ts.Type,
-	checker: ts.TypeChecker,
-	ancestors = new Set<ts.Type>()
+	type: TS.Type,
+	checker: TS.TypeChecker,
+	ancestors = new Set<TS.Type>()
 ): unknown => {
 	if (type.flags & ts.TypeFlags.Any) return { type: 'any' };
 	if (type.flags & ts.TypeFlags.Unknown) return { type: 'unknown' };
@@ -232,9 +233,9 @@ const serializeType = (
 };
 
 const pagePropsType = (
-	pageExpression: ts.Expression,
-	propsExpression: ts.Expression | undefined,
-	checker: ts.TypeChecker
+	pageExpression: TS.Expression,
+	propsExpression: TS.Expression | undefined,
+	checker: TS.TypeChecker
 ) => {
 	const pageType = checker.getTypeAtLocation(pageExpression);
 	const [signature] = pageType.getCallSignatures();
@@ -251,9 +252,9 @@ const pagePropsType = (
 };
 
 const resolvePageIdentity = (
-	expression: ts.Expression,
-	sourceFile: ts.SourceFile,
-	checker: ts.TypeChecker,
+	expression: TS.Expression,
+	sourceFile: TS.SourceFile,
+	checker: TS.TypeChecker,
 	projectRoot: string
 ) => {
 	let symbol = checker.getSymbolAtLocation(expression);
@@ -268,7 +269,7 @@ const resolvePageIdentity = (
 	return `${source}#${exportedName}`;
 };
 
-const resolveAlias = (symbol: ts.Symbol, checker: ts.TypeChecker) => {
+const resolveAlias = (symbol: TS.Symbol, checker: TS.TypeChecker) => {
 	if (!(symbol.flags & ts.SymbolFlags.Alias)) return symbol;
 
 	return checker.getAliasedSymbol(symbol);
@@ -277,7 +278,7 @@ const resolveAlias = (symbol: ts.Symbol, checker: ts.TypeChecker) => {
 const assetKey: AssetKeyResolver = (
 	expression,
 	checker,
-	seen = new Set<ts.Symbol>()
+	seen = new Set<TS.Symbol>()
 ) => {
 	if (!expression) return undefined;
 
@@ -309,7 +310,7 @@ const assetKey: AssetKeyResolver = (
 };
 
 const staticString = (
-	expression: ts.Expression,
+	expression: TS.Expression,
 	bindings: ReadonlyMap<string, string>
 ): string | undefined => {
 	if (ts.isStringLiteralLike(expression)) return expression.text;
@@ -327,8 +328,8 @@ const staticString = (
 };
 
 const assetKeyWithBindings = (
-	expression: ts.Expression | undefined,
-	checker: ts.TypeChecker,
+	expression: TS.Expression | undefined,
+	checker: TS.TypeChecker,
 	bindings: ReadonlyMap<string, string> = new Map()
 ) => {
 	if (!expression) return undefined;
@@ -345,15 +346,15 @@ const assetKeyWithBindings = (
 	return assetKey(expression, checker);
 };
 
-const callableObject = (call: ts.CallExpression, checker: ts.TypeChecker) => {
+const callableObject = (call: TS.CallExpression, checker: TS.TypeChecker) => {
 	const symbol = checker.getSymbolAtLocation(call.expression);
 	const resolved = symbol ? resolveAlias(symbol, checker) : undefined;
 	const declaration =
 		resolved?.valueDeclaration ?? resolved?.declarations?.[0];
 	let callable:
-		| ts.ArrowFunction
-		| ts.FunctionDeclaration
-		| ts.FunctionExpression
+		| TS.ArrowFunction
+		| TS.FunctionDeclaration
+		| TS.FunctionExpression
 		| undefined;
 	if (declaration && ts.isFunctionDeclaration(declaration)) {
 		callable = declaration;
@@ -394,8 +395,8 @@ const callableObject = (call: ts.CallExpression, checker: ts.TypeChecker) => {
 };
 
 const spreadObject = (
-	expression: ts.Expression,
-	checker: ts.TypeChecker,
+	expression: TS.Expression,
+	checker: TS.TypeChecker,
 	bindings: ReadonlyMap<string, string>
 ) => {
 	if (ts.isObjectLiteralExpression(expression)) {
@@ -407,9 +408,9 @@ const spreadObject = (
 };
 
 const objectAssetKey = (
-	object: ts.ObjectLiteralExpression,
+	object: TS.ObjectLiteralExpression,
 	name: string,
-	checker: ts.TypeChecker,
+	checker: TS.TypeChecker,
 	bindings: ReadonlyMap<string, string> = new Map()
 ): string | undefined => {
 	for (const property of [...object.properties].reverse()) {
@@ -448,11 +449,11 @@ const objectAssetKey = (
 	return undefined;
 };
 
-const findPageCall = (nodes: readonly ts.Node[]) => {
+const findPageCall = (nodes: readonly TS.Node[]) => {
 	let found:
-		| { definition: PageHandlerDefinition; node: ts.CallExpression }
+		| { definition: PageHandlerDefinition; node: TS.CallExpression }
 		| undefined;
-	const visit = (candidate: ts.Node) => {
+	const visit = (candidate: TS.Node) => {
 		if (found) return;
 		if (
 			ts.isCallExpression(candidate) &&
@@ -473,7 +474,7 @@ const findPageCall = (nodes: readonly ts.Node[]) => {
 };
 
 const isProjectSource = (
-	sourceFile: ts.SourceFile,
+	sourceFile: TS.SourceFile,
 	resolvedFile: string,
 	projectRoot: string
 ) =>
@@ -482,9 +483,9 @@ const isProjectSource = (
 	resolvedFile.startsWith(`${projectRoot}/`);
 
 const analyzeRouteCall = (
-	node: ts.CallExpression,
-	sourceFile: ts.SourceFile,
-	checker: ts.TypeChecker,
+	node: TS.CallExpression,
+	sourceFile: TS.SourceFile,
+	checker: TS.TypeChecker,
 	projectRoot: string
 ) => {
 	const callee = node.expression;
@@ -539,7 +540,7 @@ const analyzeRouteCall = (
 	const pageId = page
 		? resolvePageIdentity(page, sourceFile, checker, projectRoot)
 		: `${definition.framework}:${source}`;
-	let propsType: ts.Type | undefined;
+	let propsType: TS.Type | undefined;
 	if (page) propsType = pagePropsType(page, props, checker);
 	else if (props) propsType = checker.getTypeAtLocation(props);
 	const schema = propsType
@@ -564,15 +565,15 @@ const analyzeRouteCall = (
 };
 
 const analyzeSourceFile = (
-	sourceFile: ts.SourceFile,
-	checker: ts.TypeChecker,
+	sourceFile: TS.SourceFile,
+	checker: TS.TypeChecker,
 	projectRoot: string
 ) => {
 	const analysis: AnalyzedFile = {
 		byPageCall: new Map(),
 		byRouteCall: new Map()
 	};
-	const visit = (node: ts.Node) => {
+	const visit = (node: TS.Node) => {
 		const result = ts.isCallExpression(node)
 			? analyzeRouteCall(node, sourceFile, checker, projectRoot)
 			: undefined;
@@ -587,7 +588,7 @@ const analyzeSourceFile = (
 	return analysis;
 };
 
-const analyzeProgram = (program: ts.Program, projectRoot: string) => {
+const analyzeProgram = (program: TS.Program, projectRoot: string) => {
 	const checker = program.getTypeChecker();
 	const analyzed = new Map<string, AnalyzedFile>();
 	for (const sourceFile of program.getSourceFiles()) {
@@ -612,7 +613,7 @@ const metadataExpression = (metadata: AbsoluteMobileBuildPageMetadata) =>
 	);
 
 const routeOptions = (
-	existing: ts.Expression | undefined,
+	existing: TS.Expression | undefined,
 	metadata: AbsoluteMobileBuildPageMetadata
 ) => {
 	const detail = ts.factory.createObjectLiteralExpression([
@@ -650,7 +651,7 @@ const routeOptions = (
 };
 
 const transformPageCall = (
-	node: ts.CallExpression,
+	node: TS.CallExpression,
 	page: AnalyzedPageCall | undefined
 ) => {
 	if (!page) return undefined;
@@ -695,7 +696,7 @@ const transformPageCall = (
 };
 
 const transformRouteCall = (
-	node: ts.CallExpression,
+	node: TS.CallExpression,
 	route: AnalyzedPageCall | undefined
 ) => {
 	if (!route) return undefined;
@@ -724,8 +725,8 @@ const transformFile = (
 		true,
 		fileName.endsWith('x') ? ts.ScriptKind.TSX : ts.ScriptKind.TS
 	);
-	const transformer: ts.TransformerFactory<ts.SourceFile> = (context) => {
-		const visit: ts.Visitor = (node) => {
+	const transformer: TS.TransformerFactory<TS.SourceFile> = (context) => {
+		const visit: TS.Visitor = (node) => {
 			if (!ts.isCallExpression(node)) {
 				return ts.visitEachChild(node, visit, context);
 			}

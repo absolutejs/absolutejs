@@ -19,7 +19,8 @@
 
 import { readdirSync, readFileSync, type Dirent } from 'node:fs';
 import { join } from 'node:path';
-import ts from 'typescript';
+import type TS from 'typescript';
+import { ts } from '../utils/lazyTypescript';
 
 const ELYSIA_ROUTE_METHODS = new Set([
 	'all',
@@ -138,7 +139,7 @@ const extractRoutesFromFile = (
 		getScriptKind(filePath)
 	);
 
-	const visit = (node: ts.Node) => {
+	const visit = (node: TS.Node) => {
 		if (ts.isCallExpression(node)) {
 			const callee = node.expression;
 			if (

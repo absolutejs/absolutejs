@@ -1,4 +1,5 @@
-import ts from 'typescript';
+import type TS from 'typescript';
+import { ts } from '../../../utils/lazyTypescript';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { AUTH_FEATURES } from './authCatalog';
@@ -113,14 +114,14 @@ const candidateFiles = (root: string) => {
 };
 
 const isAuthPackageImport = (
-	statement: ts.Statement
-): statement is ts.ImportDeclaration =>
+	statement: TS.Statement
+): statement is TS.ImportDeclaration =>
 	ts.isImportDeclaration(statement) &&
 	ts.isStringLiteral(statement.moduleSpecifier) &&
 	statement.moduleSpecifier.text === AUTH_PACKAGE;
 
 // Add the local name(s) bound to the package's `auth` export by one import.
-const addAuthNames = (statement: ts.ImportDeclaration, names: Set<string>) => {
+const addAuthNames = (statement: TS.ImportDeclaration, names: Set<string>) => {
 	const bindings = statement.importClause?.namedBindings;
 	if (!bindings || !ts.isNamedImports(bindings)) return;
 	for (const element of bindings.elements) {
@@ -131,7 +132,7 @@ const addAuthNames = (statement: ts.ImportDeclaration, names: Set<string>) => {
 };
 
 // Local name(s) bound to the package's `auth` export in this file.
-const authBindings = (sourceFile: ts.SourceFile) => {
+const authBindings = (sourceFile: TS.SourceFile) => {
 	const names = new Set<string>();
 	for (const statement of sourceFile.statements) {
 		if (isAuthPackageImport(statement)) addAuthNames(statement, names);
@@ -140,10 +141,10 @@ const authBindings = (sourceFile: ts.SourceFile) => {
 	return names;
 };
 
-const isAuthCall = (node: ts.CallExpression, bindings: Set<string>) =>
+const isAuthCall = (node: TS.CallExpression, bindings: Set<string>) =>
 	ts.isIdentifier(node.expression) && bindings.has(node.expression.text);
 
-const providerCountOf = (property: ts.ObjectLiteralElementLike) => {
+const providerCountOf = (property: TS.ObjectLiteralElementLike) => {
 	if (
 		!ts.isPropertyAssignment(property) ||
 		!ts.isObjectLiteralExpression(property.initializer)
@@ -154,7 +155,7 @@ const providerCountOf = (property: ts.ObjectLiteralElementLike) => {
 	return property.initializer.properties.length;
 };
 
-const readConfigKeys = (object: ts.ObjectLiteralExpression) => {
+const readConfigKeys = (object: TS.ObjectLiteralExpression) => {
 	const keys = new Set<string>();
 	let providerCount: number | null = null;
 	const usesSpread = object.properties.some((property) =>
@@ -177,7 +178,7 @@ type SetupMatch = {
 	usesSpread: boolean;
 };
 
-const matchFromCall = (node: ts.CallExpression): SetupMatch => {
+const matchFromCall = (node: TS.CallExpression): SetupMatch => {
 	const [arg] = node.arguments;
 	if (arg && ts.isObjectLiteralExpression(arg)) return readConfigKeys(arg);
 
@@ -204,7 +205,7 @@ const findSetupInFile = (path: string) => {
 	const bindings = authBindings(sourceFile);
 	if (bindings.size === 0) return null;
 
-	const pending: ts.Node[] = [sourceFile];
+	const pending: TS.Node[] = [sourceFile];
 	while (pending.length > 0) {
 		const node = pending.pop();
 		if (!node) continue;
