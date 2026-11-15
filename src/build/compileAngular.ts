@@ -1131,8 +1131,11 @@ const buildResolverTemplateLiteral = (value: string) => {
 		const expression = rawExpression.length === 0 ? "''" : rawExpression;
 		const expressionLiteral = JSON.stringify(expression);
 
+		// The payload `html` is only measured (size limit + slot metrics),
+		// never inserted, but escape each interpolated value the way Angular
+		// escapes {{ }} text so the string is never live markup.
 		parts.push(
-			`\${this.__absoluteDeferResolveTemplateExpression(${expressionLiteral})}`
+			`\${this.__absoluteDeferEscapeHtml(this.__absoluteDeferResolveTemplateExpression(${expressionLiteral}))}`
 		);
 		cursor = nextCursor;
 	}
@@ -1166,6 +1169,9 @@ const buildDeferSlotTemplateResolver = () =>
 	'\t\t}\n' +
 	'\t\tthis.__absoluteDeferTemplateExpressionCache.set(expression, value);\n' +
 	'\t\treturn value;\n' +
+	'\t}\n\n' +
+	'\t__absoluteDeferEscapeHtml(value: string) {\n' +
+	"\t\treturn value.replace(/[&<>\"']/g, (char) => char === '&' ? '&amp;' : char === '<' ? '&lt;' : char === '>' ? '&gt;' : char === '\"' ? '&quot;' : '&#39;');\n" +
 	'\t}\n\n';
 
 const buildDeferSlotFields = (slots: LoweredAngularDeferSlot[]) =>

@@ -32,7 +32,9 @@ describe('handleSveltePageRequest streaming', () => {
 		const runtimeIndex = html.indexOf('__ABS_SLOT_ENQUEUE__');
 		const headCloseIndex = html.indexOf('</head>');
 
-		expect(response.headers.get('Content-Type')).toBe('text/html');
+		expect(response.headers.get('Content-Type')).toBe(
+			'text/html; charset=utf-8'
+		);
 		expect(html).toContain('__ABS_SLOT_ENQUEUE__');
 		expect(runtimeIndex).toBeGreaterThan(headCloseIndex);
 		expect(html).toContain('id="svelte-fast"');
@@ -60,7 +62,9 @@ describe('handleSveltePageRequest streaming', () => {
 		const runtimeIndex = html.indexOf('__ABS_SLOT_ENQUEUE__');
 		const headCloseIndex = html.indexOf('</head>');
 
-		expect(response.headers.get('Content-Type')).toBe('text/html');
+		expect(response.headers.get('Content-Type')).toBe(
+			'text/html; charset=utf-8'
+		);
 		expect(html).toContain('__ABS_SLOT_ENQUEUE__');
 		expect(runtimeIndex).toBeGreaterThan(headCloseIndex);
 		expect(html).toContain('fast loading');

@@ -16,6 +16,11 @@ import { dirname, relative, resolve } from 'node:path';
  *     <main>…</main>                        ← the default slot
  *   </abs-include>
  *
+ * Each of these tags may also be written self-closing, as an empty element
+ * (<abs-include src="…" />, <abs-slot name="head" />), anywhere, including
+ * inside another include's children. An unclosed <abs-include> or
+ * <abs-slot> fails the build with its file and line.
+ *
  * HTML only, no expressions. Runs on the copied pages before asset paths,
  * images and islands are processed, so included markup gets all three. */
 
@@ -51,8 +56,9 @@ const includeError = (context: ExpandContext, message: string) =>
 			.join(' → ')}`
 	);
 
-/** Index of the `>` ending the tag that starts at `start`, skipping quoted
- *  attribute values. */
+/** Index just past the `>` ending the tag that starts at `start`, skipping
+ *  quoted attribute values (so `src="a/b.html"` or `data-x="a>b"` neither
+ *  ends nor self-closes it); -1 when the tag never ends. */
 const findTagClose = (html: string, start: number) => {
 	const match = /^<[^>"']*(?:(?:"[^"]*"|'[^']*')[^>"']*)*>/.exec(
 		html.slice(start)
@@ -61,44 +67,146 @@ const findTagClose = (html: string, start: number) => {
 	return match ? start + match[0].length : -1;
 };
 
-/** The first `<tag …>…</tag>` (or `<tag …/>`) at or after `from`, with its
- *  closing tag matched across nested elements of the same name. */
+type Tag = {
+	/** Raw text between the tag name and `>` (a self-closing `/` removed). */
+	attributes: string;
+	closing: boolean;
+	/** Index just past the tag's `>`; -1 when the tag never ends. */
+	end: number;
+	selfClosing: boolean;
+	start: number;
+};
+
+const readOpeningTag = (html: string, tag: string, start: number) => {
+	const end = findTagClose(html, start);
+	const raw = html.slice(
+		start + tag.length + 1,
+		end === -1 ? html.length : end - 1
+	);
+	const selfClosing = end !== -1 && raw.trimEnd().endsWith('/');
+	const opening: Tag = {
+		attributes: selfClosing ? raw.trimEnd().slice(0, -1) : raw,
+		closing: false,
+		end,
+		selfClosing,
+		start
+	};
+
+	return opening;
+};
+
+/** The next `<tag …>`, `<tag …/>` or `</tag>` at or after `from`. Callers
+ *  continue from the previous tag's `end`, which skips its attributes as a
+ *  whole, so a quoted value can't hide or fake a tag. */
+const nextTag = (html: string, tag: string, from: number) => {
+	const tokens = new RegExp(`<${tag}(?=[\\s/>])|</${tag}\\s*>`, 'gi');
+	tokens.lastIndex = from;
+	const token = tokens.exec(html);
+	if (!token) return null;
+	if (!token[0].startsWith('</'))
+		return readOpeningTag(html, tag, token.index);
+	const closing: Tag = {
+		attributes: '',
+		closing: true,
+		end: token.index + token[0].length,
+		selfClosing: false,
+		start: token.index
+	};
+
+	return closing;
+};
+
+/** How a tag changes the nesting depth: a self-closing one is an empty
+ *  element, so it opens nothing. */
+const depthChange = (token: Tag) => {
+	if (token.selfClosing) return 0;
+
+	return token.closing ? -1 : 1;
+};
+
+/** The first `<tag …>…</tag>` (or self-closing `<tag …/>`) at or after
+ *  `from`, its closing tag matched across nested elements of the same name.
+ *  Null when there is none or it never closes. */
 const findElement = (html: string, tag: string, from: number) => {
-	const opening = new RegExp(`<${tag}(?=[\\s/>])`, 'gi');
-	opening.lastIndex = from;
-	const first = opening.exec(html);
-	if (!first) return null;
-	const tagEnd = findTagClose(html, first.index);
-	if (tagEnd === -1) return null;
-	const attributes = html.slice(first.index + tag.length + 1, tagEnd - 1);
-	if (attributes.trimEnd().endsWith('/')) {
-		const selfClosing: Element = {
-			attributes: attributes.trimEnd().slice(0, -1),
-			end: tagEnd,
+	let open = nextTag(html, tag, from);
+	// A stray `</tag>` before any opening one is left as it is.
+	while (open?.closing) open = nextTag(html, tag, open.end);
+	if (!open || open.end === -1) return null;
+	if (open.selfClosing) {
+		const empty: Element = {
+			attributes: open.attributes,
+			end: open.end,
 			inner: '',
-			start: first.index
+			start: open.start
 		};
 
-		return selfClosing;
+		return empty;
 	}
-
-	const tokens = new RegExp(`<${tag}(?=[\\s/>])|</${tag}\\s*>`, 'gi');
-	tokens.lastIndex = tagEnd;
 	let depth = 1;
-	let token = tokens.exec(html);
-	while (token && depth > 0) {
-		depth += token[0].startsWith('</') ? -1 : 1;
-		if (depth > 0) token = tokens.exec(html);
+	let token = nextTag(html, tag, open.end);
+	while (token && token.end !== -1) {
+		depth += depthChange(token);
+		if (depth === 0) break;
+		token = nextTag(html, tag, token.end);
 	}
-	if (!token) return null;
+	if (!token || token.end === -1) return null;
 	const element: Element = {
-		attributes,
-		end: token.index + token[0].length,
-		inner: html.slice(tagEnd, token.index),
-		start: first.index
+		attributes: open.attributes,
+		end: token.end,
+		inner: html.slice(open.end, token.start),
+		start: open.start
 	};
 
 	return element;
+};
+
+const lineOf = (html: string, index: number) =>
+	html.slice(0, index).split('\n').length;
+
+/** Fails on a `tag` in one file's own source that never ends, never closes
+ *  or closes nothing, naming the file and line. Left alone, the expansion
+ *  would stop there and ship the raw tags. */
+const assertBalanced = (
+	html: string,
+	tag: string,
+	file: string,
+	context: ExpandContext
+) => {
+	const open: Tag[] = [];
+	let token = nextTag(html, tag, 0);
+	while (token) {
+		const where = `${describe(file, context.root)}:${lineOf(html, token.start)}`;
+		if (token.end === -1)
+			throw includeError(
+				context,
+				`Unterminated <${tag}> tag in ${where}`
+			);
+		if (token.closing && !open.pop())
+			throw includeError(
+				context,
+				`</${tag}> without a matching <${tag}> in ${where}`
+			);
+		if (!token.closing && !token.selfClosing) open.push(token);
+		token = nextTag(html, tag, token.end);
+	}
+	const [unclosed] = open;
+	if (!unclosed) return;
+	throw includeError(
+		context,
+		`Unclosed <${tag}${unclosed.attributes.trimEnd()}> in ${describe(file, context.root)}:${lineOf(html, unclosed.start)}: close it with </${tag}> or make it self-closing (<${tag} … />)`
+	);
+};
+
+const INCLUDE_TAGS = ['abs-include', 'abs-slot'];
+
+/** Checks a file's own source before any of it is expanded, so the line
+ *  numbers are that file's. */
+const assertIncludeTagsBalanced = (
+	html: string,
+	file: string,
+	context: ExpandContext
+) => {
+	for (const tag of INCLUDE_TAGS) assertBalanced(html, tag, file, context);
 };
 
 const readAttribute = (attributes: string, name: string) =>
@@ -183,6 +291,7 @@ const expandWithin = (
 			);
 		}
 		context.dependencies.add(target);
+		assertIncludeTagsBalanced(source, target, { ...context, chain });
 		// The children belong to the including file: expand them there,
 		// then place them into the included file's slots before expanding
 		// its own includes (so a layout can pass slots on to another).
@@ -228,6 +337,7 @@ export const expandHtmlIncludes = (
 		root: options.root ?? process.cwd()
 	};
 
+	assertIncludeTagsBalanced(html, file, context);
 	// Expand first: `dependencies` fills in as includes are read.
 	const expanded = expandWithin(html, file, context);
 

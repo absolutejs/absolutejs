@@ -1,3 +1,4 @@
+import { HTML_CONTENT_TYPE } from '../constants';
 import { isDevelopmentRuntime } from './runtimeMode';
 import { basename } from 'node:path';
 import type { ConventionsMap, ErrorPageProps } from '../../types/conventions';
@@ -108,7 +109,7 @@ const renderReactError = async (
 	});
 
 	return new Response(stream, {
-		headers: { 'Content-Type': 'text/html' },
+		headers: { 'Content-Type': HTML_CONTENT_TYPE },
 		status: 500
 	});
 };
@@ -130,7 +131,7 @@ const renderSvelteError = async (
 	const html = `<!DOCTYPE html><html><head>${nonceSvelteHeadStyles(head)}</head><body>${body}</body></html>`;
 
 	return new Response(html, {
-		headers: { 'Content-Type': 'text/html' },
+		headers: { 'Content-Type': HTML_CONTENT_TYPE },
 		status: 500
 	});
 };
@@ -174,7 +175,7 @@ const renderVueError = async (
 	const html = `<!DOCTYPE html><html><head>${styles}</head><body><div id="root">${body}</div></body></html>`;
 
 	return new Response(html, {
-		headers: { 'Content-Type': 'text/html' },
+		headers: { 'Content-Type': HTML_CONTENT_TYPE },
 		status: 500
 	});
 };
@@ -193,7 +194,7 @@ const renderAngularError = async (
 	const html = renderFn(errorProps);
 
 	return new Response(html, {
-		headers: { 'Content-Type': 'text/html' },
+		headers: { 'Content-Type': HTML_CONTENT_TYPE },
 		status: 500
 	});
 };
@@ -225,7 +226,7 @@ const renderHtmlError = async (
 	const html = replaceErrorTokens(template, errorProps);
 
 	return new Response(html, {
-		headers: { 'Content-Type': 'text/html' },
+		headers: { 'Content-Type': HTML_CONTENT_TYPE },
 		status: 500
 	});
 };
@@ -407,7 +408,7 @@ const renderReactNotFound = async (conventionPath: string) => {
 	});
 
 	return new Response(stream, {
-		headers: { 'Content-Type': 'text/html' },
+		headers: { 'Content-Type': HTML_CONTENT_TYPE },
 		status: 404
 	});
 };
@@ -426,7 +427,7 @@ const renderSvelteNotFound = async (conventionPath: string) => {
 	const html = `<!DOCTYPE html><html><head>${nonceSvelteHeadStyles(head)}</head><body>${body}</body></html>`;
 
 	return new Response(html, {
-		headers: { 'Content-Type': 'text/html' },
+		headers: { 'Content-Type': HTML_CONTENT_TYPE },
 		status: 404
 	});
 };
@@ -447,7 +448,7 @@ const renderVueNotFound = async (conventionPath: string) => {
 	const html = `<!DOCTYPE html><html><head>${styles}</head><body><div id="root">${body}</div></body></html>`;
 
 	return new Response(html, {
-		headers: { 'Content-Type': 'text/html' },
+		headers: { 'Content-Type': HTML_CONTENT_TYPE },
 		status: 404
 	});
 };
@@ -460,7 +461,7 @@ const renderAngularNotFound = async (conventionPath: string) => {
 	const html = renderFn();
 
 	return new Response(html, {
-		headers: { 'Content-Type': 'text/html' },
+		headers: { 'Content-Type': HTML_CONTENT_TYPE },
 		status: 404
 	});
 };
@@ -469,7 +470,7 @@ const renderHtmlNotFound = async (conventionPath: string) => {
 	const html = await nonceStaticHtml(await Bun.file(conventionPath).text());
 
 	return new Response(html, {
-		headers: { 'Content-Type': 'text/html' },
+		headers: { 'Content-Type': HTML_CONTENT_TYPE },
 		status: 404
 	});
 };

@@ -4,11 +4,19 @@ import type { StaticConfig } from '../../types/build';
 import { PARTIAL_SHELL_HEADER, writePartialHoles } from './partialPrerender';
 import { renderedNonce, writeRenderedNonce } from './prerenderNonce';
 
+export type PrerenderFailure = {
+	/** Why the route couldn't be pre-rendered */
+	reason: string;
+	route: string;
+};
+
 export type PrerenderResult = {
 	/** Map of route path → rendered HTML file path on disk */
 	routes: Map<string, string>;
 	/** Directory where pre-rendered files are stored */
 	dir: string;
+	/** Routes that couldn't be pre-rendered; they render per request */
+	failures: PrerenderFailure[];
 };
 
 type LogFn = (message: string) => void;
@@ -153,7 +161,16 @@ export const rerenderRoute = async (
 	}
 };
 
-/** Fetch, render, and save a single route during pre-rendering */
+const describeError = (error: unknown) =>
+	error instanceof Error ? error.message : String(error);
+
+/** The line `absolute start` and `absolute compile` print, once, for a
+ *  route that couldn't be pre-rendered. */
+export const formatPrerenderFailure = ({ reason, route }: PrerenderFailure) =>
+	`Could not pre-render ${route}: ${reason}. It renders on each request instead.`;
+
+/** Fetch, render, and save a single route during pre-rendering. Returns why
+ *  the route couldn't be pre-rendered, or undefined once it's saved. */
 const prerenderRoute = async (
 	baseUrl: string,
 	route: string,
@@ -166,30 +183,28 @@ const prerenderRoute = async (
 	const res = await fetchWithTimeout(`${baseUrl}${route}`, {
 		headers: { [PARTIAL_SHELL_HEADER]: '1' },
 		redirect: 'manual'
-	}).catch(() => null);
-	if (!res) {
-		log?.(`  Failed to pre-render ${route}`);
-
-		return;
+	}).catch((error: unknown) => describeError(error));
+	if (typeof res === 'string') {
+		return `the request failed (${res})`;
 	}
 	if (!res.ok) {
-		log?.(`  Skipped ${route} (HTTP ${res.status})`);
+		await res.body?.cancel().catch(() => undefined);
 
-		return;
+		return `the route responded with HTTP ${res.status}`;
 	}
 
 	const contentType = res.headers.get('content-type') ?? '';
 	if (!contentType.includes('text/html')) {
-		log?.(`  Skipped ${route} (non-HTML response)`);
+		await res.body?.cancel().catch(() => undefined);
 
-		return;
+		return `the response is not HTML (content-type: ${contentType || 'none'})`;
 	}
 
+	// The whole document: static streaming slots, async resolvers included,
+	// are inlined before the stream closes.
 	const html = await res.text();
 	if (!isCompleteHtml(html)) {
-		log?.(`  Failed to pre-render ${route} (incomplete HTML document)`);
-
-		return;
+		return 'the rendered HTML document is incomplete (it ends without </html>)';
 	}
 	const fileName = routeToFilename(route);
 	const filePath = join(prerenderDir, fileName);
@@ -208,6 +223,29 @@ const prerenderRoute = async (
 	log?.(
 		`  Pre-rendered ${route} → ${fileName} (${html.length} bytes${partial})`
 	);
+
+	return undefined;
+};
+
+const recordPrerenderRoute = async (
+	baseUrl: string,
+	route: string,
+	prerenderDir: string,
+	result: PrerenderResult,
+	log?: LogFn
+) => {
+	const reason = await prerenderRoute(
+		baseUrl,
+		route,
+		prerenderDir,
+		result,
+		log
+	).catch((error: unknown) => `rendering it threw (${describeError(error)})`);
+	if (reason === undefined) return;
+
+	const failure: PrerenderFailure = { reason, route };
+	result.failures.push(failure);
+	log?.(`  ${formatPrerenderFailure(failure)}`);
 };
 
 /**
@@ -236,13 +274,14 @@ export const prerender = async (
 
 	const result: PrerenderResult = {
 		dir: prerenderDir,
+		failures: [],
 		routes: new Map()
 	};
 
 	await routes.reduce(
 		(chain, route) =>
 			chain.then(() =>
-				prerenderRoute(baseUrl, route, prerenderDir, result, log)
+				recordPrerenderRoute(baseUrl, route, prerenderDir, result, log)
 			),
 		Promise.resolve()
 	);

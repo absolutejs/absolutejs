@@ -1,3 +1,4 @@
+import { HTML_CONTENT_TYPE } from '../../constants';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
@@ -283,7 +284,7 @@ export const handleReactServerPageRequest = async <
 
 		return withPageCacheHeaders(
 			new Response(ssrErrorPage('react', error), {
-				headers: { 'Content-Type': 'text/html' },
+				headers: { 'Content-Type': HTML_CONTENT_TYPE },
 				status: 500
 			}),
 			request

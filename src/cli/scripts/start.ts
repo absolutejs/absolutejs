@@ -203,7 +203,8 @@ const prerenderStaticPages = async (
 	const prerenderStart = performance.now();
 	process.stdout.write(cliTag('\x1b[36m', 'Pre-rendering static pages'));
 
-	const { prerenderWithServer } = await import('../../core/prerender');
+	const { formatPrerenderFailure, prerenderWithServer } =
+		await import('../../core/prerender');
 
 	try {
 		killStaleProcesses(prerenderPort);
@@ -229,6 +230,9 @@ const prerenderStaticPages = async (
 		console.log(
 			` \x1b[2m(${result.routes.size} pages, ${prerenderDuration})\x1b[0m`
 		);
+		for (const failure of result.failures) {
+			console.warn(cliTag('\x1b[33m', formatPrerenderFailure(failure)));
+		}
 	} catch (err) {
 		console.error(
 			cliTag('\x1b[33m', 'Pre-rendering failed, pages will use SSR.')

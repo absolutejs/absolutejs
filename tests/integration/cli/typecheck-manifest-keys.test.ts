@@ -26,6 +26,17 @@ const repoRoot = resolve(import.meta.dir, '..', '..', '..');
 const CLI_PATH = join(repoRoot, 'src', 'cli', 'index.ts');
 let projectRoot = '';
 
+const COMPILER_OPTIONS: Record<string, string | string[] | boolean> = {
+	jsx: 'react-jsx',
+	lib: ['DOM', 'DOM.Iterable', 'ESNext'],
+	module: 'ESNext',
+	moduleResolution: 'bundler',
+	skipLibCheck: true,
+	strict: true,
+	target: 'ESNext',
+	types: ['bun']
+};
+
 const linkNodeModules = async () => {
 	const source = join(repoRoot, 'node_modules');
 	const target = join(projectRoot, 'node_modules');
@@ -95,16 +106,7 @@ beforeAll(async () => {
 	await write(
 		'tsconfig.json',
 		JSON.stringify({
-			compilerOptions: {
-				jsx: 'react-jsx',
-				lib: ['DOM', 'DOM.Iterable', 'ESNext'],
-				module: 'ESNext',
-				moduleResolution: 'bundler',
-				skipLibCheck: true,
-				strict: true,
-				target: 'ESNext',
-				types: ['bun']
-			},
+			compilerOptions: COMPILER_OPTIONS,
 			include: ['src']
 		})
 	);
@@ -169,5 +171,53 @@ describe('absolute typecheck: manifest keys', () => {
 		expect(output).toContain('TS2345');
 		expect(output).toContain('"Abuot"');
 		expect(output.match(/TS2345/g)).toHaveLength(1);
+	}, 300_000);
+
+	/* The editor note said to add the declaration to `include`, but a
+	 * tsconfig that excludes .absolutejs (every scaffold before beta.180)
+	 * drops it from `include` again, so the editor never saw the keys. `tsc`
+	 * itself, run as an editor would (the project's own tsconfig.json), shows
+	 * which entry works: `files`, which `exclude` doesn't apply to. */
+	test('the editor note names "files" when tsconfig excludes .absolutejs, and goes once it is listed', async () => {
+		const tsc = () =>
+			run([
+				process.execPath,
+				join(repoRoot, 'node_modules', 'typescript', 'bin', 'tsc'),
+				'-p',
+				'tsconfig.json',
+				'--noEmit'
+			]);
+		const writeTsconfig = (lists: Record<string, string[]>) =>
+			write(
+				'tsconfig.json',
+				JSON.stringify({ compilerOptions: COMPILER_OPTIONS, ...lists })
+			);
+		await writeServer('Abuot');
+		try {
+			await writeTsconfig({
+				exclude: ['node_modules', '.absolutejs'],
+				include: ['src', MANIFEST_KEYS_DECLARATION]
+			});
+			const noted = await typecheck();
+			expect(noted.output).toContain(
+				`"files": ["${MANIFEST_KEYS_DECLARATION}"]`
+			);
+			// Following the old note: still no keys in the editor.
+			expect((await tsc()).output).not.toContain('TS2345');
+
+			await writeTsconfig({
+				exclude: ['node_modules', '.absolutejs'],
+				files: [MANIFEST_KEYS_DECLARATION],
+				include: ['src']
+			});
+			const editor = await tsc();
+			expect(editor.output).toContain('TS2345');
+			expect(editor.output).toContain('"Abuot"');
+			const quiet = await typecheck();
+			expect(quiet.output).toContain('TS2345');
+			expect(quiet.output).not.toContain('asset(manifest, key) keys');
+		} finally {
+			await writeTsconfig({ include: ['src'] });
+		}
 	}, 300_000);
 });

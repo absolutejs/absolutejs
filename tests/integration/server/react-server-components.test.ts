@@ -368,7 +368,9 @@ describe.skipIf(!flightPackage)('React Server Components (phase 1)', () => {
 		expect(prodHtml).toContain('Count<!-- -->: <!-- -->5');
 		// The Suspense boundary streams in after the shell.
 		expect(prodHtml).toContain('streamed after the shell');
-		expect(prodHeaders.get('content-type')).toContain('text/html');
+		expect(prodHeaders.get('content-type')).toBe(
+			'text/html; charset=utf-8'
+		);
 	});
 
 	test('production: the Flight payload is inlined with the CSP nonce', () => {

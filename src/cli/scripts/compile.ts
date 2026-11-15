@@ -40,7 +40,10 @@ import {
 	DEFAULT_WEBSOCKET_IDLE_TIMEOUT_SECONDS,
 	MAX_HTTP_IDLE_TIMEOUT_SECONDS
 } from '../../constants';
-import { prerenderWithServer } from '../../core/prerender';
+import {
+	formatPrerenderFailure,
+	prerenderWithServer
+} from '../../core/prerender';
 import { getDurationString } from '../../utils/getDurationString';
 import { stripStringsAndComments } from '../../utils/stripStringsAndComments';
 import { withBuildDirectoryLock } from '../../utils/buildDirectoryLock';
@@ -1723,6 +1726,9 @@ export default server;
 	console.log(
 		` \x1b[2m(${prerenderMap.size} pages, ${getDurationString(performance.now() - prerenderStart)})\x1b[0m`
 	);
+	for (const failure of prerenderResult.failures) {
+		console.warn(cliTag('\x1b[33m', formatPrerenderFailure(failure)));
+	}
 
 	copyFrameworkRuntimePackages(buildConfig, resolvedOutdir);
 	rewriteRuntimeModuleSpecifiers(resolvedOutdir);

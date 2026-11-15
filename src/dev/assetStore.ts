@@ -7,7 +7,7 @@ const mimeTypes: Record<string, string> = {
 	'.css': 'text/css',
 	'.eot': 'application/vnd.ms-fontobject',
 	'.gif': 'image/gif',
-	'.html': 'text/html',
+	'.html': 'text/html; charset=utf-8',
 	'.ico': 'image/x-icon',
 	'.jpeg': 'image/jpeg',
 	'.jpg': 'image/jpeg',

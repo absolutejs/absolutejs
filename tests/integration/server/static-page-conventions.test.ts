@@ -18,7 +18,7 @@ const root = join(
 );
 
 type Mode = 'development' | 'production';
-type Result = { body: string; status: number };
+type Result = { body: string; status: number; type?: string };
 type Probe = Record<
 	| 'htmlError'
 	| 'htmxError'
@@ -97,7 +97,7 @@ const countThrows = (from, path) =>
 		.length;
 const countAll = (from) => errorLines.length - from;
 
-const read = async (response) => ({ body: await response.text(), status: response.status });
+const read = async (response) => ({ body: await response.text(), status: response.status, type: response.headers.get('content-type') ?? '' });
 const probe = {
 	logs: {},
 	htmlError: await read(await handleHTMLPageRequest(join(buildDir, 'html', 'pages', 'Missing.html'))),
@@ -275,6 +275,35 @@ describe('HTML and HTMX error conventions', () => {
 		expect(result('development', 'htmlError').body).toMatch(
 			/<pre id="stack">\[\w*Error: /
 		);
+	});
+});
+
+/* Every page response names its charset, or a page without its own
+ * <meta charset> (these have none) decodes as windows-1252. */
+describe('HTML and HTMX page content type', () => {
+	test('pages, error pages and not-found pages send text/html; charset=utf-8', () => {
+		const keys = [
+			'home',
+			'htmlError',
+			'htmxError',
+			'notFound',
+			'htmxNotFound',
+			'routeThrows',
+			'routeThrowsHtmx'
+		] as const;
+		expect(
+			Object.fromEntries(
+				keys.map((key) => [key, result('production', key).type])
+			)
+		).toEqual(
+			Object.fromEntries(
+				keys.map((key) => [key, 'text/html; charset=utf-8'])
+			)
+		);
+		for (const key of ['htmlError', 'htmxError'] as const)
+			expect(result('development', key).type).toBe(
+				'text/html; charset=utf-8'
+			);
 	});
 });
 

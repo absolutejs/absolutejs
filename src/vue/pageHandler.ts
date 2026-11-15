@@ -1,3 +1,4 @@
+import { HTML_CONTENT_TYPE } from '../constants';
 import { requestRenderUrl } from '../utils/requestRenderUrl';
 import { escapeScriptContent } from '../utils/escapeScriptContent';
 import { nonceAttr } from '../utils/cspNonceRef';
@@ -414,7 +415,7 @@ export const handleVuePageRequest = async <Component extends VueComponent>(
 			// we just skip the throwaway render. Non-SPA pages keep SSR + hydrate.
 			if (resolvedPage.hasSpaRoutes && clientMode === 'auto') {
 				return new Response(`${head}${buildTail()}`, {
-					headers: { 'Content-Type': 'text/html' }
+					headers: { 'Content-Type': HTML_CONTENT_TYPE }
 				});
 			}
 
@@ -513,7 +514,7 @@ export const handleVuePageRequest = async <Component extends VueComponent>(
 
 		return withPageCacheHeaders(
 			new Response(ssrErrorPage('vue', error), {
-				headers: { 'Content-Type': 'text/html' },
+				headers: { 'Content-Type': HTML_CONTENT_TYPE },
 				status: 500
 			}),
 			request

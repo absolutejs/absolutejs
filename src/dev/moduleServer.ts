@@ -15,7 +15,10 @@ import {
 	compileStyleSource,
 	createSvelteStylePreprocessor
 } from '../build/stylePreprocessor';
-import { lowerSvelteAwaitSlotSyntax } from '../svelte/lowerAwaitSlotSyntax';
+import {
+	createAwaitScopeClassCapture,
+	lowerSvelteAwaitSlotSyntax
+} from '../svelte/lowerAwaitSlotSyntax';
 import { lowerSvelteIslandSyntax } from '../svelte/lowerIslandSyntax';
 import { lazyModuleRegistration } from '../svelte/router/lazyModule';
 import type { DevPageEntry, StylePreprocessorConfig } from '../../types/build';
@@ -965,8 +968,11 @@ const compileSvelteComponent = (
 	enableAsync = false
 ) => {
 	const compiler = getLoadedSvelteCompiler();
+	// Streamed {#await} branches take the component's scoped-CSS class.
+	const scopeClass = createAwaitScopeClassCapture();
 	const compiled = compiler.compile(raw, {
 		css: 'external',
+		cssHash: scopeClass.cssHash,
 		dev: true,
 		experimental: {
 			async: enableAsync
@@ -975,7 +981,7 @@ const compileSvelteComponent = (
 		generate: 'client',
 		hmr: true
 	});
-	let { code } = compiled.js;
+	let code = scopeClass.apply(compiled.js.code);
 
 	// If the component has styles, inject them as a virtual CSS
 	// import. The handleCssRequest handler serves it as a <style>.

@@ -94,6 +94,34 @@ describe('production SSR correctness', () => {
 		expect(html).toContain('hx-');
 	});
 
+	/* A page without its own <meta charset> decoded as windows-1252, so
+	 * non-ASCII text turned to mojibake: React and Svelte (and the other
+	 * handlers) sent `text/html` with no charset. */
+	test('every framework page names its charset', async () => {
+		const routes = [
+			'/react',
+			'/svelte',
+			'/vue',
+			'/spashell/one',
+			'/angular',
+			'/html',
+			'/htmx'
+		];
+		const types = await Promise.all(
+			routes.map(async (route) => {
+				const response = await fetch(`${server.baseUrl}${route}`);
+				await response.text();
+
+				return [route, response.headers.get('content-type')];
+			})
+		);
+		expect(Object.fromEntries(types)).toEqual(
+			Object.fromEntries(
+				routes.map((route) => [route, 'text/html; charset=utf-8'])
+			)
+		);
+	});
+
 	test('no pages contain HMR client markers in production', async () => {
 		const { html } = await fetchPage(`${server.baseUrl}/react`);
 		expect(html).not.toContain('data-hmr-client');

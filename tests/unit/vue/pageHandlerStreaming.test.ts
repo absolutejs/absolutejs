@@ -146,7 +146,9 @@ export const setupApp = async (_app, context) => context.setNotFound();`
 		const fastPatchIndex = html.indexOf('"vue-fast"');
 		const slowPatchIndex = html.indexOf('"vue-slow"');
 
-		expect(response.headers.get('Content-Type')).toBe('text/html');
+		expect(response.headers.get('Content-Type')).toBe(
+			'text/html; charset=utf-8'
+		);
 		expect(html).toContain('__ABS_SLOT_ENQUEUE__');
 		expect(html).toContain('id="vue-fast"');
 		expect(html).toContain('id="vue-slow"');

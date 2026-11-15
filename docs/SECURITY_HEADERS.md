@@ -5,14 +5,29 @@ nonce, plus the usual security headers. It's opt-in. Register it before
 `absolutejs`:
 
 ```ts
-import { prepare, secureHeaders } from '@absolutejs/absolute';
+import { Elysia } from 'elysia';
+import {
+	asset,
+	networking,
+	prepare,
+	secureHeaders
+} from '@absolutejs/absolute';
+import { handleReactPageRequest } from '@absolutejs/absolute/react';
+import { Home } from '../frontend/react/pages/Home';
 
 const { absolutejs, manifest } = await prepare();
 
 export const server = new Elysia()
 	.use(secureHeaders())
 	.use(absolutejs)
-	.get('/', () => handleReactPageRequest({ … }));
+	.get('/', () =>
+		handleReactPageRequest({
+			index: asset(manifest, 'HomeIndex'),
+			Page: Home,
+			props: {}
+		})
+	)
+	.use(networking);
 ```
 
 ## What it sends
@@ -64,17 +79,45 @@ On framework pages (React, Svelte, Vue, Angular) the nonce is added where
 each script is written, not by rewriting the finished HTML. That's
 deliberate: a script injected through `{@html}`, `v-html` or
 `dangerouslySetInnerHTML` stays blocked, which is what the policy is for.
-For your own inline scripts on those pages, use the nonce yourself:
+For your own inline scripts on those pages, use the nonce yourself. In a
+React page, import `getCspNonce` from `@absolutejs/absolute/react`:
 
 ```tsx
-import { getCspNonce } from '@absolutejs/absolute';
+import { getCspNonce } from '@absolutejs/absolute/react';
 
-<script nonce={getCspNonce()} dangerouslySetInnerHTML={{ __html: analytics }} />
+const analytics = 'window.analyticsLoaded = true;';
+
+export const Home = () => (
+	<html>
+		<head>
+			<meta charSet="utf-8" />
+			<title>Home</title>
+		</head>
+		<body>
+			<h1>Home</h1>
+			<script
+				nonce={getCspNonce()}
+				dangerouslySetInnerHTML={{ __html: analytics }}
+				suppressHydrationWarning
+			/>
+		</body>
+	</html>
+);
 ```
 
-In route handlers it's also in the context as `cspNonce`. External
-`<script src>` tags you add to a framework page need it as well:
-`'strict-dynamic'` ignores host allowlists.
+It runs on both sides. During server rendering it returns the request's
+nonce; in the browser it returns the same value, read from the page's own
+scripts. Don't import it from `@absolutejs/absolute`: that entry is
+server code, and the React client build fails on its Node.js imports.
+
+`suppressHydrationWarning` is needed on any element with a nonce. Browsers
+hide the nonce attribute once the page loads, so CSS selectors can't read
+it. React's development hydration check then reads `nonce=""` and warns,
+whatever value you pass. AbsoluteJS's own `<Head>` does the same.
+
+In route handlers, the nonce is also in the context as `cspNonce`.
+External `<script src>` tags you add to a framework page need the nonce
+as well, because `'strict-dynamic'` ignores host allowlists.
 
 ## Customizing
 

@@ -64,9 +64,15 @@ describe('lowerSvelteAwaitSlotSyntax', () => {
 		expect(lowered.transformed).toBe(true);
 		expect(lowered.code).toContain('AbsoluteAwaitSlot');
 		expect(lowered.code).toContain('id="absolute-svelte-await-0"');
-		expect(lowered.code).toContain('fallbackHtml={`<p>Loading...</p>`}');
 		expect(lowered.code).toContain(
-			'return `<article class=${value.kind}>${value.title}</article>`;'
+			'fallbackHtml={`<p${__absoluteAwaitHtml.scope()}>Loading...</p>`}'
+		);
+		expect(lowered.code).toContain(
+			'return `<article${__absoluteAwaitHtml.class((value.kind))}>${__absoluteAwaitHtml.text((value.title))}</article>`;'
+		);
+		// The branches' shadow, never rendered, so Svelte keeps their CSS.
+		expect(lowered.code).toContain(
+			`{#if __absoluteAwaitHtml.shadow}<svelte:element this={'div'} data-absolute-slot="true"><p></p></svelte:element><svelte:element this={'div'} data-absolute-slot="true"><article class={__absoluteAwaitHtml.shadow}></article></svelte:element>{/if}`
 		);
 		expect(lowered.code).not.toContain('absolute:stream');
 		expect(lowered.code).not.toContain('{#await');
@@ -97,7 +103,7 @@ describe('lowerSvelteAwaitSlotSyntax', () => {
 		expect(lowered.code).toContain('{#await first then value}');
 		expect(lowered.code).toContain('await (second({ retry: true }))');
 		expect(lowered.code).toContain(
-			'catch (error) { return `<p>${error.message}</p>`; }'
+			'catch (error) { return `<p${__absoluteAwaitHtml.scope()}>${__absoluteAwaitHtml.text((error.message))}</p>`; }'
 		);
 		expect(() =>
 			compile(lowered.code, { generate: 'server' })

@@ -1,3 +1,4 @@
+import { HTML_CONTENT_TYPE } from '../constants';
 import { escapeScriptContent } from '../utils/escapeScriptContent';
 import { nonceAttr } from '../utils/cspNonceRef';
 import { isDevelopmentRuntime } from '../utils/runtimeMode';
@@ -237,7 +238,7 @@ export const handleEmberPageRequest = async (input: EmberPageRequestInput) => {
 
 		return withPageCacheHeaders(
 			new Response(html, {
-				headers: { 'Content-Type': 'text/html' }
+				headers: { 'Content-Type': HTML_CONTENT_TYPE }
 			}),
 			input.request
 		);
@@ -246,7 +247,7 @@ export const handleEmberPageRequest = async (input: EmberPageRequestInput) => {
 
 		return withPageCacheHeaders(
 			new Response(ssrErrorPage('ember', error), {
-				headers: { 'Content-Type': 'text/html' },
+				headers: { 'Content-Type': HTML_CONTENT_TYPE },
 				status: 500
 			}),
 			input.request

@@ -1,3 +1,4 @@
+import { HTML_CONTENT_TYPE } from '../constants';
 import { requestRenderUrl } from '../utils/requestRenderUrl';
 import { readCspNonce } from '../utils/cspNonceRef';
 import { isProductionRuntime } from '../utils/runtimeMode';
@@ -206,7 +207,7 @@ export const handleReactPageRequest = async <
 				const html = await new Response(htmlStream).text();
 
 				return new Response(html, {
-					headers: { 'Content-Type': 'text/html' }
+					headers: { 'Content-Type': HTML_CONTENT_TYPE }
 				});
 			}
 
@@ -240,7 +241,7 @@ export const handleReactPageRequest = async <
 
 		return withPageCacheHeaders(
 			new Response(ssrErrorPage('react', error), {
-				headers: { 'Content-Type': 'text/html' },
+				headers: { 'Content-Type': HTML_CONTENT_TYPE },
 				status: 500
 			}),
 			request

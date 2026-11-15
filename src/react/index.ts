@@ -4,3 +4,4 @@ export { handleReactServerPageRequest } from './serverComponents/pageHandler';
 export { Island } from './Island';
 export { createTypedIsland } from './createIsland';
 export { useIslandStore } from './hooks/useIslandStore';
+export { getCspNonce } from '../utils/pageCspNonce';

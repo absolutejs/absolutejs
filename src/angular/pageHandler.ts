@@ -3,7 +3,11 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { lstat, mkdir, readlink, symlink } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
 import type { EnvironmentProviders, Provider, Type } from '@angular/core';
-import { BASE_36_RADIX, RANDOM_ID_END_INDEX } from '../constants';
+import {
+	BASE_36_RADIX,
+	HTML_CONTENT_TYPE,
+	RANDOM_ID_END_INDEX
+} from '../constants';
 import { injectIslandPageContext } from '../core/islandPageContext';
 import { readHeadStylesheets, readHeadTitle } from '../core/routeAssets';
 import { injectInlineCss, readSiblingCss } from '../utils/inlinePageCss';
@@ -344,7 +348,7 @@ const buildRuntimeModuleSpecifier = (
 const withHtmlContentType = (responseInit: ResponseInit = {}) => {
 	const headers = new Headers(responseInit.headers);
 	if (!headers.has('Content-Type')) {
-		headers.set('Content-Type', 'text/html');
+		headers.set('Content-Type', HTML_CONTENT_TYPE);
 	}
 
 	return { ...responseInit, headers };
@@ -629,7 +633,7 @@ export const handleAngularPageRequest = async <Page = unknown>(
 
 			return withPageCacheHeaders(
 				new Response(ssrErrorPage('angular', error), {
-					headers: { 'Content-Type': 'text/html' },
+					headers: { 'Content-Type': HTML_CONTENT_TYPE },
 					status: 500
 				}),
 				request

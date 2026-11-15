@@ -11,8 +11,9 @@
  *   }
  *
  * `absolute typecheck` always reads that file; for the same checks in an
- * editor, add `.absolutejs/types/manifest.d.ts` to `include` in
- * tsconfig.json.
+ * editor, list `.absolutejs/types/manifest.d.ts` in tsconfig.json: under
+ * `include`, or under `files` when `exclude` names `.absolutejs` (exclude
+ * removes a file from `include`, never from `files`).
  */
 // An interface, not a type: declaration merging is how the keys get in.
 // eslint-disable-next-line @typescript-eslint/consistent-type-definitions, @typescript-eslint/no-empty-object-type

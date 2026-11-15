@@ -88,4 +88,42 @@ describe('HTML include HMR', () => {
 			'BANNER_V2'
 		);
 	}, 90_000);
+
+	test("a self-closing include inside an include's content expands and live-updates", async () => {
+		const wrapper = resolve(
+			PROJECT_ROOT,
+			'example/html/partials/IncludeWrap.html'
+		);
+		createFile(partial, '<p data-test-id="banner">BANNER_V1</p>\n');
+		createFile(wrapper, '<section>WRAP <abs-slot></abs-slot></section>\n');
+		mutateFile(examplePage, (source) =>
+			source.replace(
+				'<h1>AbsoluteJS + HTML</h1>',
+				'<h1>AbsoluteJS + HTML</h1>\n\t\t\t<abs-include src="../partials/IncludeWrap.html"><abs-include src="../partials/IncludeBanner.html" /></abs-include>'
+			)
+		);
+		server = await startDevServer();
+		client = await connectHMR(server.port);
+		await client.waitFor('manifest');
+		await client.waitFor('connected');
+		const initial = await (await fetch(`${server.baseUrl}/html`)).text();
+		expect(initial).toContain(
+			'<section>WRAP <p data-test-id="banner">BANNER_V1</p>'
+		);
+		expect(initial).not.toContain('<abs-include');
+		client.drain();
+
+		mutateFile(partial, (source) =>
+			source.replace('BANNER_V1', 'BANNER_V2')
+		);
+		const update = (await client.waitFor(
+			'html-update',
+			30_000
+		)) as HtmlUpdate;
+		expect(JSON.stringify(update.data?.html)).toContain('BANNER_V2');
+		expect(JSON.stringify(update.data?.html)).not.toContain('<abs-include');
+		const updated = await (await fetch(`${server.baseUrl}/html`)).text();
+		expect(updated).toContain('BANNER_V2');
+		expect(updated).not.toContain('<abs-include');
+	}, 90_000);
 });

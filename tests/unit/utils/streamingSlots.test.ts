@@ -179,19 +179,28 @@ describe('streamingSlots', () => {
 
 			window.__ABS_SLOT_ENQUEUE__?.('angular-defer', {
 				data: { e0: 'resolved' },
-				html: '<article>resolved</article>',
+				html: '<img src=x onerror="window.__xss=1">',
 				kind: 'angular-defer',
 				state: 'resolved'
 			});
 
-			expect(
-				document.getElementById('angular-defer')?.innerHTML
-			).toContain('');
+			// The payload html is size-accounting only: the runtime must
+			// never write it into the slot node, even when no consumer exists.
+			expect(slotNode.innerHTML).toBe('');
 			expect(
 				window.__ABS_SLOT_PENDING__?.['angular-defer']
 			).toBeDefined();
 
 			window.__ABS_SLOT_CONSUMERS__ = window.__ABS_SLOT_CONSUMERS__ ?? {};
+			// A consumer that declines falls back to applyToDom, which must
+			// still keep the payload queued instead of inserting its html.
+			window.__ABS_SLOT_CONSUMERS__['angular-defer'] = () => false;
+			window.__ABS_SLOT_FLUSH__?.();
+			expect(slotNode.innerHTML).toBe('');
+			expect(
+				window.__ABS_SLOT_PENDING__?.['angular-defer']
+			).toBeDefined();
+
 			window.__ABS_SLOT_CONSUMERS__['angular-defer'] = () => true;
 			window.__ABS_SLOT_FLUSH__?.();
 
@@ -306,6 +315,41 @@ describe('streamingSlots', () => {
 		const patchIndex = html.indexOf(')("late",');
 		expect(patchIndex).toBeGreaterThan(-1);
 		expect(patchIndex).toBeGreaterThan(html.indexOf('<main>base</main>'));
+		expect(patchIndex).toBeLessThan(html.indexOf('</body>'));
+		expect(html.endsWith('</body></html>')).toBe(true);
+	});
+
+	test('keeps the closing tags when several slots resolve after the base stream', async () => {
+		const base = createStream([
+			'<!DOCTYPE html><html><head><title>T</title></head><body>',
+			'<main>base</main></body></html>'
+		]);
+		const stream = appendStreamingSlotPatchesToStream(base, [
+			{
+				id: 'first',
+				resolve: async () => {
+					await Bun.sleep(10);
+
+					return '<p>first</p>';
+				}
+			},
+			{
+				id: 'second',
+				resolve: async () => {
+					await Bun.sleep(30);
+
+					return '<p>second</p>';
+				}
+			}
+		]);
+		const html = await new Response(stream).text();
+
+		expect(html).toContain(')("first",');
+		expect(html).toContain(')("second",');
+		expect(html.indexOf(')("second",')).toBeLessThan(
+			html.indexOf('</body>')
+		);
+		expect(html.endsWith('</body></html>')).toBe(true);
 	});
 
 	test('keeps fallback when a slot times out and no errorHtml is set', async () => {

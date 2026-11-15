@@ -3,7 +3,10 @@ import { mkdir, readdir } from 'node:fs/promises';
 import { basename, dirname, extname, join, relative, resolve } from 'node:path';
 import { resolvePackageImport } from '../build/resolvePackageImport';
 import { lowerSvelteIslandSyntax } from '../svelte/lowerIslandSyntax';
-import { lowerSvelteAwaitSlotSyntax } from '../svelte/lowerAwaitSlotSyntax';
+import {
+	createAwaitScopeClassCapture,
+	lowerSvelteAwaitSlotSyntax
+} from '../svelte/lowerAwaitSlotSyntax';
 import { createSvelteStylePreprocessor } from '../build/stylePreprocessor';
 import { LAZY_SOURCE_EXPORT } from '../svelte/router/lazyModule';
 import { isDevelopmentRuntime } from '../utils/runtimeMode';
@@ -304,8 +307,12 @@ export const compileSvelteServerModule = async (sourcePath: string) => {
 		);
 	}
 
-	let compiledCode = compile(transpiled, {
+	// Streamed {#await} branches take the scoped-CSS class Svelte gives
+	// the component in this compile.
+	const scopeClass = createAwaitScopeClassCapture();
+	const compiledServer = compile(transpiled, {
 		css: 'injected',
+		cssHash: scopeClass.cssHash,
 		experimental: {
 			async: loweredAwaitSource.transformed || loweredSource.transformed
 		},
@@ -315,7 +322,8 @@ export const compileSvelteServerModule = async (sourcePath: string) => {
 		// changes the anchor comments around a lone component. The server
 		// render has to place the same anchors or hydration fails.
 		hmr: isDevelopmentRuntime()
-	}).js.code;
+	});
+	let compiledCode = scopeClass.apply(compiledServer.js.code);
 
 	for (const [spec, compiledChildPath] of childModulePaths) {
 		compiledCode = replaceQuotedSpecifier(

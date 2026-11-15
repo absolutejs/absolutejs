@@ -1,3 +1,4 @@
+import { HTML_CONTENT_TYPE } from '../constants';
 import { requestRenderUrl } from '../utils/requestRenderUrl';
 import { nonceAttr } from '../utils/cspNonceRef';
 import type { Component as SvelteComponent } from 'svelte';
@@ -330,7 +331,7 @@ export const handleSveltePageRequest = async <
 
 		return withPageCacheHeaders(
 			new Response(ssrErrorPage('svelte', error), {
-				headers: { 'Content-Type': 'text/html' },
+				headers: { 'Content-Type': HTML_CONTENT_TYPE },
 				status: 500
 			}),
 			request

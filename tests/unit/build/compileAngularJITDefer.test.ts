@@ -350,6 +350,72 @@ export class MissingStylePageComponent {}
 		await rm(dir, { force: true, recursive: true });
 	});
 
+	test('HTML-escapes @defer interpolations in the streamed payload html', async () => {
+		const dir = await makeTemp();
+		const outDir = join(dir, 'out');
+		await mkdir(outDir, { recursive: true });
+
+		const inputPath = await writeComponentFile(
+			dir,
+			'escape-page',
+			`import { Component } from '@angular/core';
+@Component({
+	selector: 'app-escape',
+	standalone: true,
+	imports: [],
+	template: \`<section>
+		@defer (on timer(5ms)) {
+			<p title="{{ payload }}">{{ payload }}</p>
+		} @placeholder {
+			<p>Loading</p>
+		}
+	</section>\`
+})
+export class EscapePageComponent {
+	payload = '<img src=x onerror="window.__xss=1">';
+}
+`
+		);
+
+		const outputs = await compileAngularFileJIT(inputPath, outDir, dir);
+		const outputPath = outputs.find((path) =>
+			path.endsWith('escape-page.js')
+		);
+		expect(outputPath).toBeDefined();
+		const output = await readFile(outputPath as string, 'utf-8');
+
+		// Run the generated class body (without imports or decorators) and
+		// resolve the slot payload the way the streaming registrar would.
+		const classStart = output.indexOf('class EscapePageComponent {');
+		const classEnd = output.indexOf('\nEscapePageComponent = ');
+		expect(classStart).toBeGreaterThanOrEqual(0);
+		expect(classEnd).toBeGreaterThan(classStart);
+		const PageClass = new Function(
+			`return (${output.slice(classStart, classEnd)});`
+		)() as new () => {
+			__absoluteDeferResolvePayload0: () => Promise<{
+				data: Record<string, string>;
+				html: string;
+				kind: string;
+			}>;
+		};
+		const payload = await new PageClass().__absoluteDeferResolvePayload0();
+
+		expect(payload.kind).toBe('angular-defer');
+		expect(payload.html).not.toContain('<img');
+		expect(payload.html).not.toContain('"window');
+		expect(payload.html).toBe(
+			'<p title="&lt;img src=x onerror=&quot;window.__xss=1&quot;&gt;">&lt;img src=x onerror=&quot;window.__xss=1&quot;&gt;</p>'
+		);
+		// `data` stays raw: Angular's own {{ }} binding escapes it on render.
+		expect(Object.values(payload.data)).toEqual([
+			'<img src=x onerror="window.__xss=1">',
+			'<img src=x onerror="window.__xss=1">'
+		]);
+
+		await rm(dir, { force: true, recursive: true });
+	});
+
 	test('evaluates @defer interpolation expressions in resolved HTML', async () => {
 		const dir = await makeTemp();
 		const outDir = join(dir, 'out');

@@ -19,7 +19,10 @@ import { getFrameworkGeneratedDir } from '../utils/generatedDir';
 import { buildIslandMetadataExports } from '../islands/sourceMetadata';
 import { createSvelteStylePreprocessor } from './stylePreprocessor';
 import { lowerSvelteIslandSyntax } from '../svelte/lowerIslandSyntax';
-import { lowerSvelteAwaitSlotSyntax } from '../svelte/lowerAwaitSlotSyntax';
+import {
+	createAwaitScopeClassCapture,
+	lowerSvelteAwaitSlotSyntax
+} from '../svelte/lowerAwaitSlotSyntax';
 import { SVELTE_PAGE_ROOT_ID } from '../svelte/renderToReadableStream';
 import type { StylePreprocessorConfig } from '../../types/build';
 import { inlineSourceMapComment } from './inlineSourceMapComment';
@@ -477,6 +480,9 @@ export const compileSvelte = async (
 		const generate = (mode: 'server' | 'client') => {
 			const transpiled =
 				mode === 'server' ? transpiledServer : transpiledClient;
+			// Streamed {#await} branches take the scoped-CSS class Svelte
+			// gives this compile of the component.
+			const scopeClass = createAwaitScopeClassCapture();
 			const compiled = isModule
 				? compileModule(transpiled, {
 						dev: mode === 'client' && dev,
@@ -490,6 +496,7 @@ export const compileSvelte = async (
 							externalCss && mode === 'client'
 								? 'external'
 								: 'injected',
+						cssHash: scopeClass.cssHash,
 						dev: mode === 'client' && dev,
 						experimental: {
 							async: transformedByLowering
@@ -504,10 +511,9 @@ export const compileSvelte = async (
 						hmr: isDev
 					});
 			const compiledJs = compiled.js;
-			let code = compiledJs.code.replace(
-				/\.svelte(?:\.(?:ts|js))?(['"])/g,
-				'.js$1'
-			);
+			let code = scopeClass
+				.apply(compiledJs.code)
+				.replace(/\.svelte(?:\.(?:ts|js))?(['"])/g, '.js$1');
 			// For client dev builds: replace import.meta.hot with our
 			// accept registry so $.hmr() wrapper + accept callback are
 			// both active. This enables component-level HMR swaps.

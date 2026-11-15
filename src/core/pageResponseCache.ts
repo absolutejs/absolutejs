@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { HTML_CONTENT_TYPE } from '../constants';
 
 // The SPA cache policy, applied to every framework's HTML page response.
 //
@@ -19,7 +20,7 @@ import { createHash } from 'node:crypto';
 // enhancer) can tag their streamed output too.
 export const STREAMING_PAGE_HEADER = 'x-absolute-stream';
 
-const HTML_CONTENT_TYPE = 'text/html';
+const HTML_MEDIA_TYPE = 'text/html';
 
 /** Headers for a STREAMING html page response — `text/html` plus the streaming
  *  marker so {@link withPageCacheHeaders} marks it `no-cache` (no ETag). */
@@ -59,7 +60,7 @@ export const withPageCacheHeaders = async (
 	options?: PageCacheOptions
 ) => {
 	const contentType = response.headers.get('content-type') ?? '';
-	if (!contentType.includes(HTML_CONTENT_TYPE)) return response;
+	if (!contentType.includes(HTML_MEDIA_TYPE)) return response;
 
 	const isStreaming = response.headers.get(STREAMING_PAGE_HEADER) === '1';
 

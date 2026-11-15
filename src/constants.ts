@@ -37,6 +37,10 @@ export const CONFIG_DEFAULT_PORT = 4099;
 export const HMR_UPDATE_TIMEOUT_MS = 2000;
 export const HOOK_SIGNATURE_LENGTH = 12;
 export const EXCLUDE_LAST_OFFSET = -1;
+/* Every HTML page response names its charset: a page without its own
+ * <meta charset> is otherwise decoded as windows-1252 and non-ASCII text
+ * turns to mojibake. */
+export const HTML_CONTENT_TYPE = 'text/html; charset=utf-8';
 export const HTTP_STATUS_OK = 200;
 export const HTTP_STATUS_BAD_REQUEST = 400;
 export const HTTP_STATUS_NOT_FOUND = 404;

@@ -1,3 +1,4 @@
+import { HTML_CONTENT_TYPE } from '../constants';
 import { file } from 'bun';
 import { transformCurrentStaticPageHtml } from '../build/staticIslandPages';
 import { withPageCacheHeaders } from './pageResponseCache';
@@ -86,7 +87,7 @@ const handleStaticPageRequest = async (
 	return withPageCacheHeaders(
 		await withStreamingSlots(
 			new Response(injectIslandPageContext(htmlWithTranslationBaseline), {
-				headers: { 'Content-Type': 'text/html' }
+				headers: { 'Content-Type': HTML_CONTENT_TYPE }
 			}),
 			{
 				...options,
@@ -115,7 +116,7 @@ const renderStaticPageError = async (
 	return withPageCacheHeaders(
 		conventionResponse ??
 			new Response(ssrErrorPage(framework, error), {
-				headers: { 'Content-Type': 'text/html' },
+				headers: { 'Content-Type': HTML_CONTENT_TYPE },
 				status: 500
 			})
 	);

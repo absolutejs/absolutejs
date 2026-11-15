@@ -29,10 +29,8 @@ import {
 	tsconfigHasSvelteDeclarationRoot
 } from '../../build/svelteDeclarations';
 import { ensureFileRouteModule } from '../../build/fileRoutes';
-import {
-	MANIFEST_KEYS_DECLARATION,
-	writeManifestKeysDeclaration
-} from '../../build/manifestKeys';
+import { writeManifestKeysDeclaration } from '../../build/manifestKeys';
+import { manifestKeysEditorHint } from './manifestKeysEditorHint';
 import { diagnosticKeys, withoutReported } from './typecheckDiagnostics';
 import type {
 	AbsoluteServiceConfig,
@@ -475,8 +473,6 @@ export const svelteRoots = (
  * the configs exclude, so they are named in `files`. */
 let manifestKeyDeclarations: string[] = [];
 
-const MANIFEST_KEYS_EDITOR_HINT = `\x1b[33mnote\x1b[0m asset(manifest, key) keys are checked by this command. For the same check in your editor, add "${MANIFEST_KEYS_DECLARATION}" to include in tsconfig.json.`;
-
 const prepareManifestKeys = async (
 	targets: readonly AbsoluteServiceConfig[]
 ) => {
@@ -493,13 +489,9 @@ const prepareManifestKeys = async (
 	manifestKeyDeclarations = written.filter(
 		(path): path is string => path !== null
 	);
-	const config = readProjectTsconfig();
-	const listed = [
-		...toStringArray(config.include),
-		...toStringArray(config.files)
-	].some((entry) => entry.replace(/^\.\//, '').startsWith('.absolutejs'));
-	if (manifestKeyDeclarations.length > 0 && !listed)
-		console.log(MANIFEST_KEYS_EDITOR_HINT);
+	if (manifestKeyDeclarations.length === 0) return;
+	const hint = manifestKeysEditorHint(readProjectTsconfig());
+	if (hint) console.log(hint);
 };
 
 /* `rootDirs` for the generated configs once Svelte declarations exist: the

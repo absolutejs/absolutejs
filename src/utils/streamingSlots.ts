@@ -863,10 +863,15 @@ export const appendStreamingSlotPatchesToStream = (
 			  },
 		baseRead: StreamReadPromise,
 		tail: string,
-		footer: string
+		footer: string,
+		baseDone: boolean
 	) => {
+		// A slot won the race. Keep the base stream's state as it was: once
+		// the base finished, its held </body></html> footer must survive
+		// until the remaining slots resolve, and its settled `done` read
+		// must not race again (finalizing a second time drops the footer).
 		if (winner.kind !== 'base') {
-			return { baseDone: false, baseRead, footer, handled: false, tail };
+			return { baseDone, baseRead, footer, handled: false, tail };
 		}
 
 		if (winner.done) {
@@ -954,7 +959,14 @@ export const appendStreamingSlotPatchesToStream = (
 
 			const winner = await Promise.race(racers);
 			const baseWinnerState = applyBaseWinnerState(
-				handleBaseWinner(controller, winner, baseRead, tail, footer),
+				handleBaseWinner(
+					controller,
+					winner,
+					baseRead,
+					tail,
+					footer,
+					baseDone
+				),
 				winner,
 				(slotWinner) => {
 					handleResolvedSlot(controller, slotWinner);

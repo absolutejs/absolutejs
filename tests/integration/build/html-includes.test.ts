@@ -141,6 +141,47 @@ describe('HTML includes', () => {
 		expect(Object.keys(manifest)).not.toContain('Counter');
 	}, 120_000);
 
+	test("a self-closing include inside an include's content expands", async () => {
+		const { exitCode, manifest, output } = await createProject(
+			'self-closing',
+			{
+				...BASE_FILES,
+				'html/pages/Contact.html': `<abs-include src="../layouts/base.html">
+	<template slot="head"><abs-include src="../partials/meta.html" /></template>
+	<h1>CONTACT_BODY</h1>
+	<abs-include src="../partials/cta.html"/><abs-include src="../partials/cta.html" data-x="a>b/" />
+</abs-include>
+`,
+				'html/partials/cta.html':
+					'<a class="cta">CTA <abs-include src="nav.html"/></a>',
+				'html/partials/meta.html': '<title>CONTACT_TITLE</title>'
+			}
+		);
+		expect(output).not.toContain('error');
+		expect(exitCode).toBe(0);
+		const contact = await readFile(manifest.Contact ?? '', 'utf8');
+
+		expect(contact).not.toMatch(/abs-include|abs-slot|<template/);
+		expect(contact).toContain('<title>CONTACT_TITLE</title>');
+		expect(contact).not.toContain('DEFAULT_TITLE');
+		expect(contact).toContain('SITE_HEADER <nav>NESTED_NAV</nav>');
+		expect(contact).toContain('<h1>CONTACT_BODY</h1>');
+		expect(contact.split('<a class="cta">CTA <nav>NESTED_NAV</nav>').length).toBe(3);
+	}, 120_000);
+
+	test('an unclosed include fails the build with its file and line', async () => {
+		const { exitCode, output } = await createProject('unclosed', {
+			...BASE_FILES,
+			'html/pages/Broken.html':
+				'<p>intro</p>\n<abs-include src="../layouts/base.html">\n<p>BODY</p>\n'
+		});
+
+		expect(exitCode).not.toBe(0);
+		expect(output).toContain(
+			'Unclosed <abs-include src="../layouts/base.html"> in html/pages/Broken.html:2'
+		);
+	}, 120_000);
+
 	test('an include cycle fails the build with the chain', async () => {
 		const { exitCode, output } = await createProject('cycle', {
 			'html/pages/Loop.html':

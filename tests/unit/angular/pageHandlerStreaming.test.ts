@@ -174,7 +174,9 @@ describe('handleAngularPageRequest streaming', () => {
 		const fastPatchIndex = html.indexOf('"angular-fast"');
 		const slowPatchIndex = html.indexOf('"angular-slow"');
 
-		expect(response.headers.get('Content-Type')).toBe('text/html');
+		expect(response.headers.get('Content-Type')).toBe(
+			'text/html; charset=utf-8'
+		);
 		expect(html).toContain('__ABS_SLOT_ENQUEUE__');
 		expect(html).toContain('id="angular-fast"');
 		expect(html).toContain('id="angular-slow"');
@@ -203,7 +205,9 @@ describe('handleAngularPageRequest streaming', () => {
 		const fastPatchIndex = html.indexOf('angular defer fast resolved');
 		const slowPatchIndex = html.indexOf('angular defer slow resolved');
 
-		expect(response.headers.get('Content-Type')).toBe('text/html');
+		expect(response.headers.get('Content-Type')).toBe(
+			'text/html; charset=utf-8'
+		);
 		expect(html).toContain('__ABS_SLOT_ENQUEUE__');
 		expect(html).toContain('id="absolute-angular-defer-0"');
 		expect(html).toContain('id="absolute-angular-defer-1"');
@@ -234,7 +238,9 @@ describe('handleAngularPageRequest streaming', () => {
 		const html = await response.text();
 
 		expect(response.status).toBe(207);
-		expect(response.headers.get('Content-Type')).toBe('text/html');
+		expect(response.headers.get('Content-Type')).toBe(
+			'text/html; charset=utf-8'
+		);
 		expect(response.headers.get('x-existing')).toBe('kept');
 		expect(response.headers.get('x-angular-ssr')).toBe('request-token');
 		expect(html).toContain(

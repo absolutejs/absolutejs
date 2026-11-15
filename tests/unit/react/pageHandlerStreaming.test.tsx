@@ -57,7 +57,9 @@ describe('handleReactPageRequest streaming', () => {
 		const fastPatchIndex = html.indexOf('"react-fast"');
 		const slowPatchIndex = html.indexOf('"react-slow"');
 
-		expect(response.headers.get('Content-Type')).toBe('text/html');
+		expect(response.headers.get('Content-Type')).toBe(
+			'text/html; charset=utf-8'
+		);
 		expect(html).toContain('__ABS_SLOT_ENQUEUE__');
 		expect(html).toContain('id="react-fast"');
 		expect(html).toContain('id="react-slow"');

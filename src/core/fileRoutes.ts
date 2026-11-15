@@ -1,3 +1,4 @@
+import { HTML_CONTENT_TYPE } from '../constants';
 import { Elysia, NotFound, type AnyElysia } from 'elysia';
 import type {
 	FileRouteContext,
@@ -58,7 +59,7 @@ const renderLoadError = async (route: FileRouteDefinition, error: unknown) => {
 	return (
 		conventionResponse ??
 		new Response(ssrErrorPage(route.framework, error), {
-			headers: { 'Content-Type': 'text/html' },
+			headers: { 'Content-Type': HTML_CONTENT_TYPE },
 			status: 500
 		})
 	);

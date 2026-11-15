@@ -1,4 +1,5 @@
 import { BASE_36_RADIX } from '../constants';
+import type { SvelteCssHashGetter } from '../../types/svelte';
 
 /* Opt-in streaming for Svelte `{#await}` blocks.
  *
@@ -10,10 +11,11 @@ import { BASE_36_RADIX } from '../constants';
  * lowered to an `AbsoluteAwaitSlot` streaming slot: the server sends the
  * pending HTML, resolves the promise itself and streams the resolved HTML
  * into the slot. The streamed branches become HTML strings, not Svelte
- * markup, so they may hold elements and `{expressions}` only. Anything
- * Svelte has to render (a component, `{#if}`, `{#each}`, `{@html}`, …) is
- * rejected at build time rather than shipped as text, and the page doesn't
- * hydrate, because the streamed HTML isn't Svelte's to claim.
+ * markup, so they may hold elements, `{expressions}` (escaped exactly as
+ * Svelte's SSR escapes them) and `{@html}` only. Anything Svelte has to
+ * render (a component, `{#if}`, `{#each}`, an event handler, …) is rejected
+ * at build time rather than shipped as text, and the page doesn't hydrate,
+ * because the streamed HTML isn't Svelte's to claim.
  *
  *   <!-- absolute:stream -->
  *   {#await loadPrices()}
@@ -86,20 +88,501 @@ const escapeTemplateLiteral = (value: string) =>
 		.replaceAll('`', '\\`')
 		.replaceAll('${', '\\${');
 
-const markupToTemplateLiteral = (markup: string) => {
-	const parts = topLevelTags(markup.trim());
-	const trimmed = markup.trim();
-	let cursor = 0;
-	let literal = '';
-	for (const { end, start, text } of parts) {
-		literal += escapeTemplateLiteral(trimmed.slice(cursor, start));
-		literal += `\${${text.slice(1, -1).trim()}}`;
-		cursor = end;
-	}
-	literal += escapeTemplateLiteral(trimmed.slice(cursor));
+/* The streamed branches are HTML strings, so every `{expression}` in them is
+ * escaped the way Svelte's own SSR escapes it (svelte/internal/server
+ * `escape`, `attr`, `attr_class`, `attr_style`, `stringify`, `clsx`):
+ *
+ *   text            {value}            & and < escaped
+ *   attribute       name={value}       & " < escaped, null/undefined omits
+ *                                      it, boolean attributes as in Svelte
+ *   class / style   class={value}      clsx for class, omitted when empty
+ *   mixed value     title="a {value}"  each expression stringified and
+ *                                      escaped, the value double-quoted
+ *   raw HTML        {@html value}      not escaped (Svelte's opt-out)
+ *
+ * The helpers are inlined into the lowered component rather than imported,
+ * so the lowering needs nothing beyond `AwaitSlot.svelte` at runtime. They
+ * are plain JavaScript so they work in a `lang="ts"` script and a plain one.
+ *
+ * Every element in a branch also gets the component's scoped-CSS class
+ * (`svelte-xyz`, added as Svelte's SSR adds it, after any class of its own),
+ * so the component's `<style>` applies inside the streamed HTML as it does
+ * to the rest of the component. Svelte only settles that class while it
+ * compiles the component, so the helpers carry a placeholder that every
+ * compile of a lowered component replaces with the class Svelte computed
+ * (`createAwaitScopeClassCapture`). */
+const HTML_HELPERS = '__absoluteAwaitHtml';
 
-	return `\`${literal}\``;
+export const AWAIT_SCOPE_CLASS_PLACEHOLDER = '__absoluteAwaitScopeClass__';
+
+export const AWAIT_HTML_HELPERS_SOURCE = [
+	`const ${HTML_HELPERS} = (() => {`,
+	`\tconst scope = ${JSON.stringify(AWAIT_SCOPE_CLASS_PLACEHOLDER)};`,
+	"\tconst escape = (value, isAttr) => String(value ?? '').replace(isAttr ? /[&\"<]/g : /[&<]/g, (char) => char === '&' ? '&amp;' : char === '\"' ? '&quot;' : '&lt;');",
+	"\tconst stringify = (value) => typeof value === 'string' ? value : value == null ? '' : value + '';",
+	"\tconst classNames = (value) => { if (Array.isArray(value)) return value.filter(Boolean).map(classNames).filter(Boolean).join(' '); if (value && typeof value === 'object') return Object.keys(value).filter((key) => value[key]).join(' '); return typeof value === 'string' || typeof value === 'number' ? String(value) : ''; };",
+	'\treturn {',
+	"\t\tattr: (name, value, isBoolean) => { const boolean = isBoolean || (name === 'hidden' && value !== 'until-found'); if (value == null || (!value && boolean)) return ''; const normalized = name === 'translate' && typeof value === 'boolean' ? (value ? 'yes' : 'no') : value; return boolean ? ' ' + name + '=\"\"' : ' ' + name + '=\"' + escape(normalized, true) + '\"'; },",
+	"\t\tclass: (value) => { const resolved = typeof value === 'object' ? classNames(value) : value ?? ''; let name = '' + resolved; if (scope) name = name ? name + ' ' + scope : scope; return name ? ' class=\"' + escape(name, true) + '\"' : ''; },",
+	"\t\thtml: (value) => String(value ?? ''),",
+	"\t\tjoin: (...values) => values.map(stringify).join(''),",
+	'\t\tpart: (value) => escape(stringify(value), true),',
+	"\t\tscope: () => scope ? ' class=\"' + scope + '\"' : '',",
+	"\t\tscoped: () => scope ? ' ' + scope : '',",
+	// Never true: it guards the copy of the branches Svelte compiles only
+	// to keep their CSS selectors (see `shadowMarkup`).
+	'\t\tshadow: false,',
+	"\t\tstyle: (value) => { const style = value == null ? '' : String(value); return style ? ' style=\"' + escape(style, true) + '\"' : ''; },",
+	'\t\ttext: (value) => escape(value, false)',
+	'\t};',
+	'})();'
+].join('\n');
+
+/** Puts `scopeClass` (or nothing, for a component without a `<style>`)
+ *  where the lowering left the scoped-CSS class placeholder. */
+export const applyAwaitScopeClass = (code: string, scopeClass: string) =>
+	code.replaceAll(AWAIT_SCOPE_CLASS_PLACEHOLDER, scopeClass);
+
+/** A `cssHash` compile option that hashes exactly as Svelte's default does
+ *  (svelte/src/compiler/validate-options.js) and remembers the class, plus
+ *  `apply`, which writes that class into the compiled code of a lowered
+ *  component. Svelte only calls `cssHash` for a component with a `<style>`,
+ *  so without one the placeholder becomes an empty string. One capture per
+ *  `compile` call. */
+export const createAwaitScopeClassCapture = () => {
+	let scopeClass = '';
+	const cssHash: SvelteCssHashGetter = ({ css, filename, hash }) => {
+		scopeClass = `svelte-${hash(filename === '(unknown)' ? css : (filename ?? css))}`;
+
+		return scopeClass;
+	};
+	const apply = (code: string) => applyAwaitScopeClass(code, scopeClass);
+
+	return { apply, cssHash };
 };
+
+/* Svelte's boolean attributes (svelte/src/utils.js), rendered as `name=""`
+ * when truthy and left out when falsy. */
+const BOOLEAN_ATTRIBUTES = new Set([
+	'allowfullscreen',
+	'async',
+	'autofocus',
+	'autoplay',
+	'checked',
+	'controls',
+	'default',
+	'defer',
+	'disabled',
+	'disablepictureinpicture',
+	'disableremoteplayback',
+	'formnovalidate',
+	'indeterminate',
+	'inert',
+	'ismap',
+	'loop',
+	'multiple',
+	'muted',
+	'nomodule',
+	'novalidate',
+	'open',
+	'playsinline',
+	'readonly',
+	'required',
+	'reversed',
+	'seamless',
+	'selected',
+	'webkitdirectory'
+]);
+const DIRECTIVE_ATTRIBUTE_RE =
+	/^(?:animate|bind|class|in|let|on|out|style|transition|use):/;
+const ATTRIBUTE_NAME_END_RE = /[\s=>/{]/;
+const RAW_TEXT_ELEMENTS = new Set(['script', 'style']);
+
+type AttributeChunk = { code: string } | { text: string };
+
+/* Besides the HTML template literal, the scan builds a "shadow" of each
+ * branch: its elements and attributes as Svelte markup, with every
+ * expression swapped for an opaque value. The lowered component renders the
+ * shadow under a condition that is never true, so it costs nothing at run
+ * time, but Svelte's CSS analysis sees the branch elements in it. Without it
+ * Svelte would prune every selector that only matches elements inside a
+ * streamed branch as unused, and the scoped class would style nothing. */
+type MarkupScan = {
+	branch: string;
+	filePath: string | undefined;
+	/** Whether the start tag being copied has a class attribute yet. */
+	hasClass: boolean;
+	index: number;
+	literal: string;
+	shadow: string;
+	source: string;
+};
+
+const helperCall = (name: string, ...args: string[]) =>
+	`\${${HTML_HELPERS}.${name}(${args.join(', ')})}`;
+
+const SHADOW_VALUE = `{${HTML_HELPERS}.shadow}`;
+const END_TAG_RE = /<\/[A-Za-z][^\s>]*\s*>/g;
+
+/** Whether the shadow keeps an attribute: event handlers and directives
+ *  don't affect which selectors match, and Svelte would compile them. */
+const isShadowAttribute = (name: string) =>
+	!DIRECTIVE_ATTRIBUTE_RE.test(name) && !/^on/i.test(name);
+
+const pushText = (scan: MarkupScan, text: string) => {
+	scan.literal += escapeTemplateLiteral(text);
+};
+
+/** Reads the `{...}` tag at `scan.index` and returns its trimmed contents. */
+const readExpressionTag = (scan: MarkupScan) => {
+	const end = findTagEnd(scan.source, scan.index);
+	if (end === -1) {
+		fail(scan.filePath, `unterminated tag in the ${scan.branch} branch`);
+	}
+	const inner = scan.source.slice(scan.index + 1, end - 1).trim();
+	scan.index = end;
+
+	return inner;
+};
+
+const failAttribute = (scan: MarkupScan, detail: string) =>
+	fail(
+		scan.filePath,
+		`the ${scan.branch} branch of a streamed {#await} has ${detail}`
+	);
+
+/** Whether the scan sits at the end of an attribute value: its closing
+ *  quote, or for an unquoted value whitespace or the tag's end. */
+const atValueEnd = (scan: MarkupScan, quote: string | undefined) => {
+	const char = scan.source[scan.index] ?? '';
+	if (quote) return char === quote;
+
+	return /[\s>]/.test(char) || scan.source.startsWith('/>', scan.index);
+};
+
+/** Reads attribute-value text up to the next `{` or the value's end. */
+const readValueText = (scan: MarkupScan, quote: string | undefined) => {
+	const start = scan.index;
+	while (
+		scan.index < scan.source.length &&
+		scan.source[scan.index] !== '{' &&
+		!atValueEnd(scan, quote)
+	) {
+		scan.index += 1;
+	}
+
+	return scan.source.slice(start, scan.index);
+};
+
+/** Reads an attribute value after its `=`: quoted, a lone `{expression}`,
+ *  or unquoted text. */
+const readAttributeValue = (scan: MarkupScan) => {
+	const { source } = scan;
+	const quote = source[scan.index];
+	const chunks: AttributeChunk[] = [];
+	const isQuoted = quote === '"' || quote === "'";
+	if (isQuoted) scan.index += 1;
+	if (!isQuoted && source[scan.index] === '{') {
+		chunks.push({ code: readExpressionTag(scan) });
+
+		return chunks;
+	}
+	const valueQuote = isQuoted ? quote : undefined;
+	while (scan.index < source.length && !atValueEnd(scan, valueQuote)) {
+		chunks.push({ text: readValueText(scan, valueQuote) });
+		if (source[scan.index] === '{')
+			chunks.push({ code: readExpressionTag(scan) });
+	}
+	if (isQuoted) scan.index += 1;
+
+	return chunks.filter((chunk) => !('text' in chunk) || chunk.text !== '');
+};
+
+/** Emits one attribute whose value holds expressions, through the same
+ *  helpers Svelte's SSR uses. */
+const pushDynamicAttribute = (
+	scan: MarkupScan,
+	name: string,
+	chunks: AttributeChunk[]
+) => {
+	// An event handler's value is code, not text: escaping can't make an
+	// interpolated value safe there, and Svelte never server-renders one.
+	if (DIRECTIVE_ATTRIBUTE_RE.test(name) || /^on/i.test(name)) {
+		failAttribute(
+			scan,
+			`an expression in ${name}= (directives and event handlers need Svelte to run them)`
+		);
+	}
+	const tag = chunks.find(
+		(chunk) => 'code' in chunk && /^[#:/@]/.test(chunk.code)
+	);
+	if (tag && 'code' in tag) {
+		failAttribute(scan, `{${tag.code}} in the ${name}= attribute`);
+	}
+	if (isShadowAttribute(name)) scan.shadow += ` ${name}=${SHADOW_VALUE}`;
+	const isClass = name === 'class';
+	if (isClass) scan.hasClass = true;
+	const [only] = chunks;
+	const codes = chunks.flatMap((chunk) =>
+		'code' in chunk ? [`(${chunk.code})`] : []
+	);
+	// `class="{a}{b}"`: Svelte renders it through attr_class, so it gets the
+	// scoped class too and is left out when it comes out empty.
+	if (isClass && chunks.length > 1 && codes.length === chunks.length) {
+		scan.literal += helperCall(
+			'class',
+			`${HTML_HELPERS}.join(${codes.join(', ')})`
+		);
+
+		return;
+	}
+	if (chunks.length === 1 && only && 'code' in only) {
+		const value = `(${only.code})`;
+		if (name === 'class') scan.literal += helperCall('class', value);
+		else if (name === 'style') scan.literal += helperCall('style', value);
+		else
+			scan.literal += helperCall(
+				'attr',
+				JSON.stringify(name),
+				value,
+				String(BOOLEAN_ATTRIBUTES.has(name))
+			);
+
+		return;
+	}
+	pushText(scan, ` ${name}="`);
+	for (const chunk of chunks) {
+		if ('code' in chunk)
+			scan.literal += helperCall('part', `(${chunk.code})`);
+		else pushText(scan, chunk.text.replaceAll('"', '&quot;'));
+	}
+	if (isClass) scan.literal += helperCall('scoped');
+	pushText(scan, '"');
+};
+
+/** Copies a static attribute; a class gets the scoped class appended. */
+const pushStaticAttribute = (
+	scan: MarkupScan,
+	whitespace: string,
+	name: string,
+	value: string
+) => {
+	if (isShadowAttribute(name)) scan.shadow += `${whitespace}${name}=${value}`;
+	if (name !== 'class') {
+		pushText(scan, `${whitespace}${name}=${value}`);
+
+		return;
+	}
+	scan.hasClass = true;
+	const [first = ''] = value;
+	const isQuoted = first === '"' || first === "'";
+	const quote = isQuoted ? first : '"';
+	const classes = isQuoted ? value.slice(1, -1) : value;
+	// Svelte drops an empty class="" (or makes it the scoped class).
+	if (classes === '') {
+		scan.literal += helperCall('class', "''");
+
+		return;
+	}
+	pushText(scan, `${whitespace}${name}=${quote}${classes}`);
+	scan.literal += helperCall('scoped');
+	pushText(scan, quote);
+};
+
+const readAttributeName = (scan: MarkupScan) => {
+	const { source } = scan;
+	const start = scan.index;
+	while (
+		scan.index < source.length &&
+		!ATTRIBUTE_NAME_END_RE.test(source[scan.index] ?? '')
+	) {
+		scan.index += 1;
+	}
+
+	return source.slice(start, scan.index);
+};
+
+const skipWhitespace = (scan: MarkupScan) => {
+	const start = scan.index;
+	while (/\s/.test(scan.source[scan.index] ?? '')) scan.index += 1;
+
+	return scan.source.slice(start, scan.index);
+};
+
+/** Handles a `{...}` directly inside a start tag: the `{name}` shorthand
+ *  for `name={name}`; spreads and attachments need Svelte. */
+const pushTagExpression = (scan: MarkupScan) => {
+	const inner = readExpressionTag(scan);
+	if (!/^[A-Za-z_$][\w$]*$/.test(inner)) {
+		failAttribute(scan, `{${inner}} in a start tag`);
+	}
+	pushDynamicAttribute(scan, inner, [{ code: inner }]);
+};
+
+/** Reads one attribute (or the tag's end) inside a start tag. Returns
+ *  false once the tag is closed. */
+const pushAttribute = (scan: MarkupScan) => {
+	const { source } = scan;
+	const whitespace = skipWhitespace(scan);
+	const closing = source.startsWith('/>', scan.index) ? '/>' : '>';
+	const isEnd = scan.index >= source.length;
+	if (isEnd || source.startsWith(closing, scan.index)) {
+		// An element without a class attribute still gets the scoped class.
+		if (!scan.hasClass) scan.literal += helperCall('scope');
+		const tagEnd = isEnd ? '' : closing;
+		pushText(scan, whitespace + tagEnd);
+		scan.shadow += whitespace + (isEnd ? '>' : closing);
+		scan.index += tagEnd.length;
+
+		return false;
+	}
+	if (source[scan.index] === '{') {
+		pushTagExpression(scan);
+
+		return true;
+	}
+	const name = readAttributeName(scan);
+	if (!name) {
+		pushText(scan, whitespace + (source[scan.index] ?? ''));
+		scan.index += 1;
+
+		return true;
+	}
+	const beforeEquals = scan.index;
+	skipWhitespace(scan);
+	if (source[scan.index] !== '=') {
+		scan.index = beforeEquals;
+		pushText(scan, whitespace + name);
+		if (isShadowAttribute(name)) scan.shadow += whitespace + name;
+
+		return true;
+	}
+	scan.index += 1;
+	skipWhitespace(scan);
+	const valueStart = scan.index;
+	const chunks = readAttributeValue(scan);
+	if (chunks.some((chunk) => 'code' in chunk)) {
+		pushDynamicAttribute(scan, name, chunks);
+
+		return true;
+	}
+	pushStaticAttribute(
+		scan,
+		whitespace,
+		name,
+		source.slice(valueStart, scan.index)
+	);
+
+	return true;
+};
+
+/** Copies a start tag, escaping any expressions in its attributes. Returns
+ *  the lower-cased tag name. */
+const pushStartTag = (scan: MarkupScan) => {
+	const { source } = scan;
+	const nameMatch = source.slice(scan.index + 1).match(/^[^\s/>{]+/);
+	const tagName = nameMatch?.[0] ?? '';
+	pushText(scan, `<${tagName}`);
+	scan.shadow += `<${tagName}`;
+	// A `<script>` or `<style>` isn't styled, so it doesn't need the class.
+	scan.hasClass = RAW_TEXT_ELEMENTS.has(tagName.toLowerCase());
+	scan.index += 1 + tagName.length;
+	while (pushAttribute(scan));
+
+	return tagName.toLowerCase();
+};
+
+/** Copies a raw-text element's content and end tag verbatim: Svelte
+ *  doesn't read `{...}` inside `<script>` or `<style>`. The shadow leaves
+ *  the element out, `shadowStart` being where its start tag began. */
+const pushRawText = (
+	scan: MarkupScan,
+	tagName: string,
+	shadowStart: number
+) => {
+	const { source } = scan;
+	const close = source.toLowerCase().indexOf(`</${tagName}`, scan.index);
+	const closeEnd = close === -1 ? -1 : source.indexOf('>', close);
+	const end = closeEnd === -1 ? source.length : closeEnd + 1;
+	pushText(scan, source.slice(scan.index, end));
+	scan.shadow = scan.shadow.slice(0, shadowStart);
+	scan.index = end;
+};
+
+/** Handles a `{...}` in text: `{@html value}` stays raw, everything else
+ *  is escaped as text. */
+const pushTextExpression = (scan: MarkupScan) => {
+	const inner = readExpressionTag(scan);
+	const rawHtml = inner.match(/^@html\s([\s\S]*)$/);
+	if (rawHtml) {
+		scan.literal += helperCall('html', `(${(rawHtml[1] ?? '').trim()})`);
+
+		return;
+	}
+	scan.literal += helperCall('text', `(${inner})`);
+};
+
+const pushComment = (scan: MarkupScan) => {
+	const close = scan.source.indexOf('-->', scan.index + '<!--'.length);
+	const end = close === -1 ? scan.source.length : close + '-->'.length;
+	pushText(scan, scan.source.slice(scan.index, end));
+	scan.index = end;
+};
+
+/** Advances the scan by one construct in text position. */
+const scanTextPosition = (scan: MarkupScan) => {
+	const { index, source } = scan;
+	if (source.startsWith('<!--', index)) {
+		pushComment(scan);
+
+		return;
+	}
+	if (source[index] === '<' && /[A-Za-z]/.test(source[index + 1] ?? '')) {
+		const shadowStart = scan.shadow.length;
+		const tagName = pushStartTag(scan);
+		if (RAW_TEXT_ELEMENTS.has(tagName))
+			pushRawText(scan, tagName, shadowStart);
+
+		return;
+	}
+	if (source[index] === '{') {
+		pushTextExpression(scan);
+
+		return;
+	}
+	const next = source.slice(index + 1).search(/[<{]/);
+	const end = next === -1 ? source.length : index + 1 + next;
+	const text = source.slice(index, end);
+	pushText(scan, text);
+	// The shadow keeps the element structure only: end tags, not text.
+	scan.shadow += (text.match(END_TAG_RE) ?? []).join('');
+	scan.index = end;
+};
+
+/** Lowers a branch's markup to a JS template literal that renders it,
+ *  escaping every expression as Svelte's SSR would, and to its shadow. */
+const lowerBranch = (markup: string, branch: string, filePath?: string) => {
+	const scan: MarkupScan = {
+		branch,
+		filePath,
+		hasClass: false,
+		index: 0,
+		literal: '',
+		shadow: '',
+		source: markup.trim()
+	};
+	while (scan.index < scan.source.length) scanTextPosition(scan);
+
+	return { literal: `\`${scan.literal}\``, shadow: scan.shadow };
+};
+
+/** Turns a branch's markup into a JS template literal that renders it,
+ *  escaping every expression as Svelte's SSR would. */
+export const branchMarkupToTemplateLiteral = (
+	markup: string,
+	branch = 'then',
+	filePath?: string
+) => lowerBranch(markup, branch, filePath).literal;
 
 type StreamedAwait = {
 	catchIdentifier: string | undefined;
@@ -126,8 +609,10 @@ const assertPlainHtml = (
 		(text, { end, start }) => text.slice(0, start) + text.slice(end),
 		markup
 	);
+	// `{@html value}` streams raw, as in Svelte; every other block or tag
+	// (`{#if}`, `{@const}`, `{@render}`, …) needs Svelte to run it.
 	const nestedTag = topLevelTags(markup).find(({ text }) =>
-		/^\{[#:/@]/.test(text)
+		/^\{(?:[#:/]|@(?!html\s))/.test(text)
 	);
 	if (nestedTag || SVELTE_ONLY_MARKUP_RE.test(withoutExpressions)) {
 		fail(
@@ -205,23 +690,45 @@ const parseStreamedAwait = (
 	};
 };
 
-const renderSlot = (block: StreamedAwait, slotId: string, dynamic: boolean) => {
+const renderSlot = (
+	block: StreamedAwait,
+	slotId: string,
+	dynamic: boolean,
+	filePath: string | undefined
+) => {
 	const thenValueIdentifier = block.thenIdentifier ?? '__awaitValue';
 	const catchValueIdentifier = block.catchIdentifier ?? '__awaitError';
-	const catchBranch =
+	const pending = lowerBranch(block.pendingMarkup, 'pending', filePath);
+	const then = lowerBranch(block.thenMarkup, 'then', filePath);
+	const caught =
 		block.catchMarkup === undefined
-			? 'catch (_absoluteAwaitError) { throw _absoluteAwaitError; }'
-			: `catch (${catchValueIdentifier}) { return ${markupToTemplateLiteral(block.catchMarkup)}; }`;
+			? undefined
+			: lowerBranch(block.catchMarkup, 'catch', filePath);
+	const catchBranch = caught
+		? `catch (${catchValueIdentifier}) { return ${caught.literal}; }`
+		: 'catch (_absoluteAwaitError) { throw _absoluteAwaitError; }';
+	// Each branch's shadow sits in a stand-in for the slot's wrapper
+	// (`StreamSlot.svelte`'s div). `<svelte:element>` keeps Svelte from
+	// checking the branch's elements against the page's own nesting (the
+	// real wrapper lives in another component, so the page never sees it).
+	const shadows = [pending, then, caught]
+		.map((branch) =>
+			branch
+				? `<svelte:element this={'div'} data-absolute-slot="true">${branch.shadow}</svelte:element>`
+				: ''
+		)
+		.join('');
 
-	return `<AbsoluteAwaitSlot id="${slotId}"${dynamic ? ' dynamic' : ''} fallbackHtml={${markupToTemplateLiteral(
-		block.pendingMarkup
-	)}} resolve={async () => { try { const ${thenValueIdentifier} = await (${
+	return `<AbsoluteAwaitSlot id="${slotId}"${dynamic ? ' dynamic' : ''} fallbackHtml={${
+		pending.literal
+	}} resolve={async () => { try { const ${thenValueIdentifier} = await (${
 		block.expression
-	}); return ${markupToTemplateLiteral(block.thenMarkup)}; } ${catchBranch} }} />`;
+	}); return ${then.literal}; } ${catchBranch} }} />{#if ${HTML_HELPERS}.shadow}${shadows}{/if}`;
 };
 
 const IMPORT_LINE =
 	'import AbsoluteAwaitSlot from "@absolutejs/absolute/svelte/components/AwaitSlot.svelte";';
+const INJECTED_SCRIPT = `${IMPORT_LINE}\n${AWAIT_HTML_HELPERS_SOURCE}`;
 
 /** Lowers every `{#await}` marked with `AWAIT_STREAM_DIRECTIVE` to a
  *  streaming slot and leaves every other block to Svelte. Throws for a
@@ -244,7 +751,12 @@ export const lowerSvelteAwaitSlotSyntax = (
 		const slotId = `absolute-svelte-await-${awaitIndex.toString(BASE_36_RADIX)}`;
 		awaitIndex += 1;
 		lowered += source.slice(cursor, directive.index);
-		lowered += renderSlot(block, slotId, directive[1] !== undefined);
+		lowered += renderSlot(
+			block,
+			slotId,
+			directive[1] !== undefined,
+			filePath
+		);
 		cursor = block.end;
 	}
 
@@ -257,14 +769,14 @@ export const lowerSvelteAwaitSlotSyntax = (
 		return {
 			code: lowered.replace(
 				/<script(\s[^>]*)?>/,
-				(match) => `${match}\n${IMPORT_LINE}\n`
+				(match) => `${match}\n${INJECTED_SCRIPT}\n`
 			),
 			transformed: true
 		};
 	}
 
 	return {
-		code: `<script lang="ts">\n${IMPORT_LINE}\n</script>\n${lowered}`,
+		code: `<script lang="ts">\n${INJECTED_SCRIPT}\n</script>\n${lowered}`,
 		transformed: true
 	};
 };
