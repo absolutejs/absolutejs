@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, test } from 'bun:test';
 import {
 	isKnownSpaRoute,
+	renderSpaNotFoundResponse,
 	setSpaRouteManifest,
 	type RuntimeSpaHost
 } from '../../../src/utils/spaRouteManifest';
@@ -69,5 +70,26 @@ describe('SPA route manifest', () => {
 		expect(isKnownSpaRoute('react', 'App', request)).toBe(false);
 		expect(isKnownSpaRoute('react', 'Marketing', request)).toBe(true);
 		expect(isKnownSpaRoute('svelte', 'App', request)).toBe(true);
+	});
+});
+
+describe('renderSpaNotFoundResponse', () => {
+	test('a JSON client gets a JSON 404, a page request the HTML one', async () => {
+		const json = await renderSpaNotFoundResponse(
+			new Request('https://example.com/app/missing', {
+				headers: { accept: 'application/json' }
+			})
+		);
+		expect(json.status).toBe(404);
+		expect(json.headers.get('content-type')).toContain('json');
+		expect(await json.json()).toMatchObject({ status: 404 });
+
+		const page = await renderSpaNotFoundResponse(
+			new Request('https://example.com/app/missing', {
+				headers: { accept: 'text/html' }
+			})
+		);
+		expect(page.status).toBe(404);
+		expect(page.headers.get('content-type')).not.toContain('json');
 	});
 });

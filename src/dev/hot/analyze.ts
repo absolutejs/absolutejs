@@ -15,7 +15,7 @@ import type * as TS from 'typescript';
  * Every rewrite is an insertion or a same-line replacement, so line numbers
  * in stack traces still match the source file. */
 
-export const ANALYZER_VERSION = 2;
+export const ANALYZER_VERSION = 3;
 
 export type ExportKind = 'class' | 'function' | 'live' | 'value';
 
@@ -1064,6 +1064,22 @@ export const analyzeModule = (
 
 		return [statement.id];
 	};
+	// What each name a statement references is bound to: an import (and
+	// from where), or a top-level declaration. A kept statement's functions
+	// close over the bindings of the version that created them, so the same
+	// text under different bindings is a different statement: rendering
+	// `<Card />` before `import { Card }` exists, then adding the import,
+	// must re-run it, or the kept closure still looks `Card` up as a global.
+	const bindingsOf = (statement: TopStatement) =>
+		[...new Set(statement.refs.map((reference) => reference.name))]
+			.sort()
+			.map((name) => {
+				const imported = imports.get(name);
+				if (!imported) return `${name}=local`;
+
+				return `${name}=${imported.module ?? imported.specifier ?? ''}#${imported.name}`;
+			})
+			.join('\u0000');
 	const plan: StatementPlan[] = planned.map((statement) => {
 		const deps = new Set<number>();
 		for (const reference of statement.refs) {
@@ -1076,7 +1092,9 @@ export const analyzeModule = (
 			always: statement.kind === 'untouched',
 			cell: statement.kind === 'let',
 			deps: [...deps].sort((left, right) => left - right),
-			hash: statement.ownHash,
+			hash: hashText(
+				`${statement.ownHash}\u0000${bindingsOf(statement)}`
+			),
 			ids: idsOf(statement),
 			imports: evalImports(statement).map((use) => [
 				use.module,

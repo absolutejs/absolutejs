@@ -5,6 +5,27 @@
 		{
 			"changes": [
 				{
+					"detail": "An Angular page that exports its own `routes` array and is mounted under a wildcard route (such as `.get('/ng/*', ...)`) never returned 404, even for a path none of its routes match. These pages now return 404 for an unknown sub-path, like the other SPA hosts. On each request the handler takes the path below the mount Elysia matched and checks it against the page's `routes` the way Angular's router does: path segments, `:params`, empty paths, `pathMatch: 'full'`, nested `children`, and `redirectTo` sources. A page navigation or HTMX request gets the not-found page (`not-found.html`) and any other client gets Elysia's JSON 404. That JSON rule now covers the React, Svelte, Vue and Angular SPA hosts' 404s too. A route the server can't resolve counts as a match: `loadChildren` matches anything under its path, and a `matcher` function matches everything. To keep the old behaviour for a page, add a `{ path: '**', component: ... }` route, which matches every path.",
+					"kind": "changed",
+					"summary": "Angular pages with colocated routes return 404 for unknown sub-paths"
+				},
+				{
+					"detail": "In `absolute dev`, saving a React component that renders another component before its import line exists (`<Card />` with no `import { Card }`), then adding the import, left server rendering failing with `Card is not defined` until the dev server restarted. The server updates edited modules in place and keeps every top-level statement whose text did not change; adding an import changes no statement, so it kept the component created by the previous save, which still looked `Card` up as a global. A statement now also counts as changed when a name it uses gets a different binding (a new or removed import, an import from another module, or an import swapped for a local declaration), so the component is re-created with the import. Separately, a second save of a React file that landed before the client rebuild for the first save ran could be skipped on the server, which kept rendering the first save until the next edit; every save now reaches the server.",
+					"kind": "fixed",
+					"summary": "Dev SSR recovers when you add a missing import, without restarting the dev server"
+				},
+				{
+					"detail": "svelte-check's program includes a configured svelteDirectory whole, so a plain TypeScript error in a .ts file there was printed under both [bun check] (or [tsc]) and [svelte-check]. `absolute typecheck` now reads svelte-check's machine-readable output and drops the errors the plain checker already reported, matching them by file, line, column and code; errors inside .svelte files stay under svelte-check, and svelte-check passes when every error it found was a duplicate. Its remaining errors are printed in the same shape as tsc's: file:line:column, the TS code, the message and the underlined line.",
+					"kind": "fixed",
+					"summary": "An error in a .ts file inside svelteDirectory is reported once, not by both the plain checker and svelte-check"
+				}
+			],
+			"date": "2026-11-15",
+			"version": "0.20.0-beta.183"
+		},
+		{
+			"changes": [
+				{
 					"detail": "The streamed payload an Angular `@defer` block produces carries an `html` string that the streaming pipeline only measures (for `maxSlotHtmlSizeBytes` and slot metrics); the slot itself renders from `data` through Angular's own escaping, and the stream-swap runtime never inserts `angular-defer` payloads. That `html` string was built with raw `{{ }}` values, so it held live, unescaped markup that a future change could have turned into XSS. Each interpolated value is now HTML-escaped (`&`, `<`, `>`, `\"`, `'`) the way Angular escapes text, and tests pin both the escaping and that the runtime never writes an `angular-defer` payload into the DOM. Rendered output is unchanged.",
 					"kind": "internal",
 					"summary": "Angular `@defer` slot payloads no longer carry unescaped interpolated HTML"

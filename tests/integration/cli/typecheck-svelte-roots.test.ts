@@ -65,12 +65,17 @@ type Breakage = {
 	angularTs?: boolean;
 	island?: boolean;
 	page?: boolean;
+	pageTs?: boolean;
 };
 
 const writeSources = async (broken: Breakage = {}) => {
 	await write(
 		'src/frontend/svelte/pages/Home.svelte',
-		`<script lang="ts">\n\tlet { title }: { title: string } = $props();\n\tconst size: number = ${broken.page ? "'large'" : '1'};\n</script>\n\n<h1 data-size={size}>{title}</h1>\n`
+		`<script lang="ts">\n\timport { formatTitle } from './format';\n\tlet { title }: { title: string } = $props();\n\tconst size: number = ${broken.page ? "'large'" : '1'};\n</script>\n\n<h1 data-size={size}>{formatTitle(title)}</h1>\n`
+	);
+	await write(
+		'src/frontend/svelte/pages/format.ts',
+		`export const formatTitle = (title: string): string =>\n\t${broken.pageTs ? 'title.length' : 'title.trim()'};\n`
 	);
 	await write(
 		'src/islands/SvelteCounter.svelte',
@@ -225,6 +230,35 @@ describe('absolute typecheck: Svelte pages and Svelte islands together', () => {
 			failedLabels(output).filter((label) => label === 'svelte-check')
 		).toHaveLength(1);
 		expect(failedLabels(output)).toEqual(['svelte-check']);
+		// Readable: position, code, message and the offending line.
+		expect(svelte[0]?.body).toContain(
+			'src/frontend/svelte/pages/Home.svelte:4:8 - error TS2322: '
+		);
+		expect(svelte[0]?.body).toContain(
+			"Type 'string' is not assignable to type 'number'"
+		);
+		expect(svelte[0]?.body).toContain("const size: number = 'large';");
+		expect(svelte[0]?.body).toContain('Found 1 error.');
+	}, 300_000);
+
+	/* svelte-check's program includes a configured svelteDirectory whole, so
+	 * a plain TypeScript error in a `.ts` file there is in both its output and
+	 * the plain checker's. beta.182 printed it under both headings. */
+	test('an error in a .ts file inside svelteDirectory is reported once, by the plain checker', async () => {
+		await writeSources({ pageTs: true });
+		const { exitCode, output } = await typecheck();
+		const reported = sections(output).filter((section) =>
+			section.body.includes('svelte/pages/format.ts')
+		);
+
+		expect(exitCode).not.toBe(0);
+		expect(reported.map((section) => section.name)).toEqual([PLAIN]);
+		expect(reported[0]?.body).toContain('TS2322');
+		expect(occurrences(output, "Type 'number' is not assignable")).toBe(1);
+		expect(sections(output).map((section) => section.name)).toEqual([
+			PLAIN
+		]);
+		expect(failedLabels(output)).toEqual([PLAIN]);
 	}, 300_000);
 
 	test('an Angular TypeScript error is reported under one checker, the plain one', async () => {

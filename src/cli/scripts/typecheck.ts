@@ -20,7 +20,6 @@ import {
 	NO_SCRIPT,
 	checkFingerprint
 } from './bunCheck';
-import { ANSI_ESCAPE_CODE } from '../../constants';
 import { DEFAULT_SERVER_ENTRY } from '../utils';
 import {
 	generateSvelteDeclarations,
@@ -31,7 +30,11 @@ import {
 import { ensureFileRouteModule } from '../../build/fileRoutes';
 import { writeManifestKeysDeclaration } from '../../build/manifestKeys';
 import { manifestKeysEditorHint } from './manifestKeysEditorHint';
-import { diagnosticKeys, withoutReported } from './typecheckDiagnostics';
+import {
+	diagnosticKeys,
+	svelteCheckReport,
+	withoutReported
+} from './typecheckDiagnostics';
 import type {
 	AbsoluteServiceConfig,
 	ServiceConfig
@@ -124,103 +127,6 @@ const findBin = (name: string) => {
 	const local = resolve('node_modules', '.bin', name);
 
 	return existsSync(local) ? local : null;
-};
-
-const ANSI_COLOR_REGEX = new RegExp(
-	`${String.fromCharCode(ANSI_ESCAPE_CODE)}\\[[0-9;]*m`,
-	'g'
-);
-const ANSI_PURPLE_REGEX = `${String.fromCharCode(ANSI_ESCAPE_CODE)}[35m`;
-const ANSI_CYAN_REGEX = new RegExp(
-	`^${String.fromCharCode(ANSI_ESCAPE_CODE)}\\[36m|\\t`
-);
-const ANSI_TOKEN_END_REGEX = new RegExp(
-	`${String.fromCharCode(ANSI_ESCAPE_CODE)}\\[3[69]m`
-);
-
-const stripAnsi = (str: string) => str.replace(ANSI_COLOR_REGEX, '');
-
-const formatSvelteOutput = (output: string) => {
-	const cwd = `${process.cwd()}/`;
-
-	// Extract error count for summary
-	const summaryMatch = stripAnsi(output).match(
-		/svelte-check found (\d+) error/
-	);
-	const errorCount = summaryMatch ? parseInt(summaryMatch[1] ?? '0', 10) : 0;
-
-	const formatted = output
-		.split('\n')
-		.filter((line) => {
-			const plain = stripAnsi(line);
-
-			return (
-				!plain.startsWith('Loading svelte-check') &&
-				!plain.startsWith('Getting Svelte') &&
-				!plain.startsWith('====') &&
-				!plain.startsWith('svelte-check found') &&
-				!/^\d+ (START|COMPLETED)/.test(plain) &&
-				plain.trim() !== ''
-			);
-		})
-		.flatMap((line) => {
-			// Strip cwd prefix
-			const result = line.replaceAll(cwd, '');
-
-			// Recolor file paths to match tsc/vue-tsc style (cyan file, yellow line:col)
-			const plain = stripAnsi(result);
-			const pathMatch = plain.match(/^(\S+\.svelte):(\d+:\d+)$/);
-			if (pathMatch) {
-				return [
-					`\x1b[96m${pathMatch[1]}\x1b[0m:\x1b[93m${pathMatch[2]}\x1b[0m`
-				];
-			}
-
-			// Convert purple-highlighted tokens to red underlines like tsc.
-			// Only show the error line (with highlight) + underline, skip context lines.
-			if (result.includes(ANSI_PURPLE_REGEX)) {
-				const plainLine = stripAnsi(result);
-				const before = stripAnsi(
-					result.split(ANSI_PURPLE_REGEX)[0] ?? ''
-				);
-				const token = stripAnsi(
-					(result.split(ANSI_PURPLE_REGEX)[1] ?? '').split(
-						ANSI_TOKEN_END_REGEX
-					)[0] ?? ''
-				);
-				if (!token) return [result];
-
-				// Expand tabs to match terminal display
-				const expanded = before.replace(/\t/g, '        ');
-				const expandedLine = plainLine.replace(/\t/g, '        ');
-				const underline = '~'.repeat(token.length);
-
-				return [
-					`\x1b[0m${expandedLine}`,
-					`${' '.repeat(expanded.length)}\x1b[91m${underline}\x1b[0m`
-				];
-			}
-
-			// Skip context lines (cyan code blocks surrounding the error line)
-			if (
-				ANSI_CYAN_REGEX.test(result) &&
-				!result.includes('Error') &&
-				!result.includes(ANSI_PURPLE_REGEX)
-			) {
-				return [];
-			}
-
-			return [result];
-		})
-		.join('\n');
-
-	if (errorCount > 0) {
-		const suffix = errorCount === 1 ? '' : 's';
-
-		return `${formatted}\n\nFound ${errorCount} error${suffix}.`;
-	}
-
-	return formatted;
 };
 
 // Dirs AbsoluteJS itself writes to. Tsc would crash typechecking them
@@ -837,8 +743,8 @@ const buildSvelteCheck = async (cacheDir: string, includes: string[]) => {
 		'--compiler-warnings',
 		'css-unused-selector:ignore',
 		'--output',
-		'human-verbose',
-		'--color'
+		// Read by dedupeSvelteResult, which renders it for people.
+		'machine-verbose'
 	]);
 };
 
@@ -1000,6 +906,43 @@ export const dedupeAngularResult = (
 export const dedupeVueResult = (results: CheckerResult[]) =>
 	dedupeAgainstPlain(results, VUE_CHECKERS);
 
+const readSource = (file: string) => {
+	try {
+		return readFileSync(file, 'utf-8');
+	} catch {
+		return null;
+	}
+};
+
+/* svelte-check runs with machine-readable output: its errors are read,
+ * the ones the plain checker already reported are dropped (a plain
+ * TypeScript error in a `.ts` file inside a configured svelteDirectory is in
+ * both programs), and the rest are rendered in tsc's pretty shape. When
+ * every error was a duplicate, svelte-check passed. A run with nothing
+ * recognisable in its output keeps that output, and its failure. */
+export const dedupeSvelteResult = (
+	results: CheckerResult[],
+	read: (file: string) => string | null = readSource
+) => {
+	const plain = results.find((res) => PLAIN_CHECKERS.has(res.name));
+	const reported =
+		plain && plain.exitCode !== 0
+			? diagnosticKeys(plain.output)
+			: new Set<string>();
+
+	return results.map((res) => {
+		if (res.name !== 'svelte-check' || res.exitCode === 0) return res;
+		const { dropped, output, remaining } = svelteCheckReport(
+			res.output,
+			reported,
+			read
+		);
+		if (remaining === 0 && dropped === 0) return res;
+
+		return { ...res, exitCode: remaining === 0 ? 0 : res.exitCode, output };
+	});
+};
+
 export const typecheck = async (configPath?: string) => {
 	const targets = await getTypecheckTargets(configPath);
 
@@ -1092,7 +1035,7 @@ export const typecheck = async (configPath?: string) => {
 		checks.push(buildAngularCheck(cacheDir, angularDirs));
 
 	const results = dedupeAngularResult(
-		dedupeVueResult(await Promise.all(checks)),
+		dedupeSvelteResult(dedupeVueResult(await Promise.all(checks))),
 		cacheDir
 	);
 	const failed = results.filter((res) => res.exitCode !== 0);
@@ -1111,11 +1054,7 @@ export const typecheck = async (configPath?: string) => {
 	reportImportAdvice(targets, detailedAdvice, false);
 	for (const result of failed) {
 		console.error(`\n\x1b[31m[${result.name}]\x1b[0m`);
-		const output =
-			result.name === 'svelte-check'
-				? formatSvelteOutput(result.output)
-				: result.output;
-		console.error(output);
+		console.error(result.output);
 	}
 	console.error(
 		`\n\x1b[31m✗\x1b[0m Typecheck failed: ${failed.map((res) => res.name).join(', ')}`

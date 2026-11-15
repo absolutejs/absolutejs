@@ -51,6 +51,10 @@ references), and the content of any imported binding it *uses while the
 module evaluates* (a call such as `plugin(db)`, or a captured value) are all
 the same as last time. Imported functions merely referenced, or called later
 from a request, are not dependencies: the facade's forwarder is stable.
+What each name the statement uses is bound to must be the same too: adding
+`import { Card }` for a component that was rendered before the import existed
+changes no statement's text, but the kept function would still look `Card` up
+as a global, so the statements using `Card` re-run.
 
 ## Applying an edit
 

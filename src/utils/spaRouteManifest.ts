@@ -1,5 +1,6 @@
+import { NotFound } from 'elysia';
 import type { SpaHost } from './spaRouteTypes';
-import { renderFirstNotFound } from './resolveConvention';
+import { isPageRequest, renderFirstNotFound } from './resolveConvention';
 import { basename } from 'node:path';
 import type { ConventionsMap } from '../../types/conventions';
 
@@ -24,8 +25,9 @@ export const getSpaRouteManifest = () => {
 
 /* Routers whose mount path is only known per request (an Angular page's
  * colocated `export const routes`). Dev tracks them so a route edit is
- * reported, but they never answer 404: `isKnownSpaRoute` reads only the
- * manifest above. */
+ * reported. They don't enter `isKnownSpaRoute`, which reads only the
+ * manifest above: the Angular page handler matches the page's runtime
+ * `routes` against the request itself (see angular/colocatedRouteMatch). */
 const OBSERVED_SPA_ROUTES_KEY = '__absoluteObservedSpaRoutes';
 
 export const getObservedSpaRoutes = () => {
@@ -126,8 +128,24 @@ export const renderSpaNotFound = async (
 ) => {
 	if (isKnownSpaRoute(framework, pageName, request)) return null;
 
+	return renderSpaNotFoundResponse(request);
+};
+
+/* The 404 an SPA host answers for a path none of its routes match. Like an
+ * unknown Elysia route: a page navigation or HTMX request gets the
+ * not-found convention page, any other client (a fetch asking for JSON)
+ * gets Elysia's JSON 404. */
+export const renderSpaNotFoundResponse = async (
+	request: Request | undefined
+) => {
+	if (request && !isPageRequest(request)) {
+		return new NotFound().toResponse();
+	}
+
 	return (
-		(await renderFirstNotFound()) ??
+		(await renderFirstNotFound({
+			preferHtmx: request?.headers.get('hx-request') === 'true'
+		})) ??
 		new Response('Not found', {
 			headers: { 'Content-Type': 'text/plain' },
 			status: 404

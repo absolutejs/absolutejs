@@ -784,6 +784,19 @@ export const queueFileChange = async (
 		return;
 	}
 
+	// React pages and components are imported by the server for SSR, not
+	// through a build. Update the server's copy in place while the client
+	// gets its React update, so the next request renders the edit. This runs
+	// before the hash check: the debounced client rebuild records the hash
+	// of whatever is on disk when it runs, so a second save landing before
+	// that rebuild reads as already seen here, and the server kept the first
+	// save's version until the next edit. The hot runtime skips a source it
+	// already applied, so the repeated events of one save cost a file read.
+	if (framework === 'react' && globalThis.__absoluteBackendHmr === true)
+		void applyBackendEdit(resolvePath(filePath)).catch((error: unknown) =>
+			console.error('[hmr] server update for a React file failed:', error)
+		);
+
 	if (!hasFileChanged(filePath, currentHash, state.fileHashes)) {
 		return;
 	}
@@ -857,14 +870,6 @@ export const queueFileChange = async (
 		await rebuildReactServerComponents(state, config, filePath, currentHash)
 	)
 		return;
-
-	// React pages and components are imported by the server for SSR, not
-	// through a build. Update the server's copy in place while the client
-	// gets its React update, so the next request renders the edit.
-	if (framework === 'react' && globalThis.__absoluteBackendHmr === true)
-		void applyBackendEdit(resolvePath(filePath)).catch((error: unknown) =>
-			console.error('[hmr] server update for a React file failed:', error)
-		);
 
 	// Shared files (workers, utils, etc.) that don't belong to any
 	// framework just need their transform cache invalidated — no

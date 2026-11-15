@@ -194,6 +194,8 @@ const waitFor = async <T>(
 };
 
 const fetchText = async (url: string) => (await fetch(url)).text();
+const fetchStatus = async (url: string) =>
+	(await fetch(url, { headers: { accept: 'text/html' } })).status;
 
 // eslint-disable-next-line no-control-regex
 const stripAnsi = (text: string) => text.replace(/\u001b\[[0-9;]*m/g, '');
@@ -227,6 +229,8 @@ describe('dev: editing an Angular page’s colocated routes', () => {
 
 	test('an added route logs `routes update +path` and renders on the server', async () => {
 		expect(await fetchText(url('/ng/a'))).toContain('ROUTED_A');
+		// No route matches `c` yet: the page answers 404.
+		expect(await fetchStatus(url('/ng/c'))).toBe(404);
 		// Let the HMR watcher settle after the first-request page build.
 		await Bun.sleep(1_500);
 
@@ -261,6 +265,8 @@ describe('dev: editing an Angular page’s colocated routes', () => {
 			/routes update \/\S*angular\/pages\/routed-page\.ts -a$/
 		);
 		expect(await fetchText(url('/ng/b'))).toContain('ROUTED_B');
+		// The 404 check reads the rebuilt page's routes on each request.
+		expect(await fetchStatus(url('/ng/a'))).toBe(404);
 	}, 120_000);
 
 	test('an edit that leaves the routes alone logs no routes update', async () => {

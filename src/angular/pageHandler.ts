@@ -21,7 +21,11 @@ import { getAngularDeps } from './angularDeps';
 import { buildServerAnimationProviders } from './animationProviders';
 import { buildRouterRedirectProviders } from './routerRedirectProviders';
 import { resolveRequestBaseHref } from './baseHref';
-import { renderSpaNotFound } from '../utils/spaRouteManifest';
+import {
+	renderSpaNotFound,
+	renderSpaNotFoundResponse
+} from '../utils/spaRouteManifest';
+import { isUnmatchedColocatedRoute } from './colocatedRouteMatch';
 import { lowerAngularServerIslands } from './lowerServerIslands';
 import { getCurrentRouteRegistrationCallsite } from '../core/devRouteRegistrationCallsite';
 import {
@@ -478,28 +482,42 @@ export const handleAngularPageRequest = async <Page = unknown>(
 					? undefined
 					: (getCurrentRouteRegistrationCallsite() ??
 						captureStreamingSlotWarningCallsite());
-			const renderPageResponse = async () => {
-				const baseDeps = await getAngularDeps();
-				const runtimePagePath =
-					await resolveRuntimeAngularModulePath(resolvedPagePath);
-				const importedPageModule: unknown = await import(
-					buildRuntimeModuleSpecifier(
-						runtimePagePath.path,
-						runtimePagePath.cacheBuster
-					)
+			const baseDeps = await getAngularDeps();
+			const runtimePagePath =
+				await resolveRuntimeAngularModulePath(resolvedPagePath);
+			const importedPageModule: unknown = await import(
+				buildRuntimeModuleSpecifier(
+					runtimePagePath.path,
+					runtimePagePath.cacheBuster
+				)
+			);
+			const pageModule = readAngularPageModule(importedPageModule);
+			if (!pageModule) {
+				throw new Error(
+					`Invalid Angular page module: ${resolvedPagePath}`
 				);
-				const pageModule = readAngularPageModule(importedPageModule);
-				if (!pageModule) {
-					throw new Error(
-						`Invalid Angular page module: ${resolvedPagePath}`
-					);
-				}
-				const PageComponent = resolvePageComponent(pageModule);
-				if (!isAngularComponent(PageComponent)) {
-					throw new Error(
-						`Angular page module must export an Angular component: ${resolvedPagePath}`
-					);
-				}
+			}
+			const PageComponent = resolvePageComponent(pageModule);
+			if (!isAngularComponent(PageComponent)) {
+				throw new Error(
+					`Angular page module must export an Angular component: ${resolvedPagePath}`
+				);
+			}
+			if (
+				isUnmatchedColocatedRoute({
+					handlerProviders: input.providers,
+					pageModule,
+					request,
+					route: getCurrentAbsoluteRoute(request),
+					runtimeBaseHref
+				})
+			) {
+				return withPageCacheHeaders(
+					await renderSpaNotFoundResponse(request),
+					request
+				);
+			}
+			const renderPageResponse = async () => {
 				const hasIslands =
 					typeof pageModule.__ABSOLUTE_PAGE_HAS_ISLANDS__ ===
 					'boolean'

@@ -2,18 +2,24 @@ import { describe, expect, test } from 'bun:test';
 import { join } from 'node:path';
 import {
 	dedupeAngularResult,
+	dedupeSvelteResult,
 	dedupeVueResult,
 	svelteCheckIncludes,
 	vueShimSource
 } from '../../../src/cli/scripts/typecheck';
 import {
 	diagnosticKeys,
+	formatSvelteDiagnostics,
+	parseSvelteCheckOutput,
+	svelteCheckReport,
+	svelteDiagnosticKey,
 	withoutReported
 } from '../../../src/cli/scripts/typecheckDiagnostics';
 
 type CheckerResult = Parameters<typeof dedupeVueResult>[0][number];
 
 const CWD = '/project';
+const ANSI = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, 'g');
 const HOME_KEY = '/project/src/Home.tsx:2:33:TS2322';
 
 describe('diagnosticKeys', () => {
@@ -175,6 +181,248 @@ describe('dedupeAngularResult', () => {
 		};
 
 		expect(dedupeAngularResult([plain, vue], cacheDir)[1]).toEqual(vue);
+	});
+});
+
+/* svelte-check 4's `--output machine-verbose`: positions are 0-based. */
+const svelteLine = (event: Record<string, unknown>) =>
+	`1794717769313 ${JSON.stringify(event)}`;
+const FORMAT_TS_ERROR = svelteLine({
+	code: 2322,
+	end: { character: 13, line: 1 },
+	filename: 'src/svelte/format.ts',
+	message: "Type 'number' is not assignable to type 'string'.",
+	start: { character: 1, line: 1 },
+	type: 'ERROR'
+});
+const PAGE_TS_ERROR = svelteLine({
+	code: 2322,
+	end: { character: 11, line: 3 },
+	filename: 'src/svelte/Home.svelte',
+	message: "Type 'string' is not assignable to type 'number'.",
+	source: 'ts',
+	start: { character: 7, line: 3 },
+	type: 'ERROR'
+});
+const PAGE_COMPILER_ERROR = svelteLine({
+	code: 'attribute_duplicate',
+	end: { character: 20, line: 5 },
+	filename: 'src/svelte/Home.svelte',
+	message: 'Attributes need to be unique',
+	source: 'svelte',
+	start: { character: 12, line: 5 },
+	type: 'ERROR'
+});
+const svelteCheckOutput = (...events: string[]) =>
+	[
+		'1794717769312 START "/project"',
+		...events,
+		`1794717769313 COMPLETED 12 FILES ${events.length} ERRORS 1 WARNINGS 2 FILES_WITH_PROBLEMS`
+	].join('\n');
+const FORMAT_KEY = '/project/src/svelte/format.ts:2:2:TS2322';
+const SOURCES: Record<string, string> = {
+	'/project/src/svelte/Home.svelte':
+		'<script lang="ts">\n\tlet { title }: { title: string } = $props();\n\n\tconst size: number = \'large\';\n</script>\n<h1 class="a" class="b">{title}</h1>\n'
+};
+const readSource = (file: string) => SOURCES[file] ?? null;
+
+describe('parseSvelteCheckOutput', () => {
+	test('reads errors, skips start and completion lines, keeps the rest', () => {
+		const parsed = parseSvelteCheckOutput(
+			svelteCheckOutput(
+				FORMAT_TS_ERROR,
+				svelteLine({
+					code: 'a11y_missing_attribute',
+					end: { character: 9, line: 6 },
+					filename: 'src/svelte/Home.svelte',
+					message: '<img> element should have an alt attribute',
+					start: { character: 0, line: 6 },
+					type: 'WARNING'
+				}),
+				'1794717769313 FAILURE "Cannot read tsconfig"',
+				'node: some warning'
+			)
+		);
+
+		expect(parsed.diagnostics).toHaveLength(1);
+		expect(parsed.diagnostics[0]?.filename).toBe('src/svelte/format.ts');
+		expect(parsed.failures).toEqual(['Cannot read tsconfig']);
+		expect(parsed.other).toEqual(['node: some warning']);
+	});
+});
+
+describe('svelteDiagnosticKey', () => {
+	test('keys a TypeScript error 1-based, like the plain checker', () => {
+		const [format, page] = parseSvelteCheckOutput(
+			svelteCheckOutput(FORMAT_TS_ERROR, PAGE_TS_ERROR)
+		).diagnostics;
+
+		expect(format && svelteDiagnosticKey(format, CWD)).toBe(FORMAT_KEY);
+		expect(page && svelteDiagnosticKey(page, CWD)).toBe(
+			'/project/src/svelte/Home.svelte:4:8:TS2322'
+		);
+		expect(
+			diagnosticKeys(
+				'<error file="src/svelte/format.ts" line="2" column="2" code="TS2322">\n</error>',
+				CWD
+			)
+		).toEqual(new Set([FORMAT_KEY]));
+	});
+
+	test('a Svelte compiler error has no key: no other checker reports it', () => {
+		const [compiler] = parseSvelteCheckOutput(
+			svelteCheckOutput(PAGE_COMPILER_ERROR)
+		).diagnostics;
+
+		expect(compiler && svelteDiagnosticKey(compiler, CWD)).toBeNull();
+	});
+});
+
+describe('formatSvelteDiagnostics', () => {
+	test('renders position, code, message and the underlined line', () => {
+		const { diagnostics } = parseSvelteCheckOutput(
+			svelteCheckOutput(PAGE_TS_ERROR, PAGE_COMPILER_ERROR)
+		);
+		const plain = formatSvelteDiagnostics(
+			diagnostics,
+			readSource,
+			CWD
+		).replace(ANSI, '');
+
+		expect(plain).toBe(
+			[
+				"src/svelte/Home.svelte:4:8 - error TS2322: Type 'string' is not assignable to type 'number'.",
+				'',
+				"4 \tconst size: number = 'large';",
+				'  \t      ~~~~',
+				'',
+				'src/svelte/Home.svelte:6:13 - error attribute_duplicate: Attributes need to be unique',
+				'',
+				'6 <h1 class="a" class="b">{title}</h1>',
+				'              ~~~~~~~~',
+				'',
+				'Found 2 errors.'
+			].join('\n')
+		);
+	});
+
+	test('an unreadable file still gets its position and message', () => {
+		const { diagnostics } = parseSvelteCheckOutput(
+			svelteCheckOutput(FORMAT_TS_ERROR)
+		);
+
+		expect(
+			formatSvelteDiagnostics(diagnostics, () => null, CWD).replace(
+				ANSI,
+				''
+			)
+		).toBe(
+			"src/svelte/format.ts:2:2 - error TS2322: Type 'number' is not assignable to type 'string'.\n\nFound 1 error."
+		);
+	});
+});
+
+describe('svelteCheckReport', () => {
+	test('drops what the plain checker reported, keeps the rest', () => {
+		const report = svelteCheckReport(
+			svelteCheckOutput(FORMAT_TS_ERROR, PAGE_TS_ERROR),
+			new Set([FORMAT_KEY]),
+			readSource,
+			CWD
+		);
+
+		expect(report.dropped).toBe(1);
+		expect(report.remaining).toBe(1);
+		expect(report.output).not.toContain('format.ts');
+		expect(report.output).toContain('Home.svelte');
+	});
+
+	test('a failure is kept even when every error was a duplicate', () => {
+		const report = svelteCheckReport(
+			svelteCheckOutput(
+				FORMAT_TS_ERROR,
+				'1794717769313 FAILURE "Cannot read tsconfig"'
+			),
+			new Set([FORMAT_KEY]),
+			readSource,
+			CWD
+		);
+
+		expect(report.remaining).toBe(1);
+		expect(report.output).toContain(
+			'svelte-check failed: Cannot read tsconfig'
+		);
+	});
+});
+
+describe('dedupeSvelteResult', () => {
+	const plain: CheckerResult = {
+		exitCode: 1,
+		name: 'bun check',
+		output: '<error file="src/svelte/format.ts" line="2" column="2" code="TS2322">\n</error>'
+	};
+
+	test('svelte-check passes when every error it found is already reported', () => {
+		const [, svelte] = dedupeSvelteResult(
+			[
+				plain,
+				{
+					exitCode: 1,
+					name: 'svelte-check',
+					output: svelteCheckOutput(FORMAT_TS_ERROR)
+				}
+			],
+			readSource
+		);
+
+		expect(svelte?.exitCode).toBe(0);
+		expect(svelte?.output).toBe('');
+	});
+
+	test('svelte-check keeps its own errors, rendered', () => {
+		const [, svelte] = dedupeSvelteResult(
+			[
+				plain,
+				{
+					exitCode: 1,
+					name: 'svelte-check',
+					output: svelteCheckOutput(FORMAT_TS_ERROR, PAGE_TS_ERROR)
+				}
+			],
+			readSource
+		);
+
+		expect(svelte?.exitCode).toBe(1);
+		expect(svelte?.output).toContain('Home.svelte');
+		expect(svelte?.output).toContain('Found 1 error.');
+		expect(svelte?.output).not.toContain('format.ts');
+	});
+
+	test('nothing is dropped when the plain checker passed', () => {
+		const [, svelte] = dedupeSvelteResult(
+			[
+				{ exitCode: 0, name: 'tsc', output: '' },
+				{
+					exitCode: 1,
+					name: 'svelte-check',
+					output: svelteCheckOutput(FORMAT_TS_ERROR)
+				}
+			],
+			readSource
+		);
+
+		expect(svelte?.exitCode).toBe(1);
+		expect(svelte?.output).toContain('format.ts');
+	});
+
+	test('an unrecognised failing run keeps its output and its failure', () => {
+		const crashed: CheckerResult = {
+			exitCode: 1,
+			name: 'svelte-check',
+			output: ''
+		};
+
+		expect(dedupeSvelteResult([plain, crashed])[1]).toEqual(crashed);
 	});
 });
 

@@ -335,6 +335,33 @@ describe('backend HMR', () => {
 		const plugin = await import(`${path('plugin.ts')}?absolute-hot=999`);
 		expect(plugin.extraValue()).toBe('extra');
 	});
+
+	test('an unchanged statement re-runs when a name it uses gets a new binding', async () => {
+		write('greeting.ts', "export const greetingText = () => 'hello';\n");
+		write('greeter.ts', 'export const greet = () => greetingText();\n');
+		const greeter = await import(path('greeter.ts'));
+		// Used before it is imported: a global lookup that fails.
+		expect(() => greeter.greet()).toThrow('greetingText');
+
+		// Adding the import leaves `greet`'s text as it was. Keeping the old
+		// closure would keep looking `greetingText` up as a global.
+		const imported = await edit(
+			'greeter.ts',
+			'export const greet',
+			"import { greetingText } from './greeting';\nexport const greet"
+		);
+		expect(imported.status).toBe('applied');
+		expect(greeter.greet()).toBe('hello');
+
+		// An import swapped for a local declaration of the same name.
+		const local = await edit(
+			'greeter.ts',
+			"import { greetingText } from './greeting';",
+			"const greetingText = () => 'local';"
+		);
+		expect(local.status).toBe('applied');
+		expect(greeter.greet()).toBe('local');
+	});
 });
 
 /* scopedState written inline in a statement that re-runs (the

@@ -1,4 +1,4 @@
-import { resolve } from 'node:path';
+import { relative, resolve } from 'node:path';
 import { ANSI_ESCAPE_CODE } from '../../constants';
 
 /* Reading the diagnostics a checker printed, so two checkers that read the
@@ -131,5 +131,222 @@ export const withoutReported = (
 		dropped,
 		output: lines.join('\n').trim(),
 		remaining
+	};
+};
+
+/* svelte-check, run with `--output machine-verbose`, prints one line per
+ * event, each after a timestamp:
+ *   1794717769312 START "/project"
+ *   1794717769313 {"type":"ERROR","filename":"src/a.ts","start":{"line":0,"character":13},…,"code":2322}
+ *   1794717769313 COMPLETED 373 FILES 3 ERRORS 1 WARNINGS 2 FILES_WITH_PROBLEMS
+ *   1794717769313 FAILURE "message"
+ * Filenames are relative to the directory it ran in, and positions are
+ * 0-based (LSP), where tsc's are 1-based. A TypeScript diagnostic carries
+ * its numeric code (source `ts`, `js`, or none for a plain `.ts` file); the
+ * Svelte compiler's carry a string code and source `svelte`.
+ *
+ * svelte-check's program includes a configured svelteDirectory whole, so a
+ * plain TypeScript error in a `.ts` file there is in the plain checker's
+ * output too, at the same position and code. It is reported once, under
+ * the plain checker; svelte-check keeps what only it sees. */
+
+type SveltePosition = { character: number; line: number };
+
+export type SvelteCheckDiagnostic = {
+	code?: number | string;
+	end: SveltePosition;
+	filename: string;
+	message: string;
+	source?: string;
+	start: SveltePosition;
+	type: 'ERROR' | 'WARNING';
+};
+
+const isObject = (value: unknown): value is Record<string, unknown> =>
+	typeof value === 'object' && value !== null && !Array.isArray(value);
+
+const toPosition = (value: unknown) =>
+	isObject(value) &&
+	typeof value.line === 'number' &&
+	typeof value.character === 'number'
+		? { character: value.character, line: value.line }
+		: null;
+
+const toDiagnostic = (value: unknown): SvelteCheckDiagnostic | null => {
+	if (!isObject(value)) return null;
+	const { code, filename, message, source, type } = value;
+	const start = toPosition(value.start);
+	const end = toPosition(value.end) ?? start;
+	if (
+		(type !== 'ERROR' && type !== 'WARNING') ||
+		typeof filename !== 'string' ||
+		typeof message !== 'string' ||
+		start === null ||
+		end === null
+	)
+		return null;
+
+	return {
+		code:
+			typeof code === 'number' || typeof code === 'string'
+				? code
+				: undefined,
+		end,
+		filename,
+		message,
+		source: typeof source === 'string' ? source : undefined,
+		start,
+		type
+	};
+};
+
+const parseJson = (text: string) => {
+	try {
+		return JSON.parse(text);
+	} catch {
+		return null;
+	}
+};
+
+const parseFailure = (text: string) => {
+	const parsed = parseJson(text);
+
+	return typeof parsed === 'string' ? parsed : text;
+};
+
+const MACHINE_LINE = /^\d+ (.*)$/;
+const IGNORED_EVENTS = ['START ', 'COMPLETED '];
+
+/** svelte-check's machine-verbose output: its errors, its failures, and any
+ *  other line it (or node) printed, kept verbatim. Warnings are dropped:
+ *  `--threshold error` keeps them out of the output, and this keeps them
+ *  out of the count if one ever gets through. */
+export const parseSvelteCheckOutput = (output: string) => {
+	const diagnostics: SvelteCheckDiagnostic[] = [];
+	const failures: string[] = [];
+	const other: string[] = [];
+	for (const line of stripAnsi(output).split('\n')) {
+		if (line.trim() === '') continue;
+		const event = MACHINE_LINE.exec(line)?.[1] ?? '';
+		const diagnostic = event.startsWith('{')
+			? toDiagnostic(parseJson(event))
+			: null;
+		if (diagnostic?.type === 'ERROR') diagnostics.push(diagnostic);
+		else if (diagnostic !== null) continue;
+		else if (event.startsWith('FAILURE '))
+			failures.push(parseFailure(event.slice('FAILURE '.length)));
+		else if (!IGNORED_EVENTS.some((prefix) => event.startsWith(prefix)))
+			other.push(line);
+	}
+
+	return { diagnostics, failures, other };
+};
+
+const TS_SOURCES = new Set([undefined, 'js', 'ts']);
+
+const isTypeScriptDiagnostic = ({ code, source }: SvelteCheckDiagnostic) =>
+	typeof code === 'number' && TS_SOURCES.has(source);
+
+/** The `file:line:column:code` key of a TypeScript diagnostic, 1-based like
+ *  the plain checker's; null for the Svelte compiler's own diagnostics,
+ *  which no other checker reports. */
+export const svelteDiagnosticKey = (
+	diagnostic: SvelteCheckDiagnostic,
+	cwd = process.cwd()
+) =>
+	isTypeScriptDiagnostic(diagnostic)
+		? keyOf(
+				{
+					code: `TS${diagnostic.code}`,
+					column: String(diagnostic.start.character + 1),
+					file: diagnostic.filename,
+					line: String(diagnostic.start.line + 1)
+				},
+				cwd
+			)
+		: null;
+
+const codeLabel = (diagnostic: SvelteCheckDiagnostic) => {
+	if (diagnostic.code === undefined) return '';
+	if (isTypeScriptDiagnostic(diagnostic)) return ` TS${diagnostic.code}`;
+
+	return ` ${diagnostic.code}`;
+};
+
+/* The offending line, with the span underlined. Tabs stay tabs on both
+ * lines, so the underline sits under the span whatever the tab width. */
+const codeFrame = (
+	diagnostic: SvelteCheckDiagnostic,
+	sourceText: string | null
+) => {
+	const text = sourceText?.split('\n')[diagnostic.start.line];
+	if (text === undefined) return [];
+	const line = text.replace(/\r$/, '');
+	const { end, start } = diagnostic;
+	const from = Math.min(start.character, line.length);
+	const until = end.line === start.line ? end.character : line.length;
+	const width = Math.max(1, Math.min(until, line.length) - from);
+	const gutter = String(start.line + 1);
+	const indent = line.slice(0, from).replace(/[^\t]/g, ' ');
+
+	return [
+		`\x1b[7m${gutter}\x1b[0m ${line}`,
+		`\x1b[7m${' '.repeat(gutter.length)}\x1b[0m ${indent}\x1b[91m${'~'.repeat(width)}\x1b[0m`
+	];
+};
+
+/** svelte-check's errors in tsc's pretty shape: `file:line:col - error
+ *  TS2322: message`, then the line with the span underlined. */
+export const formatSvelteDiagnostics = (
+	diagnostics: readonly SvelteCheckDiagnostic[],
+	readSource: (file: string) => string | null,
+	cwd = process.cwd()
+) => {
+	const blocks = diagnostics.map((diagnostic) => {
+		const absolute = resolve(cwd, diagnostic.filename);
+		const file = relative(cwd, absolute) || diagnostic.filename;
+		const line = diagnostic.start.line + 1;
+		const column = diagnostic.start.character + 1;
+		const header = `\x1b[96m${file}\x1b[0m:\x1b[93m${line}\x1b[0m:\x1b[93m${column}\x1b[0m - \x1b[91merror\x1b[0m\x1b[90m${codeLabel(diagnostic)}: \x1b[0m${diagnostic.message}`;
+		const frame = codeFrame(diagnostic, readSource(absolute));
+
+		return [header, ...(frame.length > 0 ? ['', ...frame] : [])].join('\n');
+	});
+	if (blocks.length === 0) return '';
+	const suffix = blocks.length === 1 ? '' : 's';
+
+	return `${blocks.join('\n\n')}\n\nFound ${blocks.length} error${suffix}.`;
+};
+
+/**
+ * svelte-check's output, read and rendered for people, without the errors
+ * the plain checker already reported (`reported`, from diagnosticKeys).
+ * A failure or any unrecognised line is kept, and keeps the run failing.
+ * `remaining` is 0 when everything svelte-check found is already on screen.
+ */
+export const svelteCheckReport = (
+	output: string,
+	reported: ReadonlySet<string>,
+	readSource: (file: string) => string | null,
+	cwd = process.cwd()
+) => {
+	const { diagnostics, failures, other } = parseSvelteCheckOutput(output);
+	const kept = diagnostics.filter((diagnostic) => {
+		const key = svelteDiagnosticKey(diagnostic, cwd);
+
+		return key === null || !reported.has(key);
+	});
+	const sections = [
+		...other,
+		...failures.map(
+			(failure) => `\x1b[91merror\x1b[0m svelte-check failed: ${failure}`
+		),
+		formatSvelteDiagnostics(kept, readSource, cwd)
+	].filter((section) => section.length > 0);
+
+	return {
+		dropped: diagnostics.length - kept.length,
+		output: sections.join('\n'),
+		remaining: kept.length + failures.length + other.length
 	};
 };
