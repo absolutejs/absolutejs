@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { ImageProps } from '@absolutejs/absolute/image';
+	import type { ImageProps } from '../../../types/image';
 	import {
 		DEFAULT_QUALITY,
 		buildOptimizedUrl,

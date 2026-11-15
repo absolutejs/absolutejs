@@ -84,7 +84,7 @@ import { writeSpaSideManifests } from '../build/spaSideManifests';
 import { clearSpaRouteCssCaches } from '../utils/spaRouteCss';
 import { clearSiblingCssCache } from '../utils/inlinePageCss';
 import { detectFramework } from './pathUtils';
-import { refreshSpaRoutesForFiles } from './spaRouteRefresh';
+import { readSpaRouteChanges, type SpaRouteChange } from './spaRouteRefresh';
 import { resolveOwningComponents as resolveOwningComponentsSync } from './angular/resolveOwningComponents';
 import { toKebab, toPascal } from '../utils/stringModifiers';
 import { normalizePath } from '../utils/normalizePath';
@@ -3235,16 +3235,21 @@ const scheduleSvelteBundleRebuild = (
 		void ctx.inFlight.then(resolveFn, resolveFn);
 	};
 
-	return () => {
+	return ({ immediate = false } = {}) => {
 		if (!ctx.debouncedPromise) {
 			ctx.debouncedPromise = new Promise((resolve) => {
 				ctx.debouncedResolve = resolve;
 			});
 		}
+		const scheduled = ctx.debouncedPromise;
 		if (ctx.debounceTimer) clearTimeout(ctx.debounceTimer);
-		ctx.debounceTimer = setTimeout(fire, SVELTE_BUNDLE_DEBOUNCE_MS);
+		ctx.debounceTimer = null;
+		// `immediate`: a route edit, which the route table publishes only once
+		// the SSR bundle renders it (see `rebuildSsrForRouteChanges`).
+		if (immediate) fire();
+		else ctx.debounceTimer = setTimeout(fire, SVELTE_BUNDLE_DEBOUNCE_MS);
 
-		return ctx.debouncedPromise;
+		return scheduled;
 	};
 };
 
@@ -3730,16 +3735,21 @@ const scheduleVueBundleRebuild = (
 		void ctx.inFlight.then(resolveFn, resolveFn);
 	};
 
-	return () => {
+	return ({ immediate = false } = {}) => {
 		if (!ctx.debouncedPromise) {
 			ctx.debouncedPromise = new Promise((resolve) => {
 				ctx.debouncedResolve = resolve;
 			});
 		}
+		const scheduled = ctx.debouncedPromise;
 		if (ctx.debounceTimer) clearTimeout(ctx.debounceTimer);
-		ctx.debounceTimer = setTimeout(fire, VUE_BUNDLE_DEBOUNCE_MS);
+		ctx.debounceTimer = null;
+		// `immediate`: a route edit, which the route table publishes only once
+		// the SSR bundle renders it (see `rebuildSsrForRouteChanges`).
+		if (immediate) fire();
+		else ctx.debounceTimer = setTimeout(fire, VUE_BUNDLE_DEBOUNCE_MS);
 
-		return ctx.debouncedPromise;
+		return scheduled;
 	};
 };
 
@@ -5351,6 +5361,55 @@ const markHandledFiles = (
 		.forEach((f) => handled.add(f));
 };
 
+/* Rebuild, now rather than on the debounce, the SSR bundles of the Vue and
+ * Svelte files whose routes changed, so the server renders the edited
+ * router before the route table admits its paths. */
+const rebuildSsrForRouteChanges = async (
+	state: HMRState,
+	config: BuildConfig,
+	changes: SpaRouteChange[]
+) => {
+	const changedFiles = (framework: SpaRouteChange['framework']) =>
+		changes
+			.filter((change) => change.framework === framework)
+			.map((change) => change.file);
+	const vueFiles = changedFiles('vue');
+	const svelteFiles = changedFiles('svelte');
+	await Promise.all([
+		vueFiles.length > 0 && config.vueDirectory
+			? scheduleVueBundleRebuild(
+					state,
+					vueFiles,
+					config
+				)({ immediate: true })
+			: undefined,
+		svelteFiles.length > 0 && config.svelteDirectory
+			? scheduleSvelteBundleRebuild(
+					state,
+					svelteFiles,
+					config
+				)({ immediate: true })
+			: undefined
+	]);
+};
+
+/* Run a scheduled Angular bundle rebuild now and wait for it (or for the
+ * one in flight). */
+const flushAngularBundleRebuild = async (state: HMRState) => {
+	const ctx = angularBundleState.get(state);
+	if (!ctx) return;
+	if (ctx.debounceTimer) {
+		await scheduleAngularBundleRebuild(
+			state,
+			ctx.pageEntries,
+			ctx.angularDir
+		)({ immediate: true });
+
+		return;
+	}
+	if (ctx.inFlight) await ctx.inFlight;
+};
+
 const runFrameworkFastPaths = async (
 	state: HMRState,
 	config: BuildConfig,
@@ -5367,8 +5426,16 @@ const runFrameworkFastPaths = async (
 	// The fast paths skip `build()`, which is where the SPA route table is
 	// computed. Re-read the edited files' routes first so the server answers
 	// a route added to (or removed from) a page's router config before the
-	// browser navigates to it.
-	await refreshSpaRoutesForFiles(files, state.resolvedPaths);
+	// browser navigates to it — but only once the server also RENDERS the
+	// edited router. Vue and Svelte SSR from a bundle the fast path rebuilds
+	// on a 2s debounce; publishing the table first made a new path answer
+	// from the pre-edit router (`[Vue Router warn]: No match found`, then
+	// the 404 page) until that rebuild landed. Rebuild those pages' SSR
+	// bundles now, then publish, then tell the browser. React's server copy
+	// is swapped by backend HMR when the file changes, before this runs.
+	const routeChanges = await readSpaRouteChanges(files, state.resolvedPaths);
+	await rebuildSsrForRouteChanges(state, config, routeChanges.changes);
+	await routeChanges.publish(['react', 'svelte', 'vue']);
 
 	const fastPaths: FrameworkFastPathConfig[] = [
 		{
@@ -5419,6 +5486,13 @@ const runFrameworkFastPaths = async (
 			handled
 		);
 	});
+
+	// Angular: a `routes` edit re-bootstraps, which rebuilds the bundle
+	// before the browser is told; a lighter tier only scheduled it. Either
+	// way, publish once the server bundle carries the edited routes.
+	if (routeChanges.changes.some((change) => change.framework === 'angular'))
+		await flushAngularBundleRebuild(state);
+	await routeChanges.publish();
 
 	// Dependency expansion also lists modules outside every framework
 	// directory that import an edited file: the backend route file that

@@ -22,6 +22,22 @@ export const getSpaRouteManifest = () => {
 	return Array.isArray(value) ? value.filter(isRuntimeSpaHost) : [];
 };
 
+/* Routers whose mount path is only known per request (an Angular page's
+ * colocated `export const routes`). Dev tracks them so a route edit is
+ * reported, but they never answer 404: `isKnownSpaRoute` reads only the
+ * manifest above. */
+const OBSERVED_SPA_ROUTES_KEY = '__absoluteObservedSpaRoutes';
+
+export const getObservedSpaRoutes = () => {
+	const value: unknown = Reflect.get(globalThis, OBSERVED_SPA_ROUTES_KEY);
+
+	return Array.isArray(value) ? value.filter(isRuntimeSpaHost) : [];
+};
+
+export const setObservedSpaRoutes = (hosts: RuntimeSpaHost[]) => {
+	Reflect.set(globalThis, OBSERVED_SPA_ROUTES_KEY, hosts);
+};
+
 const normalizePath = (path: string) => {
 	const withLeadingSlash = path.startsWith('/') ? path : `/${path}`;
 	const trimmed = withLeadingSlash.replace(/\/+$/, '');

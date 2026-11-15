@@ -3,8 +3,11 @@ import { join, resolve } from 'node:path';
 import type { ResolvedBuildPaths } from './configResolver';
 import { logRoutesUpdate, logWarn } from '../utils/logger';
 import {
+	getObservedSpaRoutes,
 	getSpaRouteManifest,
-	setSpaRouteManifest
+	setObservedSpaRoutes,
+	setSpaRouteManifest,
+	type RuntimeSpaHost
 } from '../utils/spaRouteManifest';
 import type { SpaHost } from '../utils/spaRouteTypes';
 
@@ -14,15 +17,28 @@ import type { SpaHost } from '../utils/spaRouteTypes';
  * `defineRoutes([...])` / `createBrowserRouter([...])` / `provideRouter`
  * / `<Router>` kept answering 404 until the dev server restarted, and a
  * removed one kept rendering. Re-read each edited file's routes and patch
- * the table in place. */
+ * the table in place.
+ *
+ * Reading and publishing are separate steps: the caller publishes only once
+ * the server renders the edited routes (a Vue page's SSR bundle is rebuilt
+ * first), so a new path never answers 200 from a server that still renders
+ * the pre-edit router. */
 
-type SpaFramework = 'angular' | 'react' | 'svelte' | 'vue';
+export type SpaFramework = 'angular' | 'react' | 'svelte' | 'vue';
 
-type SpaRouteChange = {
+export type SpaRouteChange = {
 	added: string[];
 	file: string;
 	framework: SpaFramework;
 	removed: string[];
+};
+
+type PendingRouteChange = SpaRouteChange & {
+	/** Routes the 404 table enforces (a host with a static mount path). */
+	next: SpaHost | null;
+	/** Routes only reported (an Angular page's colocated `routes`, whose
+	 *  mount path is known per request). */
+	nextObserved: SpaHost | null;
 };
 
 const normalizePath = (path: string) => resolve(path).replace(/\\/g, '/');
@@ -71,13 +87,24 @@ const analyzeFile = async (framework: SpaFramework, file: string) => {
 	}
 };
 
+const analyzeObservedFile = async (framework: SpaFramework, file: string) => {
+	if (framework !== 'angular') return null;
+
+	return (
+		await import('../angular/staticAnalyzeSpaRoutes')
+	).analyzeAngularColocatedRouteFile(file);
+};
+
 /* `null` when the file could not be read as source (a parse crash); the
  * table keeps its previous entry rather than dropping the routes. */
 const readHost = async (framework: SpaFramework, file: string) => {
 	try {
 		const host: SpaHost | null = await analyzeFile(framework, file);
+		const observed: SpaHost | null = host
+			? null
+			: await analyzeObservedFile(framework, file);
 
-		return { host };
+		return { host, observed };
 	} catch (error) {
 		logWarn(
 			`Could not re-read SPA routes from ${file}: ${error instanceof Error ? error.message : String(error)}`
@@ -87,17 +114,17 @@ const readHost = async (framework: SpaFramework, file: string) => {
 	}
 };
 
-const hostSignature = (host: SpaHost | undefined) =>
+const hostSignature = (host: SpaHost | null | undefined) =>
 	host
 		? JSON.stringify({ baseHref: host.baseHref, routes: host.routes })
 		: '';
 
-const routePaths = (host: SpaHost | undefined) =>
+const routePaths = (host: SpaHost | null | undefined) =>
 	new Set(host?.routes.map((route) => route.path) ?? []);
 
 const diffRoutes = (
-	before: SpaHost | undefined,
-	after: SpaHost | undefined
+	before: SpaHost | null | undefined,
+	after: SpaHost | null | undefined
 ) => {
 	const beforePaths = routePaths(before);
 	const afterPaths = routePaths(after);
@@ -108,49 +135,34 @@ const diffRoutes = (
 	};
 };
 
-/** Re-analyze `files` and patch the in-memory SPA route table (plus the
- *  build's `spa-routes.json`). Returns one entry per file whose routes
- *  changed; each is logged as a `routes update` line. */
-export const refreshSpaRoutesForFiles = async (
-	files: string[],
+const findHost = (
+	hosts: RuntimeSpaHost[],
+	framework: SpaFramework,
+	file: string
+) =>
+	hosts.find(
+		(host) =>
+			host.framework === framework &&
+			normalizePath(host.sourceFile) === file
+	);
+
+const replaceHost = (
+	hosts: RuntimeSpaHost[],
+	change: SpaRouteChange,
+	next: SpaHost | null
+) => {
+	const previous = findHost(hosts, change.framework, change.file);
+
+	return [
+		...hosts.filter((host) => host !== previous),
+		...(next ? [{ ...next, framework: change.framework }] : [])
+	];
+};
+
+const writeRouteTable = async (
+	hosts: RuntimeSpaHost[],
 	paths: ResolvedBuildPaths
 ) => {
-	const candidates = [...new Set(files.map(normalizePath))].flatMap(
-		(file) => {
-			const framework = owningFramework(file, paths);
-
-			return framework ? [{ file, framework }] : [];
-		}
-	);
-	if (candidates.length === 0) return [];
-
-	let hosts = getSpaRouteManifest();
-	const changes: SpaRouteChange[] = [];
-	await Promise.all(
-		candidates.map(async ({ file, framework }) => {
-			const read = await readHost(framework, file);
-			if (!read) return;
-			const next = read.host;
-			const previous = hosts.find(
-				(host) =>
-					host.framework === framework &&
-					normalizePath(host.sourceFile) === file
-			);
-			if (hostSignature(previous) === hostSignature(next ?? undefined))
-				return;
-			hosts = [
-				...hosts.filter((host) => host !== previous),
-				...(next ? [{ ...next, framework }] : [])
-			];
-			changes.push({
-				file,
-				framework,
-				...diffRoutes(previous, next ?? undefined)
-			});
-		})
-	);
-	if (changes.length === 0) return changes;
-
 	setSpaRouteManifest(hosts);
 	try {
 		await writeFile(
@@ -161,7 +173,29 @@ export const refreshSpaRoutesForFiles = async (
 		// The in-memory table is authoritative while dev runs; the file only
 		// seeds `prepare()` on the next start, which rebuilds it anyway.
 	}
-	for (const change of changes) {
+};
+
+/* Publish `pending` into the in-memory tables (plus the build's
+ * `spa-routes.json`) and log one `routes update` line per file. */
+const publishRouteChanges = async (
+	pending: PendingRouteChange[],
+	paths: ResolvedBuildPaths
+) => {
+	if (pending.length === 0) return;
+
+	let hosts = getSpaRouteManifest();
+	let observed = getObservedSpaRoutes();
+	let enforcedChanged = false;
+	for (const change of pending) {
+		const previous = findHost(hosts, change.framework, change.file);
+		if (hostSignature(previous) !== hostSignature(change.next))
+			enforcedChanged = true;
+		hosts = replaceHost(hosts, change, change.next);
+		observed = replaceHost(observed, change, change.nextObserved);
+	}
+	setObservedSpaRoutes(observed);
+	if (enforcedChanged) await writeRouteTable(hosts, paths);
+	for (const change of pending) {
 		logRoutesUpdate(
 			change.file,
 			change.framework,
@@ -169,6 +203,78 @@ export const refreshSpaRoutesForFiles = async (
 			change.removed
 		);
 	}
+};
+
+/** Re-analyze `files` without touching the route table. `changes` lists
+ *  each file whose routes differ from the table; `publish(frameworks?)`
+ *  writes those changes (all of them, or only the given frameworks') into
+ *  the table and logs them. Publishing a framework twice is a no-op. */
+export const readSpaRouteChanges = async (
+	files: string[],
+	paths: ResolvedBuildPaths
+) => {
+	const candidates = [...new Set(files.map(normalizePath))].flatMap(
+		(file) => {
+			const framework = owningFramework(file, paths);
+
+			return framework ? [{ file, framework }] : [];
+		}
+	);
+	const hosts = getSpaRouteManifest();
+	const observed = getObservedSpaRoutes();
+	const pending: PendingRouteChange[] = [];
+	await Promise.all(
+		candidates.map(async ({ file, framework }) => {
+			const read = await readHost(framework, file);
+			if (!read) return;
+			const previous = findHost(hosts, framework, file);
+			const previousObserved = findHost(observed, framework, file);
+			if (
+				hostSignature(previous) === hostSignature(read.host) &&
+				hostSignature(previousObserved) === hostSignature(read.observed)
+			)
+				return;
+			pending.push({
+				file,
+				framework,
+				next: read.host,
+				nextObserved: read.observed,
+				...diffRoutes(
+					previous ?? previousObserved,
+					read.host ?? read.observed
+				)
+			});
+		})
+	);
+	const changes: SpaRouteChange[] = pending.map(
+		({ added, file, framework, removed }) => ({
+			added,
+			file,
+			framework,
+			removed
+		})
+	);
+
+	const publish = async (frameworks?: SpaFramework[]) => {
+		const batch = pending.filter(
+			(change) => !frameworks || frameworks.includes(change.framework)
+		);
+		for (const change of batch) pending.splice(pending.indexOf(change), 1);
+		await publishRouteChanges(batch, paths);
+	};
+
+	return { changes, publish };
+};
+
+/** Re-analyze `files` and patch the in-memory SPA route table (plus the
+ *  build's `spa-routes.json`) at once. Returns one entry per file whose
+ *  routes changed; each is logged as a `routes update` line. */
+export const refreshSpaRoutesForFiles = async (
+	files: string[],
+	paths: ResolvedBuildPaths
+) => {
+	const { changes, publish } = await readSpaRouteChanges(files, paths);
+	await publish();
 
 	return changes;
 };

@@ -5,6 +5,22 @@
 		{
 			"changes": [
 				{
+					"detail": "In `absolute dev`, adding a route to a Vue page's `routes` admitted the new path right away, but the server kept rendering the page with its old router for a couple of seconds: requests logged `[Vue Router warn]: No match found for location` and got the 404 page, and a page that reloaded straight after the edit hit the same thing. Dev now rebuilds the page's server bundle before it admits the new path, so the first request renders it. Svelte pages with a `<Router>` get the same ordering, and an Angular router edit is published once its server bundle has the change. React was not affected. Editing an Angular page's colocated `export const routes = [...]` now prints a `routes update` line with the added and removed paths, like the other frameworks.",
+					"kind": "fixed",
+					"summary": "Dev renders a newly added Vue route on the server at once and reports Angular colocated route edits"
+				},
+				{
+					"detail": "A project with Svelte pages in svelteDirectory and Svelte islands in another folder (src/islands) ran svelte-check once per folder, and every run wrote the same generated config at the same time. The last write won, so both runs checked one folder: a type error inside an island component passed, and an error in a page was printed twice under two svelte-check headings. svelte-check now runs once over every Svelte folder (configured directories whole, island folders by their .svelte files) and reports under one svelte-check label; ngc likewise runs once over every Angular directory. An error in an Angular component’s plain TypeScript, which both the plain checker and ngc read, is now reported once, under bun check (or tsc); ngc keeps the template errors only it sees, and the run still fails whenever any checker finds an error.",
+					"kind": "fixed",
+					"summary": "Typecheck checks Svelte islands outside svelteDirectory, and reports each Svelte and Angular error once"
+				}
+			],
+			"date": "2026-11-15",
+			"version": "0.20.0-beta.181"
+		},
+		{
+			"changes": [
+				{
 					"detail": "On a React page that renders `<Island>`, edits to the page or to a component it imports logged \"react component … applied\" in `absolute dev` and changed nothing on screen. Beta.175 and beta.178 fixed real problems on that path (a missing island update, then two React updates per save), but not this one, and their tests passed because their pages loaded the page's own script before the islands bootstrap. In a real project it is usually the other way round: the bootstrap is one prebuilt file, while the page's script waits on every component the dev server transpiles. The bootstrap imports React DOM, and React DOM looks for the DevTools hook that Fast Refresh uses only once, when it loads. The page installed that hook afterwards, so Fast Refresh never found React DOM, and every refresh did nothing. The same ordering also broke clicks on the page (and can in production, where the scripts race the same way): React listens for events once per document, the first island root claimed that, and the page's root, created afterwards on the document, got no event listeners, so nothing outside the islands responded. In dev, pages with islands now install a stand-in DevTools hook before the bootstrap runs, so Fast Refresh finds React DOM whichever script loads first. Islands on a React page now wait for the page's root before they hydrate. Editing an island also no longer resets its state where the framework's own HMR keeps it: React islands use Fast Refresh, which keeps hook state unless the hooks changed, and Vue islands re-render in place after a template or style edit (a script edit reloads the component). Svelte islands still start over when edited, because Svelte's HMR recreates the component it swaps.",
 					"kind": "fixed",
 					"summary": "React pages with islands update on every edit and respond to clicks, and island edits keep island state"

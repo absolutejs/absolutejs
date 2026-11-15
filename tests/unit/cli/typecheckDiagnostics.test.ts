@@ -1,6 +1,9 @@
 import { describe, expect, test } from 'bun:test';
+import { join } from 'node:path';
 import {
+	dedupeAngularResult,
 	dedupeVueResult,
+	svelteCheckIncludes,
 	vueShimSource
 } from '../../../src/cli/scripts/typecheck';
 import {
@@ -126,6 +129,75 @@ describe('dedupeVueResult', () => {
 		};
 
 		expect(dedupeVueResult([plain, svelte])[1]).toEqual(svelte);
+	});
+});
+
+describe('dedupeAngularResult', () => {
+	const plain: CheckerResult = {
+		exitCode: 1,
+		name: 'bun check',
+		output: '<error file="src/home.component.ts" line="9" column="2" code="TS2322">\n</error>'
+	};
+	// ngc prints paths relative to its config, in the cache directory.
+	const cacheDir = join(process.cwd(), '.absolutejs');
+	const tsError =
+		"\x1b[96m../src/home.component.ts\x1b[0m:\x1b[93m9\x1b[0m:\x1b[93m2\x1b[0m - \x1b[91merror\x1b[0m\x1b[90m TS2322: \x1b[0mType 'number' is not assignable to type 'string'.\n\n9  name: string = 42;\n   ~~~~";
+	const ngError =
+		"../src/home.component.ts:6:4 - error NG8001: 'app-missing' is not a known element.";
+
+	test('ngc passes when its only error is the plain checker’s', () => {
+		const [, ngc] = dedupeAngularResult(
+			[plain, { exitCode: 1, name: 'ngc', output: tsError }],
+			cacheDir
+		);
+
+		expect(ngc?.exitCode).toBe(0);
+	});
+
+	test('ngc keeps an Angular error printed after a duplicate', () => {
+		const [, ngc] = dedupeAngularResult(
+			[
+				plain,
+				{ exitCode: 1, name: 'ngc', output: `${tsError}\n${ngError}` }
+			],
+			cacheDir
+		);
+
+		expect(ngc?.exitCode).toBe(1);
+		expect(ngc?.output).toBe(ngError);
+	});
+
+	test('vue checkers are left to dedupeVueResult', () => {
+		const vue: CheckerResult = {
+			exitCode: 2,
+			name: 'vue-check',
+			output: 'src/home.component.ts(9,2): error TS2322: x'
+		};
+
+		expect(dedupeAngularResult([plain, vue], cacheDir)[1]).toEqual(vue);
+	});
+});
+
+describe('svelteCheckIncludes', () => {
+	const projectRoot = '/project';
+
+	test('checks every root: configured directories whole, island folders by their .svelte files', () => {
+		expect(
+			svelteCheckIncludes(
+				projectRoot,
+				['src/frontend/svelte'],
+				['src/frontend/svelte', 'src/islands']
+			)
+		).toEqual([
+			'../src/frontend/svelte/**/*',
+			'../src/islands/**/*.svelte'
+		]);
+	});
+
+	test('a root inside a configured directory is covered by it', () => {
+		expect(
+			svelteCheckIncludes(projectRoot, ['src/svelte'], ['src/svelte'])
+		).toEqual(['../src/svelte/**/*']);
 	});
 });
 

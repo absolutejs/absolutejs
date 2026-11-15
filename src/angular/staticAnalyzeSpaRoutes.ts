@@ -267,6 +267,69 @@ export const analyzeAngularSpaRouteFile = async (filePath: string) => {
 	};
 };
 
+const unwrapExpression = (expression: TS.Expression): TS.Expression => {
+	if (
+		ts.isAsExpression(expression) ||
+		ts.isSatisfiesExpression(expression) ||
+		ts.isParenthesizedExpression(expression)
+	)
+		return unwrapExpression(expression.expression);
+
+	return expression;
+};
+
+const findColocatedRoutesArray = (sourceFile: TS.SourceFile) => {
+	for (const statement of sourceFile.statements) {
+		if (!ts.isVariableStatement(statement)) continue;
+		const exported = statement.modifiers?.some(
+			(modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword
+		);
+		if (!exported) continue;
+		for (const declaration of statement.declarationList.declarations) {
+			if (!ts.isIdentifier(declaration.name)) continue;
+			if (declaration.name.text !== 'routes') continue;
+			if (!declaration.initializer) continue;
+			const initializer = unwrapExpression(declaration.initializer);
+			if (ts.isArrayLiteralExpression(initializer)) return initializer;
+		}
+	}
+
+	return null;
+};
+
+const COLOCATED_ROUTES_EXPORT = /\bexport\s+(?:const|let|var)\s+routes\b/;
+
+/** Read a page's colocated `export const routes = [...]` — the routes the
+ *  build wires into `provideRouter` itself (see scanAngularPageRoutes).
+ *  Their mount path comes from the Elysia route at request time, so the
+ *  host's `baseHref` is `/` and the paths stay relative; dev uses these
+ *  only to report route edits, never for the 404 table. */
+export const analyzeAngularColocatedRouteFile = async (filePath: string) => {
+	let source: string;
+	try {
+		source = await fs.readFile(filePath, 'utf-8');
+	} catch {
+		return null;
+	}
+	if (!COLOCATED_ROUTES_EXPORT.test(source)) return null;
+
+	const sourceFile = ts.createSourceFile(
+		filePath,
+		source,
+		ts.ScriptTarget.Latest,
+		true,
+		ts.ScriptKind.TS
+	);
+	const routesArray = findColocatedRoutesArray(sourceFile);
+	if (!routesArray) return null;
+
+	const routes: SpaRoute[] = [];
+	extractRoutePaths(routesArray, '', false, routes);
+	const host: SpaHost = { baseHref: '/', routes, sourceFile: filePath };
+
+	return host;
+};
+
 const walkTsFiles = async (dir: string, files: string[]) => {
 	let items: import('node:fs').Dirent[];
 	try {
@@ -292,6 +355,32 @@ const walkTsFiles = async (dir: string, files: string[]) => {
 	await Promise.all(
 		directories.map((directory) => walkTsFiles(directory, files))
 	);
+};
+
+/** Every colocated-routes page under `angularDirectory` that is not
+ *  already an `APP_BASE_HREF` + `provideRouter` host. */
+export const analyzeAngularColocatedRoutes = async (
+	angularDirectory: string
+) => {
+	if (!existsSync(angularDirectory)) return [];
+
+	const tsFiles: string[] = [];
+	await walkTsFiles(angularDirectory, tsFiles);
+
+	const pages: SpaHost[] = [];
+	await Promise.all(
+		tsFiles.map(async (file) => {
+			try {
+				if (await analyzeAngularSpaRouteFile(file)) return;
+				const page = await analyzeAngularColocatedRouteFile(file);
+				if (page) pages.push(page);
+			} catch {
+				// Unparseable source: the edit that fixes it re-reads it.
+			}
+		})
+	);
+
+	return pages;
 };
 
 /** Statically scan an Angular page-source directory for SPA hosts —

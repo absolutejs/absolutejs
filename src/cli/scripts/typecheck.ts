@@ -616,7 +616,9 @@ const buildVueCheck = async (cacheDir: string) => {
 	]);
 };
 
-const buildAngularCheck = async (cacheDir: string, angularDir: string) => {
+/* One ngc run over every Angular directory: a run per directory would write
+ * this same config concurrently, and check whichever directory won. */
+const buildAngularCheck = async (cacheDir: string, angularDirs: string[]) => {
 	const ngcBin = findBin('ngc');
 	if (!ngcBin) {
 		console.error(
@@ -641,7 +643,7 @@ const buildAngularCheck = async (cacheDir: string, angularDir: string) => {
 				extends: resolve('tsconfig.json'),
 				include: [
 					...getProjectDeclarationIncludes(),
-					`../${angularDir}/**/*`
+					...angularDirs.map((angularDir) => `../${angularDir}/**/*`)
 				]
 			},
 			null,
@@ -769,7 +771,34 @@ const buildBunCheck = async (cacheDir: string) => {
 	return result;
 };
 
-const buildSvelteCheck = async (cacheDir: string, svelteDir: string) => {
+/** What svelte-check's program includes for each Svelte root: a configured
+ *  svelteDirectory whole, as it always was, and only the `.svelte` files of
+ *  a root outside one (an island folder), whose `.ts` files (the registry)
+ *  belong to the plain checker and would otherwise be reported twice.
+ *  Relative to the generated config in the cache directory. */
+export const svelteCheckIncludes = (
+	projectRoot: string,
+	configuredDirs: readonly string[],
+	roots: readonly string[]
+) => {
+	const configured = configuredDirs.map((dir) => resolve(projectRoot, dir));
+	const strays = roots.filter(
+		(root) =>
+			!configured.some((dir) => isWithin(dir, resolve(projectRoot, root)))
+	);
+
+	return [
+		...configured.map(
+			(dir) => `../${relative(projectRoot, dir) || '.'}/**/*`
+		),
+		...strays.map((root) => `../${root}/**/*.svelte`)
+	];
+};
+
+/* One svelte-check run over every Svelte root, under one label. beta.180 ran
+ * one per root, each writing this same config concurrently: the last write
+ * won, every run checked the same root, and the others were never checked. */
+const buildSvelteCheck = async (cacheDir: string, includes: string[]) => {
 	const svelteBin = findBin('svelte-check');
 	if (!svelteBin) {
 		console.error(
@@ -789,12 +818,18 @@ const buildSvelteCheck = async (cacheDir: string, svelteDir: string) => {
 				// only lets those components resolve: checkJs stays as the
 				// project set it, so no JavaScript starts being checked.
 				compilerOptions: { allowJs: true },
+				// The project's own excludes and outDir, as every other
+				// checker's config has: an island folder's glob would
+				// otherwise reach into them.
+				exclude: getProjectTypecheckExcludes(),
 				extends: resolve('tsconfig.json'),
-				files: ABSOLUTE_TYPECHECK_FILES,
-				include: [
-					...getProjectDeclarationIncludes(),
-					`../${svelteDir}/**/*`
-				]
+				// The Vue shim lets a `.vue` import beside a Svelte file (an
+				// island registry importing both kinds) resolve here too.
+				files: [
+					...ABSOLUTE_TYPECHECK_FILES,
+					...(vueShimPath === null ? [] : [vueShimPath])
+				],
+				include: [...getProjectDeclarationIncludes(), ...includes]
 			},
 			null,
 			'\t'
@@ -924,24 +959,28 @@ const prepareSvelteDeclarations = async (svelteDirs: string[]) => {
 };
 
 const VUE_CHECKERS = new Set(['vue-check', 'vue-tsc']);
+const ANGULAR_CHECKERS = new Set(['ngc']);
 const PLAIN_CHECKERS = new Set(['bun check', 'tsc']);
 
-/* vue-check reads every .ts file bun check reads, so an error in plain
- * TypeScript (a React prop, say) is in both outputs. It is reported once,
- * under the plain checker; vue-check keeps the errors only it can see — in
- * .vue files, and in .ts code typed by a Vue component. When nothing is
- * left, vue-check passed: all it found is already reported. A run that
- * printed no positioned error at all (a crash, exit 3) still fails. */
-export const dedupeVueResult = (results: CheckerResult[]) => {
+/* A framework checker's errors that the plain checker already reported,
+ * dropped from the framework checker's output. When nothing is left, that
+ * checker passed: all it found is already on screen. A run that printed no
+ * positioned error at all (a crash, exit 3) still fails. */
+const dedupeAgainstPlain = (
+	results: CheckerResult[],
+	checkers: ReadonlySet<string>,
+	checkerCwd = process.cwd()
+) => {
 	const plain = results.find((res) => PLAIN_CHECKERS.has(res.name));
 	if (!plain || plain.exitCode === 0) return results;
 	const reported = diagnosticKeys(plain.output);
 
 	return results.map((res) => {
-		if (!VUE_CHECKERS.has(res.name) || res.exitCode === 0) return res;
+		if (!checkers.has(res.name) || res.exitCode === 0) return res;
 		const { dropped, output, remaining } = withoutReported(
 			res.output,
-			reported
+			reported,
+			checkerCwd
 		);
 		if (dropped === 0) return res;
 		const passed = remaining === 0 && output.length === 0;
@@ -949,6 +988,25 @@ export const dedupeVueResult = (results: CheckerResult[]) => {
 		return { ...res, exitCode: passed ? 0 : res.exitCode, output };
 	});
 };
+
+/* ngc's program includes the Angular directory, which the plain checker
+ * reads too, so an error in a component's TypeScript (a wrong field type)
+ * is in both outputs at the same position and code. It is reported once,
+ * under the plain checker. ngc keeps what only it sees: template errors
+ * (strictTemplates type-checks bindings the plain checker never reads) and
+ * Angular's own NG diagnostics. ngc prints paths relative to its config,
+ * which sits in the cache directory. */
+export const dedupeAngularResult = (
+	results: CheckerResult[],
+	cacheDir: string
+) => dedupeAgainstPlain(results, ANGULAR_CHECKERS, resolve(cacheDir));
+
+/* vue-check reads every .ts file bun check reads, so an error in plain
+ * TypeScript (a React prop, say) is in both outputs. It is reported once,
+ * under the plain checker; vue-check keeps the errors only it can see — in
+ * .vue files, and in .ts code typed by a Vue component. */
+export const dedupeVueResult = (results: CheckerResult[]) =>
+	dedupeAgainstPlain(results, VUE_CHECKERS);
 
 export const typecheck = async (configPath?: string) => {
 	const targets = await getTypecheckTargets(configPath);
@@ -966,13 +1024,17 @@ export const typecheck = async (configPath?: string) => {
 				)
 		)
 	];
+	// The project's build output and its tsconfig outDir (a package's dist/,
+	// copies of its own components) are output, not source.
+	const outDir = getString(readProjectTsconfig().compilerOptions, 'outDir');
 	const componentFiles = collectComponentFiles(
 		resolve('.'),
-		new Set(
-			targets.flatMap((config) =>
+		new Set([
+			...targets.flatMap((config) =>
 				config.buildDirectory ? [resolve(config.buildDirectory)] : []
-			)
-		)
+			),
+			...(outDir === null ? [] : [resolve(outDir)])
+		])
 	);
 	// A `.vue` or `.svelte` file anywhere in the project (an island beside
 	// its registry, with no page directory configured) brings its checker.
@@ -1020,16 +1082,27 @@ export const typecheck = async (configPath?: string) => {
 	checks.push(plainCheck(cacheDir));
 	if (hasVue) checks.push(vueCheck(cacheDir));
 
-	// svelte-check scoped to the Svelte directory only
-	for (const svelteDir of hasSvelte ? svelteDirs : []) {
-		checks.push(buildSvelteCheck(cacheDir, svelteDir));
-	}
+	// svelte-check, once, over every Svelte root (pages and islands)
+	if (hasSvelte)
+		checks.push(
+			buildSvelteCheck(
+				cacheDir,
+				svelteCheckIncludes(
+					resolve('.'),
+					configuredSvelteDirs,
+					svelteDirs
+				)
+			)
+		);
 
-	for (const angularDir of hasAngular ? angularDirs : []) {
-		checks.push(buildAngularCheck(cacheDir, angularDir));
-	}
+	// ngc, once, over every Angular directory
+	if (hasAngular && angularDirs.length > 0)
+		checks.push(buildAngularCheck(cacheDir, angularDirs));
 
-	const results = dedupeVueResult(await Promise.all(checks));
+	const results = dedupeAngularResult(
+		dedupeVueResult(await Promise.all(checks)),
+		cacheDir
+	);
 	const failed = results.filter((res) => res.exitCode !== 0);
 	const detailedAdvice = importAdviceRequested();
 

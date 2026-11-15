@@ -29,7 +29,7 @@
 			.replaceAll('>', '&gt;');
 
 	const buildFallbackMarkup = (runtimeProps: RuntimeIslandRenderProps) => {
-		const attributes = [
+		const attributes: [string, string][] = [
 			['data-component', runtimeProps.component],
 			['data-framework', runtimeProps.framework],
 			['data-hydrate', runtimeProps.hydrate ?? 'load'],

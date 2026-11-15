@@ -148,7 +148,10 @@ import { logError, logWarn } from '../utils/logger';
 import { normalizePath } from '../utils/normalizePath';
 import { toKebab, toPascal } from '../utils/stringModifiers';
 import { validateSafePath } from '../utils/validateSafePath';
-import { setSpaRouteManifest } from '../utils/spaRouteManifest';
+import {
+	setObservedSpaRoutes,
+	setSpaRouteManifest
+} from '../utils/spaRouteManifest';
 import { isTestSourcePath } from '../utils/isTestSourcePath';
 import { injectPwaBootstrapHtml, materializeAbsolutePwa } from '../build/pwa';
 import {
@@ -3830,6 +3833,20 @@ const buildUnlocked = async ({
 		}))
 	];
 	setSpaRouteManifest(spaRouteHosts);
+	// Dev reports edits to an Angular page's colocated `routes` export, so
+	// it needs the pre-edit routes to diff against.
+	const observedAngularHosts =
+		isDev && angularDir
+			? await import('../angular/staticAnalyzeSpaRoutes').then((module) =>
+					module.analyzeAngularColocatedRoutes(angularDir)
+				)
+			: [];
+	setObservedSpaRoutes(
+		observedAngularHosts.map((host) => ({
+			...host,
+			framework: 'angular' as const
+		}))
+	);
 	writeFileSync(
 		join(buildPath, 'spa-routes.json'),
 		JSON.stringify(spaRouteHosts, null, '\t')

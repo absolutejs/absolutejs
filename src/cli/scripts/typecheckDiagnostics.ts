@@ -10,7 +10,8 @@ import { ANSI_ESCAPE_CODE } from '../../constants';
  * (vue-check or vue-tsc), which resolves `.vue` imports to their real
  * component types. An error neither framework touches (a React prop, a
  * plain TypeScript mistake) is in both programs, and is reported once, by
- * the plain checker. */
+ * the plain checker. ngc is the same: its program includes the Angular
+ * directory, so an error in a component's TypeScript is in both. */
 
 const ANSI_COLOR_REGEX = new RegExp(
 	`${String.fromCharCode(ANSI_ESCAPE_CODE)}\\[[0-9;]*m`,
@@ -22,9 +23,12 @@ const stripAnsi = (text: string) => text.replace(ANSI_COLOR_REGEX, '');
 /* Every shape a checker prints a positioned diagnostic in:
  *   file(1,7): error TS2322: …            tsc/bun check --pretty=false, vue-check
  *   file:1:7 - error TS2322: …            tsc/vue-tsc --pretty
- *   <error file="f" line="1" column="7" code="TS2322">   bun check, piped */
-const PAREN_FORMAT = /^(.+?)\((\d+),(\d+)\): error (TS\d+)/;
-const COLON_FORMAT = /^(.+?):(\d+):(\d+) - error (TS\d+)/;
+ *   <error file="f" line="1" column="7" code="TS2322">   bun check, piped
+ * ngc prints the colon shape, and Angular's own diagnostics carry an NG
+ * code (`error NG8001`); matching those keeps each one its own block, so
+ * dropping a duplicate TS error never drops the NG error printed after it. */
+const PAREN_FORMAT = /^(.+?)\((\d+),(\d+)\): error ((?:TS|NG)\d+)/;
+const COLON_FORMAT = /^(.+?):(\d+):(\d+) - error ((?:TS|NG)\d+)/;
 const XML_FORMAT =
 	/^<error file="([^"]+)" line="(\d+)" column="(\d+)" code="(TS\d+)">/;
 /*   error: TS2322: …                      bun check --pretty=true

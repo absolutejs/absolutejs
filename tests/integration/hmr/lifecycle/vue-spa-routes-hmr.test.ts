@@ -328,6 +328,10 @@ describe('dev: editing a Vue page’s defineRoutes', () => {
 
 		// A SPA shell ships an empty #root (the client renders the route), so
 		// the server's answer is the status: 404 while the route is unknown.
+		// The server still runs the page's router (`setupApp` pushes the
+		// request URL): the route table must not admit the path before that
+		// router knows it, or the server renders the pre-edit router —
+		// `[Vue Router warn]: No match found` and the 404 page.
 		const three = await waitFor(
 			() => fetchStatus(url('/app/three')),
 			(result) => result.status === 200
@@ -336,6 +340,10 @@ describe('dev: editing a Vue page’s defineRoutes', () => {
 		expect(logText()).toMatch(
 			/routes update \/\S*RoutedShell\.vue \+\/app\/three/
 		);
+		expect(logText()).not.toContain('No match found');
+		// The same shell any known route of the page gets, as after a restart.
+		expect(three.body).toBe((await fetchStatus(url('/app/one'))).body);
+		expect(three.body).toContain('<div id="root"></div>');
 
 		// The live router picks up the new table: navigate client-side.
 		await page.waitForFunction(routerResolves, '/app/three', {
@@ -398,6 +406,8 @@ describe('dev: editing a Vue page’s defineRoutes', () => {
 		expect(logText()).toMatch(
 			/routes update \/\S*SetupShell\.vue \+\/alt\/three/
 		);
+		expect(logText()).not.toContain('No match found');
+		expect(three.body).toBe((await fetchStatus(url('/alt/one'))).body);
 
 		const fresh = await openPage(url('/alt/three'));
 		try {
