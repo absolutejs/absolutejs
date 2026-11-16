@@ -1,19 +1,21 @@
 import { describe, expect, test } from 'bun:test';
 import { Elysia, t } from 'elysia';
 import type {
-	ActionFields,
-	ActionPath,
-	ActionStateOf,
-	ActionSuccessState
+	ActionResult,
+	ActionState,
+	FormActionFailure,
+	FormActionFieldsOf,
+	FormActionPaths,
+	FormActionStateOf
 } from '../../../types/formAction';
+import { createFormActionClient } from '../../../src/client/formActionClient';
 import {
 	ACTION_FLASH_COOKIE,
 	encodeActionFlash,
-	formActionRuntime,
 	readActionFlash
 } from '../../../src/core/formActionFlash';
 import {
-	defineAction,
+	formActions,
 	getActionState,
 	isCrossOriginRequest
 } from '../../../src/core/formActions';
@@ -21,41 +23,13 @@ import { ACTION_REQUEST_HEADER } from '../../../src/utils/formActionProtocol';
 
 const ORIGIN = 'http://app.test';
 
-const createUser = defineAction('/users', {
-	body: t.Object({
-		age: t.Optional(t.Number()),
-		email: t.String({ error: 'Enter an email address', format: 'email' }),
-		name: t.String({ minLength: 2 }),
-		newsletter: t.Boolean(),
-		password: t.Optional(t.String()),
-		tags: t.Array(t.String())
-	}),
-	handler: ({ body, fail }) => {
-		if (body.name === 'taken')
-			return fail({ name: 'That name is taken' }, 'Fix the errors');
-
-		return {
-			id: 7,
-			name: body.name,
-			newsletter: body.newsletter,
-			tags: body.tags
-		};
-	}
-});
-
-const redirecting = defineAction('/redirecting', {
-	body: t.Object({ name: t.String() }),
-	handler: ({ body }) => ({ name: body.name }),
-	redirect: (data) => `/users/${data.name}`
-});
-
-const htmxFragment = defineAction('/fragment', {
-	body: t.Object({ name: t.String({ minLength: 2 }) }),
-	handler: ({ body }) => ({ name: body.name }),
-	htmx: (result) =>
-		result.status === 'success'
-			? `<p id="ok">Hi ${result.data?.name}</p>`
-			: `<p id="bad">${result.errors.name}</p>`
+const userForm = t.Object({
+	age: t.Optional(t.Number()),
+	email: t.String({ error: 'Enter an email address', format: 'email' }),
+	name: t.String({ minLength: 2 }),
+	newsletter: t.Boolean(),
+	password: t.Optional(t.String()),
+	tags: t.Array(t.String())
 });
 
 const page = (request: Request) =>
@@ -74,18 +48,49 @@ const page = (request: Request) =>
 <p data-action-success hidden>Saved</p>
 </form>
 <form method="post" action="/other" data-absolute-action><input name="name"></form>
-<script>window.state = ${JSON.stringify(getActionState(createUser, request) ?? null)}</script>
+<script>window.state = ${JSON.stringify(getActionState('/users', request) ?? null)}</script>
 </body></html>`,
 		{ headers: { 'content-type': 'text/html; charset=utf-8' } }
 	);
 
 const app = new Elysia()
-	.use(formActionRuntime())
+	.use(formActions())
 	.get('/signup', ({ request }) => page(request))
 	.get('/data', () => ({ ok: true }))
-	.use(createUser)
-	.use(redirecting)
-	.use(htmxFragment);
+	.post('/users', { form: userForm }, ({ body, fail }) => {
+		if (body.name === 'taken')
+			return fail({ name: 'That name is taken' }, 'Fix the errors');
+
+		return {
+			id: 7,
+			name: body.name,
+			newsletter: body.newsletter,
+			tags: body.tags
+		};
+	})
+	.post(
+		'/redirecting',
+		{
+			form: {
+				body: t.Object({ name: t.String() }),
+				redirect: (data: { name: string }) => `/users/${data.name}`
+			}
+		},
+		({ body }) => ({ name: body.name })
+	)
+	.post(
+		'/fragment',
+		{
+			form: {
+				body: t.Object({ name: t.String({ minLength: 2 }) }),
+				htmx: (result: ActionResult<{ name: string }, 'name'>) =>
+					result.status === 'success'
+						? `<p id="ok">Hi ${result.data?.name}</p>`
+						: `<p id="bad">${result.errors.name}</p>`
+			}
+		},
+		({ body }) => ({ name: body.name })
+	);
 
 const form = (entries: [string, string][]) => {
 	const body = new URLSearchParams();
@@ -102,26 +107,30 @@ const contentTypeOf = (body: BodyInit) => {
 	return undefined;
 };
 
-const post = (
+const requestTo = (
 	path: string,
 	body: BodyInit,
 	headers: Record<string, string> = {}
 ) => {
 	const contentType = contentTypeOf(body);
 
-	return app.handle(
-		new Request(`${ORIGIN}${path}`, {
-			body,
-			headers: {
-				...(contentType ? { 'content-type': contentType } : {}),
-				referer: `${ORIGIN}/signup?step=1`,
-				'sec-fetch-site': 'same-origin',
-				...headers
-			},
-			method: 'POST'
-		})
-	);
+	return new Request(`${ORIGIN}${path}`, {
+		body,
+		headers: {
+			...(contentType ? { 'content-type': contentType } : {}),
+			referer: `${ORIGIN}/signup?step=1`,
+			'sec-fetch-site': 'same-origin',
+			...headers
+		},
+		method: 'POST'
+	});
 };
+
+const post = (
+	path: string,
+	body: BodyInit,
+	headers: Record<string, string> = {}
+) => app.handle(requestTo(path, body, headers));
 
 const flashCookieOf = (response: Response) => {
 	const cookie = response.headers.get('set-cookie') ?? '';
@@ -129,7 +138,12 @@ const flashCookieOf = (response: Response) => {
 	return cookie.split(';')[0] ?? '';
 };
 
-describe('defineAction — JSON (browser helpers)', () => {
+const flashOf = (response: Response) =>
+	readActionFlash(
+		new Request(ORIGIN, { headers: { cookie: flashCookieOf(response) } })
+	);
+
+describe('form routes — JSON (browser helpers)', () => {
 	test('success returns the typed data', async () => {
 		const response = await post(
 			'/users',
@@ -232,7 +246,7 @@ describe('defineAction — JSON (browser helpers)', () => {
 	});
 });
 
-describe('defineAction — without JavaScript', () => {
+describe('form routes — without JavaScript', () => {
 	test('error: 303 back to the page with the result in a cookie', async () => {
 		const response = await post(
 			'/users',
@@ -248,11 +262,7 @@ describe('defineAction — without JavaScript', () => {
 		const setCookie = response.headers.get('set-cookie') ?? '';
 		expect(setCookie).toContain('HttpOnly');
 		expect(setCookie).toContain('SameSite=Lax');
-		const flash = readActionFlash(
-			new Request(ORIGIN, {
-				headers: { cookie: flashCookieOf(response) }
-			})
-		);
+		const flash = flashOf(response);
 		expect(flash?.action).toBe('/users');
 		expect(flash?.result.status).toBe('error');
 		if (flash?.result.status !== 'error') return;
@@ -356,7 +366,7 @@ describe('defineAction — without JavaScript', () => {
 	});
 });
 
-describe('defineAction — HTMX', () => {
+describe('form routes — HTMX', () => {
 	test('fragment renders the result', async () => {
 		const ok = await post('/fragment', form([['name', 'Ada']]), {
 			'hx-request': 'true'
@@ -383,7 +393,7 @@ describe('defineAction — HTMX', () => {
 	});
 });
 
-describe('defineAction — protection', () => {
+describe('form routes — protection', () => {
 	test('cross-site posts are rejected before the body is read', async () => {
 		const response = await post('/users', form([['name', 'Ada']]), {
 			'sec-fetch-site': 'cross-site'
@@ -417,12 +427,17 @@ describe('defineAction — protection', () => {
 	});
 
 	test('declared bodies over maxBodySize get 413', async () => {
-		const small = defineAction('/small', {
-			body: t.Object({ name: t.String() }),
-			maxBodySize: 10,
-			handler: () => ({ ok: true })
-		});
-		const response = await new Elysia().use(small).handle(
+		const small = new Elysia().use(formActions()).post(
+			'/small',
+			{
+				form: {
+					body: t.Object({ name: t.String() }),
+					maxBodySize: 10
+				}
+			},
+			() => ({ ok: true })
+		);
+		const response = await small.handle(
 			new Request(`${ORIGIN}/small`, {
 				body: form([['name', 'a much longer value than ten bytes']]),
 				headers: {
@@ -437,37 +452,168 @@ describe('defineAction — protection', () => {
 	});
 });
 
-/* Type-level checks: these fail `tsc`, not the run. */
-type CreateUser = typeof createUser;
-const pathCheck: ActionPath<CreateUser> = '/users';
-const fieldCheck: ActionFields<CreateUser> = 'email';
-const stateCheck: ActionStateOf<CreateUser> = {
-	errors: { email: 'x' },
-	status: 'error'
-};
-// @ts-expect-error — not a field of the schema
-const badField: ActionFields<CreateUser> = 'nope';
-void [pathCheck, fieldCheck, stateCheck, badField];
+/* ---------------------------------------------------------------- *
+ * The options shape: `form: { body, …options }`
+ * ---------------------------------------------------------------- */
 
-/* Compile-time: what Eden reads from an action's route. The file failing to
- * compile is the test; each case keeps one runtime expect so it counts. */
+const optionsApp = new Elysia()
+	.use(formActions())
+	.post(
+		'/open',
+		{ form: { body: t.Object({ name: t.String() }), csrf: false } },
+		({ body }) => ({ name: body.name })
+	)
+	.post(
+		'/partner',
+		{
+			form: {
+				body: t.Object({ name: t.String() }),
+				csrf: { trustedOrigins: ['https://partner.test'] }
+			}
+		},
+		({ body }) => ({ name: body.name })
+	)
+	.post(
+		'/private',
+		{
+			form: {
+				body: t.Object({ name: t.String({ minLength: 2 }) }),
+				preserveValues: false
+			}
+		},
+		({ body }) => ({ name: body.name })
+	)
+	.post(
+		'/items/:id',
+		{ form: t.Object({ title: t.String({ minLength: 2 }) }) },
+		({ body, params }) => ({ id: params.id, title: body.title })
+	);
+
+const postOptions = (
+	path: string,
+	body: BodyInit,
+	headers: Record<string, string> = {}
+) => optionsApp.handle(requestTo(path, body, headers));
+
+describe('form routes — options', () => {
+	test('csrf: false accepts a cross-site post', async () => {
+		const response = await postOptions('/open', form([['name', 'Ada']]), {
+			[ACTION_REQUEST_HEADER]: '1',
+			'sec-fetch-site': 'cross-site'
+		});
+		expect(response.status).toBe(200);
+		expect((await response.json()).status).toBe('success');
+	});
+
+	test('csrf.trustedOrigins accepts those origins only', async () => {
+		const trusted = await postOptions('/partner', form([['name', 'Ada']]), {
+			[ACTION_REQUEST_HEADER]: '1',
+			origin: 'https://partner.test',
+			'sec-fetch-site': 'cross-site'
+		});
+		expect(trusted.status).toBe(200);
+		const other = await postOptions('/partner', form([['name', 'Ada']]), {
+			[ACTION_REQUEST_HEADER]: '1',
+			origin: 'https://evil.test',
+			'sec-fetch-site': 'cross-site'
+		});
+		expect(other.status).toBe(403);
+	});
+
+	test('preserveValues: false leaves the typed values out of the cookie', async () => {
+		const response = await postOptions('/private', form([['name', 'A']]));
+		expect(response.status).toBe(303);
+		const flash = flashOf(response);
+		expect(flash?.result.status).toBe('error');
+		if (flash?.result.status !== 'error') return;
+		expect(flash.result.values).toBeUndefined();
+		expect(flash.result.errors.name).toBeDefined();
+	});
+
+	test('a route with path parameters is found by its pattern or its path', async () => {
+		const response = await postOptions('/items/3', form([['title', 'A']]));
+		expect(response.status).toBe(303);
+		const flash = flashOf(response);
+		expect(flash?.action).toBe('/items/3');
+		const next = new Request(`${ORIGIN}/items/3/edit`, {
+			headers: { cookie: flashCookieOf(response) }
+		});
+		expect(getActionState('/items/:id', next)?.status).toBe('error');
+		expect(getActionState('/items/3', next)?.status).toBe('error');
+		expect(getActionState('/items/4', next)).toBeUndefined();
+	});
+
+	test('a JSON client (Eden, fetch) gets the handler data with 200', async () => {
+		const response = await postOptions(
+			'/items/9',
+			JSON.stringify({ title: 'Hello' })
+		);
+		expect(response.status).toBe(200);
+		expect(await response.json()).toEqual({ id: '9', title: 'Hello' });
+	});
+});
+
+/* ---------------------------------------------------------------- *
+ * Compile-time: what the handler, Eden and the typed client see. The
+ * file failing to compile is the test; each case keeps one runtime
+ * expect so it counts.
+ * ---------------------------------------------------------------- */
+
 type Equal<A, B> =
 	(<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2
 		? true
 		: false;
 
-const greet = defineAction('/greet', {
-	body: t.Object({ name: t.String({ minLength: 2 }) }),
-	handler: ({ body, fail }) =>
-		body.name === 'taken'
-			? fail({ name: 'That name is taken' })
-			: { greeting: `Welcome, ${body.name}` }
-});
-type GreetResponse = (typeof greet)['~Routes']['greet']['post']['response'];
+const signedIn: { id: number; name: string } = { id: 1, name: 'Grace' };
+const auth = new Elysia({ name: 'test-auth' }).derive('global', () => ({
+	user: signedIn
+}));
 
-describe('defineAction route types (what Eden sees)', () => {
+const typed = new Elysia()
+	.use(auth)
+	.use(formActions())
+	.post(
+		'/greet',
+		{ form: t.Object({ name: t.String({ minLength: 2 }) }) },
+		({ body, fail, user }) => {
+			const userCheck: Equal<typeof user, { id: number; name: string }> =
+				true;
+			void userCheck;
+
+			return body.name === 'taken'
+				? fail({ name: 'That name is taken' })
+				: { by: user.name, greeting: `Welcome, ${body.name}` };
+		}
+	)
+	.post(
+		'/subscribe',
+		{
+			form: {
+				body: t.Object({ email: t.String(), weekly: t.Boolean() }),
+				preserveValues: false,
+				redirect: '/thanks'
+			}
+		},
+		({ body, fail }) =>
+			body.email === 'taken'
+				? fail({ email: 'Already subscribed' })
+				: { email: body.email }
+	)
+	.post(
+		'/typo',
+		{ form: t.Object({ name: t.String() }) },
+		// @ts-expect-error — `nope` is not a field of the form
+		({ fail }) => fail({ nope: 'x' })
+	)
+	.post('/plain', ({ body }) => ({ body }));
+
+type TypedRoutes = (typeof typed)['~Routes'];
+type GreetRoute = TypedRoutes['greet']['post'];
+type SubscribeRoute = TypedRoutes['subscribe']['post'];
+
+describe('form route types (what the handler and Eden see)', () => {
 	test('a JSON client gets the typed 422 body', async () => {
-		const response = await new Elysia().use(greet).handle(
+		const response = await typed.handle(
 			new Request(`${ORIGIN}/greet`, {
 				body: JSON.stringify({ name: 'taken' }),
 				headers: { 'content-type': 'application/json' },
@@ -481,33 +627,90 @@ describe('defineAction route types (what Eden sees)', () => {
 		});
 	});
 
-	test('success is the handler data, not a Response', () => {
+	test('the body is typed from the form schema', () => {
+		const check: Equal<GreetRoute['body'], { name: string }> = true;
+		const options: Equal<
+			SubscribeRoute['body'],
+			{ email: string; weekly: boolean }
+		> = true;
+		expect([check, options]).toEqual([true, true]);
+	});
+
+	test('success is the handler data, with the derived user typed', () => {
 		const check: Equal<
-			GreetResponse[200],
-			ActionSuccessState<{ greeting: string }>
+			GreetRoute['response'][200],
+			{ by: string; greeting: string }
 		> = true;
 		expect(check).toBe(true);
 	});
 
-	test('a failure is a 422 with errors keyed by the schema fields', () => {
-		const check: Equal<
-			keyof NonNullable<GreetResponse[422]['errors']>,
-			'name'
+	test('the 422 is only the field-error shape, keyed by the schema fields', () => {
+		const greet: Equal<
+			GreetRoute['response'][422],
+			FormActionFailure<'name'>
 		> = true;
-		const response: Response | GreetResponse[422] = {
-			errors: { name: 'x' },
-			status: 'error'
-		};
-		expect(check).toBe(true);
-		expect(response instanceof Response).toBe(false);
+		const subscribe: Equal<
+			SubscribeRoute['response'][422],
+			FormActionFailure<'email' | 'weekly'>
+		> = true;
+		const statuses: Equal<keyof GreetRoute['response'], 200 | 422> = true;
+		expect([greet, subscribe, statuses]).toEqual([true, true, true]);
 	});
 
 	test('no status of the route is typed as a raw Response', () => {
 		type HasResponse = Extract<
-			GreetResponse[keyof GreetResponse],
+			GreetRoute['response'][keyof GreetRoute['response']],
 			Response
 		>;
 		const check: Equal<HasResponse, never> = true;
 		expect(check).toBe(true);
+	});
+});
+
+const actions = createFormActionClient<typeof typed>();
+describe('createFormActionClient (typed by path)', () => {
+	test('only POST routes that use `form` are paths', () => {
+		const check: Equal<
+			FormActionPaths<typeof typed>,
+			'/greet' | '/subscribe' | '/typo'
+		> = true;
+		// @ts-expect-error — not a route of the app
+		const unknownPath = () => actions.getActionState('/nope');
+		// @ts-expect-error — a POST route without `form`
+		const plainPath = () => actions.getActionState('/plain');
+		void [unknownPath, plainPath];
+		expect(check).toBe(true);
+	});
+
+	test('state, data and fields are typed from the route', () => {
+		const state: Equal<
+			FormActionStateOf<typeof typed, '/greet'>,
+			ActionState<{ by: string; greeting: string }, 'name'>
+		> = true;
+		const fields: Equal<
+			FormActionFieldsOf<typeof typed, '/subscribe'>,
+			'email' | 'weekly'
+		> = true;
+		const returned: Equal<
+			ReturnType<typeof actions.getActionState<'/greet'>>,
+			ActionResult<{ by: string; greeting: string }, 'name'> | undefined
+		> = true;
+		expect([state, fields, returned]).toEqual([true, true, true]);
+	});
+
+	test('getActionState reads the result of a submission without JavaScript', async () => {
+		const posted = await typed.handle(
+			requestTo('/subscribe', form([['email', 'taken']]))
+		);
+		expect(posted.status).toBe(303);
+		const next = new Request(`${ORIGIN}/thanks`, {
+			headers: { cookie: flashCookieOf(posted) }
+		});
+		const state = actions.getActionState('/subscribe', next);
+		expect(state?.status).toBe('error');
+		if (state?.status !== 'error') return;
+		expect(state.errors.email).toBe('Already subscribed');
+		expect(state.values).toBeUndefined();
+		expect(actions.getActionState('/greet', next)).toBeUndefined();
 	});
 });

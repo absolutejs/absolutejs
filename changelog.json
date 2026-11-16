@@ -5,6 +5,61 @@
 		{
 			"changes": [
 				{
+					"detail": "`defineAction(path, options)` built the action as its own Elysia instance before it was mounted, so it couldn't know the app: the app's guards and `derive` / `resolve` values reached the handler at run time, but untyped (`context.user` was `unknown`), and it was a second way to declare a route. A form action is now a normal route with a `form` option in place of `body`: `.post(path, { form: t.Object({ … }) }, ({ body, fail, user }) => …)`. `form` is an Elysia macro that the `absolutejs` plugin from `prepare()` brings, so apps add no `.use` (`PrepareResult['absolutejs']` is now typed with it). Guards, `derive`, `resolve`, groups and prefixes apply to the route as to any other, with their types; `body` is typed from the schema and `fail` keyed by its fields. Options move into the value: `form: { body: schema, redirect, htmx, csrf, maxBodySize, preserveValues }`. A route-level `beforeHandle` replaces the `beforeHandle` option. `redirect` and `htmx` are typed before the handler, so annotate their parameter to type the data (`htmx: (result: ActionResult<{ email: string }>) => …`). Responses to a plain form post, HTMX and the browser helpers are unchanged. A JSON client (Eden, fetch) now gets the handler's data itself with 200 instead of `{ status: 'success', data }`, and the field errors with 422 as before; Eden's 422 is only the field-error shape (`FormActionFailure`), no longer a union with Elysia's `ValidationProblem`. `getActionState` takes the route's path (or its pattern, for a route with path parameters) instead of the action. `useFormAction`, `submitFormAction` and `formActionReducer` take the data and field types as type parameters (`useFormAction<Data, Fields>(path)`), or are typed by path through `createFormActionClient<typeof server>()`; `UseFormActionOptions` has no type parameter and `initialState` accepts any action state. Removed with `defineAction`: `ActionFailure`, `ActionDataOf`, `ActionHandlerContext`, `DefineActionOptions`, `FormActionDefinition`, `AnyFormAction`, `ActionPath`, `ActionBody`, `ActionData`, `ActionFields`, `ActionResultOf` and `ActionStateOf` (use `FormActionStateOf<typeof server, path>` and friends).",
+					"kind": "breaking",
+					"migration": {
+						"instruction": "Declare each action as a route: `export const createUser = defineAction('/users', { body: schema, redirect: '/done', handler: ({ body, fail }) => … })` plus `app.use(createUser)` becomes `app.post('/users', { form: { body: schema, redirect: '/done' } }, ({ body, fail }) => …)`, or `{ form: schema }` with no options (a plain Elysia app without `prepare()` adds `.use(formActions())` once). Move a `beforeHandle` option to the route's own `beforeHandle`, and read derived values (`user`) from the handler context instead of `context`. Replace `getActionState(createUser)` with `getActionState('/users')`, or with `actions.getActionState('/users')` from `export const actions = createFormActionClient<typeof server>()` (import the server type with `import type`; give a route of the same app that calls it a return type, `(): Promise<Response> => …`). Replace `useFormAction<typeof createUser>(path, options)` with `actions.useFormAction(path, options)` (the factory from `@absolutejs/absolute/react/hooks`) or `useFormAction<Data, Fields>(path, options)`, and `ActionStateOf<typeof createUser>` with `FormActionStateOf<typeof server, '/users'>` or `ActionState`. A JSON client that read `response.data.data` now reads `response.data`.",
+						"manual": true
+					},
+					"summary": "Form actions are routes with a `form` schema instead of `defineAction` + `.use(action)`; the handler gets the app's typed `derive` / `resolve` values",
+					"symbols": [
+						"defineAction",
+						"DefineActionOptions",
+						"ActionFailure",
+						"ActionDataOf",
+						"ActionHandlerContext",
+						"FormActionDefinition",
+						"AnyFormAction",
+						"ActionPath",
+						"ActionBody",
+						"ActionData",
+						"ActionFields",
+						"ActionResultOf",
+						"ActionStateOf",
+						"getActionState",
+						"useFormAction",
+						"UseFormActionOptions",
+						"submitFormAction",
+						"formActionReducer",
+						"PrepareResult"
+					]
+				},
+				{
+					"detail": "`createFormActionClient<typeof server>()` returns `getActionState`, `submitFormAction` and `formActionReducer` addressed by a form route's path, checked against the app's routes the way Eden reads them (`typeof server['~Routes']`): only POST routes that use `form` are accepted, and the state, data and field errors are typed from that route. The build from `@absolutejs/absolute/react/hooks` adds `useFormAction`. The factory is browser safe (`getActionState` reads the request the request context keeps, and is undefined in the browser), so one `actions` module serves the server's page routes and the pages; import the server's type with `import type` so no server code reaches a client bundle. `formActions()` is the `form` route option as a standalone plugin for plain Elysia apps (with the runtime that renders and clears no-JavaScript results on HTML pages); the `absolutejs` plugin already includes it. New types: `FormActionOptions`, `FormActionValue`, `FormActionFailure`, `FormActionContext`, `FormActionPaths`, `FormActionDataOf`, `FormActionFieldsOf`, `FormActionResultOf`, `FormActionStateOf`, `FormActionsPlugin` and the macro's own `FormActionMacroType`, `FormActionResponse`, `FormActionRouteMeta`, `FormActionSchemaOf` and `FormActionFieldsOfValue`.",
+					"kind": "added",
+					"summary": "Typed form-action client by path (`createFormActionClient`) and a standalone `formActions()` plugin",
+					"symbols": [
+						"createFormActionClient",
+						"formActions",
+						"FormActionsPlugin",
+						"FormActionOptions",
+						"FormActionValue",
+						"FormActionFailure",
+						"FormActionContext",
+						"FormActionPaths",
+						"FormActionDataOf",
+						"FormActionFieldsOf",
+						"FormActionResultOf",
+						"FormActionStateOf"
+					]
+				}
+			],
+			"date": "2026-11-16",
+			"version": "0.20.0-beta.191"
+		},
+		{
+			"changes": [
+				{
 					"kind": "fixed",
 					"summary": "Retain compiled browser asset graphs across frequent deployments without a three-release cap; configure the shared byte budget and warn on early storage-pressure eviction."
 				}

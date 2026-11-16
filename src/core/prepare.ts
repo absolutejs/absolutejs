@@ -18,6 +18,7 @@ import { setCurrentIslandManifest } from './islandPageContext';
 import { absoluteRequestContext } from './requestContext';
 import { hasForeignErrorHook } from './appErrorHooks';
 import { formActionRuntime } from './formActionFlash';
+import { formActionMacro, type FormActionsPlugin } from './formActions';
 import { loadIslandRegistry } from './loadIslandRegistry';
 import { setCurrentIslandRegistry } from './currentIslandRegistry';
 import {
@@ -484,7 +485,11 @@ const prepareDev = async (
 		config.mobile,
 		false
 	);
-	const absolutejs = new Elysia({ name: 'absolutejs-runtime' });
+	// Typed with the `form` route option (formActions.ts), and nothing
+	// else: see PrepareResult.
+	const absolutejs: FormActionsPlugin = new Elysia({
+		name: 'absolutejs-runtime'
+	}).use(formActionMacro());
 	absolutejs
 		// Must be first: the inspector's global request/afterResponse hooks
 		// only reach routes compiled after them, so it has to precede the
@@ -961,7 +966,11 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 
 		stepStartedAt = performance.now();
 		const { imageOptimizer } = await import('../plugins/imageOptimizer');
-		const absolutejs = new Elysia({ name: 'absolutejs-runtime' });
+		// Typed with the `form` route option (formActions.ts), and nothing
+		// else: see PrepareResult.
+		const absolutejs: FormActionsPlugin = new Elysia({
+			name: 'absolutejs-runtime'
+		}).use(formActionMacro());
 		absolutejs
 			.use(absoluteRequestContext)
 			// Renders and clears form-action results (formActionFlash.ts).
@@ -988,7 +997,11 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 
 	stepStartedAt = performance.now();
 	const { imageOptimizer } = await import('../plugins/imageOptimizer');
-	const absolutejs = new Elysia({ name: 'absolutejs-runtime' });
+	// Typed with the `form` route option (formActions.ts), and nothing
+	// else: see PrepareResult.
+	const absolutejs: FormActionsPlugin = new Elysia({
+		name: 'absolutejs-runtime'
+	}).use(formActionMacro());
 	absolutejs
 		.use(absoluteRequestContext)
 		// Renders and clears form-action results (formActionFlash.ts).
@@ -1016,7 +1029,8 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
  * routes must not become alternatives in every consumer's application route type.
  * User routes added after mounting this plugin retain their complete Elysia types. */
 export type PrepareResult = {
-	absolutejs: Elysia;
+	/** Also gives the app's routes the `form` option (form actions). */
+	absolutejs: FormActionsPlugin;
 	manifest: Record<string, string>;
 };
 

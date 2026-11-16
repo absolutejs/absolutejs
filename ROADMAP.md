@@ -143,27 +143,25 @@ Elysia POST handlers work for form processing, but there's no convention for pro
 
 _Server side — action handlers:_
 
-- A convention for defining form actions on Elysia routes. This could be as simple as a helper that creates a POST handler with typed input validation:
+- A convention for defining form actions on Elysia routes. Phase 1 ships it as a `form` schema on a normal route (see docs/FORM_ACTIONS_PLAN.md):
     ```ts
-    import { defineAction } from 'absolutejs';
     import { t } from 'elysia';
 
-    const createUser = defineAction({
-    	body: t.Object({
-    		name: t.String(),
-    		email: t.String({ format: 'email' })
-    	}),
-    	handler: async ({ body }) => {
-    		const user = await db.insert(users).values(body).returning();
-    		return { success: true, user };
+    app.post(
+    	'/users',
+    	{
+    		form: t.Object({
+    			name: t.String(),
+    			email: t.String({ format: 'email' })
+    		})
     	},
-    	error: (errors) => {
-    		return { success: false, errors };
-    		// errors is typed: { name?: string, email?: string }
+    	async ({ body, fail }) => {
+    		if (await emailTaken(body.email))
+    			return fail({ email: 'Already registered' });
+    		// fail's fields are typed: { name?: string, email?: string }
+    		return { user: await db.insert(users).values(body).returning() };
     	}
-    });
-
-    app.post('/users', createUser);
+    );
     ```
 - The action handler detects whether the request came from a plain form submission (no JS) or a `fetch()` call (JS available):
     - Plain form: process, then redirect (POST/Redirect/GET pattern) or re-render the page with errors
@@ -211,7 +209,7 @@ _Type safety:_
 
 **Files likely involved:**
 
-- New: `src/utils/defineAction.ts` — action handler factory with typed validation and dual-mode response
+- New: `src/core/formActions.ts` — the `form` route option (an Elysia macro) with typed validation and dual-mode response
 - New: `src/react/hooks/useFormAction.ts` — React hook for form enhancement
 - New: `src/svelte/useFormAction.ts` — Svelte store-based form enhancement
 - New: `src/vue/useFormAction.ts` — Vue composable for form enhancement

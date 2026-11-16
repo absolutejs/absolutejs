@@ -1,9 +1,13 @@
+import type { ElysiaStatus, MacroTypeLambda, UnwrapSchema } from 'elysia';
+import type { TObject, TUnsafe } from 'typebox';
+
 /**
- * Public type surface for form actions (`defineAction` on the server,
- * `useFormAction` / `enhanceForms` in the browser). Browser code imports
- * these types only, so a page can type its form against a server action
- * with `import type { createUser } from '../../server'` and never pull
- * server code into its bundle.
+ * Public type surface for form actions: the `form` route option on the
+ * server, `createFormActionClient` / `useFormAction` / `enhanceForms` in
+ * the browser. Browser code imports these types only, so a page can type
+ * its form against the server's routes with
+ * `import type { server } from '../../server'` and never pull server code
+ * into its bundle.
  */
 
 /** Field name → message, one message per field. */
@@ -46,42 +50,209 @@ export type ActionResult<Data = unknown, Fields extends string = string> =
 export type ActionState<Data = unknown, Fields extends string = string> =
 	ActionIdleState | ActionResult<Data, Fields>;
 
-/** The phantom type a `defineAction(...)` result carries, so browser code
- *  can name the action with `typeof createUser` and get its path, field
- *  names and result type. */
-export type FormActionDefinition<
-	Path extends string = string,
-	Body = unknown,
-	Data = unknown
-> = {
-	readonly actionPath: Path;
-	readonly '~formAction'?: { body: Body; data: Data };
+/* ---------------------------------------------------------------- *
+ * The `form` route option (server)
+ * ---------------------------------------------------------------- */
+
+export type ActionCsrfOptions = {
+	/** Origins (scheme://host[:port]) allowed to post besides the page's
+	 *  own, e.g. a separate front-end domain. */
+	trustedOrigins?: readonly string[];
 };
 
-export type AnyFormAction = FormActionDefinition;
+/* Method syntax keeps these callbacks bivariant, so an app can annotate
+ * `data` / `result` with its handler's real type (the option is typed
+ * before the handler, so it can't infer it). */
+type RedirectTarget = {
+	target(data: unknown): string;
+}['target'];
 
-export type ActionPath<Action extends AnyFormAction> = Action['actionPath'];
+/** `form: { body, …options }`: the schema plus the action's options. */
+export type FormActionOptions<Schema extends TObject = TObject> = {
+	/** The form's fields (an Elysia `t.Object`). Field names are the keys;
+	 *  add `error: 'message'` to a property for a friendlier message than
+	 *  the validator's. */
+	body: Schema;
+	/** Cross-origin protection: requests whose `Sec-Fetch-Site` / `Origin`
+	 *  say another site sent them get 403. Default on; `false` turns it
+	 *  off (for an API meant to be called from other sites). */
+	csrf?: ActionCsrfOptions | false;
+	/** HTMX requests only: the HTML fragment to swap in for a result
+	 *  (answered with 200, which HTMX swaps by default). Return undefined
+	 *  to fall back to the no-JavaScript behaviour (`HX-Redirect`).
+	 *  `result.data` is the handler's return value; annotate the parameter
+	 *  (`(result: ActionResult<{ email: string }>) => …`) to type it. */
+	htmx?(
+		result: ActionResult,
+		request: Request
+	): string | undefined | Promise<string | undefined>;
+	/** Bytes; requests that declare a larger body get 413 before it is
+	 *  read. Default 10 MiB. */
+	maxBodySize?: number;
+	/** Echo what the user typed back to the page after a failed
+	 *  submission without JavaScript (files and secret-looking fields are
+	 *  never echoed). Default true. */
+	preserveValues?: boolean;
+	/** Where to send the browser after success. Default: back to the page
+	 *  the form was on. A function gets the handler's return value. */
+	redirect?: string | RedirectTarget;
+};
 
-export type ActionBody<Action extends AnyFormAction> = NonNullable<
-	Action['~formAction']
->['body'];
+/** The `form` route option: the schema alone, or `{ body, …options }`. */
+export type FormActionValue = TObject | FormActionOptions;
 
-export type ActionData<Action extends AnyFormAction> = NonNullable<
-	Action['~formAction']
->['data'];
+/** The schema a `form` value carries. */
+export type FormActionSchemaOf<Value> = Value extends {
+	body: infer Schema extends TObject;
+}
+	? Schema
+	: Value extends TObject
+		? Value
+		: never;
 
-/** The body's field names; any string for an untyped action. */
-export type ActionFields<Action extends AnyFormAction> =
-	unknown extends ActionBody<Action>
-		? string
-		: Extract<keyof ActionBody<Action>, string>;
-
-export type ActionResultOf<Action extends AnyFormAction> = ActionResult<
-	ActionData<Action>,
-	ActionFields<Action>
+/** The field names of a `form` value's schema. */
+export type FormActionFieldsOfValue<Value> = Extract<
+	keyof UnwrapSchema<FormActionSchemaOf<Value>>,
+	string
 >;
 
-export type ActionStateOf<Action extends AnyFormAction> = ActionState<
-	ActionData<Action>,
-	ActionFields<Action>
+/** A `form` route's 422 body: the field errors, one message per field.
+ *  Both `fail(...)` and a submission that fails validation answer it. */
+export type FormActionFailure<Fields extends string = string> = {
+	errors: ActionFieldErrors<Fields>;
+	message?: string;
+	status: 'error';
+};
+
+/** What a `form` route's handler gets besides the usual context. */
+export type FormActionContext<Value> = {
+	/** Answer with field errors (and an optional form-level message)
+	 *  instead of a result: a 422 with the field errors. */
+	fail: (
+		errors: ActionFieldErrors<FormActionFieldsOfValue<Value>>,
+		message?: string
+	) => ElysiaStatus<422, FormActionFailure<FormActionFieldsOfValue<Value>>>;
+};
+
+/** What the `form` macro's hooks read from Elysia's context. Named, so
+ *  the macro's published type stays small and stable. */
+export type FormActionHookContext = {
+	body?: unknown;
+	request: Request;
+	route?: string;
+	set: { status?: number | string };
+};
+
+export type FormActionErrorContext = FormActionHookContext & {
+	error: unknown;
+};
+
+export type FormActionResponseContext = FormActionHookContext & {
+	responseValue: unknown;
+};
+
+/** Marks a route as a form action on its Eden type (`meta`), which is
+ *  how `createFormActionClient` finds the app's form routes. */
+export type FormActionRouteMeta = { absoluteFormAction: true };
+
+/** The `form` macro's per-route types: `body` and `fail` from the
+ *  schema, and a 422 that is only the field-error shape. */
+// Elysia's macro type lambdas read `this`, which only an interface has.
+// eslint-disable-next-line @typescript-eslint/consistent-type-definitions
+export interface FormActionMacroType extends MacroTypeLambda {
+	body: FormActionSchemaOf<this['input']>;
+	output: FormActionContext<this['input']>;
+	response: FormActionResponse<this['input']>;
+}
+
+/** The `form` route's response schema as Eden sees it: 422 is the field
+ *  errors (Elysia's built-in validation body is never sent; the route's
+ *  error hook answers validation failures with this shape). */
+export type FormActionResponse<Value> = {
+	422: TUnsafe<FormActionFailure<FormActionFieldsOfValue<Value>>>;
+};
+
+/* ---------------------------------------------------------------- *
+ * Addressing a form route by path (createFormActionClient)
+ * ---------------------------------------------------------------- */
+
+type RouteLeaf = {
+	headers: unknown;
+	params: unknown;
+	query: unknown;
+	response: unknown;
+};
+type FormRouteLeaf = RouteLeaf & { meta: FormActionRouteMeta };
+type MaxRouteDepth = 16;
+
+type FormPathsIn<
+	Routes,
+	Prefix extends string,
+	Depth extends 1[]
+> = Depth['length'] extends MaxRouteDepth
+	? never
+	: {
+			[Key in keyof Routes & string]: Key extends 'post'
+				? Routes[Key] extends FormRouteLeaf
+					? Prefix extends ''
+						? '/'
+						: Prefix
+					: never
+				: Routes[Key] extends RouteLeaf
+					? never
+					: FormPathsIn<
+							Routes[Key],
+							`${Prefix}/${Key}`,
+							[...Depth, 1]
+						>;
+		}[keyof Routes & string];
+
+type PathSegments<Path extends string> = Path extends `/${infer Rest}`
+	? PathSegments<Rest>
+	: Path extends ''
+		? []
+		: Path extends `${infer Head}/${infer Rest}`
+			? [Head, ...PathSegments<Rest>]
+			: [Path];
+
+type RoutesAt<Routes, Segments> = Segments extends [
+	infer Head extends string,
+	...infer Rest
+]
+	? RoutesAt<Routes[Head & keyof Routes], Rest>
+	: Routes;
+
+type RoutesOf<App> = App extends { '~Routes': infer Routes } ? Routes : never;
+
+type FormRouteAt<App, Path extends string> =
+	RoutesAt<RoutesOf<App>, PathSegments<Path>> extends {
+		post: infer Route;
+	}
+		? Route
+		: never;
+
+/** Every path in `App` (`typeof server`) served by a `form` route. */
+export type FormActionPaths<App> = FormPathsIn<RoutesOf<App>, '', []>;
+
+/** What the `form` route at `Path` answers on success (its handler's
+ *  return value). */
+export type FormActionDataOf<App, Path extends string> =
+	FormRouteAt<App, Path> extends { response: { 200: infer Data } }
+		? Data
+		: unknown;
+
+/** The field names of the `form` route at `Path`. */
+export type FormActionFieldsOf<App, Path extends string> =
+	FormRouteAt<App, Path> extends { body: infer Body }
+		? Extract<keyof Body, string>
+		: string;
+
+export type FormActionResultOf<App, Path extends string> = ActionResult<
+	FormActionDataOf<App, Path>,
+	FormActionFieldsOf<App, Path>
+>;
+
+export type FormActionStateOf<App, Path extends string> = ActionState<
+	FormActionDataOf<App, Path>,
+	FormActionFieldsOf<App, Path>
 >;

@@ -5,9 +5,16 @@ import {
 	ACTION_FORM_ATTRIBUTE,
 	ACTION_MESSAGE_ATTRIBUTE,
 	ACTION_STATUS_ATTRIBUTE,
-	ACTION_SUCCESS_ATTRIBUTE,
-	isActionResult
+	ACTION_SUCCESS_ATTRIBUTE
 } from '../utils/formActionProtocol';
+import {
+	ACTION_FLASH_COOKIE,
+	readActionFlash,
+	type ActionFlash
+} from '../utils/formActionState';
+
+export { ACTION_FLASH_COOKIE, readActionFlash };
+export type { ActionFlash };
 
 /* The result of a form submission made without JavaScript travels to the
  * page it redirects to in a cookie: HttpOnly, SameSite=Lax, one minute,
@@ -16,12 +23,9 @@ import {
  * prop, or, for static HTML / HTMX pages, gets it written into
  * `<form data-absolute-action>` by `formActionRuntime` below. */
 
-export const ACTION_FLASH_COOKIE = 'absolute_action';
 const FLASH_MAX_AGE_SECONDS = 60;
 /* A cookie must stay under 4096 bytes including its name and attributes. */
 const FLASH_MAX_VALUE_BYTES = 3_500;
-
-export type ActionFlash = { action: string; result: ActionResult };
 
 const cookieAttributes = (secure: boolean, maxAge: number) =>
 	`Path=/; Max-Age=${maxAge}; HttpOnly; SameSite=Lax${secure ? '; Secure' : ''}`;
@@ -32,13 +36,13 @@ const encodeValue = (flash: ActionFlash) =>
 /* The flash, then smaller versions of it: without the echoed values (or
  * the success data), then with nothing but the outcome. */
 const flashCandidates = (flash: ActionFlash) => {
-	const { action, result } = flash;
+	const { result } = flash;
 	const candidates: ActionFlash[] = [flash];
 	if (result.status === 'error')
 		candidates.push(
-			{ action, result: { ...result, values: undefined } },
+			{ ...flash, result: { ...result, values: undefined } },
 			{
-				action,
+				...flash,
 				result: {
 					errors: {},
 					message: 'The form could not be submitted.',
@@ -48,8 +52,8 @@ const flashCandidates = (flash: ActionFlash) => {
 		);
 	else
 		candidates.push(
-			{ action, result: { ...result, data: undefined } },
-			{ action, result: { status: 'success' } }
+			{ ...flash, result: { ...result, data: undefined } },
+			{ ...flash, result: { status: 'success' } }
 		);
 
 	return candidates;
@@ -68,44 +72,6 @@ export const encodeActionFlash = (flash: ActionFlash, secure: boolean) => {
 		) ?? encoded[encoded.length - 1];
 
 	return `${ACTION_FLASH_COOKIE}=${value}; ${cookieAttributes(secure, FLASH_MAX_AGE_SECONDS)}`;
-};
-
-const cookieValue = (request: Request, name: string) => {
-	const header = request.headers.get('cookie');
-	if (!header) return undefined;
-	const prefix = `${name}=`;
-	const pair = header
-		.split(';')
-		.map((part) => part.trim())
-		.find((part) => part.startsWith(prefix));
-
-	return pair?.slice(prefix.length);
-};
-
-const decodeFlash = (value: string) => {
-	try {
-		const parsed: unknown = JSON.parse(
-			Buffer.from(value, 'base64url').toString('utf8')
-		);
-
-		return parsed;
-	} catch {
-		return undefined;
-	}
-};
-
-/** The flash the request carries, when it is well-formed. */
-export const readActionFlash = (request: Request) => {
-	const value = cookieValue(request, ACTION_FLASH_COOKIE);
-	if (!value) return undefined;
-	const parsed = decodeFlash(value);
-	if (typeof parsed !== 'object' || parsed === null) return undefined;
-	const action: unknown = Reflect.get(parsed, 'action');
-	const result: unknown = Reflect.get(parsed, 'result');
-	if (typeof action !== 'string' || !isActionResult(result)) return undefined;
-	const flash: ActionFlash = { action, result };
-
-	return flash;
 };
 
 /* ---------------------------------------------------------------- *

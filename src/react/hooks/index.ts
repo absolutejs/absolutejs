@@ -5,6 +5,7 @@ export { UserAgentProvider, useMediaQuery } from './useMediaQuery';
 export { usePrefetch } from './usePrefetch';
 export type { UsePrefetchOptions } from './usePrefetch';
 export type { PrefetchKind, PrefetchMode } from '../../../types/prefetch';
+export { createFormActionClient } from './formActionClient';
 export { useFormAction } from './useFormAction';
 export type { UseFormActionOptions } from './useFormAction';
 export { formActionReducer, submitFormAction } from '../../client/formActions';

@@ -1,11 +1,4 @@
-import type {
-	ActionData,
-	ActionErrorState,
-	ActionFields,
-	ActionPath,
-	ActionResult,
-	AnyFormAction
-} from '../../types/formAction';
+import type { ActionErrorState, ActionResult } from '../../types/formAction';
 import {
 	ACTION_ERROR_ATTRIBUTE,
 	ACTION_FORM_ATTRIBUTE,
@@ -46,21 +39,23 @@ const readPayload = async (response: Response) => {
  *  renders function form actions as `javascript:` URLs on the server; use
  *  `useFormAction` for forms that also work without JavaScript). */
 export const formActionReducer =
-	<Action extends AnyFormAction = AnyFormAction>(path: ActionPath<Action>) =>
+	<Data = unknown, Fields extends string = string>(path: string) =>
 	async (_previous: unknown, body: FormData) =>
-		submitFormAction<Action>(path, body);
+		submitFormAction<Data, Fields>(path, body);
 
-/** Posts `body` to the action at `path` and returns its result. Network
- *  and unexpected server failures come back as an error state with a
- *  `message`; an aborted request rejects with the abort error. */
+/** Posts `body` to the form route at `path` and returns its result.
+ *  Network and unexpected server failures come back as an error state
+ *  with a `message`; an aborted request rejects with the abort error.
+ *  `createFormActionClient` types it by path. */
 export const submitFormAction = async <
-	Action extends AnyFormAction = AnyFormAction
+	Data = unknown,
+	Fields extends string = string
 >(
-	path: ActionPath<Action>,
+	path: string,
 	body: FormData,
 	options: SubmitFormActionOptions = {}
 ) => {
-	type Result = ActionResult<ActionData<Action>, ActionFields<Action>>;
+	type Result = ActionResult<Data, Fields>;
 	const response = await fetch(path, {
 		body,
 		credentials: 'same-origin',
@@ -78,8 +73,7 @@ export const submitFormAction = async <
 		return result;
 	}
 	const payload = await readPayload(response);
-	if (isActionResult<ActionData<Action>, ActionFields<Action>>(payload))
-		return payload;
+	if (isActionResult<Data, Fields>(payload)) return payload;
 	const result: Result = failure(
 		`The server could not handle the form (HTTP ${response.status}).`
 	);

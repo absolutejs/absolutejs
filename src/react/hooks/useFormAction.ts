@@ -7,19 +7,19 @@ import {
 } from 'react';
 import type {
 	ActionFieldErrors,
-	ActionFields,
 	ActionFormValues,
 	ActionIdleState,
-	ActionPath,
-	ActionStateOf,
-	AnyFormAction
+	ActionState
 } from '../../../types/formAction';
 import { submitFormAction } from '../../client/formActions';
+import { isActionState } from '../../utils/formActionProtocol';
 
-export type UseFormActionOptions<Action extends AnyFormAction> = {
+export type UseFormActionOptions = {
 	/** The result a submission without JavaScript left for this page:
-	 *  `getActionState(action)` in the route, passed down as a prop. */
-	initialState?: ActionStateOf<Action>;
+	 *  `getActionState(path)` in the route, passed down as a prop. It comes
+	 *  through a cookie and props, so any action state is accepted; the
+	 *  hook's type parameters type it. */
+	initialState?: ActionState | null;
 	/** Clear the form's fields after a successful submission that doesn't
 	 *  redirect. Default true. */
 	resetOnSuccess?: boolean;
@@ -37,9 +37,9 @@ const submitterOf = (event: FormEvent<HTMLFormElement>) => {
 };
 
 /**
- * Progressive-enhancement form state for a `defineAction` action:
+ * Progressive-enhancement form state for a `form` route:
  *
- *   const signup = useFormAction<typeof createUser>('/users', {
+ *   const signup = actions.useFormAction('/users', {
  *   	initialState: props.signupState
  *   });
  *   <form {...signup.formProps}>
@@ -51,14 +51,21 @@ const submitterOf = (event: FormEvent<HTMLFormElement>) => {
  * `formProps` renders a real `method="post"` form, so it works before
  * hydration and without JavaScript; once hydrated, submissions go through
  * fetch and `state` / `pending` / `errors` update in place.
+ *
+ * `actions` is `createFormActionClient<typeof server>()` from this
+ * module, which checks the path against the app's form routes and types
+ * `data`, `errors` and `values` from the route. Called directly, the hook
+ * takes them as type parameters (`useFormAction<Data, Fields>(path)`).
  */
-export const useFormAction = <Action extends AnyFormAction = AnyFormAction>(
-	path: ActionPath<Action>,
-	options: UseFormActionOptions<Action> = {}
+export const useFormAction = <Data = unknown, Fields extends string = string>(
+	path: string,
+	options: UseFormActionOptions = {}
 ) => {
-	const [state, setState] = useState<ActionStateOf<Action>>(
-		() => options.initialState ?? IDLE
-	);
+	const [state, setState] = useState<ActionState<Data, Fields>>(() => {
+		const initial = options.initialState;
+
+		return initial && isActionState<Data, Fields>(initial) ? initial : IDLE;
+	});
 	const [pending, setPending] = useState(false);
 	const controllerRef = useRef<AbortController | null>(null);
 	const resetOnSuccess = options.resetOnSuccess !== false;
@@ -72,9 +79,13 @@ export const useFormAction = <Action extends AnyFormAction = AnyFormAction>(
 			controllerRef.current = controller;
 			setPending(true);
 			try {
-				const result = await submitFormAction<Action>(path, body, {
-					signal: controller.signal
-				});
+				const result = await submitFormAction<Data, Fields>(
+					path,
+					body,
+					{
+						signal: controller.signal
+					}
+				);
 				setState(result);
 				if (result.status === 'success' && result.redirect)
 					window.location.assign(result.redirect);
@@ -108,9 +119,9 @@ export const useFormAction = <Action extends AnyFormAction = AnyFormAction>(
 	);
 
 	const reset = useCallback(() => setState(IDLE), []);
-	const errors: ActionFieldErrors<ActionFields<Action>> =
+	const errors: ActionFieldErrors<Fields> =
 		state.status === 'error' ? state.errors : {};
-	const values: ActionFormValues<ActionFields<Action>> =
+	const values: ActionFormValues<Fields> =
 		state.status === 'error' ? (state.values ?? {}) : {};
 
 	return {

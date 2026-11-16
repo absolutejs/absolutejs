@@ -1,6 +1,6 @@
 # Form actions — plan
 
-Status: Phase 1 implemented (server, no-JS, React, static HTML, HTMX). Phases 2–4 below.
+Status: Phase 1 implemented (server, no-JS, React, static HTML, HTMX), declared as a `form` schema on a normal route since the API review (the proposal in PR #116). Phases 2–4 below.
 
 ROADMAP.md §3 ("P1 — Form Actions with Progressive Enhancement") asks for one action model that works from any framework's page, with forms that work without JavaScript and enhance when it's present.
 
@@ -16,39 +16,89 @@ ROADMAP.md §3 ("P1 — Form Actions with Progressive Enhancement") asks for one
 
 ## Design
 
-### Definition
+### Declaration: a `form` schema on a normal route
 
 ```ts
-// actions.ts (server)
-export const createUser = defineAction('/users', {
-	body: t.Object({
-		email: t.String({ error: 'Enter a valid email', format: 'email' }),
-		name: t.String({ minLength: 2 })
-	}),
-	handler: async ({ body, fail, context }) => {
-		if (await db.userExists(body.email)) return fail({ email: 'Already registered' });
-		return { id: await db.insertUser(body) };
-	},
-	redirect: (data) => `/users/${data.id}` // optional; default: back to the form's page
-});
+// server.ts
+const { absolutejs, manifest } = await prepare();
 
-app.use(createUser); // a plain Elysia plugin
+export const server = new Elysia()
+	.use(absolutejs) // brings the `form` route option
+	.use(auth) // derives `user`, like any app
+	.post(
+		'/actions/signup',
+		{
+			form: t.Object({
+				email: t.String({ error: 'Enter a valid email', format: 'email' }),
+				name: t.String({ minLength: 2 })
+			})
+		},
+		async ({ body, fail, user }) => {
+			if (await db.userExists(body.email)) return fail({ email: 'Already registered' });
+			return { id: await db.insertUser(body, user) };
+		}
+	)
+	.post(
+		'/actions/contact',
+		{
+			form: {
+				body: t.Object({ message: t.String({ minLength: 5 }) }),
+				redirect: '/thanks', // or (data) => string; default: back to the form's page
+				htmx: (result) => '<p>…</p>', // HTMX fragment, optional
+				csrf: { trustedOrigins: ['https://admin.example'] }, // or false
+				maxBodySize: 1024 * 1024,
+				preserveValues: false
+			}
+		},
+		({ body }) => ({ sent: true })
+	);
 ```
 
-- `defineAction(path, options)` returns an Elysia instance with one `.post(path, { body, parse, transform, error, beforeHandle }, handler)` route, plus a phantom `actionPath` / `'~formAction'` type. So `app.use(action)` mounts it, and Eden sees the route with its body schema (verified: `treaty<typeof server>().actions.signup.post({ name })` fails to typecheck when `email` is missing).
-- The route answers with typed values: the handler's data on success, `status(422, errors)` on failure (validation errors too). A route `mapResponse` hook turns them into the 303 / HTMX / browser-helper answer, so Eden types the response (`data` is `{ status: 'success', data }`, the 422 is the field errors) instead of `Response`. Compile-time tests in `tests/unit/core/formActions.test.ts`.
-- The body schema is the route's real Elysia schema, so Elysia validates and coerces it. The route's `error` hook turns a body `ValidationError` into one message per field:
-  - The key is the top-level field name, or a dotted path for nested fields.
-  - The message is the property's `error` option when it is a string, `Required` for missing fields, and the validator's message otherwise.
-  - In production, Elysia reports only the first issue once any property has a custom `error`. So on failure, and only then, the body is re-checked with TypeBox `Value.Errors` (the same TypeBox Elysia uses, now external in the build) to collect every field's error. Elysia's own list is the fallback.
-- Browser forms send strings. A `transform` hook maps them onto the schema before validation:
+- `form` is an Elysia macro, `formActions()` in `src/core/formActions.ts`. The `absolutejs` plugin from `prepare()` includes it (its type is `FormActionsPlugin`, the macro and nothing else, so internal routes stay out of the app's route type), so apps add no `.use`. A plain Elysia app adds `.use(formActions())`, which also brings `formActionRuntime()`.
+- An action is a route in the app's chain, so guards, `derive`, `resolve`, groups and prefixes apply as they do to `.get`, with their types: `user` above is typed from `auth`. There is no second way to declare a route.
+- `form` takes the schema alone, or `{ body: schema, …options }` when options are needed. The macro tells them apart at runtime by the schema's `type: 'object'` + `properties`, and at the type level by the `body` key (`FormActionSchemaOf`).
+- The macro's type lambda (`FormActionMacroType`, `$type: macroType<…>()`) types the route from the `form` value: `body` from the schema, `fail` keyed by its fields (a typo'd field is a compile error), and the 422 response as the field-error shape (`FormActionFailure`). The lambda only sees the macro's value (`this['input']`), not the route's context, which is why the schema is the macro's value rather than `body` plus a flag. The runtime `fail` is typed `{}` inside `derive` so only the lambda's typed one applies, and the lambda's output is a named type (`FormActionContext`) because `this` can't appear in a nested type literal.
+- Eden sees the route like any other: `body` from the schema, the handler's data as the 200 and `{ errors, message?, status: 'error' }` as the 422. The lambda's `response` replaces Elysia's built-in `ValidationProblem` in the 422 (it is never sent: the route's error hook answers validation failures with the field-error shape). Compile-time tests in `tests/unit/core/formActions.test.ts`.
+- `redirect` and `htmx` are typed before the handler, so they can't infer its return type; they are declared bivariantly, so an app can annotate the parameter (`htmx: (result: ActionResult<{ email: string }>) => …`).
+- The route also carries `meta: { absoluteFormAction: true }` on its Eden type, which is how the typed client finds form routes.
+- The macro's hooks are the Phase 1 hooks, unchanged:
+  - `parse`: cross-origin and size checks (below), before the body is read;
+  - `transform`: form-field normalisation (below);
+  - `error`: one message per field for a body `ValidationError`:
+    - the key is the top-level field name, or a dotted path for nested fields;
+    - the message is the property's `error` option when it is a string, `Required` for missing fields, and the validator's message otherwise;
+    - in production Elysia reports only the first issue once any property has a custom `error`, so on failure, and only then, the body is re-checked with TypeBox `Value.Errors` to collect every field's error, with Elysia's list as the fallback;
+  - `mapResponse`: turns the route's typed answer (the handler's data, or `status(422, errors)` from `fail` or the error hook) into the 303 / HTMX / browser-helper answer. Other JSON clients get the route's own answer.
+- Browser forms send strings. The `transform` hook maps them onto the schema before validation:
   - An unchecked checkbox becomes `false`, and `on`/`true`/`1` become `true`.
   - `''` in a number field means not given. A numeric string becomes a number.
   - A single value for an array field becomes `[value]`, and a missing one becomes `[]`.
   - An empty file input is dropped.
   - Only top-level fields are mapped.
-- The handler returns data on success. It returns `fail(errors, message?)` for errors it finds itself (`errors` keys are typed to the schema's fields), or a raw `Response` as an escape hatch.
-- Types: `ActionStateOf<typeof createUser>` is `idle | { status: 'success'; data?: Data; redirect? } | { status: 'error'; errors: Partial<Record<Field, string>>; message?; values? }`. Browser code gets this through `import type`, so server code never enters a client bundle.
+- The handler returns data on success. It returns `fail(errors, message?)` for errors it finds itself, or a raw `Response` as an escape hatch (passed through as is).
+
+### Addressing an action by path: the typed client
+
+```ts
+// actions.ts — imported by the server's routes and by pages
+import { createFormActionClient } from '@absolutejs/absolute/react/hooks';
+import type { Server } from './backend/server';
+
+export const actions = createFormActionClient<Server>();
+
+// the page's route (server):
+.get('/', (): Promise<Response> =>
+	handleReactPageRequest({ Page: Signup, index, props: { signupState: actions.getActionState('/actions/signup') ?? null } }))
+
+// the page (browser):
+const signup = actions.useFormAction('/actions/signup', { initialState: signupState });
+```
+
+- Paths are checked against `typeof server['~Routes']` (path segments → `post` → `meta`, what Eden reads): only POST routes that use `form`. `state`, `data`, `errors` and `values` are typed from the route (`FormActionPaths`, `FormActionStateOf`, `FormActionDataOf`, `FormActionFieldsOf`).
+- Where each part lives: the factory is browser safe. `getActionState` reads the result cookie from the request the request context keeps on `globalThis` (`src/utils/formActionState.ts`), so it needs no server import and returns undefined in the browser. `@absolutejs/absolute` and `@absolutejs/absolute/client` export the framework-free factory (`getActionState`, `submitFormAction`, `formActionReducer`); `@absolutejs/absolute/react/hooks` exports the same factory plus `useFormAction`. The app type is imported with `import type`, so no server code reaches a client bundle.
+- In a route of the same app, give the handler a return type, as above: TypeScript can't infer a route's type from code typed by the app the route belongs to (it reports the server as referenced in its own initializer). The plain `getActionState(path)` (untyped, `ActionResult | undefined`) needs no annotation, and the page's hook types the state either way.
+- Without the factory, `getActionState(path)`, `useFormAction<Data, Fields>(path)` and `submitFormAction<Data, Fields>(path, body)` take the types as parameters.
+- Svelte, Vue and Angular have no form-action helpers yet (Phase 2); their pages use `getActionState` for props and `enhanceForms` / `submitFormAction` in the browser.
 
 ### One handler, three kinds of caller
 
@@ -56,17 +106,17 @@ app.use(createUser); // a plain Elysia plugin
 | --- | --- | --- |
 | Plain `<form method="post">` (no JS) | anything else (form content type, HTML `Accept`) | `303` to `redirect` on success, else back to the page (same-origin `Referer`, else `/`). The result rides in a cookie. |
 | Browser helpers | `x-absolute-action` header | JSON result, always `200`, so an invalid form doesn't log a console error |
-| Other JSON clients (Eden, fetch) | JSON content type, or an `Accept` that wants JSON and not HTML | JSON result, `422` on error |
-| HTMX | `HX-Request: true` | The action's `htmx(result)` fragment (`200`, so HTMX swaps it), or `HX-Redirect` plus the cookie (same as no-JS) when there is no fragment |
+| Other JSON clients (Eden, fetch) | JSON content type, or an `Accept` that wants JSON and not HTML | The handler's data with `200`, or the field errors with `422` |
+| HTMX | `HX-Request: true` | The `htmx` option's `htmx(result)` fragment (`200`, so HTMX swaps it), or `HX-Redirect` plus the cookie (same as no-JS) when there is no fragment |
 
 ### Without JavaScript: Post/Redirect/Get with a one-shot result cookie
 
-- **The cookie.** On a no-JS post the result goes into `absolute_action`: base64url JSON of `{ action, result }`.
+- **The cookie.** On a no-JS post the result goes into `absolute_action`: base64url JSON of `{ action, route?, result }`. `action` is the path posted to; `route` is the route pattern when it differs (a route with path parameters), so `getActionState('/items/:id')` and `getActionState('/items/3')` both find it.
   - Attributes: `HttpOnly; SameSite=Lax; Path=/; Max-Age=60`, plus `Secure` on https.
   - For errors it carries what the user typed, but never files or secret-looking fields (`password`, `token`, `card`, `cvc`…). `preserveValues: false` turns the echo off entirely.
   - It is shrunk to fit about 3.5 KB: values go first, then data, then everything but the outcome.
 - **Why a cookie rather than rendering in the POST response.** Without a file router the action URL is not the page URL, so rendering in place would leave the action URL in the address bar, and a reload would re-POST or 404. PRG keeps the page's URL, and a reload is a clean GET.
-- **SSR pages (React now, the other frameworks in Phase 2).** The route reads `getActionState(createUser)` (the request comes from the request context) and passes it as a prop. `useFormAction(path, { initialState })` renders the errors and `values`. The state is part of the props, so hydration matches.
+- **SSR pages (React now, the other frameworks in Phase 2).** The route reads `getActionState('/actions/signup')` (or the typed `actions.getActionState`; the request comes from the request context) and passes it as a prop. `useFormAction(path, { initialState })` renders the errors and `values`. The state is part of the props, so hydration matches.
 - **Static HTML and HTMX pages** can't run code on the server. `formActionRuntime()` handles them instead:
   - It is mounted inside the `absolutejs` plugin from `prepare()`, so it reaches every page route without any ordering requirement. That was the one shared-file change in `prepare.ts`: 3 × `.use(formActionRuntime())`.
   - It is a global `mapResponse` hook. For a `GET` whose HTML response arrives while the cookie is set, it rewrites the `<form data-absolute-action>` whose `action` matches, using `HTMLRewriter`, streaming:
@@ -82,21 +132,21 @@ app.use(createUser); // a plain Elysia plugin
 
 ### With JavaScript
 
-- **React** (`@absolutejs/absolute/react/hooks`): `useFormAction<typeof createUser>('/actions/signup', { initialState, resetOnSuccess })`.
+- **React** (`@absolutejs/absolute/react/hooks`): `actions.useFormAction('/actions/signup', { initialState, resetOnSuccess })` through the typed client, or `useFormAction<Data, Fields>(path, …)`.
   - It returns `{ formProps, state, pending, errors, values, data, message, submit, reset }`.
   - `formProps` is a real `{ action, method: 'post', encType: 'multipart/form-data', onSubmit }`, so the form works before hydration and with JS off.
   - Once hydrated, `onSubmit` sends `FormData` (including the submitter) with fetch. A newer submission aborts the older one, and unmount aborts too.
   - Errors keep the fields as typed. Success resets the form unless it redirects, and a `redirect` navigates.
-  - The path is type-checked: `ActionPath<typeof createUser>` is the literal path.
-- **React 19 `useActionState` compatibility:** `formActionReducer<typeof createUser>(path)` is a `(prevState, formData) => Promise<ActionResult>`, so `useActionState(formActionReducer(path), initial)` works.
+  - Through the typed client the path is checked against the app's form routes.
+- **React 19 `useActionState` compatibility:** `formActionReducer(path)` (typed through the client) is a `(prevState, formData) => Promise<ActionResult>`, so `useActionState(formActionReducer(path), initial)` works.
   - It is JavaScript-only: React SSR renders a function `action` as a `javascript:` URL without RSC.
   - The section on React Server Actions below covers how the two relate.
 - **Plain pages** (`@absolutejs/absolute/client`): `enhanceForms(root?)` / `enhanceForm(form)`.
   - It upgrades `<form data-absolute-action>` to fetch, toggles `aria-busy`, `data-action-pending` and disabled submit buttons, and applies the result with the same DOM conventions the server rewriter uses (`applyActionResult`, exported).
   - It focuses the first invalid field, fires `absolute:form-action` with `{ result }`, and resets the form or follows `redirect` on success.
   - It skips `hx-post` forms.
-- **HTMX:** `hx-post` + `hx-target` posts with `HX-Request`, and the action's `htmx(result)` fragment is swapped in. The same form keeps `method`/`action`/`data-absolute-action` for the no-JS path.
-- `submitFormAction<typeof action>(path, formData, { signal })` is the framework-free primitive the above share. Network or unexpected server failures come back as `{ status: 'error', errors: {}, message }`.
+- **HTMX:** `hx-post` + `hx-target` posts with `HX-Request`, and the route's `htmx(result)` fragment is swapped in. The same form keeps `method`/`action`/`data-absolute-action` for the no-JS path.
+- `submitFormAction(path, formData, { signal })` is the framework-free primitive the above share. Network or unexpected server failures come back as `{ status: 'error', errors: {}, message }`.
 
 ### Security
 
@@ -107,16 +157,13 @@ app.use(createUser); // a plain Elysia plugin
     - if the browser didn't send it, `Origin` must match `Host`;
     - requests with neither header (curl, server-to-server, very old browsers) pass.
   - Failures get `403` before the body is read: the `parse` hook records the rejection and skips parsing, and `transform` throws it into the route's error hook.
-  - A cross-site page therefore can't even set a victim's result cookie. `csrf: false` turns the check off for actions meant to be called from other sites.
+  - A cross-site page therefore can't even set a victim's result cookie. `form: { body, csrf: false }` turns the check off for actions meant to be called from other sites.
 - **CSRF tokens (Phase 3).** Synchronizer tokens for deployments that must cover browsers which send neither header, or that have a same-site but untrusted subdomain.
   - The token would be a signed double-submit: an `absolute_csrf` cookie, plus a hidden `_csrf` field or `x-absolute-csrf` header holding an HMAC of the cookie.
   - The renderer would get it the same way the CSP nonce reaches renderers: `getCsrfToken()` reads the current request through `getCurrentAbsoluteRequest()` and mints it on first use, as `getCspNonce()` does. A `csrfField()` helper per framework, and `formProps` in the hook, would include it automatically.
   - Prerendered pages can't embed a per-user token, so there `enhanceForms` / `useFormAction` would read the cookie and send the header. That is why the cookie is not HttpOnly.
   - `secureHeaders()` already sends `form-action 'self'`. The browser helpers emit no inline scripts. Any future inline bootstrap must use `nonceAttr()` (`src/utils/cspNonceRef.ts`).
-- **Auth.**
-  - `beforeHandle` passes straight through to the route, so it runs after validation and can return `status(401)` or a redirect.
-  - The handler gets the full Elysia `context`, untyped in Phase 1, so derived values such as `user` are reachable.
-  - Phase 2 adds `defineActions(app)` to bind actions to an app or guard instance, so the handler context inherits `derive` / `resolve` types and guard hooks.
+- **Auth.** An action is a route in the app, so the app's guards (`onBeforeHandle`, `.guard`) apply and its `derive` / `resolve` values reach the handler with their types (the reason for the `form` macro). A route-level `beforeHandle` runs after validation and can return `status(401)` or a redirect.
 - **Size limits.**
   - `maxBodySize` defaults to 10 MiB. A request whose declared `Content-Length` exceeds it gets `413` before its body is read.
   - Chunked bodies without a length fall back to Bun's server-wide `maxRequestBodySize`. Phase 3 adds a streaming byte counter.
@@ -125,12 +172,10 @@ app.use(createUser); // a plain Elysia plugin
 
 ### Interop
 
-- **File router (designed in parallel).**
-  - Co-located actions: a page module exports `actions = { default: defineAction(...), delete: defineAction(...) }` or `export const action = ...`.
-  - The router mounts each one at the page's own path: `POST /signup` for `default`, `POST /signup?/delete` for a named action, as in SvelteKit.
+- **File router (still planned).**
+  - Co-located actions become `form` routes that the router mounts at the page's own path: `POST /signup` for the default action, `POST /signup?/delete` for a named one, as in SvelteKit. A page module exports the route options and handler (for example `export const action = { form: t.Object(…), handler }`), and the router registers `.post(pagePath, { form }, handler)` on the app, so guards and `derive` apply to them like any route.
   - With the action at the page URL, the no-JS path can render the page directly in the POST response (status 422 on error), with no cookie. The router supplies `getActionState` from the in-flight result instead of the cookie, so page code is the same either way.
-  - `defineAction` already takes the path as data, so the router only needs a `pathFor(page, name)` and the existing plugin.
-  - Agreed contract for the router agent: actions are `FormActionDefinition` values, mounted via `.use()`, and the router must not mount its own POST handler at a page path that has actions.
+  - Agreed contract for the router agent: actions are declared with `form`, not as separate values, and the router must not mount its own POST handler at a page path that has actions.
 - **Prerendered / ISR pages.** A prerendered page is served by the prerender plugin's `onRequest`, before the result renders.
   - With JS the helpers work unchanged.
   - Without JS, Phase 2 makes the prerender plugin skip the cached file when the `absolute_action` cookie is present, so the live handler renders the result. That is a one-line check in `prepare.ts`.
@@ -139,29 +184,30 @@ app.use(createUser); // a plain Elysia plugin
   - The HTML rewriter is streaming (`HTMLRewriter.transform`), so static pages keep their streaming slots.
   - Streaming-slot patches are separate inline scripts that the rewriter doesn't touch. A form inside a streamed slot isn't rewritten without JS (documented limitation).
 - **React Server Actions (designed in parallel).** RSC server actions (`'use server'` functions, `<form action={fn}>`, `useActionState(fn, init, permalink)`) are a separate mechanism with a different transport (the RSC action ID protocol).
-  - To avoid collisions, form actions own the names `defineAction`, `getActionState`, `useFormAction`, `submitFormAction`, `formActionReducer`, `enhanceForms`, the `x-absolute-action` header and the `absolute_action` cookie.
+  - To avoid collisions, form actions own the `form` route option and the names `formActions`, `createFormActionClient`, `getActionState`, `useFormAction`, `submitFormAction`, `formActionReducer`, `enhanceForms`, the `x-absolute-action` header and the `absolute_action` cookie.
   - The RSC work should use `serverAction` / `'use server'` naming and its own header (for example `Next-Action`-style `x-absolute-rsc-action`).
-  - Where they meet: Phase 4 lets `defineAction` produce a server-action-compatible function for RSC pages, wrapping the same handler and validation. RSC `useActionState` with a permalink then gets the same no-JS behaviour, and one handler serves both. Until then they coexist: RSC pages use server actions, every other page uses form actions.
+  - Where they meet: Phase 4 wraps the same `form` route handler, with its schema and validation unchanged, as a server-action-compatible function for RSC pages. RSC `useActionState` with a permalink then gets the same no-JS behaviour, and one handler serves both. Until then they coexist: RSC pages use server actions, every other page uses form actions.
 
 ## Phases
 
 ### Phase 1 (done): server, no-JS, React, static HTML, HTMX
 
 - Implemented:
-  - `defineAction` with Elysia schemas, typed field errors, `fail`, `redirect`, `htmx`, `beforeHandle`, `csrf`, `maxBodySize` and `preserveValues`;
-  - `getActionState`;
+  - the `form` route option (`formActions()`, in the `absolutejs` plugin) with Elysia schemas, typed field errors, `fail`, and the `redirect`, `htmx`, `csrf`, `maxBodySize` and `preserveValues` options. It replaced Phase 1's `defineAction(path, options)` + `.use(action)`, which typed the action before it met the app (a derived `user` was `unknown`);
+  - `getActionState` and the typed client `createFormActionClient<typeof server>()`;
   - `formActionRuntime` (mounted by `prepare()`);
   - `submitFormAction`, `formActionReducer`, `enhanceForm(s)` and `applyActionResult`;
   - React `useFormAction`;
   - types in `types/formAction.ts`.
 - Exit criteria, all met:
-  - Unit: 17 tests (`tests/unit/core/formActions.test.ts`) over JSON, no-JS, HTMX and protection, including type-level checks.
+  - Unit: 30 tests (`tests/unit/core/formActions.test.ts`) over JSON, no-JS, HTMX, protection and the options shape, plus compile-time checks of the handler (typed `user`, `fail`), Eden (body, 200, 422) and the typed client.
   - Browser: 8 tests (`tests/integration/server/form-actions.test.ts`) in a production build with `secureHeaders()`:
     - React, HTML and HTMX pages, each with JavaScript on and off (Playwright `javaScriptEnabled: false`);
     - no reload with JS;
     - no CSP violations;
     - the cross-site 403;
     - a JSON client.
+  - Browser: 8 tests (`tests/integration/server/form-actions-scaffold.test.ts`) in an app laid out like a create-absolutejs scaffold, with the typed client on a React page, `enhanceForms` on an HTML page and `hx-post` on an HTMX page, JS on and off, and `absolute typecheck` over the app.
   - Packed-tarball E2E: a scaffolded app (create-absolutejs, React+Svelte+Vue+HTML+HTMX), with the tarball installed:
     - 27/27 browser checks under both `absolute build` + `start` (production) and `absolute dev`;
     - the app typechecks, including the Eden check that a missing `email` field fails.
@@ -170,7 +216,6 @@ app.use(createUser); // a plain Elysia plugin
 
 - Svelte: `formAction(path)` returning a store `{ state, pending, errors, values }` plus `use:enhance`. Vue: `useFormAction` composable returning refs and `formProps`. Angular: `[absoluteAction]` directive plus `FormActionService` (signals). All three are thin wrappers over `submitFormAction` and `applyActionResult`.
 - `getActionState` documented for each framework's props path (Svelte/Vue/Angular handlers already take props).
-- `defineActions(app)` binder for typed derive/guard context.
 - Prerender bypass when the result cookie is present.
 - Exit: the Phase 1 browser matrix extended to Svelte, Vue and Angular pages, JS on and off, in dev and production.
 
@@ -188,8 +233,8 @@ app.use(createUser); // a plain Elysia plugin
 
 ### Phase 4: file router and RSC convergence
 
-- Co-located page actions mounted by the file router at the page URL, with in-place no-JS rendering.
-- An RSC server-action adapter so one handler serves both.
+- Co-located page actions mounted by the file router as `form` routes at the page URL, with in-place no-JS rendering.
+- An RSC server-action adapter wrapping the same `form` route handler, so one handler serves both.
 - Exit: the same signup form defined once works on an RSC page and a non-RSC page, with JS on and off.
 
 ## Known limitations (Phase 1)
@@ -197,5 +242,6 @@ app.use(createUser); // a plain Elysia plugin
 - Values are echoed only for top-level fields, and nested schemas validate but aren't normalised.
 - A form inside a streaming slot isn't rewritten without JS.
 - Prerendered pages show no-JS results only after the Phase 2 bypass.
-- The handler's `context` is untyped.
+- A route that uses the typed client inside the same app needs a handler return type (see the typed client above).
+- `redirect` and `htmx` can't infer the handler's data type; annotate their parameter.
 - The result cookie is unsigned (see Trust above).

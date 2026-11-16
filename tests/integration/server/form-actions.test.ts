@@ -21,7 +21,8 @@ import { ensureDistBuild } from '../../helpers/ensureDistBuild';
 /* Form actions in a production build, in a real browser, with JavaScript
  * on and off: a React page (useFormAction), a static HTML page
  * (<form data-absolute-action> + enhanceForms) and an HTMX page (hx-post +
- * the action's htmx fragment). Without JavaScript every form posts,
+ * the route's htmx fragment), each posting to a route with a `form`
+ * schema. Without JavaScript every form posts,
  * redirects back and shows its result; with JavaScript nothing reloads. */
 
 const repoRoot = resolve(import.meta.dir, '..', '..', '..');
@@ -29,45 +30,7 @@ const CLI_ENTRY = join(repoRoot, 'dist', 'cli', 'index.js');
 const PORT = 4541;
 const BASE = `http://localhost:${PORT}`;
 
-const ACTIONS_TS = `import { t } from 'elysia';
-import { defineAction } from '@absolutejs/absolute';
-
-const escapeHtml = (value: string) =>
-	value.replace(/[&<>"]/g, (char) => \`&#\${char.charCodeAt(0)};\`);
-
-export const createUser = defineAction('/actions/signup', {
-	body: t.Object({
-		email: t.String({ error: 'Enter a valid email', format: 'email' }),
-		name: t.String({ error: 'Name must be at least 2 characters', minLength: 2 })
-	}),
-	handler: ({ body, fail }) =>
-		body.name === 'taken'
-			? fail({ name: 'That name is taken' })
-			: { greeting: \`Welcome, \${body.name}\` }
-});
-
-export const contact = defineAction('/actions/contact', {
-	body: t.Object({
-		message: t.String({ error: 'Message is too short', minLength: 5 }),
-		topic: t.String()
-	}),
-	handler: () => ({ sent: true }),
-	redirect: '/thanks'
-});
-
-export const subscribe = defineAction('/actions/subscribe', {
-	body: t.Object({
-		email: t.String({ error: 'Enter a valid email', format: 'email' })
-	}),
-	handler: ({ body }) => ({ email: body.email }),
-	htmx: (result) =>
-		result.status === 'success'
-			? \`<p id="subscribed">Subscribed \${escapeHtml(result.data?.email ?? '')}</p>\`
-			: \`<p id="subscribe-error">\${escapeHtml(result.errors.email ?? '')}</p>\`
-});
-`;
-
-const SERVER_TS = `import { Elysia } from 'elysia';
+const SERVER_TS = `import { Elysia, t } from 'elysia';
 import {
 	asset,
 	getActionState,
@@ -75,11 +38,14 @@ import {
 	handleHTMXPageRequest,
 	networking,
 	prepare,
-	secureHeaders
+	secureHeaders,
+	type ActionResult
 } from '@absolutejs/absolute';
 import { handleReactPageRequest } from '@absolutejs/absolute/react';
-import { contact, createUser, subscribe } from './actions';
 import { Signup } from './react/pages/Signup';
+
+const escapeHtml = (value: string) =>
+	value.replace(/[&<>"]/g, (char) => \`&#\${char.charCodeAt(0)};\`);
 
 const { absolutejs, manifest } = await prepare();
 
@@ -90,7 +56,7 @@ export const server = new Elysia()
 		handleReactPageRequest({
 			Page: Signup,
 			index: asset(manifest, 'SignupIndex'),
-			props: { signupState: getActionState(createUser) ?? null }
+			props: { signupState: getActionState('/actions/signup') ?? null }
 		})
 	)
 	.get('/html', () => handleHTMLPageRequest(asset(manifest, 'Contact')))
@@ -102,25 +68,63 @@ export const server = new Elysia()
 				headers: { 'content-type': 'text/html; charset=utf-8' }
 			})
 	)
-	.use(createUser)
-	.use(contact)
-	.use(subscribe)
+	.post(
+		'/actions/signup',
+		{
+			form: t.Object({
+				email: t.String({ error: 'Enter a valid email', format: 'email' }),
+				name: t.String({ error: 'Name must be at least 2 characters', minLength: 2 })
+			})
+		},
+		({ body, fail }) =>
+			body.name === 'taken'
+				? fail({ name: 'That name is taken' })
+				: { greeting: \`Welcome, \${body.name}\` }
+	)
+	.post(
+		'/actions/contact',
+		{
+			form: {
+				body: t.Object({
+					message: t.String({ error: 'Message is too short', minLength: 5 }),
+					topic: t.String()
+				}),
+				redirect: '/thanks'
+			}
+		},
+		() => ({ sent: true })
+	)
+	.post(
+		'/actions/subscribe',
+		{
+			form: {
+				body: t.Object({
+					email: t.String({ error: 'Enter a valid email', format: 'email' })
+				}),
+				htmx: (result: ActionResult<{ email: string }, 'email'>) =>
+					result.status === 'success'
+						? \`<p id="subscribed">Subscribed \${escapeHtml(result.data?.email ?? '')}</p>\`
+						: \`<p id="subscribe-error">\${escapeHtml(result.errors.email ?? '')}</p>\`
+			}
+		},
+		({ body }) => ({ email: body.email })
+	)
 	.use(networking);
 `;
 
 const SIGNUP_TSX = `import { useEffect, useState } from 'react';
-import type { ActionStateOf } from '@absolutejs/absolute';
+import type { ActionState } from '@absolutejs/absolute';
 import { useFormAction } from '@absolutejs/absolute/react/hooks';
-import type { createUser } from '../../actions';
 
-type SignupProps = { signupState: ActionStateOf<typeof createUser> | null };
+type SignupProps = { signupState: ActionState | null };
 
 export const Signup = ({ signupState }: SignupProps) => {
 	const [hydrated, setHydrated] = useState(false);
 	useEffect(() => setHydrated(true), []);
-	const signup = useFormAction<typeof createUser>('/actions/signup', {
-		initialState: signupState ?? undefined
-	});
+	const signup = useFormAction<{ greeting: string }, 'email' | 'name'>(
+		'/actions/signup',
+		{ initialState: signupState }
+	);
 
 	return (
 		<html>
@@ -271,7 +275,6 @@ export default defineConfig({
 });
 `
 		),
-		writeFile(join(projectRoot, 'actions.ts'), ACTIONS_TS),
 		writeFile(join(projectRoot, 'server.ts'), SERVER_TS),
 		writeFile(join(projectRoot, 'react/pages/Signup.tsx'), SIGNUP_TSX),
 		writeFile(join(projectRoot, 'html/pages/Contact.html'), CONTACT_HTML),
@@ -566,15 +569,13 @@ describe('form actions over plain HTTP', () => {
 		expect(response.status).toBe(403);
 	});
 
-	test('a JSON client (Eden, fetch) gets JSON', async () => {
+	test('a JSON client (Eden, fetch) gets the handler data', async () => {
 		const response = await fetch(`${BASE}/actions/signup`, {
 			body: JSON.stringify({ email: 'a@b.co', name: 'Ada' }),
 			headers: { 'content-type': 'application/json' },
 			method: 'POST'
 		});
-		expect(await response.json()).toEqual({
-			data: { greeting: 'Welcome, Ada' },
-			status: 'success'
-		});
+		expect(response.status).toBe(200);
+		expect(await response.json()).toEqual({ greeting: 'Welcome, Ada' });
 	});
 });

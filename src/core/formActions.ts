@@ -1,16 +1,21 @@
-import { Elysia, ElysiaStatus, status, type UnwrapSchema } from 'elysia';
+import { Elysia, ElysiaStatus, macroType, status } from 'elysia';
 import type { TObject } from 'typebox';
 import { Value } from 'typebox/value';
 import type {
+	ActionCsrfOptions,
 	ActionErrorState,
 	ActionFieldErrors,
 	ActionFormValues,
 	ActionResult,
-	ActionData,
-	ActionFields,
 	ActionSuccessState,
-	AnyFormAction,
-	FormActionDefinition
+	FormActionErrorContext,
+	FormActionFailure,
+	FormActionHookContext,
+	FormActionMacroType,
+	FormActionOptions,
+	FormActionResponseContext,
+	FormActionRouteMeta,
+	FormActionValue
 } from '../../types/formAction';
 import {
 	ACTION_REQUEST_HEADER,
@@ -18,42 +23,47 @@ import {
 } from '../utils/formActionProtocol';
 import {
 	encodeActionFlash,
-	readActionFlash,
+	formActionRuntime,
 	type ActionFlash
 } from './formActionFlash';
-import { getCurrentAbsoluteRequest } from './requestContext';
 
-/* Form actions: one POST handler that serves a plain <form> (no
- * JavaScript), the browser helpers (fetch + JSON) and HTMX.
+export { getActionState } from '../utils/formActionState';
+
+/* Form actions: a POST route with a `form` schema serves a plain <form>
+ * (no JavaScript), the browser helpers (fetch + JSON) and HTMX.
  *
- *   export const createUser = defineAction('/users', {
- *   	body: t.Object({ name: t.String({ minLength: 2 }) }),
- *   	handler: async ({ body, fail }) => {
+ *   app.post(
+ *   	'/users',
+ *   	{ form: t.Object({ name: t.String({ minLength: 2 }) }) },
+ *   	async ({ body, fail, user }) => {
  *   		if (await taken(body.name)) return fail({ name: 'Taken' });
- *   		return { id: await insert(body) };
+ *   		return { id: await insert(body, user) };
  *   	}
- *   });
- *   app.use(createUser);
+ *   );
  *
- * The body schema is the route's Elysia schema, so Eden sees it. A
+ * `form` is an Elysia macro (the `formActions()` plugin, part of the
+ * `absolutejs` plugin from `prepare()`). Its schema becomes the route's
+ * body schema, so Eden sees it; `fail` is typed by the schema's fields. A
  * submission that fails validation reaches the route's error hook, which
  * turns Elysia's validation errors into one message per field.
+ * `form: { body: schema, redirect, htmx, csrf, maxBodySize,
+ * preserveValues }` adds options.
  *
  * How the answer is shaped depends on who asked:
  *   - a plain form post: 303 to the page (Post/Redirect/Get) with the
  *     result in a short-lived cookie the page reads on its next render
  *     (`getActionState`, or the built-in HTML rewriting for
  *     `<form data-absolute-action>`);
- *   - the browser helpers or a JSON body: the result as JSON (422 on
- *     error);
+ *   - the browser helpers: the result as JSON (200, even on error);
+ *   - other JSON clients (Eden, fetch): the handler's data with 200, or
+ *     the field errors with 422;
  *   - HTMX: the `htmx` option's HTML, else an `HX-Redirect` that does
  *     the same as a plain post. */
 
 const DEFAULT_MAX_BODY_BYTES = 10 * 1024 * 1024;
 const SECRET_FIELD = /pass(?:word|phrase|code)?|secret|token|card|cvc|cvv/i;
-const HTTP_BAD_REQUEST = 400;
+const HTTP_FIRST_ERROR = 400;
 const HTTP_FORBIDDEN = 403;
-const HTTP_INTERNAL_ERROR = 500;
 const HTTP_OK = 200;
 const HTTP_PAYLOAD_TOO_LARGE = 413;
 const HTTP_SEE_OTHER = 303;
@@ -61,94 +71,14 @@ const HTTP_UNPROCESSABLE = 422;
 
 type FieldKind = 'array' | 'boolean' | 'file' | 'files' | 'number' | 'other';
 
-/** What `fail(...)` returns; the action answers with an error state. */
-export class ActionFailure<Fields extends string = string> {
-	readonly errors: ActionFieldErrors<Fields>;
-	readonly message: string | undefined;
-	constructor(errors: ActionFieldErrors<Fields>, message?: string) {
-		this.errors = errors;
-		this.message = message;
-	}
-}
-
 /** Thrown before validation: the request is cross-origin or too large. */
 class ActionRejection extends Error {
 	readonly status: number;
-	constructor(status: number, message: string) {
+	constructor(code: number, message: string) {
 		super(message);
-		this.status = status;
+		this.status = code;
 	}
 }
-
-export type ActionCsrfOptions = {
-	/** Origins (scheme://host[:port]) allowed to post besides the page's
-	 *  own, e.g. a separate front-end domain. */
-	trustedOrigins?: readonly string[];
-};
-
-/** What a handler returning `Result` hands the page on success. */
-export type ActionDataOf<Result, Fields extends string = string> = Exclude<
-	Awaited<Result>,
-	ActionFailure<Fields> | Response
->;
-
-export type ActionHandlerContext<Body, Fields extends string> = {
-	body: Body;
-	/** The full Elysia context (derived values such as the signed-in user
-	 *  live here). Untyped in Phase 1. */
-	context: Record<string, unknown>;
-	/** Answer with field errors (and an optional form-level message)
-	 *  instead of a result. */
-	fail: (
-		errors: ActionFieldErrors<Fields>,
-		message?: string
-	) => ActionFailure<Fields>;
-	request: Request;
-	set: { headers: Record<string, unknown>; status?: unknown };
-};
-
-export type DefineActionOptions<
-	Schema extends TObject,
-	Result,
-	Fields extends string = Extract<keyof UnwrapSchema<Schema>, string>
-> = {
-	/** The form's fields (an Elysia `t.Object`). Field names are the keys;
-	 *  add `error: 'message'` to a property for a friendlier message than
-	 *  the validator's. */
-	body: Schema;
-	/** Runs after validation, before the handler; return a response (e.g.
-	 *  `status(401)`) to stop. Use it for auth checks. */
-	beforeHandle?: (context: {
-		request: Request;
-		set: { headers: Record<string, unknown>; status?: unknown };
-	}) => unknown;
-	/** Cross-origin protection: requests whose `Sec-Fetch-Site` / `Origin`
-	 *  say another site sent them get 403. Default on; `false` turns it
-	 *  off (for an API meant to be called from other sites). */
-	csrf?: ActionCsrfOptions | false;
-	handler: (
-		context: ActionHandlerContext<UnwrapSchema<Schema>, Fields>
-	) => Result | Promise<Result>;
-	/** HTMX requests only: the HTML fragment to swap in for a result
-	 *  (answered with 200, which HTMX swaps by default). Return undefined
-	 *  to fall back to the no-JavaScript behaviour (`HX-Redirect`). The
-	 *  result's type comes from `handler` only. */
-	htmx?: (
-		result: ActionResult<NoInfer<ActionDataOf<Result, Fields>>, Fields>,
-		request: Request
-	) => string | undefined | Promise<string | undefined>;
-	/** Bytes; requests that declare a larger body get 413 before it is
-	 *  read. Default 10 MiB. */
-	maxBodySize?: number;
-	/** Echo what the user typed back to the page after a failed
-	 *  submission without JavaScript (files and secret-looking fields are
-	 *  never echoed). Default true. */
-	preserveValues?: boolean;
-	/** Where to send the browser after success. Default: back to the page
-	 *  the form was on. */
-	redirect?:
-		string | ((data: NoInfer<ActionDataOf<Result, Fields>>) => string);
-};
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
 	typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -453,28 +383,31 @@ const flashCookie = (request: Request, flash: ActionFlash) => {
 	return encodeActionFlash(flash, secure);
 };
 
-type AnswerSettings<Data, Fields extends string> = {
-	actionPath: string;
-	htmx:
-		| ((
-				result: ActionResult<Data, Fields>,
-				request: Request
-		  ) => string | undefined | Promise<string | undefined>)
-		| undefined;
+type AnswerSettings = {
+	htmx: FormActionOptions['htmx'];
 	preserveValues: boolean;
-	redirect: string | ((data: Data) => string) | undefined;
+	redirect: FormActionOptions['redirect'];
 };
 
-const flashFor = <Data, Fields extends string>(
+/* Where the answered form posted: the concrete path, plus the route
+ * pattern when it differs (a route with path parameters), so the page can
+ * name the action either way. */
+type ActionTarget = { action: string; route: string | undefined };
+
+const flashFor = (
 	request: Request,
-	result: ActionResult<Data, Fields>,
-	settings: AnswerSettings<Data, Fields>
+	result: ActionResult,
+	settings: AnswerSettings,
+	target: ActionTarget
 ) => {
 	const values = settings.preserveValues
 		? submittedValues.get(request)
 		: undefined;
 	const flash: ActionFlash = {
-		action: settings.actionPath,
+		action: target.action,
+		...(target.route && target.route !== target.action
+			? { route: target.route }
+			: {}),
 		result:
 			result.status === 'success'
 				? {
@@ -488,18 +421,16 @@ const flashFor = <Data, Fields extends string>(
 	return flash;
 };
 
-const navigationTarget = <Data, Fields extends string>(
-	request: Request,
-	result: ActionResult<Data, Fields>
-) =>
+const navigationTarget = (request: Request, result: ActionResult) =>
 	result.status === 'success' && result.redirect
 		? result.redirect
 		: backTarget(request);
 
-const answerHtmx = async <Data, Fields extends string>(
+const answerHtmx = async (
 	request: Request,
-	result: ActionResult<Data, Fields>,
-	settings: AnswerSettings<Data, Fields>
+	result: ActionResult,
+	settings: AnswerSettings,
+	target: ActionTarget
 ) => {
 	const html = await settings.htmx?.(result, request);
 	if (html !== undefined)
@@ -511,23 +442,24 @@ const answerHtmx = async <Data, Fields extends string>(
 	});
 	headers.append(
 		'set-cookie',
-		flashCookie(request, flashFor(request, result, settings))
+		flashCookie(request, flashFor(request, result, settings, target))
 	);
 
 	return new Response(null, { headers, status: HTTP_OK });
 };
 
-const answerDocument = <Data, Fields extends string>(
+const answerDocument = (
 	request: Request,
-	result: ActionResult<Data, Fields>,
-	settings: AnswerSettings<Data, Fields>
+	result: ActionResult,
+	settings: AnswerSettings,
+	target: ActionTarget
 ) => {
 	const headers = new Headers({
 		location: navigationTarget(request, result)
 	});
 	headers.append(
 		'set-cookie',
-		flashCookie(request, flashFor(request, result, settings))
+		flashCookie(request, flashFor(request, result, settings, target))
 	);
 
 	return new Response(null, { headers, status: HTTP_SEE_OTHER });
@@ -538,15 +470,18 @@ const answerDocument = <Data, Fields extends string>(
  * the browser helpers, which read an error from a 200 body (a 422 would
  * only add a "Failed to load resource" console error per invalid form).
  * Undefined for other JSON clients (Eden, fetch): they get the route's
- * typed answer, the data with 200 or the field errors with 422. */
-const respond = <Data, Fields extends string>(
+ * typed answer, the handler's data with 200 or the field errors with
+ * 422. */
+const respond = (
 	request: Request,
-	result: ActionResult<Data, Fields>,
-	settings: AnswerSettings<Data, Fields>
+	result: ActionResult,
+	settings: AnswerSettings,
+	target: ActionTarget
 ) => {
 	const mode = responseModeOf(request);
-	if (mode === 'htmx') return answerHtmx(request, result, settings);
-	if (mode === 'document') return answerDocument(request, result, settings);
+	if (mode === 'htmx') return answerHtmx(request, result, settings, target);
+	if (mode === 'document')
+		return answerDocument(request, result, settings, target);
 	if (request.headers.has(ACTION_REQUEST_HEADER))
 		return Response.json(result, { status: HTTP_OK });
 
@@ -568,13 +503,10 @@ const answerRejection = (request: Request, rejection: ActionRejection) => {
 	return Response.json(result, { status: rejection.status });
 };
 
-const successResult = <Data, Fields extends string>(
-	settings: AnswerSettings<Data, Fields>,
-	data: Data
-) => {
+const successResult = (settings: AnswerSettings, data: unknown) => {
 	const { redirect } = settings;
 	const target = typeof redirect === 'function' ? redirect(data) : redirect;
-	const result: ActionSuccessState<Data> =
+	const result: ActionSuccessState =
 		target === undefined
 			? { data, status: 'success' }
 			: { data, redirect: target, status: 'success' };
@@ -582,181 +514,194 @@ const successResult = <Data, Fields extends string>(
 	return result;
 };
 
-const failureResult = <Fields extends string>(
-	failure: ActionFailure<Fields>
+const failureBody = <Fields extends string>(
+	errors: ActionFieldErrors<Fields>,
+	message?: string
 ) => {
-	const result: ActionErrorState<Fields> =
-		failure.message === undefined
-			? { errors: failure.errors, status: 'error' }
-			: {
-					errors: failure.errors,
-					message: failure.message,
-					status: 'error'
-				};
+	const body: FormActionFailure<Fields> =
+		message === undefined
+			? { errors, status: 'error' }
+			: { errors, message, status: 'error' };
 
-	return result;
+	return body;
 };
 
 /* ---------------------------------------------------------------- *
- * defineAction
+ * The `form` macro
  * ---------------------------------------------------------------- */
 
-const fail = <Fields extends string>(
-	errors: ActionFieldErrors<Fields>,
-	message?: string
-) => new ActionFailure<Fields>(errors, message);
+/* Typed by the macro's `FormActionMacroType` output instead: the two
+ * would intersect into overloads and this loosely typed one would win. */
+const fail = (errors: ActionFieldErrors, message?: string) =>
+	status(HTTP_UNPROCESSABLE, failureBody(errors, message));
+type FailContext = { fail: typeof fail };
+const failContext = () => {
+	const fields: FailContext = { fail };
+	const context: Record<never, never> = fields;
 
-/* Elysia validated the body before the handler runs; this re-checks only
- * that the schema's required fields are present, which is what lets the
- * handler see it as the schema's type. */
-const hasSchemaShape = <Body>(schema: TObject, value: unknown): value is Body =>
-	isRecord(value) &&
-	(schema.required ?? []).every((key: string) => key in value);
-
-/* Success data is whatever the handler returned that isn't a failure or a
- * raw Response; that's the definition of `ActionDataOf`. */
-const isActionData = <Data>(value: unknown): value is Data =>
-	!(value instanceof ActionFailure) && !(value instanceof Response);
-
-/* A raw Response from the handler (the escape hatch) passes through as is.
- * Typed as the Response members of the handler's own result, so a handler
- * that never returns one adds nothing to the route's type. */
-const isRawResponse = <Value>(
-	value: unknown
-): value is Extract<Value, Response> => value instanceof Response;
-
-/* What the handler step answered, as an action result: the success data,
- * or the field errors inside `status(422, …)`. Anything else (a raw
- * Response, the 400/500 guards) is not shaped. */
-const routeResult = <Data, Fields extends string>(value: unknown) => {
-	const unboxed: unknown =
-		value instanceof ElysiaStatus ? value.response : value;
-
-	return isActionResult<Data, Fields>(unboxed) ? unboxed : undefined;
+	return context;
 };
 
-/** Defines a form action: a POST route at `path` that validates its body
- *  against `options.body` and works with or without JavaScript. Mount it
- *  with `app.use(action)`. */
-export const defineAction = <
-	const Path extends string,
-	const Schema extends TObject,
-	Result
->(
-	path: Path,
-	options: DefineActionOptions<Schema, Result>
+const FORM_ACTION_META: FormActionRouteMeta = { absoluteFormAction: true };
+
+/* `form: t.Object(…)` or `form: { body: t.Object(…), …options }`. A
+ * TypeBox object schema is `{ type: 'object', properties }`; the options
+ * shape has neither (its fields live under `body.properties`). */
+const isObjectSchema = (value: FormActionValue): value is TObject =>
+	Reflect.get(value, 'type') === 'object' &&
+	isRecord(Reflect.get(value, 'properties'));
+
+const optionsOf = (value: FormActionValue) => {
+	const options: FormActionOptions = isObjectSchema(value)
+		? { body: value }
+		: value;
+
+	return options;
+};
+
+const isErrorStatus = (code: unknown) =>
+	typeof code === 'number' && code >= HTTP_FIRST_ERROR;
+
+/* What the route answered, as an action result: the field errors inside
+ * `status(422, …)` (from `fail` or the error hook), or the handler's data
+ * when it answered normally. Anything else (a raw Response, another
+ * status, an error another hook answered) is not shaped. */
+const routeResult = (
+	value: unknown,
+	settings: AnswerSettings,
+	statusCode: unknown
 ) => {
-	type Body = UnwrapSchema<Schema>;
-	type Fields = Extract<keyof Body, string>;
-	type Data = ActionDataOf<Result, Fields>;
+	if (value instanceof Response) return undefined;
+	if (value instanceof ElysiaStatus) {
+		const body: unknown = value.response;
+		const failed =
+			value.status === HTTP_UNPROCESSABLE &&
+			isActionResult(body) &&
+			body.status === 'error';
+
+		return failed ? body : undefined;
+	}
+	if (isErrorStatus(statusCode)) return undefined;
+
+	return successResult(settings, value);
+};
+
+/* The route's error hook: a rejection (cross-origin, too large) answers
+ * at once; a body that failed validation answers like `fail`, shaped for
+ * the caller by mapResponse; anything else is left to the app. */
+const errorAnswer = (error: unknown, request: Request, schema: TObject) => {
+	if (error instanceof ActionRejection)
+		return answerRejection(request, error);
+	const entries = validationEntries(error, schema);
+	if (!entries) return undefined;
+	const result: ActionErrorState = {
+		errors: fieldErrorsFrom(schema, entries),
+		status: 'error'
+	};
+
+	return status(HTTP_UNPROCESSABLE, result);
+};
+
+const actionTarget = (request: Request, route: unknown) => {
+	const target: ActionTarget = {
+		action: new URL(request.url).pathname,
+		route: typeof route === 'string' ? route : undefined
+	};
+
+	return target;
+};
+
+/* The `form` macro: the route's body schema, `fail`, its Eden `meta` and
+ * the Phase 1 hooks. The hooks take named context types rather than
+ * Elysia's inferred ones, which keeps the published declaration of the
+ * `absolutejs` plugin small. */
+const formMacro = (value: FormActionValue) => {
+	const options = optionsOf(value);
 	const schema = options.body;
 	const maxBodySize = options.maxBodySize ?? DEFAULT_MAX_BODY_BYTES;
-	const settings: AnswerSettings<Data, Fields> = {
-		actionPath: path,
+	const settings: AnswerSettings = {
 		htmx: options.htmx,
 		preserveValues: options.preserveValues !== false,
 		redirect: options.redirect
 	};
-	const run = async (context: Record<string, unknown>) => {
-		const { body, request, set } = context;
-		if (
-			!(request instanceof Request) ||
-			!hasSchemaShape<Body>(schema, body)
-		)
-			return status(HTTP_BAD_REQUEST, 'Bad Request');
-		const outcome = await options.handler({
-			body,
-			context,
-			fail,
-			request,
-			set: isRecord(set) ? { headers: {}, ...set } : { headers: {} }
-		});
-		if (isRawResponse<Awaited<Result>>(outcome)) return outcome;
-		if (outcome instanceof ActionFailure)
-			return status(HTTP_UNPROCESSABLE, failureResult<Fields>(outcome));
-		if (!isActionData<Data>(outcome))
-			return status(HTTP_INTERNAL_ERROR, 'Internal Server Error');
 
-		return successResult(settings, outcome);
-	};
+	return {
+		$type: macroType<FormActionMacroType>(),
+		body: schema,
+		derive: failContext,
+		meta: FORM_ACTION_META,
+		// Typed `unknown` so its answers add nothing to the route's type:
+		// the 422 is the macro's field-error shape.
+		error: ({ error, request }: FormActionErrorContext) => {
+			const answer: unknown = errorAnswer(error, request, schema);
 
-	const plugin = new Elysia({ name: `absolutejs-action:${path}` }).post(
-		path,
-		{
-			beforeHandle: options.beforeHandle,
-			body: schema,
-			error: ({ error, request }) => {
-				if (error instanceof ActionRejection)
-					return answerRejection(request, error);
-				const entries = validationEntries(error, schema);
-				if (!entries) return undefined;
-				const result: ActionErrorState<Fields> = {
-					errors: fieldErrorsFrom(schema, entries),
-					status: 'error'
-				};
-
-				// Shaped for the caller by mapResponse, like the handler's.
-				return status(HTTP_UNPROCESSABLE, result);
-			},
-			// The handler answers with typed values (the data, or the field
-			// errors in a 422), which is what Eden sees; this turns them into
-			// what a plain form, HTMX or the browser helpers expect.
-			mapResponse: async ({ request, responseValue, set }) => {
-				const result = routeResult<Data, Fields>(responseValue);
-				const response = result
-					? await respond(request, result, settings)
-					: undefined;
-				// After a validation error Elysia applies the 422 it
-				// recorded to whatever comes back, even a 200 the caller
-				// asked for (HTMX swaps only 2xx; the browser helpers read
-				// errors from a 200). The answer's own status wins.
-				if (response) set.status = response.status;
-
-				return response;
-			},
-			parse: ({ request }) => {
-				const rejection = rejectionFor(
-					request,
-					options.csrf,
-					maxBodySize
-				);
-				if (!rejection) return undefined;
-				pendingRejections.set(request, rejection);
-
-				return {};
-			},
-			transform: ({ body, request }) => {
-				const rejection = pendingRejections.get(request);
-				if (rejection) throw rejection;
-				if (!isRecord(body) || !isFormContent(request)) return;
-				captureValues(request, body);
-				normalizeFormBody(schema, body);
-			}
+			return answer;
 		},
-		(context) => run(context)
-	);
-	const definition: FormActionDefinition<Path, Body, Data> = {
-		actionPath: path
+		// The handler answers with typed values (its data, or the field
+		// errors in a 422), which is what Eden sees; this turns them into
+		// what a plain form, HTMX or the browser helpers expect.
+		mapResponse: async ({
+			request,
+			responseValue,
+			route,
+			set
+		}: FormActionResponseContext) => {
+			const result = routeResult(responseValue, settings, set.status);
+			const response = result
+				? await respond(
+						request,
+						result,
+						settings,
+						actionTarget(request, route)
+					)
+				: undefined;
+			// After a validation error Elysia applies the 422 it recorded
+			// to whatever comes back, even a 200 the caller asked for (HTMX
+			// swaps only 2xx; the browser helpers read errors from a 200).
+			// The answer's own status wins.
+			if (response) set.status = response.status;
+
+			return response;
+		},
+		parse: ({ request }: FormActionHookContext) => {
+			const rejection = rejectionFor(request, options.csrf, maxBodySize);
+			if (!rejection) return undefined;
+			pendingRejections.set(request, rejection);
+
+			return {};
+		},
+		transform: ({ body, request }: FormActionHookContext) => {
+			const rejection = pendingRejections.get(request);
+			if (rejection) throw rejection;
+			if (!isRecord(body) || !isFormContent(request)) return;
+			captureValues(request, body);
+			normalizeFormBody(schema, body);
+		}
 	};
-
-	return Object.assign(plugin, definition);
 };
 
-/** The result the last submission of `action` left for this page, when
- *  the browser posted without JavaScript and was redirected here. Read it
- *  in the page's route and pass it to the page as a prop. Undefined when
- *  there is none. */
-export const getActionState = <Action extends AnyFormAction>(
-	action: Action | Action['actionPath'],
-	request: Request | undefined = getCurrentAbsoluteRequest()
-) => {
-	const flash = request ? readActionFlash(request) : undefined;
-	const path = typeof action === 'string' ? action : action.actionPath;
-	if (!flash || flash.action !== path) return undefined;
+/** The `form` route option alone (no lifecycle hooks of its own until a
+ *  route uses it). `prepare()` gives the `absolutejs` plugin its type
+ *  with this; apps use `formActions()`. */
+export const formActionMacro = () =>
+	new Elysia({ name: 'absolutejs-form-action-macro' }).macro({
+		form: formMacro
+	});
 
-	const { result } = flash;
+/** An Elysia instance whose routes accept the `form` option: the type
+ *  of the `absolutejs` plugin from `prepare()`. */
+export type FormActionsPlugin = ReturnType<typeof formActionMacro>;
 
-	return isActionResult<ActionData<Action>, ActionFields<Action>>(result)
-		? result
-		: undefined;
-};
+/** Form actions for a plain Elysia app: the `form` route option plus the
+ *  runtime that renders and clears no-JavaScript results on HTML pages.
+ *  The `absolutejs` plugin from `prepare()` already includes both.
+ *
+ *    new Elysia()
+ *    	.use(formActions())
+ *    	.post('/signup', { form: t.Object({ … }) }, ({ body, fail }) => …)
+ *    	.post('/signup', { form: { body: t.Object({ … }), redirect: '/' } }, …)
+ */
+export const formActions = () =>
+	new Elysia({ name: 'absolutejs-form-actions' })
+		.use(formActionRuntime())
+		.use(formActionMacro());

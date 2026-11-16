@@ -1,6 +1,6 @@
-import type { ActionResult } from '../../types/formAction';
+import type { ActionResult, ActionState } from '../../types/formAction';
 
-/* The wire contract between `defineAction` (server) and the browser
+/* The wire contract between `form` routes (server) and the browser
  * helpers (`submitFormAction`, `enhanceForms`, `useFormAction`). Browser
  * safe: no server imports. */
 
@@ -46,3 +46,9 @@ export const isActionResult = <Data = unknown, Fields extends string = string>(
 		isOptionalString(value.message)
 	);
 };
+
+/** True for a well-formed form state (idle, or a result). */
+export const isActionState = <Data = unknown, Fields extends string = string>(
+	value: ActionState
+): value is ActionState<Data, Fields> =>
+	value.status === 'idle' || isActionResult<Data, Fields>(value);
