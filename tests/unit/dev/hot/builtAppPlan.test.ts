@@ -7,7 +7,12 @@ import { analyzeModule } from '../../../../src/dev/hot/analyze';
  * app it names, because Elysia seals an app at its first request. */
 
 const plan = (source: string) => {
-	const result = analyzeModule(ts, '/virtual/entry.ts', source, () => undefined);
+	const result = analyzeModule(
+		ts,
+		'/virtual/entry.ts',
+		source,
+		() => undefined
+	);
 	if (!result.ok) throw new Error(result.reason);
 
 	return result.plan;

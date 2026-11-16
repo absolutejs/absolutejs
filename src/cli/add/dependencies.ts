@@ -32,7 +32,7 @@ export const SCAFFOLD_VERSIONS = {
 	'svelte-check': '4.7.8',
 	svelte2tsx: '0.7.63',
 	vue: '3.5.43',
-	/* vue-router 5 is outside @absolutejs/absolute's ^4.5.1 peer range. */
+	/* The version create-absolutejs scaffolds; 5 is supported too. */
 	'vue-router': '4.6.4',
 	'vue-tsc': '3.3.14'
 } as const;

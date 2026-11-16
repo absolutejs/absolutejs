@@ -673,10 +673,7 @@ export const defineAction = <
 		});
 		if (isRawResponse<Awaited<Result>>(outcome)) return outcome;
 		if (outcome instanceof ActionFailure)
-			return status(
-				HTTP_UNPROCESSABLE,
-				failureResult<Fields>(outcome)
-			);
+			return status(HTTP_UNPROCESSABLE, failureResult<Fields>(outcome));
 		if (!isActionData<Data>(outcome))
 			return status(HTTP_INTERNAL_ERROR, 'Internal Server Error');
 
