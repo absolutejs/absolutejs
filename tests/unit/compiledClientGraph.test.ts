@@ -99,22 +99,31 @@ test('a new server serves the prior graph from disk and rejects traversal and me
 		expect(await retained(path)).toBeUndefined();
 });
 
-test('retention expires old graphs and keeps at most three releases', async () => {
+test('rapid deployments retain every graph within the grace period and byte budget', async () => {
 	const archive = await temporary();
 	const graphs = [];
-	for (let i = 0; i < 4; i++) {
+	for (let i = 0; i < 6; i++) {
 		const graph = await build(String(i));
 		graphs.push(graph);
 		await createClientAssetArchive(graph.assets, archive, 1000 + i);
 	}
-	const [oldest, previous, , latest] = graphs;
+	const [oldest, previous] = graphs;
+	const latest = graphs.at(-1);
 	if (!oldest || !previous || !latest) throw new Error('Missing test graphs');
 	const retained = await createClientAssetArchive(
 		latest.assets,
 		archive,
 		2000
 	);
-	expect(await retained(`${oldest.prefix}/chunk-lazy.js`)).toBeUndefined();
+	expect(await retained(`${oldest.prefix}/chunk-lazy.js`)).toBeDefined();
+	for (const graph of graphs) {
+		expect(
+			await (await retained(`${graph.prefix}/chunk-lazy.js`))?.text()
+		).toContain(`${graph.prefix}/vue/vendor/vue.js`);
+		expect(
+			await retained(`${graph.prefix}/vue/vendor/vue.js`)
+		).toBeDefined();
+	}
 	expect(await retained(`${previous.prefix}/chunk-lazy.js`)).toBeDefined();
 	const expired = await createClientAssetArchive(
 		latest.assets,
@@ -239,4 +248,76 @@ test('a long-running release gets its grace period when replaced, including roll
 		48 * day
 	);
 	expect(await expired(`${first.prefix}/chunk-lazy.js`)).toBeUndefined();
+});
+
+test('byte pressure is explicit and does not silently impose a deployment count limit', async () => {
+	const archive = await temporary();
+	const first = await build('first');
+	const second = await build('second');
+	const limit =
+		Math.max(
+			...[first, second].map((graph) =>
+				Object.values(graph.assets).reduce(
+					(total, file) => total + Bun.file(file).size,
+					0
+				)
+			)
+		) + 1;
+	const saved = process.env.ABSOLUTE_ASSET_ARCHIVE_MAX_BYTES;
+	const { warn } = console;
+	const warnings: string[] = [];
+	try {
+		process.env.ABSOLUTE_ASSET_ARCHIVE_MAX_BYTES = String(limit);
+		console.warn = (...args: unknown[]) => {
+			warnings.push(args.join(' '));
+		};
+		await createClientAssetArchive(first.assets, archive, 1000);
+		const retained = await createClientAssetArchive(
+			second.assets,
+			archive,
+			2000
+		);
+		expect(await retained(`${first.prefix}/chunk-lazy.js`)).toBeUndefined();
+		expect(await retained(`${second.prefix}/chunk-lazy.js`)).toBeDefined();
+		expect(warnings).toHaveLength(1);
+		expect(warnings[0]).toContain(first.id);
+		expect(warnings[0]).toContain('byte limit');
+	} finally {
+		console.warn = warn;
+		if (saved === undefined)
+			delete process.env.ABSOLUTE_ASSET_ARCHIVE_MAX_BYTES;
+		else process.env.ABSOLUTE_ASSET_ARCHIVE_MAX_BYTES = saved;
+	}
+});
+
+test('invalid archive budgets and an oversized current graph preserve the previous archive', async () => {
+	const archive = await temporary();
+	const first = await build('first');
+	const second = await build('second');
+	const saved = process.env.ABSOLUTE_ASSET_ARCHIVE_MAX_BYTES;
+	await createClientAssetArchive(first.assets, archive, 1000);
+	try {
+		for (const value of ['0', '-1', 'NaN', '1.5', 'Infinity']) {
+			process.env.ABSOLUTE_ASSET_ARCHIVE_MAX_BYTES = value;
+			await expect(
+				createClientAssetArchive(second.assets, archive, 2000)
+			).rejects.toThrow('positive safe integer');
+		}
+		process.env.ABSOLUTE_ASSET_ARCHIVE_MAX_BYTES = '1';
+		await expect(
+			createClientAssetArchive(second.assets, archive, 2000)
+		).rejects.toThrow('archive limits');
+		expect(
+			await Bun.file(
+				join(archive, first.id, 'files/chunk-lazy.js')
+			).exists()
+		).toBe(true);
+		expect(
+			await Bun.file(join(archive, second.id, 'graph.json')).exists()
+		).toBe(false);
+	} finally {
+		if (saved === undefined)
+			delete process.env.ABSOLUTE_ASSET_ARCHIVE_MAX_BYTES;
+		else process.env.ABSOLUTE_ASSET_ARCHIVE_MAX_BYTES = saved;
+	}
 });

@@ -12,9 +12,19 @@ import { randomUUID } from 'node:crypto';
 
 const PREFIX = '/_absolute/assets/';
 const GRAPH_ID = /^[a-f0-9]{64}$/;
-const MAX_GRAPHS = 3;
 const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
-const MAX_BYTES = 512 * 1024 * 1024;
+const DEFAULT_MAX_BYTES = 512 * 1024 * 1024;
+const archiveByteLimit = () => {
+	const configured = process.env.ABSOLUTE_ASSET_ARCHIVE_MAX_BYTES;
+	if (configured === undefined) return DEFAULT_MAX_BYTES;
+	const bytes = Number(configured);
+	if (!Number.isSafeInteger(bytes) || bytes <= 0)
+		throw new Error(
+			'ABSOLUTE_ASSET_ARCHIVE_MAX_BYTES must be a positive safe integer'
+		);
+
+	return bytes;
+};
 
 type GraphManifest = {
 	bytes: number;
@@ -97,12 +107,13 @@ const publishGraph = async (
 	directory: string,
 	id: string,
 	entries: AssetEntry[],
-	now: number
+	now: number,
+	maxBytes: number
 ) => {
 	const destination = join(directory, id);
 	if (await readManifest(destination)) return;
 	const bytes = graphBytes(entries);
-	if (bytes > MAX_BYTES)
+	if (bytes > maxBytes)
 		throw new Error('Client asset graph exceeds archive byte limit');
 	const temporary = join(directory, `.pending-${randomUUID()}`);
 	const manifest: GraphManifest = {
@@ -269,15 +280,16 @@ export const createClientAssetArchive = async (
 	now = Date.now()
 ) => {
 	const groups = collectGraphs(assets);
+	const maxBytes = archiveByteLimit();
 	const currentBytes = [...groups.values()].reduce(
 		(bytes, entries) => bytes + graphBytes(entries),
 		0
 	);
-	if (currentBytes > MAX_BYTES || groups.size > MAX_GRAPHS)
+	if (currentBytes > maxBytes)
 		throw new Error('Current client graphs exceed archive limits');
 	await mkdir(directory, { recursive: true });
 	await sequentially([...groups], ([id, entries]) =>
-		publishGraph(directory, id, entries, now)
+		publishGraph(directory, id, entries, now, maxBytes)
 	);
 	await recordActivation(directory, new Set(groups.keys()), now);
 	const graphs = await listGraphs(directory, now);
@@ -287,16 +299,17 @@ export const createClientAssetArchive = async (
 			retentionTime(b) - retentionTime(a)
 	);
 	let bytes = 0;
-	let count = 0;
 	const retained = new Map<string, Set<string>>();
 	await sequentially(graphs, async (graph) => {
 		const expired = now - retentionTime(graph) > MAX_AGE_MS;
 		if (
 			!groups.has(graph.id) &&
-			(expired ||
-				count >= MAX_GRAPHS ||
-				bytes + graph.manifest.bytes > MAX_BYTES)
+			(expired || bytes + graph.manifest.bytes > maxBytes)
 		) {
+			if (!expired)
+				console.warn(
+					`[compile] Client asset archive byte limit evicted unexpired graph ${graph.id}; increase ABSOLUTE_ASSET_ARCHIVE_MAX_BYTES to retain the full seven-day grace period.`
+				);
 			await rm(join(directory, graph.id), {
 				force: true,
 				recursive: true
@@ -304,7 +317,6 @@ export const createClientAssetArchive = async (
 
 			return;
 		}
-		count++;
 		bytes += graph.manifest.bytes;
 		retained.set(graph.id, new Set(graph.manifest.paths));
 	});

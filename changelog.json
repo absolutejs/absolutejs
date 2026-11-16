@@ -5,6 +5,16 @@
 		{
 			"changes": [
 				{
+					"kind": "fixed",
+					"summary": "Retain compiled browser asset graphs across frequent deployments without a three-release cap; configure the shared byte budget and warn on early storage-pressure eviction."
+				}
+			],
+			"date": "2026-11-16",
+			"version": "0.20.0-beta.190"
+		},
+		{
+			"changes": [
+				{
 					"detail": "With the Bun checker (Bun 1.4.4 or newer), `absolute typecheck` now checks Angular with `@absolutejs/angular-check` in place of `ngc`. The project's own `@angular/compiler-cli` still builds the program, generates the template check code and maps, filters and prints the errors, so what is reported is what `ngc` reports; the type-checking itself is done by `bun check`. On Angular 22.2 and newer that roughly halves the time of the Angular check on a real application (PeerTube's web client: about 21 s with `ngc`, about 9 s). On older versions the result is the same and the time is too, unless no component needs its check code inside its own file. Errors appear under `[angular-check]`. Without the Bun checker, `ngc` runs as before.",
 					"kind": "changed",
 					"summary": "`absolute typecheck` checks Angular with angular-check, about twice as fast on Angular 22.2+"

@@ -1522,7 +1522,7 @@ CMD ["/app/compiled-server"]
 		await stopProcess(proc);
 	}, 300_000);
 
-	test('old Vue tabs load delayed chunks after a compiled release replacement', async () => {
+	test('old Vue tabs load delayed chunks and workers after four compiled releases', async () => {
 		const fixtureRoot = await prepareFixtureRoot(VUE_FIXTURE_DIR);
 		const homePath = join(fixtureRoot, 'vue/pages/Home.vue');
 		const home = await Bun.file(homePath).text();
@@ -1540,7 +1540,12 @@ CMD ["/app/compiled-server"]
 		);
 		const archive = await makeTempDir('absolute-shared-asset-archive');
 		const runs: string[] = [];
-		for (const label of ['first-release', 'second-release']) {
+		for (const label of [
+			'first-release',
+			'intermediate-one',
+			'intermediate-two',
+			'second-release'
+		]) {
 			await mkdir(join(fixtureRoot, 'public/literal%2F'), {
 				recursive: true
 			});
@@ -1585,7 +1590,8 @@ CMD ["/app/compiled-server"]
 		const env: Record<string, string> = {
 			ABSOLUTE_ASSET_ARCHIVE_DIR: archive
 		};
-		const [firstRun, secondRun] = runs;
+		const [firstRun] = runs;
+		const secondRun = runs.at(-1);
 		if (!firstRun || !secondRun)
 			throw new Error('Missing compiled release');
 		const first = await startCompiledServer(firstRun, port, env);
@@ -1635,6 +1641,12 @@ CMD ["/app/compiled-server"]
 				value: true
 			});
 			await stopProcess(first);
+			// Leave the original tab open through enough deployments to exceed the
+			// former three-graph cap; each server must publish into the same archive.
+			for (const run of runs.slice(1, -1)) {
+				const intermediate = await startCompiledServer(run, port, env);
+				await stopProcess(intermediate);
+			}
 			const second = await startCompiledServer(secondRun, port, env);
 			const retainedLiteral = await fetch(
 				`http://localhost:${port}${literalAsset}`

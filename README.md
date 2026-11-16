@@ -797,3 +797,20 @@ if (!isPrerendering()) {
 
 This is a lifecycle signal, not a sandbox: unguarded application side effects
 can still run. Do not set this flag in the deployed server's environment.
+
+### Compiled browser asset retention
+
+Compiled servers archive namespaced browser asset graphs so tabs opened before a
+deployment can still load lazy routes. Graphs are retained for up to seven days
+after retirement, including across rapid deployments; there is no release-count
+cap. The default shared storage budget is 512 MiB. Set
+`ABSOLUTE_ASSET_ARCHIVE_MAX_BYTES` to a positive integer byte count to size the
+budget for your deployment frequency and browser bundle size. If the byte budget
+is exhausted, the oldest retired graphs are evicted and a warning identifies
+each unexpired graph removed. Current embedded assets remain available.
+
+Set `ABSOLUTE_ASSET_ARCHIVE_DIR` to a persistent writable directory shared by
+deployment slots. Without it, the archive defaults to `.absolutejs/client-assets`
+relative to the runtime working directory. Keep the archive outside ephemeral
+release directories. Tabs older than the retained window still need an explicit
+update/reload recovery flow; never silently reload unsaved user input.
