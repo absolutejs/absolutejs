@@ -11,6 +11,9 @@ declare global {
 	var __absoluteHotPlugin:
 		import('../src/dev/hot/plugin').HotPluginState | undefined;
 	var __absoluteHotApplyChain: Promise<unknown> | undefined;
+	/** Server modules whose last update failed; retried after the next
+	 *  update that applies (src/dev/hot/reload.ts). */
+	var __absoluteHotFailedUpdates: Set<string> | undefined;
 	var __absoluteHotSetupCleanups:
 		| WeakMap<object, import('../src/dev/hot/appLifecycle').Hook[]>
 		| undefined;

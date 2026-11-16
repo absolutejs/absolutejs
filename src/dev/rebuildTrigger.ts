@@ -15,6 +15,7 @@ import {
 } from '../utils/generatedDir';
 import { build } from '../core/build';
 import type { BuildConfig, DevPageEntry } from '../../types/build';
+import { forgetBuildErrorsFor } from './buildErrorMemory';
 import { updateLazyPageRegistry } from './lazyPages';
 import { scanEntryPoints } from '../build/scanEntryPoints';
 import {
@@ -2643,6 +2644,9 @@ const handleReactModuleServerPath = async (
 
 		return state.manifest;
 	}
+	// Every file in the batch compiled: errors a full build stored for them
+	// are fixed, and must not be replayed to the next browser that connects.
+	forgetBuildErrorsFor(state, [...editedFiles, ...targets]);
 	const pageModuleUrls = fastRefreshSupported
 		? undefined
 		: await resolveAffectedPageModules(reactFiles);
