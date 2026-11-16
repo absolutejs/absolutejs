@@ -10,7 +10,9 @@ describe('findNearestComponent', () => {
 	test('climbs past a test file that imports the module to the component the browser loads', () => {
 		invalidateAll();
 		// The test imports the helper first, so it is the first importer seen.
-		setTransformed('/app/src/Health.test.tsx', '', 0, ['/app/src/format.ts']);
+		setTransformed('/app/src/Health.test.tsx', '', 0, [
+			'/app/src/format.ts'
+		]);
 		setTransformed('/app/src/Health.tsx', '', 0, ['/app/src/format.ts']);
 
 		expect(findNearestComponent('/app/src/format.ts')).toBe(
@@ -20,7 +22,9 @@ describe('findNearestComponent', () => {
 
 	test('a module only a test imports has no component to update', () => {
 		invalidateAll();
-		setTransformed('/app/src/__tests__/Probe.tsx', '', 0, ['/app/src/only.ts']);
+		setTransformed('/app/src/__tests__/Probe.tsx', '', 0, [
+			'/app/src/only.ts'
+		]);
 
 		expect(findNearestComponent('/app/src/only.ts')).toBeUndefined();
 	});

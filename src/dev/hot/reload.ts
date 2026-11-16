@@ -227,7 +227,12 @@ const retryFailedUpdates = async (entryPath: string, reloadEntry: boolean) => {
 	await waiting.reduce<Promise<unknown>>(
 		(previous, path) =>
 			previous.then(async () => {
-				const retried = await applyOnce(path, entryPath, reloadEntry, true);
+				const retried = await applyOnce(
+					path,
+					entryPath,
+					reloadEntry,
+					true
+				);
 				if (retried.status !== 'failed') failedUpdates().delete(path);
 			}),
 		Promise.resolve()

@@ -4,7 +4,10 @@ import type { BuildPassError } from '../../../types/build';
 
 type Stored = { lastBuildErrors?: BuildPassError[] };
 
-const error = (file: string | undefined, message = 'broken'): BuildPassError => ({
+const error = (
+	file: string | undefined,
+	message = 'broken'
+): BuildPassError => ({
 	file,
 	label: 'React client',
 	message,
@@ -13,7 +16,9 @@ const error = (file: string | undefined, message = 'broken'): BuildPassError => 
 
 describe('forgetBuildErrorsFor', () => {
 	test('a file that now compiles drops its stored error, and none left clears them', () => {
-		const state: Stored = { lastBuildErrors: [error('/app/src/Entry.tsx')] };
+		const state: Stored = {
+			lastBuildErrors: [error('/app/src/Entry.tsx')]
+		};
 		forgetBuildErrorsFor(state, ['/app/src/Entry.tsx']);
 
 		expect(state.lastBuildErrors).toBeUndefined();
@@ -31,7 +36,9 @@ describe('forgetBuildErrorsFor', () => {
 	});
 
 	test('paths match however they are written', () => {
-		const state: Stored = { lastBuildErrors: [error('/app/src/./Entry.tsx')] };
+		const state: Stored = {
+			lastBuildErrors: [error('/app/src/./Entry.tsx')]
+		};
 		forgetBuildErrorsFor(state, ['/app/src/components/../Entry.tsx']);
 
 		expect(state.lastBuildErrors).toBeUndefined();

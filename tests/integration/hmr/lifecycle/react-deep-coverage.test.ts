@@ -460,11 +460,12 @@ describe('React deep coverage (SSR)', () => {
 		const notice = resolve(REACT_DIR, 'components/StaleNotice.tsx');
 		createFile(
 			notice,
-			"export const StaleNotice = () => {\n\tconst shown = true;\n\tconst shown = false;\n\treturn <p>{String(shown)}</p>;\n};\n"
+			'export const StaleNotice = () => {\n\tconst shown = true;\n\tconst shown = false;\n\treturn <p>{String(shown)}</p>;\n};\n'
 		);
 		addToApp('<StaleNotice />', '');
-		mutateFile(APP, (text) =>
-			`import { StaleNotice } from './StaleNotice';\n${text}`
+		mutateFile(
+			APP,
+			(text) => `import { StaleNotice } from './StaleNotice';\n${text}`
 		);
 		await hmr.waitFor('rebuild-error', 20_000);
 
@@ -472,8 +473,9 @@ describe('React deep coverage (SSR)', () => {
 		// own update failed on the broken import, and its file does not
 		// change again: the server must retry it once the import is fixed.
 		const fixed = await editAndFetch(hmr, srv, 'NOTICE_FIXED', () =>
-			mutateFileInPlace(notice, () =>
-				"export const StaleNotice = () => <p>NOTICE_FIXED</p>;\n"
+			mutateFileInPlace(
+				notice,
+				() => 'export const StaleNotice = () => <p>NOTICE_FIXED</p>;\n'
 			)
 		);
 		expect(fixed).toContain('NOTICE_FIXED');
