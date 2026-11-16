@@ -525,7 +525,11 @@ const buildVueCheck = async (cacheDir: string) => {
 
 /* One ngc run over every Angular directory: a run per directory would write
  * this same config concurrently, and check whichever directory won. */
-const buildAngularCheck = async (cacheDir: string, angularDirs: string[]) => {
+const buildAngularCheck = async (
+	cacheDir: string,
+	angularDirs: string[],
+	useBunCheck: boolean
+) => {
 	const ngcBin = findBin('ngc');
 	if (!ngcBin) {
 		console.error(
@@ -558,10 +562,34 @@ const buildAngularCheck = async (cacheDir: string, angularDirs: string[]) => {
 		)
 	);
 
-	return runShell(
-		'ngc',
-		`${shellEscape(ngcBin)} -p ${shellEscape(resolve(angularTsconfigPath))}`
+	if (!useBunCheck)
+		return runShell(
+			'ngc',
+			`${shellEscape(ngcBin)} -p ${shellEscape(resolve(angularTsconfigPath))}`
+		);
+
+	/* angular-check (@absolutejs/angular-check): the project's own Angular
+	 * compiler builds the program and generates the template check code, as
+	 * ngc does, and `bun check` type-checks it in place of TypeScript in
+	 * Node. The compiler maps and prints the errors, so the output is ngc's.
+	 * A compiler angular-check can't drive is checked by ngc itself. */
+	const angularCheck = join(
+		dirname(
+			Bun.resolveSync(
+				'@absolutejs/angular-check/package.json',
+				import.meta.dir
+			)
+		),
+		'src/cli.ts'
 	);
+
+	return run('angular-check', [
+		process.execPath,
+		angularCheck,
+		'-p',
+		resolve(angularTsconfigPath),
+		`--out-dir=${resolve(cacheDir, 'angular-check')}`
+	]);
 };
 
 type TypecheckProgram = 'bun' | 'tsc' | 'vue';
@@ -866,7 +894,7 @@ const prepareSvelteDeclarations = async (svelteDirs: string[]) => {
 };
 
 const VUE_CHECKERS = new Set(['vue-check', 'vue-tsc']);
-const ANGULAR_CHECKERS = new Set(['ngc']);
+const ANGULAR_CHECKERS = new Set(['angular-check', 'ngc']);
 const PLAIN_CHECKERS = new Set(['bun check', 'tsc']);
 
 /* A framework checker's errors that the plain checker already reported,
@@ -1039,9 +1067,9 @@ export const typecheck = async (configPath?: string) => {
 			)
 		);
 
-	// ngc, once, over every Angular directory
+	// ngc or angular-check, once, over every Angular directory
 	if (hasAngular && angularDirs.length > 0)
-		checks.push(buildAngularCheck(cacheDir, angularDirs));
+		checks.push(buildAngularCheck(cacheDir, angularDirs, useBunCheck));
 
 	const results = dedupeAngularResult(
 		dedupeSvelteResult(dedupeVueResult(await Promise.all(checks))),

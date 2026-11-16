@@ -28,6 +28,7 @@ import { ensureDistBuild } from '../../helpers/ensureDistBuild';
 const repoRoot = resolve(import.meta.dir, '..', '..', '..');
 const CLI_PATH = join(repoRoot, 'src', 'cli', 'index.ts');
 const PLAIN = bunCheckSupported() ? 'bun check' : 'tsc';
+const ANGULAR = bunCheckSupported() ? 'angular-check' : 'ngc';
 const RACE_RUNS = 4;
 let projectRoot = '';
 
@@ -274,7 +275,7 @@ describe('absolute typecheck: Svelte pages and Svelte islands together', () => {
 		expect(failedLabels(output)).toEqual([PLAIN]);
 	}, 300_000);
 
-	test('an Angular template error is reported under ngc only', async () => {
+	test('an Angular template error is reported under the Angular checker only', async () => {
 		await writeSources({ angularTemplate: true });
 		const { exitCode, output } = await typecheck();
 		const reported = sections(output).filter((section) =>
@@ -282,7 +283,7 @@ describe('absolute typecheck: Svelte pages and Svelte islands together', () => {
 		);
 
 		expect(exitCode).not.toBe(0);
-		expect(reported.map((section) => section.name)).toEqual(['ngc']);
-		expect(failedLabels(output)).toEqual(['ngc']);
+		expect(reported.map((section) => section.name)).toEqual([ANGULAR]);
+		expect(failedLabels(output)).toEqual([ANGULAR]);
 	}, 300_000);
 });

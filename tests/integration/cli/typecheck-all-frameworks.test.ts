@@ -28,6 +28,7 @@ const repoRoot = resolve(import.meta.dir, '..', '..', '..');
 const CLI_PATH = join(repoRoot, 'src', 'cli', 'index.ts');
 const PLAIN = bunCheckSupported() ? 'bun check' : 'tsc';
 const VUE = bunCheckSupported() ? 'vue-check' : 'vue-tsc';
+const ANGULAR = bunCheckSupported() ? 'angular-check' : 'ngc';
 let projectRoot = '';
 
 const linkNodeModules = async () => {
@@ -205,11 +206,11 @@ describe('absolute typecheck: React, Svelte, Vue and Angular together', () => {
 		const plain = reported.get(PLAIN) ?? '';
 		const vue = reported.get(VUE) ?? '';
 		const svelte = reported.get('svelte-check') ?? '';
-		const angular = reported.get('ngc') ?? '';
+		const angular = reported.get(ANGULAR) ?? '';
 
 		expect(exitCode).not.toBe(0);
 		expect([...reported.keys()].sort()).toEqual(
-			[PLAIN, VUE, 'svelte-check', 'ngc'].sort()
+			[PLAIN, VUE, 'svelte-check', ANGULAR].sort()
 		);
 
 		// React: plain TypeScript, reported once, by the plain checker.
@@ -234,7 +235,7 @@ describe('absolute typecheck: React, Svelte, Vue and Angular together', () => {
 		expect(angular).toContain('TS2322');
 
 		expect(output).toContain(
-			`Typecheck failed: ${PLAIN}, ${VUE}, svelte-check, ngc`
+			`Typecheck failed: ${[PLAIN, VUE, 'svelte-check', ANGULAR].join(', ')}`
 		);
 	}, 300_000);
 
