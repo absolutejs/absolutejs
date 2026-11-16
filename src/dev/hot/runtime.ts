@@ -131,7 +131,23 @@ const dependsOnChange = (
 ) =>
 	entry.deps.some((dep) => changed[dep] === true && plan[dep]?.cell !== true);
 
-/** Mark statements that reference a re-running declaration, repeating until
+/* A declaration a re-running statement changes in place (`app.use(x)`)
+ * re-runs too: the statement then applies to a fresh value, and every other
+ * statement that changes it re-runs through `dependsOnChange`, in order.
+ * Applying it to the kept value instead fails on an Elysia app (sealed after
+ * its first request) and doubles anything else. */
+const rebuiltByMutation = (
+	plan: StatementPlan[],
+	changed: boolean[],
+	index: number
+) =>
+	plan.some(
+		(entry, mutator) =>
+			changed[mutator] === true && (entry.mutates ?? []).includes(index)
+	);
+
+/** Mark statements that reference a re-running declaration, and the
+ *  declarations re-running statements change in place, repeating until
  *  nothing more changes. Cells neither pass a change on nor take one. */
 const spreadChanges = (plan: StatementPlan[], changed: boolean[]) => {
 	const newly = plan
@@ -140,7 +156,8 @@ const spreadChanges = (plan: StatementPlan[], changed: boolean[]) => {
 			({ entry, index }) =>
 				!changed[index] &&
 				!entry.cell &&
-				dependsOnChange(plan, changed, entry)
+				(dependsOnChange(plan, changed, entry) ||
+					rebuiltByMutation(plan, changed, index))
 		);
 	if (newly.length === 0) return;
 	for (const { index } of newly) changed[index] = true;

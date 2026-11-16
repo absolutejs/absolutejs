@@ -5,6 +5,22 @@
 		{
 			"changes": [
 				{
+					"detail": "Eden typed a form action route's response as a raw `Response`, because the route built the answer for each caller itself. The route now answers with typed values, the handler's data on success and the field errors with a 422 on failure (including validation errors), and a `mapResponse` hook turns them into the 303 redirect, HTMX fragment or browser-helper JSON those callers expect. Eden now types `data` as `{ status: 'success', data }` and the 422 `error` as the field errors keyed by the schema's fields. Responses to every caller are unchanged.",
+					"kind": "fixed",
+					"summary": "Eden types a form action's success data and field errors instead of `Response`"
+				},
+				{
+					"detail": "An entry that builds its app over several statements (`const app = new Elysia(); app.use(projects); app.use(billing); export const server = app.use(networking)`) could not take a hot update to one of those pieces. Re-running `app.use(billing)` called `.use()` on the kept app, which Elysia seals at its first request, so the update failed with \"[Elysia] .use() called after the app was sealed by its first request\" and the old code kept serving until a restart. The analyzer now records statements that call an Elysia builder method (`use`, `get`, `post`, `group`, `guard`, `derive`, `onStop`, …) on a top-level app, and when one re-runs the app is rebuilt: its declaration and every statement that builds it re-run in order, as at boot. Other method calls (`db.execute()` and the like) never rebuild what they are called on.",
+					"kind": "fixed",
+					"summary": "Hot updates work for an app built over several `.use(…)` statements after its first request"
+				}
+			],
+			"date": "2026-11-16",
+			"version": "0.20.0-beta.184"
+		},
+		{
+			"changes": [
+				{
 					"detail": "An Angular page that exports its own `routes` array and is mounted under a wildcard route (such as `.get('/ng/*', ...)`) never returned 404, even for a path none of its routes match. These pages now return 404 for an unknown sub-path, like the other SPA hosts. On each request the handler takes the path below the mount Elysia matched and checks it against the page's `routes` the way Angular's router does: path segments, `:params`, empty paths, `pathMatch: 'full'`, nested `children`, and `redirectTo` sources. A page navigation or HTMX request gets the not-found page (`not-found.html`) and any other client gets Elysia's JSON 404. That JSON rule now covers the React, Svelte, Vue and Angular SPA hosts' 404s too. A route the server can't resolve counts as a match: `loadChildren` matches anything under its path, and a `matcher` function matches everything. To keep the old behaviour for a page, add a `{ path: '**', component: ... }` route, which matches every path.",
 					"kind": "changed",
 					"summary": "Angular pages with colocated routes return 404 for unknown sub-paths"

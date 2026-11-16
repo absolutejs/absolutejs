@@ -82,6 +82,28 @@ as a global, so the statements using `Card` re-run.
 
 A typical handler edit re-runs one module and nothing else.
 
+## An app built over several statements
+
+A large entry often builds its app in pieces:
+
+```ts
+const platform = new Elysia({ name: 'platform' });
+platform.use(projects);
+platform.use(billing);
+export const server = platform.use(networking);
+```
+
+Elysia seals an app at its first request, so re-running only
+`platform.use(billing)` after an edit would call `.use()` on the sealed app
+and fail. The analyzer records each statement that calls an Elysia builder
+method (`use`, `get`, `post`, `group`, `guard`, `derive`, `onStop`, …) on a
+top-level app, including a declaration such as
+`const server = platform.use(networking)`. When one of them must re-run, the
+app's declaration re-runs too, and with it every statement that builds it,
+in order: a fresh, unsealed app, assembled the way boot assembles it. Other
+method calls (`db.execute()`, `registry.add()`) don't count, so editing them
+never rebuilds what they're called on.
+
 ## What re-running a statement stops first
 
 Everything a statement started while it ran — and everything its async work
