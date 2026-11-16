@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "`absolute typecheck` now runs `@absolutejs/vue-check` 0.4, which remembers a run with everything it read: when no file of the program, no file under the folders the tsconfig includes, no config and no installed package has changed, the Vue check prints its last result again in well under a tenth of a second instead of checking again. For that to hold, the tsconfig files and declaration shims this command generates under `.absolutejs/` are now written only when their content changes, so an unchanged project keeps their modification times. vue-check 0.4 also maps errors back to `.vue` files faster on large projects, and resolves a Vue file reached through a linked workspace package as `vue-tsc` does.",
+					"kind": "changed",
+					"summary": "`absolute typecheck` skips the Vue check when nothing it read has changed"
+				}
+			],
+			"date": "2026-11-16",
+			"version": "0.20.0-beta.188"
+		},
+		{
+			"changes": [
+				{
 					"detail": "Editing a module that a test file also imports (a helper used by a component and by its `*.test.tsx`) could make React HMR pick the test file as the component to re-import. The browser then fetched the test, failed on its `bun:test` import, and fell back to a full page reload. Test files (`*.test.*`, `*.spec.*`, `__tests__/`) are never chosen as an update target or climbed through on the way to one; edits to test files were already ignored.",
 					"kind": "fixed",
 					"summary": "Editing a module a test file imports no longer reloads the page"

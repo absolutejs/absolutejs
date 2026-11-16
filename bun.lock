@@ -13,7 +13,7 @@
         "@absolutejs/devices-capacitor": "0.8.1",
         "@absolutejs/http": "0.0.1",
         "@absolutejs/pwa": ">=0.16.3 <0.18.0",
-        "@absolutejs/vue-check": ">=0.3.0 <0.4.0",
+        "@absolutejs/vue-check": ">=0.4.0 <0.5.0",
         "@capacitor/browser": "8.0.4",
         "@capacitor/filesystem": "8.1.3",
         "@capacitor/keyboard": "8.0.5",
@@ -482,19 +482,19 @@
 
     "@absolutejs/test-expo-hmr": ["@absolutejs/test-expo-hmr@workspace:tests/fixtures/expo-hmr"],
 
-    "@absolutejs/vue-check": ["@absolutejs/vue-check@0.3.0", "", { "dependencies": { "@volar/language-core": "~2.4.0", "@volar/source-map": "~2.4.0", "@vue/language-core": "~3.3.13" }, "optionalDependencies": { "@absolutejs/vue-check-darwin-arm64": "0.3.0", "@absolutejs/vue-check-darwin-x64": "0.3.0", "@absolutejs/vue-check-linux-arm64": "0.3.0", "@absolutejs/vue-check-linux-x64": "0.3.0", "@absolutejs/vue-check-windows-arm64": "0.3.0", "@absolutejs/vue-check-windows-x64": "0.3.0" }, "peerDependencies": { "typescript": ">=5.0.0" }, "bin": { "vue-check": "src/cli.ts" } }, "sha512-7DHuqb46LQ0OcWXwOZDpBj6k+xC5xqBUBBZysfl+Li3LHRtjoxyi5SCDfgOc3XXUAlzcu53jF+fPtvXzzseNOQ=="],
+    "@absolutejs/vue-check": ["@absolutejs/vue-check@0.4.0", "", { "dependencies": { "@volar/language-core": "~2.4.0", "@volar/source-map": "~2.4.0", "@vue/language-core": "~3.3.13" }, "optionalDependencies": { "@absolutejs/vue-check-darwin-arm64": "0.4.0", "@absolutejs/vue-check-darwin-x64": "0.4.0", "@absolutejs/vue-check-linux-arm64": "0.4.0", "@absolutejs/vue-check-linux-x64": "0.4.0", "@absolutejs/vue-check-windows-arm64": "0.4.0", "@absolutejs/vue-check-windows-x64": "0.4.0" }, "peerDependencies": { "typescript": ">=5.0.0" }, "bin": { "vue-check": "src/cli.ts" } }, "sha512-zMcLCsQ0vW4P0ZMmMLS916SG+hZ/2Xfi3JYwI8BgGWUfTEzPMQJLveeDSGFIr5Z3y6OHwrT2UPbTJOC4cJ593A=="],
 
-    "@absolutejs/vue-check-darwin-arm64": ["@absolutejs/vue-check-darwin-arm64@0.3.0", "", { "os": "darwin", "cpu": "arm64" }, "sha512-6oWpdcQzRoqhy9UnHLi7LbRyBaMCLpJamhPrunu0S9UepgRRnITeoXZSm4GB+wyXOgo7HU2y86dIqC69/El/jA=="],
+    "@absolutejs/vue-check-darwin-arm64": ["@absolutejs/vue-check-darwin-arm64@0.4.0", "", { "os": "darwin", "cpu": "arm64" }, "sha512-nbSGgM9zGTYgeDpL1L6wiWNTZOHicyCjx0qQRGPyfBD025QcCyAbG4wnTUwfvKnkP3j4PFMLEoflFUtiM6WOkg=="],
 
-    "@absolutejs/vue-check-darwin-x64": ["@absolutejs/vue-check-darwin-x64@0.3.0", "", { "os": "darwin", "cpu": "x64" }, "sha512-hCp3FogsdGDXuPEdKZSr58V86SFUr9WdXfEIeisSO7fn0LODut0p4/Sgwn3posSqK+Ctjc4fEmGkyrPUE8BDNA=="],
+    "@absolutejs/vue-check-darwin-x64": ["@absolutejs/vue-check-darwin-x64@0.4.0", "", { "os": "darwin", "cpu": "x64" }, "sha512-H7j7eDUUveI5B3uHGjfLoqWUYdUFUkVAE6npEHAJdBrDk76i0qVBjaVh74mHtMZgUbW/3tNClHX8Ai2d2DibNQ=="],
 
-    "@absolutejs/vue-check-linux-arm64": ["@absolutejs/vue-check-linux-arm64@0.3.0", "", { "os": "linux", "cpu": "arm64" }, "sha512-B4tKgYvsU1ka0HBAMTRH2wgGuN+k3OpLcFj1WBKSsPR6ldf0oCW/h2YWMLHDKWzglYcKZ9g2lSmt2avlVR9tpQ=="],
+    "@absolutejs/vue-check-linux-arm64": ["@absolutejs/vue-check-linux-arm64@0.4.0", "", { "os": "linux", "cpu": "arm64" }, "sha512-ccOWRsj82R9Y+gyUZ3hFU6oUzGJRXQVGVyH4VS6yQ/Q+IV4KTmCD0oZpAOW0arBjnVNhzx9nG4PFUw+F6P5t5w=="],
 
-    "@absolutejs/vue-check-linux-x64": ["@absolutejs/vue-check-linux-x64@0.3.0", "", { "os": "linux", "cpu": "x64" }, "sha512-JWCJ3MXxp74C8bu7FDwajMQjIL+H/3fj/e6h8HNjQTE2aEbGh5ayZXKqHz9YtxyMIA7XAJX0qgMFBm9mIWQ1zA=="],
+    "@absolutejs/vue-check-linux-x64": ["@absolutejs/vue-check-linux-x64@0.4.0", "", { "os": "linux", "cpu": "x64" }, "sha512-8FRCXVj/RVPBxRDJFNgR6P/vw82RBybgoKGicOSuV7qSoAGfU22OLw85kOgaLm/uMOkgktnGuw/LZxK31V8W4A=="],
 
-    "@absolutejs/vue-check-windows-arm64": ["@absolutejs/vue-check-windows-arm64@0.3.0", "", { "os": "win32", "cpu": "arm64" }, "sha512-mGBe4m1XMp37mYWzX5bPYZ55hS2EdZwdHVr+HHrmhkx07xEzQPjb9WF3ybPG+OhsK8b3VMFpfzlRUNiYJaLPUw=="],
+    "@absolutejs/vue-check-windows-arm64": ["@absolutejs/vue-check-windows-arm64@0.4.0", "", { "os": "win32", "cpu": "arm64" }, "sha512-+8PszMkE66gHM+6pe5ZcTyaTTdMg+O6lTL6s+wbreBY+/oZJWcsvM+DYHZj/VMI4lQPcV7pXdoxC9oncFXHKPA=="],
 
-    "@absolutejs/vue-check-windows-x64": ["@absolutejs/vue-check-windows-x64@0.3.0", "", { "os": "win32", "cpu": "x64" }, "sha512-o8BkUjvNWIBP4sdDxpyKkOK0T4Ax7BIiGBh0EK0l5xAH6VgYk4KibJTDQUIZrvGfv2BSxbRVrm2CzTO4Q6GeBg=="],
+    "@absolutejs/vue-check-windows-x64": ["@absolutejs/vue-check-windows-x64@0.4.0", "", { "os": "win32", "cpu": "x64" }, "sha512-q2a+KBAW9GgMlQa3hb+D0bkrsVweXXb/PNpWKElgWRI+4nLgPnu0n7rx/Q66AkmryEVl78nOtJWCK9mN3VGQkQ=="],
 
     "@adobe/css-tools": ["@adobe/css-tools@4.3.3", "", {}, "sha512-rE0Pygv0sEZ4vBWHlAgJLGDU7Pm8xoO6p3wsEceb7GYAjScrOHpEo8KK/eVkAcnSM+slAEtXjA2JpdjLp4fJQQ=="],
 

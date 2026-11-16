@@ -42,6 +42,15 @@ import type {
 
 type CheckerResult = { name: string; exitCode: number; output: string };
 
+/* A config or a shim this command generates, written only when it differs
+ * from what is there. A checker that remembers its last run compares what it
+ * read by modification time (vue-check does; tsc's and vue-tsc's incremental
+ * builds read these files too), so an unchanged file must keep its time. */
+const writeIfChanged = async (path: string, content: string) => {
+	if (existsSync(path) && readFileSync(path, 'utf-8') === content) return;
+	await writeFile(path, content);
+};
+
 const isCommandService = (service: ServiceConfig) =>
 	service.kind === 'command' || Array.isArray(service.command);
 
@@ -306,7 +315,7 @@ const prepareVueShim = async (cacheDir: string, vueFiles: string[]) => {
 	const fileNames = vueFiles.map((file) => parse(file).base);
 	if (fileNames.length === 0) return;
 	const shimPath = resolve(cacheDir, VUE_SHIM_FILE);
-	await writeFile(shimPath, vueShimSource(fileNames));
+	await writeIfChanged(shimPath, vueShimSource(fileNames));
 	vueShimPath = shimPath;
 };
 
@@ -337,7 +346,7 @@ const prepareSvelteShim = async (cacheDir: string, svelteFiles: string[]) => {
 	const fileNames = svelteFiles.map((file) => parse(file).base);
 	if (fileNames.length === 0) return;
 	const shimPath = resolve(cacheDir, SVELTE_SHIM_FILE);
-	await writeFile(shimPath, svelteShimSource(fileNames));
+	await writeIfChanged(shimPath, svelteShimSource(fileNames));
 	svelteShimPath = shimPath;
 };
 
@@ -452,7 +461,7 @@ const buildVueTscCheck = async (cacheDir: string) => {
 
 	const vueTsconfigPath = join(cacheDir, 'tsconfig.vue-check.json');
 
-	await writeFile(
+	await writeIfChanged(
 		vueTsconfigPath,
 		JSON.stringify(
 			{
@@ -526,7 +535,7 @@ const buildAngularCheck = async (cacheDir: string, angularDirs: string[]) => {
 	}
 
 	const angularTsconfigPath = join(cacheDir, 'tsconfig.angular-check.json');
-	await writeFile(
+	await writeIfChanged(
 		angularTsconfigPath,
 		JSON.stringify(
 			{
@@ -579,7 +588,7 @@ const writeTypecheckConfig = async (
 		...(shim === null ? [] : [shim]),
 		...manifestKeyDeclarations
 	];
-	await writeFile(
+	await writeIfChanged(
 		tscConfigPath,
 		JSON.stringify(
 			{
@@ -706,7 +715,7 @@ const buildSvelteCheck = async (cacheDir: string, includes: string[]) => {
 	}
 
 	const svelteTsconfigPath = join(cacheDir, 'tsconfig.svelte-check.json');
-	await writeFile(
+	await writeIfChanged(
 		svelteTsconfigPath,
 		JSON.stringify(
 			{

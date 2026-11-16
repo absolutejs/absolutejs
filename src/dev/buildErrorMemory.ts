@@ -20,7 +20,8 @@ export const forgetBuildErrorsFor = (
 	if (!state.lastBuildErrors) return;
 	const compiled = new Set([...compiledFiles].map((file) => resolve(file)));
 	const remaining = state.lastBuildErrors.filter(
-		(error) => error.file === undefined || !compiled.has(resolve(error.file))
+		(error) =>
+			error.file === undefined || !compiled.has(resolve(error.file))
 	);
 	state.lastBuildErrors = remaining.length > 0 ? remaining : undefined;
 };
