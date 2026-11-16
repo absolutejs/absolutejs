@@ -16,6 +16,7 @@ import {
 import { build } from '../core/build';
 import type { BuildConfig, DevPageEntry } from '../../types/build';
 import { forgetBuildErrorsFor } from './buildErrorMemory';
+import { isTestFile } from './testFiles';
 import { updateLazyPageRegistry } from './lazyPages';
 import { scanEntryPoints } from '../build/scanEntryPoints';
 import {
@@ -771,10 +772,7 @@ export const queueFileChange = async (
 	// angular-file path matches `.ts` under `angularDir`),
 	// destroying the running app's state for no reason. Skip
 	// outright — `bun test` watches these separately.
-	if (
-		/\.(spec|test)\.(?:m?[tj]sx?)$/i.test(filePath) ||
-		/[\\/]__tests__[\\/]/.test(filePath)
-	) {
+	if (isTestFile(filePath)) {
 		return;
 	}
 
@@ -2479,6 +2477,7 @@ const resolveComponentTarget = (
 	const dependents = reactFiles.filter(
 		(candidate) =>
 			!edited.has(candidate) &&
+			!isTestFile(candidate) &&
 			isReactComponentPath(candidate) &&
 			isImportableModule(candidate)
 	);

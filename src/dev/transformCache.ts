@@ -1,3 +1,4 @@
+import { isTestFile } from './testFiles';
 type CacheEntry = {
 	content: string;
 	imports: string[];
@@ -47,11 +48,15 @@ globalThis.__transformInvalidationVersions = invalidationVersions;
 const isComponentFile = (filePath: string) =>
 	filePath.endsWith('.tsx') || filePath.endsWith('.jsx');
 
+/* A test file imports components too, but the browser never loads it:
+ * climbing to one made HMR re-import `*.test.tsx`, whose `bun:test` import
+ * fails in the browser, so every such edit fell back to a full reload. */
 const processParents = (parents: Set<string>, queue: string[]) => {
-	const component = [...parents].find(isComponentFile);
+	const appParents = [...parents].filter((parent) => !isTestFile(parent));
+	const component = appParents.find(isComponentFile);
 	if (component !== undefined) return component;
 
-	for (const parent of parents) queue.push(parent);
+	for (const parent of appParents) queue.push(parent);
 
 	return undefined;
 };
