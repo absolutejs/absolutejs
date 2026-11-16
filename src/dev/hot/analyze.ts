@@ -15,7 +15,7 @@ import type * as TS from 'typescript';
  * Every rewrite is an insertion or a same-line replacement, so line numbers
  * in stack traces still match the source file. */
 
-export const ANALYZER_VERSION = 3;
+export const ANALYZER_VERSION = 4;
 
 export type ExportKind = 'class' | 'function' | 'live' | 'value';
 
@@ -43,6 +43,13 @@ export type StatementPlan = {
 	cell: boolean;
 	/** Untransformed: re-evaluated by every version. */
 	always: boolean;
+	/** The top-level Elysia app (an index into the plan) this statement
+	 *  builds in place: `app.use(plugin)`, `const server =
+	 *  app.use(networking)`. When it re-runs, the app is rebuilt first: its
+	 *  declaration re-runs, and with it every other statement that builds
+	 *  it, in order. Re-run alone it would call the kept app, which Elysia
+	 *  sealed at its first request, and fail. */
+	mutates: number[];
 };
 
 export type HotModuleAnalysis = {
@@ -826,6 +833,83 @@ const classifyVariable = (
 	);
 };
 
+/* The calls that build an Elysia app, which a sealed app (one that has
+ * served a request, listened or compiled) refuses. A statement making one of
+ * them on a top-level app changes that app in place. */
+const ELYSIA_BUILDER_METHODS = new Set([
+	'all',
+	'decorate',
+	'delete',
+	'derive',
+	'get',
+	'group',
+	'guard',
+	'head',
+	'macro',
+	'model',
+	'mount',
+	'onAfterHandle',
+	'onAfterResponse',
+	'onBeforeHandle',
+	'onError',
+	'onMapResponse',
+	'onParse',
+	'onRequest',
+	'onStart',
+	'onStop',
+	'onTransform',
+	'options',
+	'patch',
+	'post',
+	'put',
+	'resolve',
+	'route',
+	'state',
+	'use',
+	'ws'
+]);
+
+/* The identifier a call chain starts from, when the chain calls an Elysia
+ * builder method on it: `app.use(a).get(…)` → `app`; `db.execute()` and
+ * `start()` → none. */
+const builderRoot = (
+	tsc: Ts,
+	node: TS.Node,
+	builds: boolean
+): string | undefined => {
+	if (tsc.isCallExpression(node)) {
+		const callee = node.expression;
+		const calls =
+			tsc.isPropertyAccessExpression(callee) &&
+			ELYSIA_BUILDER_METHODS.has(callee.name.text);
+
+		return builderRoot(tsc, callee, builds || calls);
+	}
+	if (
+		tsc.isNonNullExpression(node) ||
+		tsc.isParenthesizedExpression(node) ||
+		tsc.isAwaitExpression(node) ||
+		tsc.isPropertyAccessExpression(node) ||
+		tsc.isElementAccessExpression(node)
+	)
+		return builderRoot(tsc, node.expression, builds);
+
+	return builds && tsc.isIdentifier(node) ? node.text : undefined;
+};
+
+/* The top-level app a statement builds in place, if any:
+ * `app.use(plugin)`, `await app.use(a).use(b)`, and a declaration whose
+ * value is built from another app, `const server = app.use(networking)`. */
+const mutatedRoot = (tsc: Ts, statement: TS.Statement) => {
+	if (tsc.isExpressionStatement(statement))
+		return builderRoot(tsc, statement.expression, false);
+	if (!tsc.isVariableStatement(statement)) return undefined;
+	const [declaration] = statement.declarationList.declarations;
+	const init = declaration?.initializer;
+
+	return init ? builderRoot(tsc, init, false) : undefined;
+};
+
 const isSkippedStatement = (tsc: Ts, statement: TS.Statement) =>
 	tsc.isInterfaceDeclaration(statement) ||
 	tsc.isTypeAliasDeclaration(statement) ||
@@ -1088,6 +1172,18 @@ export const analyzeModule = (
 			if (index !== undefined && target !== statement) deps.add(index);
 		}
 
+		const root =
+			statement.kind === 'run' || statement.kind === 'const'
+				? mutatedRoot(tsc, statement.node)
+				: undefined;
+		const rootDeclaration = root ? declaredBy.get(root) : undefined;
+		const mutated =
+			rootDeclaration &&
+			rootDeclaration !== statement &&
+			rootDeclaration.kind === 'const'
+				? planIndex.get(rootDeclaration)
+				: undefined;
+
 		return {
 			always: statement.kind === 'untouched',
 			cell: statement.kind === 'let',
@@ -1100,7 +1196,8 @@ export const analyzeModule = (
 				use.module,
 				use.name,
 				use.call ? 1 : 0
-			])
+			]),
+			mutates: mutated === undefined ? [] : [mutated]
 		};
 	});
 
