@@ -1,3 +1,4 @@
+import { isTestFile } from '../testFiles';
 import { mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { extname, join, relative, resolve, sep } from 'node:path';
 import type { Loader } from 'bun';
@@ -40,7 +41,6 @@ export type HotPluginState = {
 
 const HOT_QUERY = /^absolute-hot=(\d+)$/;
 const SOURCE = /\.(?:[cm]?[jt]sx?)$/;
-const TEST_FILE = /(?:\.(?:spec|test)\.[cm]?[jt]sx?$)|(?:[\\/]__tests__[\\/])/;
 const GENERATED =
 	/(?:^|[\\/])(?:build|generated|compiled|indexes|\.absolutejs|node_modules|dist)(?:[\\/]|$)/;
 const ABSOLUTE_ROOT = resolve(import.meta.dir, '..', '..', '..');
@@ -94,7 +94,7 @@ export const isHotManaged = (path: string) => {
 	if (file.startsWith(`${ABSOLUTE_ROOT}${sep}src${sep}`)) return false;
 	if (file.startsWith(`${ABSOLUTE_ROOT}${sep}dist${sep}`)) return false;
 	if (GENERATED.test(file.slice(root.length))) return false;
-	if (TEST_FILE.test(file)) return false;
+	if (isTestFile(file)) return false;
 	if (file === state.configPath) return false;
 	if (isAbsoluteServerEntryCopyPath(file)) return false;
 
