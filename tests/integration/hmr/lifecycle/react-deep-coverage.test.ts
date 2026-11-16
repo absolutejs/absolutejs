@@ -451,4 +451,46 @@ describe('React deep coverage (SSR)', () => {
 		);
 		expect(again).toContain('STILL_LIVE');
 	}, 60_000);
+
+	test('a new component saved broken, then fixed: its importer recovers, and a browser that connects later is not shown the old error', async () => {
+		const { hmr, srv } = await startAndConnect();
+		// A new component, broken, and its import in the same save: a new
+		// file takes the full build, which stores its errors to replay to
+		// browsers that connect later.
+		const notice = resolve(REACT_DIR, 'components/StaleNotice.tsx');
+		createFile(
+			notice,
+			"export const StaleNotice = () => {\n\tconst shown = true;\n\tconst shown = false;\n\treturn <p>{String(shown)}</p>;\n};\n"
+		);
+		addToApp('<StaleNotice />', '');
+		mutateFile(APP, (text) =>
+			`import { StaleNotice } from './StaleNotice';\n${text}`
+		);
+		await hmr.waitFor('rebuild-error', 20_000);
+
+		// The fix is one component: the fast path, not a full build. App's
+		// own update failed on the broken import, and its file does not
+		// change again: the server must retry it once the import is fixed.
+		const fixed = await editAndFetch(hmr, srv, 'NOTICE_FIXED', () =>
+			mutateFileInPlace(notice, () =>
+				"export const StaleNotice = () => <p>NOTICE_FIXED</p>;\n"
+			)
+		);
+		expect(fixed).toContain('NOTICE_FIXED');
+
+		// A reload, or a second tab: the server replays the last build's
+		// errors to every browser that connects, so a fix that leaves them
+		// stored keeps showing the overlay for code that now compiles.
+		const newcomer = await connectHMR(srv.port);
+		try {
+			await newcomer.waitFor('connected');
+			await Bun.sleep(1_000);
+			const replayed = newcomer
+				.drain()
+				.filter((message) => message.type === 'rebuild-error');
+			expect(replayed).toEqual([]);
+		} finally {
+			newcomer.close();
+		}
+	}, 60_000);
 });

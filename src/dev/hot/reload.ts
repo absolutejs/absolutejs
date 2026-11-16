@@ -163,6 +163,10 @@ const advance = async (path: string): Promise<Advanced> => {
 	const record = moduleRecord(path);
 	const before: ExportMeta = { ...(record?.meta ?? {}) };
 	const shapeBefore = shapeOf(record?.analysis);
+	// No version ever evaluated: the first load failed (a new file saved
+	// broken). Bun keeps that failed load, facade included, and replays its
+	// error to every later import, so the facade must load afresh.
+	const neverEvaluated = record?.current === undefined;
 	try {
 		const namespace = await importNextVersion(path);
 		setCurrent(path, namespace);
@@ -175,7 +179,8 @@ const advance = async (path: string): Promise<Advanced> => {
 	// Exports added, removed or changed kind: later importers need the new
 	// facade. Existing importers keep theirs, which still forwards to the
 	// latest version.
-	if (shapeOf(after?.analysis) !== shapeBefore) delete require.cache[path];
+	if (neverEvaluated || shapeOf(after?.analysis) !== shapeBefore)
+		delete require.cache[path];
 
 	return {
 		changed: changedExports(
@@ -187,10 +192,53 @@ const advance = async (path: string): Promise<Advanced> => {
 	};
 };
 
+/* A module whose update failed may have failed on a dependency (a broken
+ * import) rather than its own source. Its file is then unchanged when the
+ * dependency is fixed, so no edit of its own would retry it: every update
+ * that applies retries these, and a retry that applies clears its entry. */
+const failedUpdates = () => {
+	globalThis.__absoluteHotFailedUpdates ??= new Set();
+
+	return globalThis.__absoluteHotFailedUpdates;
+};
+
 const apply = async (
 	changedPath: string,
 	entryPath: string,
 	reloadEntry = true
+) => {
+	const outcome = await applyOnce(changedPath, entryPath, reloadEntry);
+	const path = realPath(changedPath);
+	if (outcome.status === 'failed') {
+		failedUpdates().add(path);
+
+		return outcome;
+	}
+	if (outcome.status !== 'applied') return outcome;
+	failedUpdates().delete(path);
+	await retryFailedUpdates(entryPath, reloadEntry);
+
+	return outcome;
+};
+
+const retryFailedUpdates = async (entryPath: string, reloadEntry: boolean) => {
+	const waiting = [...failedUpdates()];
+	// One after another, so each sees the versions before it.
+	await waiting.reduce<Promise<unknown>>(
+		(previous, path) =>
+			previous.then(async () => {
+				const retried = await applyOnce(path, entryPath, reloadEntry, true);
+				if (retried.status !== 'failed') failedUpdates().delete(path);
+			}),
+		Promise.resolve()
+	);
+};
+
+const applyOnce = async (
+	changedPath: string,
+	entryPath: string,
+	reloadEntry = true,
+	retry = false
 ): Promise<ServerChangeOutcome> => {
 	const path = realPath(changedPath);
 	const entry = realPath(entryPath);
@@ -215,14 +263,17 @@ const apply = async (
 	}
 	// Watchers report the same save more than once (atomic renames, the
 	// rename-recovery scan): an unchanged source is already applied.
-	if (moduleRecord(path)?.source === source) return { status: 'unchanged' };
+	// A retry re-applies the same source: it failed on a dependency.
+	if (!retry && moduleRecord(path)?.source === source)
+		return { status: 'unchanged' };
 	const analysis = await analyzeSource(path, source);
 	if (!analysis.ok) return { status: 'unmanaged' };
 
 	const startedAt = performance.now();
 	const first = await advance(path);
 	if (!first.ok) {
-		reportFailure(path, first.error);
+		// A retry that still fails was already reported, when it first did.
+		if (!retry) reportFailure(path, first.error);
 
 		return { error: first.error, status: 'failed' };
 	}
@@ -298,6 +349,7 @@ const propagate = async (
 				const result = await advance(importer);
 				if (!result.ok) {
 					reportFailure(importer, result.error);
+					failedUpdates().add(importer);
 
 					return { error: result.error, status: 'failed' };
 				}
