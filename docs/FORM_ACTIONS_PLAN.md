@@ -36,6 +36,7 @@ app.use(createUser); // a plain Elysia plugin
 ```
 
 - `defineAction(path, options)` returns an Elysia instance with one `.post(path, { body, parse, transform, error, beforeHandle }, handler)` route, plus a phantom `actionPath` / `'~formAction'` type. So `app.use(action)` mounts it, and Eden sees the route with its body schema (verified: `treaty<typeof server>().actions.signup.post({ name })` fails to typecheck when `email` is missing).
+- The route answers with typed values: the handler's data on success, `status(422, errors)` on failure (validation errors too). A route `mapResponse` hook turns them into the 303 / HTMX / browser-helper answer, so Eden types the response (`data` is `{ status: 'success', data }`, the 422 is the field errors) instead of `Response`. Compile-time tests in `tests/unit/core/formActions.test.ts`.
 - The body schema is the route's real Elysia schema, so Elysia validates and coerces it. The route's `error` hook turns a body `ValidationError` into one message per field:
   - The key is the top-level field name, or a dotted path for nested fields.
   - The message is the property's `error` option when it is a string, `Required` for missing fields, and the validator's message otherwise.

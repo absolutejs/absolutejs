@@ -1,4 +1,4 @@
-import { Elysia, type UnwrapSchema } from 'elysia';
+import { Elysia, ElysiaStatus, status, type UnwrapSchema } from 'elysia';
 import type { TObject } from 'typebox';
 import { Value } from 'typebox/value';
 import type {
@@ -51,7 +51,9 @@ import { getCurrentAbsoluteRequest } from './requestContext';
 
 const DEFAULT_MAX_BODY_BYTES = 10 * 1024 * 1024;
 const SECRET_FIELD = /pass(?:word|phrase|code)?|secret|token|card|cvc|cvv/i;
+const HTTP_BAD_REQUEST = 400;
 const HTTP_FORBIDDEN = 403;
+const HTTP_INTERNAL_ERROR = 500;
 const HTTP_OK = 200;
 const HTTP_PAYLOAD_TOO_LARGE = 413;
 const HTTP_SEE_OTHER = 303;
@@ -531,7 +533,13 @@ const answerDocument = <Data, Fields extends string>(
 	return new Response(null, { headers, status: HTTP_SEE_OTHER });
 };
 
-const answer = <Data, Fields extends string>(
+/* The answer for callers that don't take the route's own JSON: a plain
+ * form post (303 back to the page), HTMX (a fragment or HX-Redirect) and
+ * the browser helpers, which read an error from a 200 body (a 422 would
+ * only add a "Failed to load resource" console error per invalid form).
+ * Undefined for other JSON clients (Eden, fetch): they get the route's
+ * typed answer, the data with 200 or the field errors with 422. */
+const respond = <Data, Fields extends string>(
 	request: Request,
 	result: ActionResult<Data, Fields>,
 	settings: AnswerSettings<Data, Fields>
@@ -539,16 +547,10 @@ const answer = <Data, Fields extends string>(
 	const mode = responseModeOf(request);
 	if (mode === 'htmx') return answerHtmx(request, result, settings);
 	if (mode === 'document') return answerDocument(request, result, settings);
+	if (request.headers.has(ACTION_REQUEST_HEADER))
+		return Response.json(result, { status: HTTP_OK });
 
-	// The browser helpers read the outcome from the body; a 422 would only
-	// add a "Failed to load resource" console error per invalid form. Other
-	// JSON clients (Eden, fetch) get the 422.
-	const fromHelpers = request.headers.has(ACTION_REQUEST_HEADER);
-	const invalid = result.status === 'error' && !fromHelpers;
-
-	return Response.json(result, {
-		status: invalid ? HTTP_UNPROCESSABLE : HTTP_OK
-	});
+	return undefined;
 };
 
 const answerRejection = (request: Request, rejection: ActionRejection) => {
@@ -616,6 +618,23 @@ const hasSchemaShape = <Body>(schema: TObject, value: unknown): value is Body =>
 const isActionData = <Data>(value: unknown): value is Data =>
 	!(value instanceof ActionFailure) && !(value instanceof Response);
 
+/* A raw Response from the handler (the escape hatch) passes through as is.
+ * Typed as the Response members of the handler's own result, so a handler
+ * that never returns one adds nothing to the route's type. */
+const isRawResponse = <Value>(
+	value: unknown
+): value is Extract<Value, Response> => value instanceof Response;
+
+/* What the handler step answered, as an action result: the success data,
+ * or the field errors inside `status(422, …)`. Anything else (a raw
+ * Response, the 400/500 guards) is not shaped. */
+const routeResult = <Data, Fields extends string>(value: unknown) => {
+	const unboxed: unknown =
+		value instanceof ElysiaStatus ? value.response : value;
+
+	return isActionResult<Data, Fields>(unboxed) ? unboxed : undefined;
+};
+
 /** Defines a form action: a POST route at `path` that validates its body
  *  against `options.body` and works with or without JavaScript. Mount it
  *  with `app.use(action)`. */
@@ -644,7 +663,7 @@ export const defineAction = <
 			!(request instanceof Request) ||
 			!hasSchemaShape<Body>(schema, body)
 		)
-			return new Response('Bad Request', { status: 400 });
+			return status(HTTP_BAD_REQUEST, 'Bad Request');
 		const outcome = await options.handler({
 			body,
 			context,
@@ -652,13 +671,16 @@ export const defineAction = <
 			request,
 			set: isRecord(set) ? { headers: {}, ...set } : { headers: {} }
 		});
-		if (outcome instanceof Response) return outcome;
+		if (isRawResponse<Awaited<Result>>(outcome)) return outcome;
 		if (outcome instanceof ActionFailure)
-			return answer(request, failureResult<Fields>(outcome), settings);
+			return status(
+				HTTP_UNPROCESSABLE,
+				failureResult<Fields>(outcome)
+			);
 		if (!isActionData<Data>(outcome))
-			return new Response('Internal Server Error', { status: 500 });
+			return status(HTTP_INTERNAL_ERROR, 'Internal Server Error');
 
-		return answer(request, successResult(settings, outcome), settings);
+		return successResult(settings, outcome);
 	};
 
 	const plugin = new Elysia({ name: `absolutejs-action:${path}` }).post(
@@ -676,7 +698,24 @@ export const defineAction = <
 					status: 'error'
 				};
 
-				return answer(request, result, settings);
+				// Shaped for the caller by mapResponse, like the handler's.
+				return status(HTTP_UNPROCESSABLE, result);
+			},
+			// The handler answers with typed values (the data, or the field
+			// errors in a 422), which is what Eden sees; this turns them into
+			// what a plain form, HTMX or the browser helpers expect.
+			mapResponse: async ({ request, responseValue, set }) => {
+				const result = routeResult<Data, Fields>(responseValue);
+				const response = result
+					? await respond(request, result, settings)
+					: undefined;
+				// After a validation error Elysia applies the 422 it
+				// recorded to whatever comes back, even a 200 the caller
+				// asked for (HTMX swaps only 2xx; the browser helpers read
+				// errors from a 200). The answer's own status wins.
+				if (response) set.status = response.status;
+
+				return response;
 			},
 			parse: ({ request }) => {
 				const rejection = rejectionFor(

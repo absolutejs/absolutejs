@@ -3,7 +3,8 @@ import { Elysia, t } from 'elysia';
 import type {
 	ActionFields,
 	ActionPath,
-	ActionStateOf
+	ActionStateOf,
+	ActionSuccessState
 } from '../../../types/formAction';
 import {
 	ACTION_FLASH_COOKIE,
@@ -447,3 +448,63 @@ const stateCheck: ActionStateOf<CreateUser> = {
 // @ts-expect-error — not a field of the schema
 const badField: ActionFields<CreateUser> = 'nope';
 void [pathCheck, fieldCheck, stateCheck, badField];
+
+/* Compile-time: what Eden reads from an action's route. The file failing to
+ * compile is the test; each case keeps one runtime expect so it counts. */
+type Equal<A, B> =
+	(<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2
+		? true
+		: false;
+
+const greet = defineAction('/greet', {
+	body: t.Object({ name: t.String({ minLength: 2 }) }),
+	handler: ({ body, fail }) =>
+		body.name === 'taken'
+			? fail({ name: 'That name is taken' })
+			: { greeting: `Welcome, ${body.name}` }
+});
+type GreetResponse = (typeof greet)['~Routes']['greet']['post']['response'];
+
+describe('defineAction route types (what Eden sees)', () => {
+	test('a JSON client gets the typed 422 body', async () => {
+		const response = await new Elysia().use(greet).handle(
+			new Request(`${ORIGIN}/greet`, {
+				body: JSON.stringify({ name: 'taken' }),
+				headers: { 'content-type': 'application/json' },
+				method: 'POST'
+			})
+		);
+		expect(response.status).toBe(422);
+		expect(await response.json()).toEqual({
+			errors: { name: 'That name is taken' },
+			status: 'error'
+		});
+	});
+
+	test('success is the handler data, not a Response', () => {
+		const check: Equal<GreetResponse[200], ActionSuccessState<{ greeting: string }>> = true;
+		expect(check).toBe(true);
+	});
+
+	test('a failure is a 422 with errors keyed by the schema fields', () => {
+		const check: Equal<
+				keyof NonNullable<GreetResponse[422]['errors']>,
+				'name'
+			> = true;
+		const response: Response | GreetResponse[422] = {
+			errors: { name: 'x' },
+			status: 'error'
+		};
+		expect(check).toBe(true);
+		expect(response instanceof Response).toBe(false);
+	});
+
+	test('no status of the route is typed as a raw Response', () => {
+		type HasResponse = Extract<
+			GreetResponse[keyof GreetResponse],
+			Response
+		>;
+		const check: Equal<HasResponse, never> = true;
+		expect(check).toBe(true);
+	});
+});

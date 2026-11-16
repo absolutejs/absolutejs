@@ -44,7 +44,11 @@ import { scanEntryPoints } from './scanEntryPoints';
  *
  * Keys no source file determines are typed by pattern instead (`patterns`):
  * shared chunks (`Chunk<hash>`) and the self-hosted font entries
- * (`AbsoluteFontPreload<n>`). */
+ * (`AbsoluteFontPreload<n>`).
+ *
+ * The declaration is rewritten by dev, build and typecheck only, so an
+ * editor with none of them running can lag the source until one does: see
+ * docs/MANIFEST_KEYS_EDITOR_LAG.md. */
 
 export type DerivedManifestKeys = {
 	definite: Set<string>;
