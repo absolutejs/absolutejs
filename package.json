@@ -7,6 +7,7 @@
 		"url": "https://github.com/absolutejs/absolutejs/issues"
 	},
 	"dependencies": {
+		"@absolutejs/angular-check": ">=0.1.1 <0.2.0",
 		"@absolutejs/auth": ">=0.101.0 <1",
 		"@absolutejs/beacon": ">=0.7.0-beta.4 <0.8.0",
 		"@absolutejs/bvm": "^0.1.1",
@@ -585,7 +586,7 @@
 			]
 		}
 	},
-	"version": "0.20.0-beta.188",
+	"version": "0.20.0-beta.189",
 	"workspaces": [
 		"tests/fixtures/*",
 		"tests/fixtures/_packages/*"

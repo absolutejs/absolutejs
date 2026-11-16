@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "With the Bun checker (Bun 1.4.4 or newer), `absolute typecheck` now checks Angular with `@absolutejs/angular-check` in place of `ngc`. The project's own `@angular/compiler-cli` still builds the program, generates the template check code and maps, filters and prints the errors, so what is reported is what `ngc` reports; the type-checking itself is done by `bun check`. On Angular 22.2 and newer that roughly halves the time of the Angular check on a real application (PeerTube's web client: about 21 s with `ngc`, about 9 s). On older versions the result is the same and the time is too, unless no component needs its check code inside its own file. Errors appear under `[angular-check]`. Without the Bun checker, `ngc` runs as before.",
+					"kind": "changed",
+					"summary": "`absolute typecheck` checks Angular with angular-check, about twice as fast on Angular 22.2+"
+				}
+			],
+			"date": "2026-11-16",
+			"version": "0.20.0-beta.189"
+		},
+		{
+			"changes": [
+				{
 					"detail": "`absolute typecheck` now runs `@absolutejs/vue-check` 0.4, which remembers a run with everything it read: when no file of the program, no file under the folders the tsconfig includes, no config and no installed package has changed, the Vue check prints its last result again in well under a tenth of a second instead of checking again. For that to hold, the tsconfig files and declaration shims this command generates under `.absolutejs/` are now written only when their content changes, so an unchanged project keeps their modification times. vue-check 0.4 also maps errors back to `.vue` files faster on large projects, and resolves a Vue file reached through a linked workspace package as `vue-tsc` does.",
 					"kind": "changed",
 					"summary": "`absolute typecheck` skips the Vue check when nothing it read has changed"

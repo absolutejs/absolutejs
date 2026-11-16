@@ -5,6 +5,7 @@
     "": {
       "name": "@absolutejs/absolute",
       "dependencies": {
+        "@absolutejs/angular-check": ">=0.1.1 <0.2.0",
         "@absolutejs/auth": ">=0.101.0 <1",
         "@absolutejs/beacon": ">=0.7.0-beta.4 <0.8.0",
         "@absolutejs/bvm": "^0.1.1",
@@ -399,6 +400,8 @@
     "@absolutejs-test/angular-lazy-package": ["@absolutejs-test/angular-lazy-package@workspace:tests/fixtures/_packages/angular-lazy-package"],
 
     "@absolutejs/absolute": ["@absolutejs/absolute@root:", {}],
+
+    "@absolutejs/angular-check": ["@absolutejs/angular-check@0.1.1", "", { "peerDependencies": { "@angular/compiler-cli": ">=22.2.0 <23.0.0", "typescript": ">=5.9.0" }, "bin": { "angular-check": "src/cli.ts" } }, "sha512-DlCpcMLbheN3oQXYWe7wXyhxN//kUqbhYENHdSY/59BNcn3Wsr5P3H3Bzz6vN/uYe2ijgVnkg4gsxjvWkxAPQg=="],
 
     "@absolutejs/auth": ["@absolutejs/auth@0.101.0", "", { "dependencies": { "@absolutejs/linked-providers": "0.0.6", "@absolutejs/manifest": "^0.10.0", "@neondatabase/serverless": "1.0.0", "@opentelemetry/api": "1.9.1", "@simplewebauthn/browser": "13.3.0", "citra": "0.31.0", "typebox": "^1.3.16" }, "peerDependencies": { "@node-saml/node-saml": ">=5.1.0 <6", "@simplewebauthn/server": ">=13.3.2 <14", "drizzle-orm": ">=1.0.0-rc.4 <2", "elysia": "^2.0.0-rc.0", "react": ">=18 <20", "solid-js": ">=1.9.14 <2", "svelte": ">=5.56.7 <6", "vue": ">=3.5.40 <4" }, "optionalPeers": ["@node-saml/node-saml", "@simplewebauthn/server", "react", "solid-js", "svelte", "vue"], "bin": { "absolute-auth": "dist/cli/migrate.js" } }, "sha512-OZWoMcMAEoX83x8szFRD5WGvMAiYEMklks6nyhQYAMc3cYxRlWEjsAaCuRXIbYYoLHGfOwwRW9+0rB8H38QzGw=="],
 
