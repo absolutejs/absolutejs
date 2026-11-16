@@ -482,15 +482,18 @@ describe('defineAction route types (what Eden sees)', () => {
 	});
 
 	test('success is the handler data, not a Response', () => {
-		const check: Equal<GreetResponse[200], ActionSuccessState<{ greeting: string }>> = true;
+		const check: Equal<
+			GreetResponse[200],
+			ActionSuccessState<{ greeting: string }>
+		> = true;
 		expect(check).toBe(true);
 	});
 
 	test('a failure is a 422 with errors keyed by the schema fields', () => {
 		const check: Equal<
-				keyof NonNullable<GreetResponse[422]['errors']>,
-				'name'
-			> = true;
+			keyof NonNullable<GreetResponse[422]['errors']>,
+			'name'
+		> = true;
 		const response: Response | GreetResponse[422] = {
 			errors: { name: 'x' },
 			status: 'error'

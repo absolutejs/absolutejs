@@ -5,6 +5,22 @@
 		{
 			"changes": [
 				{
+					"detail": "`absolute typecheck` now runs `@absolutejs/vue-check` 0.3 (it ran 0.1). A Vue file imported from a package (`import Picker from 'some-package/vue/Picker.vue'`) was reported as `TS2307: Cannot find module` by 0.1 and is resolved by 0.3, as `vue-tsc` resolves it. 0.3 also generates the TypeScript for Vue files with a native port of Vue's codegen where the project's `@vue/language-core` is 3.3.9 to 3.3.14, which makes the Vue part of the check faster; other projects get Vue's own codegen as before. The errors reported are otherwise unchanged.",
+					"kind": "fixed",
+					"summary": "`absolute typecheck` resolves a Vue file imported from a package, and checks Vue projects faster"
+				},
+				{
+					"detail": "The `vue-router` peer range is now `^4.5.1 || ^5.0.0`. Vue Router 5 merges unplugin-vue-router into the core package and has no breaking changes for a project that does not use that plugin, so a Vue app on AbsoluteJS can move to it by changing its own `vue-router` version. AbsoluteJS itself is now built and tested against 5.5.1.",
+					"kind": "changed",
+					"summary": "Vue Router 5 is supported alongside 4"
+				}
+			],
+			"date": "2026-11-16",
+			"version": "0.20.0-beta.185"
+		},
+		{
+			"changes": [
+				{
 					"detail": "Eden typed a form action route's response as a raw `Response`, because the route built the answer for each caller itself. The route now answers with typed values, the handler's data on success and the field errors with a 422 on failure (including validation errors), and a `mapResponse` hook turns them into the 303 redirect, HTMX fragment or browser-helper JSON those callers expect. Eden now types `data` as `{ status: 'success', data }` and the 422 `error` as the field errors keyed by the schema's fields. Responses to every caller are unchanged.",
 					"kind": "fixed",
 					"summary": "Eden types a form action's success data and field errors instead of `Response`",

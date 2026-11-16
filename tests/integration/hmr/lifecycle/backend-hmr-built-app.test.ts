@@ -78,7 +78,7 @@ beforeAll(async () => {
 			.replace(
 				/\t\.use\(networking\);\s*$/,
 				[
-					'\t.get(\'/built-app/label\', () => builtLabel());',
+					"\t.get('/built-app/label', () => builtLabel());",
 					'',
 					'platform.use(builtRoutes());',
 					'',
