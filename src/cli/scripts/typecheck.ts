@@ -710,6 +710,11 @@ const buildBunCheck = async (cacheDir: string) => {
  *  svelteDirectory whole, as it always was, and only the `.svelte` files of
  *  a root outside one (an island folder), whose `.ts` files (the registry)
  *  belong to the plain checker and would otherwise be reported twice.
+ *  Beside each such glob goes the one for `.d.svelte.ts`: svelte-check's
+ *  native mode checks a component only if the include also matches the
+ *  declaration it generates for it, and otherwise skips it silently
+ *  (sveltejs/language-tools#3201). No such file exists on disk, so the plain
+ *  mode is unaffected.
  *  Relative to the generated config in the cache directory. */
 export const svelteCheckIncludes = (
 	projectRoot: string,
@@ -726,7 +731,10 @@ export const svelteCheckIncludes = (
 		...configured.map(
 			(dir) => `../${relative(projectRoot, dir) || '.'}/**/*`
 		),
-		...strays.map((root) => `../${root}/**/*.svelte`)
+		...strays.flatMap((root) => [
+			`../${root}/**/*.svelte`,
+			`../${root}/**/*.d.svelte.ts`
+		])
 	];
 };
 
@@ -743,11 +751,7 @@ export const svelteCheckIncludes = (
  * `absolute add svelte` and the hint below install `@typescript/native-preview`,
  * whose only command is `tsgo`. typescript@7 under the alias brings a `tsc`
  * that replaces the project's own in node_modules/.bin.
- *
- * It isn't used when an include names Svelte files by a glob that ends in
- * `.svelte` (an island folder's, from svelteCheckIncludes): as of svelte-check
- * 4.7.8 that mode checks none of the files such a glob matches, and reports
- * the run clean. */
+ */
 const SVELTE_NATIVE_FLAG = '--tsgo-experimental-api';
 const NATIVE_TYPESCRIPT_PACKAGES = [
 	'@typescript/native',
@@ -802,11 +806,6 @@ const nativeTypeScriptInstalled = (from: string) =>
 	);
 
 const SVELTE_NATIVE_HINT = `\x1b[33mnote\x1b[0m Svelte is type-checked with the project's TypeScript. svelte-check checks several times faster with TypeScript 7's native checker. Install it to enable: bun add -d @typescript/native-preview`;
-
-/** Whether svelte-check's native mode would check every file these includes
- *  match: not when one is a glob that ends in `.svelte`. */
-export const svelteNativeChecksEveryFile = (includes: readonly string[]) =>
-	!includes.some((pattern) => pattern.endsWith('.svelte'));
 
 /* A run that printed no summary never checked anything: the native mode
  * stopped on a TypeScript 7 version it doesn't support, or on its own error. */
@@ -867,10 +866,7 @@ const buildSvelteCheck = async (
 		'machine-verbose'
 	];
 	const from = resolve(cacheDir);
-	const nativePossible =
-		useBunCheck &&
-		svelteNativeChecksEveryFile(includes) &&
-		svelteCheckKnowsNativeFlag(from);
+	const nativePossible = useBunCheck && svelteCheckKnowsNativeFlag(from);
 	const nativeInstalled = nativePossible && nativeTypeScriptInstalled(from);
 	if (nativePossible && !nativeInstalled) console.log(SVELTE_NATIVE_HINT);
 	if (!nativeInstalled) return run('svelte-check', command);
