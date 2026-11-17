@@ -740,6 +740,10 @@ export const svelteCheckIncludes = (
  * folder. Both have to be there: an older svelte-check doesn't know the flag,
  * and without TypeScript 7 it stops with an error.
  *
+ * `absolute add svelte` and the hint below install `@typescript/native-preview`,
+ * whose only command is `tsgo`. typescript@7 under the alias brings a `tsc`
+ * that replaces the project's own in node_modules/.bin.
+ *
  * It isn't used when an include names Svelte files by a glob that ends in
  * `.svelte` (an island folder's, from svelteCheckIncludes): as of svelte-check
  * 4.7.8 that mode checks none of the files such a glob matches, and reports
@@ -797,7 +801,7 @@ const nativeTypeScriptInstalled = (from: string) =>
 		isNativeTypeScript(packageManifest(name, from))
 	);
 
-const SVELTE_NATIVE_HINT = `\x1b[33mnote\x1b[0m Svelte is type-checked with the project's TypeScript. svelte-check checks several times faster with TypeScript 7's native checker. Install it to enable: bun add -d @typescript/native@npm:typescript@7`;
+const SVELTE_NATIVE_HINT = `\x1b[33mnote\x1b[0m Svelte is type-checked with the project's TypeScript. svelte-check checks several times faster with TypeScript 7's native checker. Install it to enable: bun add -d @typescript/native-preview`;
 
 /** Whether svelte-check's native mode would check every file these includes
  *  match: not when one is a glob that ends in `.svelte`. */

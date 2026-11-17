@@ -50,7 +50,7 @@ const SCAFFOLD_EXPECTED: Record<FrameworkKey, PackageJsonSections> = {
 	svelte: {
 		dependencies: { svelte: '5.57.1' },
 		devDependencies: {
-			'@typescript/native': 'npm:typescript@7.0.2',
+			'@typescript/native-preview': '7.0.0-dev.20260707.2',
 			'svelte-check': '4.7.8',
 			svelte2tsx: '0.7.63'
 		}
