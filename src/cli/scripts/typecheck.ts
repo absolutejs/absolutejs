@@ -733,7 +733,85 @@ export const svelteCheckIncludes = (
 /* One svelte-check run over every Svelte root, under one label. beta.180 ran
  * one per root, each writing this same config concurrently: the last write
  * won, every run checked the same root, and the others were never checked. */
-const buildSvelteCheck = async (cacheDir: string, includes: string[]) => {
+/* svelte-check checks with the project's TypeScript, in JavaScript. From 4.7
+ * it can hand the type-checking to TypeScript 7's native checker instead
+ * (`--tsgo-experimental-api`), which it finds as `@typescript/native` (an
+ * alias of typescript@7) or `@typescript/native-preview` from the tsconfig's
+ * folder. Both have to be there: an older svelte-check doesn't know the flag,
+ * and without TypeScript 7 it stops with an error.
+ *
+ * It isn't used when an include names Svelte files by a glob that ends in
+ * `.svelte` (an island folder's, from svelteCheckIncludes): as of svelte-check
+ * 4.7.8 that mode checks none of the files such a glob matches, and reports
+ * the run clean. */
+const SVELTE_NATIVE_FLAG = '--tsgo-experimental-api';
+const NATIVE_TYPESCRIPT_PACKAGES = [
+	'@typescript/native',
+	'@typescript/native-preview'
+];
+const NATIVE_TYPESCRIPT_NAMES = new Set([
+	'typescript',
+	'@typescript/native-preview'
+]);
+const NATIVE_TYPESCRIPT_MAJOR = 7;
+
+const packageManifest = (name: string, from: string) => {
+	try {
+		const parsed: unknown = JSON.parse(
+			readFileSync(Bun.resolveSync(`${name}/package.json`, from), 'utf8')
+		);
+
+		return typeof parsed === 'object' && parsed !== null ? parsed : null;
+	} catch {
+		return null;
+	}
+};
+
+const isNativeTypeScript = (manifest: object | null) => {
+	if (manifest === null) return false;
+	const name = 'name' in manifest ? manifest.name : undefined;
+	const version = 'version' in manifest ? manifest.version : undefined;
+	if (typeof name !== 'string' || typeof version !== 'string') return false;
+
+	return (
+		NATIVE_TYPESCRIPT_NAMES.has(name) &&
+		Number.parseInt(version, 10) >= NATIVE_TYPESCRIPT_MAJOR
+	);
+};
+
+const svelteCheckKnowsNativeFlag = (from: string) => {
+	try {
+		const entry = join(
+			dirname(Bun.resolveSync('svelte-check/package.json', from)),
+			'dist/src/index.js'
+		);
+
+		return readFileSync(entry, 'utf8').includes(SVELTE_NATIVE_FLAG);
+	} catch {
+		return false;
+	}
+};
+
+const svelteNativeAvailable = (from: string) =>
+	svelteCheckKnowsNativeFlag(from) &&
+	NATIVE_TYPESCRIPT_PACKAGES.some((name) =>
+		isNativeTypeScript(packageManifest(name, from))
+	);
+
+/** Whether svelte-check's native mode would check every file these includes
+ *  match: not when one is a glob that ends in `.svelte`. */
+export const svelteNativeChecksEveryFile = (includes: readonly string[]) =>
+	!includes.some((pattern) => pattern.endsWith('.svelte'));
+
+/* A run that printed no summary never checked anything: the native mode
+ * stopped on a TypeScript 7 version it doesn't support, or on its own error. */
+const SVELTE_COMPLETED = / COMPLETED \d+ FILES /;
+
+const buildSvelteCheck = async (
+	cacheDir: string,
+	includes: string[],
+	useBunCheck: boolean
+) => {
 	const svelteBin = findBin('svelte-check');
 	if (!svelteBin) {
 		console.error(
@@ -771,7 +849,7 @@ const buildSvelteCheck = async (cacheDir: string, includes: string[]) => {
 		)
 	);
 
-	return run('svelte-check', [
+	const command = [
 		svelteBin,
 		'--tsconfig',
 		resolve(svelteTsconfigPath),
@@ -782,7 +860,18 @@ const buildSvelteCheck = async (cacheDir: string, includes: string[]) => {
 		'--output',
 		// Read by dedupeSvelteResult, which renders it for people.
 		'machine-verbose'
-	]);
+	];
+	if (
+		!useBunCheck ||
+		!svelteNativeChecksEveryFile(includes) ||
+		!svelteNativeAvailable(resolve(cacheDir))
+	)
+		return run('svelte-check', command);
+	const native = await run('svelte-check', [...command, SVELTE_NATIVE_FLAG]);
+
+	return SVELTE_COMPLETED.test(native.output)
+		? native
+		: run('svelte-check', command);
 };
 
 /* Import advice: the static half of the import-cost diagnostic, run where a
@@ -1063,7 +1152,8 @@ export const typecheck = async (configPath?: string) => {
 					resolve('.'),
 					configuredSvelteDirs,
 					svelteDirs
-				)
+				),
+				useBunCheck
 			)
 		);
 
