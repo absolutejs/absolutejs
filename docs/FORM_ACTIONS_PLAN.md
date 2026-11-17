@@ -56,7 +56,7 @@ export const server = new Elysia()
 
 - `form` is an Elysia macro, `formActions()` in `src/core/formActions.ts`. The `absolutejs` plugin from `prepare()` includes it (its type is `FormActionsPlugin`, the macro and nothing else, so internal routes stay out of the app's route type), so apps add no `.use`. A plain Elysia app adds `.use(formActions())`, which also brings `formActionRuntime()`.
 - An action is a route in the app's chain, so guards, `derive`, `resolve`, groups and prefixes apply as they do to `.get`, with their types: `user` above is typed from `auth`. There is no second way to declare a route.
-- `form` takes the schema alone, or `{ body: schema, …options }` when options are needed. The macro tells them apart at runtime by the schema's `type: 'object'` + `properties`, and at the type level by the `body` key (`FormActionSchemaOf`).
+- `form` takes the schema alone, or `{ body: schema, …options }` when options are needed. The macro tells them apart at runtime by the schema's `type: 'object'` + `properties`, and at the type level by the `body` key (`FormActionSchemaOf`). That type reads the value through `keyof` and `Value['body']`, never an object pattern (`Value extends { body: infer S }`). A hook in the same route object may have a callback that reads the context (`beforeHandle: ({ user }) => …`). TypeScript then resolves the macro's types while it is still inferring that object, and an object pattern against an inline `{ body, redirect, … }` resolves to its false branch: `body` became `never` and `fail` took any field.
 - The macro's type lambda (`FormActionMacroType`, `$type: macroType<…>()`) types the route from the `form` value: `body` from the schema, `fail` keyed by its fields (a typo'd field is a compile error), and the 422 response as the field-error shape (`FormActionFailure`). The lambda only sees the macro's value (`this['input']`), not the route's context, which is why the schema is the macro's value rather than `body` plus a flag. The runtime `fail` is typed `{}` inside `derive` so only the lambda's typed one applies, and the lambda's output is a named type (`FormActionContext`) because `this` can't appear in a nested type literal.
 - Eden sees the route like any other: `body` from the schema, the handler's data as the 200 and `{ errors, message?, status: 'error' }` as the 422. The lambda's `response` replaces Elysia's built-in `ValidationProblem` in the 422 (it is never sent: the route's error hook answers validation failures with the field-error shape). Compile-time tests in `tests/unit/core/formActions.test.ts`.
 - `redirect` and `htmx` are typed before the handler, so they can't infer its return type; they are declared bivariantly, so an app can annotate the parameter (`htmx: (result: ActionResult<{ email: string }>) => …`).
@@ -163,7 +163,21 @@ const signup = actions.useFormAction('/actions/signup', { initialState: signupSt
   - The renderer would get it the same way the CSP nonce reaches renderers: `getCsrfToken()` reads the current request through `getCurrentAbsoluteRequest()` and mints it on first use, as `getCspNonce()` does. A `csrfField()` helper per framework, and `formProps` in the hook, would include it automatically.
   - Prerendered pages can't embed a per-user token, so there `enhanceForms` / `useFormAction` would read the cookie and send the header. That is why the cookie is not HttpOnly.
   - `secureHeaders()` already sends `form-action 'self'`. The browser helpers emit no inline scripts. Any future inline bootstrap must use `nonceAttr()` (`src/utils/cspNonceRef.ts`).
-- **Auth.** An action is a route in the app, so the app's guards (`onBeforeHandle`, `.guard`) apply and its `derive` / `resolve` values reach the handler with their types (the reason for the `form` macro). A route-level `beforeHandle` runs after validation and can return `status(401)` or a redirect.
+- **Auth.** An action is a route in the app, so the app's guards (`onBeforeHandle`, `.guard`) apply and its `derive` values reach the handler with their types (the reason for the `form` macro). A route-level `beforeHandle` runs after validation and sees the typed `body`, `fail` and derived values. Elysia checks what a route's own hooks return against the statuses the route declares, and a `form` route declares its 422, so the route's `beforeHandle` answers with one of these:
+  - `status(401, 'Sign in first')`, after adding the status to the route's `response`. The route's map merges with the 422, and Eden gets the 401:
+
+    ```ts
+    .post('/actions/delete', {
+    	beforeHandle: ({ status, user }) => (user ? undefined : status(401, 'Sign in first')),
+    	form: t.Object({ confirm: t.Boolean() }),
+    	response: { 401: t.String() }
+    }, ({ body, user }) => …)
+    ```
+  - An `HTTPError` (`class Unauthorized extends HTTPError.id('UNAUTHORIZED', 401) {}`, then `return new Unauthorized()`). Elysia accepts an error from any hook, serves it as a problem body with its status, and Eden gets that status.
+  - `fail(errors)`: the route's 422 with field errors.
+  - A raw `Response` or `redirect()` is a type error in the route's own `beforeHandle`. Put that hook on a `.guard({ beforeHandle }, (app) => app.post(…))` or an `onBeforeHandle`, whose hooks aren't checked against the route, or return the `Response` from the handler. Handlers may always return a `Response`.
+
+  Each of these short-circuits plain posts, HTMX and JSON callers with the hook's status. The form machinery only shapes the handler's data and 422s.
 - **Size limits.**
   - `maxBodySize` defaults to 10 MiB. A request whose declared `Content-Length` exceeds it gets `413` before its body is read.
   - Chunked bodies without a length fall back to Bun's server-wide `maxRequestBodySize`. Phase 3 adds a streaming byte counter.
@@ -244,4 +258,5 @@ const signup = actions.useFormAction('/actions/signup', { initialState: signupSt
 - Prerendered pages show no-JS results only after the Phase 2 bypass.
 - A route that uses the typed client inside the same app needs a handler return type (see the typed client above).
 - `redirect` and `htmx` can't infer the handler's data type; annotate their parameter.
+- A route's own `beforeHandle` can't return a raw `Response`, and its `status()` takes only the statuses the route declares. Elysia rc.1 checks those against the route's response map, and the `form` route must declare its 422 to keep Elysia's `ValidationProblem` out of Eden's 422. Declare the status in `response`, return an `HTTPError`, or use a guard (see Auth above).
 - The result cookie is unsigned (see Trust above).

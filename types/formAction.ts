@@ -101,14 +101,18 @@ export type FormActionOptions<Schema extends TObject = TObject> = {
 /** The `form` route option: the schema alone, or `{ body, …options }`. */
 export type FormActionValue = TObject | FormActionOptions;
 
-/** The schema a `form` value carries. */
-export type FormActionSchemaOf<Value> = Value extends {
-	body: infer Schema extends TObject;
-}
-	? Schema
-	: Value extends TObject
-		? Value
-		: never;
+/** The schema a `form` value carries.
+ *
+ *  Read through `keyof` and an indexed access, never an object pattern
+ *  (`Value extends { body: infer Schema }`): when the route's hook also
+ *  has a callback that reads the context (`beforeHandle: ({ user }) => …`),
+ *  TypeScript resolves the macro's types while it is still inferring the
+ *  hook object, and an object pattern against `{ body, redirect, … }`
+ *  then settles on its false branch for good (the body became `never`).
+ *  Key and property lookups are re-read once the hook is inferred. */
+export type FormActionSchemaOf<Value> = 'body' extends keyof Value
+	? Extract<Value['body' & keyof Value], TObject>
+	: Extract<Value, TObject>;
 
 /** The field names of a `form` value's schema. */
 export type FormActionFieldsOfValue<Value> = Extract<
@@ -167,7 +171,15 @@ export interface FormActionMacroType extends MacroTypeLambda {
 
 /** The `form` route's response schema as Eden sees it: 422 is the field
  *  errors (Elysia's built-in validation body is never sent; the route's
- *  error hook answers validation failures with this shape). */
+ *  error hook answers validation failures with this shape).
+ *
+ *  Only a declared 422 replaces Elysia's `ValidationProblem` in Eden, and
+ *  Elysia checks a route's own hooks and `status()` against the statuses
+ *  it declares, so the route's `beforeHandle` may answer 422 (`fail`)
+ *  and the statuses the route adds to its `response` (`response: { 401:
+ *  t.String() }`, merged with this), or return an `HTTPError`. A map
+ *  Elysia would leave open (optional or indexed keys) counts as no
+ *  declaration, and the 422 becomes a union with `ValidationProblem`. */
 export type FormActionResponse<Value> = {
 	422: TUnsafe<FormActionFailure<FormActionFieldsOfValue<Value>>>;
 };

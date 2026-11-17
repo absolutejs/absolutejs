@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { Elysia, t } from 'elysia';
+import { Elysia, HTTPError, t } from 'elysia';
 import type {
 	ActionResult,
 	ActionState,
@@ -712,5 +712,233 @@ describe('createFormActionClient (typed by path)', () => {
 		expect(state.errors.email).toBe('Already subscribed');
 		expect(state.values).toBeUndefined();
 		expect(actions.getActionState('/greet', next)).toBeUndefined();
+	});
+});
+
+/* ---------------------------------------------------------------- *
+ * A route-level beforeHandle that reads the context
+ * ---------------------------------------------------------------- */
+
+type Member = { id: number; name: string };
+const member: Member = { id: 2, name: 'Ada' };
+class Unauthorized extends HTTPError.id('UNAUTHORIZED', 401) {}
+const confirmForm = t.Object({ confirm: t.Boolean() });
+
+const openSession: { started: number } = { started: 1 };
+const sessions = new Elysia({ name: 'test-sessions' }).derive('global', () => ({
+	session: openSession
+}));
+
+const gated = new Elysia()
+	.use(formActions())
+	.use(sessions)
+	.derive(({ request }) => ({
+		user: request.headers.get('x-user') === null ? undefined : member
+	}))
+	.post(
+		'/confirm',
+		{
+			form: confirmForm,
+			response: { 401: t.String() },
+			beforeHandle: ({ body, fail, session, status, user }) => {
+				const checks: [
+					Equal<typeof body, { confirm: boolean }>,
+					Equal<typeof user, Member | undefined>,
+					Equal<typeof session, { started: number }>
+				] = [true, true, true];
+				void [checks, session.started];
+				// @ts-expect-error — `nope` is not a field of the form
+				if (body.confirm === undefined) return fail({ nope: 'x' });
+
+				return user ? undefined : status(401, 'Sign in first');
+			}
+		},
+		({ body, fail, user }) => {
+			const checks: [
+				Equal<typeof body.confirm, boolean>,
+				Equal<typeof user, Member | undefined>
+			] = [true, true];
+			void checks;
+			if (!body.confirm) return fail({ confirm: 'Tick the box' });
+
+			return { by: user?.name ?? '' };
+		}
+	)
+	.post(
+		'/confirm-options',
+		{
+			form: { body: confirmForm, preserveValues: false, redirect: '/' },
+			response: { 401: t.String() },
+			beforeHandle: ({ status, user }) =>
+				user ? undefined : status(401, 'Sign in first')
+		},
+		({ body, fail, user }) => {
+			const checks: [
+				Equal<typeof body.confirm, boolean>,
+				Equal<typeof user, Member | undefined>
+			] = [true, true];
+			void checks;
+
+			return body.confirm
+				? { by: user?.name ?? '' }
+				: fail({ confirm: 'Tick the box' });
+		}
+	)
+	.post(
+		'/confirm-error',
+		{
+			form: { body: confirmForm, redirect: '/' },
+			beforeHandle: ({ user }) => (user ? undefined : new Unauthorized())
+		},
+		({ body }) => ({ confirmed: body.confirm })
+	)
+	.post(
+		'/confirm-typo',
+		{
+			form: { body: confirmForm, redirect: '/' },
+			beforeHandle: ({ user }) => void user
+		},
+		// @ts-expect-error — `nope` is not a field of the form
+		({ fail }) => fail({ nope: 'x' })
+	)
+	.guard(
+		{
+			beforeHandle: ({ user }) =>
+				user
+					? undefined
+					: new Response('Sign in first', { status: 401 })
+		},
+		(guarded) =>
+			guarded.post(
+				'/confirm-guarded',
+				{ form: confirmForm },
+				({ body, user }) => ({
+					by: user?.name,
+					confirmed: body.confirm
+				})
+			)
+	);
+
+/* Elysia rc.1 checks a route's own hooks against the responses it
+ * declares, and a `form` route declares its 422, so a raw Response from
+ * the route's own beforeHandle is a type error, as on any Elysia route
+ * with a response map. A guard, the handler, `status()` of a declared
+ * status or an HTTPError answer instead. This stops compiling once
+ * Elysia accepts it; update the docs then. */
+gated.post(
+	'/raw',
+	{
+		form: confirmForm,
+		// @ts-expect-error — not a response the route declares
+		beforeHandle: ({ user }) =>
+			user ? undefined : new Response('no', { status: 401 })
+	},
+	({ body }) => body.confirm
+);
+
+type GatedRoutes = (typeof gated)['~Routes'];
+type ConfirmRoute = GatedRoutes['confirm']['post'];
+type ConfirmOptionsRoute = GatedRoutes['confirm-options']['post'];
+type ConfirmErrorRoute = GatedRoutes['confirm-error']['post'];
+
+const gatedRequest = (
+	path: string,
+	mode: 'document' | 'htmx' | 'json',
+	signedInUser: boolean
+) => {
+	const headers: Record<string, string> = signedInUser
+		? { 'x-user': '1' }
+		: {};
+	if (mode === 'htmx') headers['hx-request'] = 'true';
+	const body =
+		mode === 'json'
+			? JSON.stringify({ confirm: true })
+			: form([['confirm', 'on']]);
+
+	return gated.handle(requestTo(path, body, headers));
+};
+
+const gatedPaths = [
+	'/confirm',
+	'/confirm-options',
+	'/confirm-error',
+	'/confirm-guarded'
+];
+
+describe('form routes — a beforeHandle that reads the context', () => {
+	test('the body is typed from the form schema in both shapes', () => {
+		const body: Equal<ConfirmRoute['body'], { confirm: boolean }> = true;
+		const options: Equal<
+			ConfirmOptionsRoute['body'],
+			{ confirm: boolean }
+		> = true;
+		const fields: Equal<
+			FormActionFieldsOf<typeof gated, '/confirm-options'>,
+			'confirm'
+		> = true;
+		expect([body, options, fields]).toEqual([true, true, true]);
+	});
+
+	test('Eden: the declared 401, the handler data and the field-error 422', () => {
+		const statuses: Equal<keyof ConfirmRoute['response'], 200 | 401 | 422> =
+			true;
+		const unauthorized: Equal<ConfirmRoute['response'][401], string> = true;
+		const failure: Equal<
+			ConfirmRoute['response'][422],
+			FormActionFailure<'confirm'>
+		> = true;
+		const options: Equal<
+			ConfirmOptionsRoute['response'][422],
+			FormActionFailure<'confirm'>
+		> = true;
+		const data: Equal<ConfirmRoute['response'][200], { by: string }> = true;
+		const errorRoute: Equal<
+			ConfirmErrorRoute['response'][422],
+			FormActionFailure<'confirm'>
+		> = true;
+		expect([
+			statuses,
+			unauthorized,
+			failure,
+			options,
+			data,
+			errorRoute
+		]).toEqual([true, true, true, true, true, true]);
+	});
+
+	test('a 401 from the beforeHandle short-circuits every kind of caller', async () => {
+		const modes = ['document', 'htmx', 'json'] as const;
+		const calls = gatedPaths.flatMap((path) =>
+			modes.map((mode) => gatedRequest(path, mode, false))
+		);
+		const responses = await Promise.all(calls);
+		expect(responses.map((response) => response.status)).toEqual(
+			calls.map(() => 401)
+		);
+		expect(await responses[0]?.text()).toBe('Sign in first');
+		expect(responses[0]?.headers.get('set-cookie')).toBeNull();
+	});
+
+	test('passing through reaches the handler', async () => {
+		const documents = await Promise.all(
+			gatedPaths.map((path) => gatedRequest(path, 'document', true))
+		);
+		expect(documents.map((response) => response.status)).toEqual([
+			303, 303, 303, 303
+		]);
+		const htmx = await gatedRequest('/confirm', 'htmx', true);
+		expect(htmx.status).toBe(200);
+		expect(htmx.headers.get('hx-redirect')).toBe('/signup?step=1');
+		const json = await Promise.all(
+			gatedPaths.map((path) => gatedRequest(path, 'json', true))
+		);
+		expect(
+			await Promise.all(json.map((response) => response.json()))
+		).toEqual([
+			{ by: 'Ada' },
+			{ by: 'Ada' },
+			{ confirmed: true },
+			{ by: 'Ada', confirmed: true }
+		]);
 	});
 });
