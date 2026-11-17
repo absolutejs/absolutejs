@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "svelte-check's native mode checks a component only when the tsconfig's include also matches the .d.svelte.ts declaration it generates for it. absolute typecheck includes an island folder outside svelteDirectory by its .svelte files alone, which that mode skipped without a word, so such a project was kept on plain svelte-check. The generated config now names the .d.svelte.ts pattern beside each .svelte one, and those projects are checked natively too.",
+					"kind": "changed",
+					"summary": "Svelte islands outside svelteDirectory are checked with the native TypeScript too"
+				}
+			],
+			"date": "2026-11-17",
+			"version": "0.20.0-beta.195"
+		},
+		{
+			"changes": [
+				{
 					"detail": "With the Bun checker, absolute typecheck runs svelte-check with --tsgo-experimental-api, which hands the type-checking to TypeScript 7's native checker, when the project has svelte-check 4.7 or newer and the native TypeScript 7 installed as @typescript/native-preview (bun add -d @typescript/native-preview). On a 772-component application it reported the same errors in about 25 s where plain svelte-check took 70 to 83 s. absolute add svelte installs it, and only a Svelte project gets it; a Svelte project without it is told the command to install it. Plain svelte-check still runs without those packages, when Svelte islands live outside the configured svelteDirectory (the native mode skips files matched by a *.svelte include as of svelte-check 4.7.8), and when the native run ends without a summary.",
 					"kind": "changed",
 					"summary": "absolute typecheck checks Svelte with the native TypeScript when it is installed"
