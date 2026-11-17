@@ -25,7 +25,7 @@ export const SCAFFOLD_VERSIONS = {
 	'@angular/router': '21.2.24',
 	'@angular/ssr': '21.2.24',
 	'@types/react': '19.3.0',
-	'@typescript/native': 'npm:typescript@7.0.2',
+	'@typescript/native-preview': '7.0.0-dev.20260707.2',
 	react: '19.3.0',
 	'react-dom': '19.3.0',
 	'react-refresh': '0.19.0',
@@ -70,9 +70,15 @@ export const FRAMEWORK_PACKAGES: Record<FrameworkKey, FrameworkPackages> = {
 		dependencies: ['svelte'],
 		/* `absolute typecheck` generates component declarations with
 		   svelte2tsx and checks .svelte files with svelte-check, which
-		   type-checks with TypeScript 7's native checker when it is installed
-		   under this alias. Only a Svelte project gets it. */
-		devDependencies: ['@typescript/native', 'svelte2tsx', 'svelte-check']
+		   type-checks with TypeScript 7's native checker when this package
+		   is installed. Only a Svelte project gets it. It is this package
+		   and not typescript@7 under an alias: that one brings its own
+		   `tsc`, which would replace the project's. */
+		devDependencies: [
+			'@typescript/native-preview',
+			'svelte2tsx',
+			'svelte-check'
+		]
 	},
 	vue: {
 		/* The auto router (a page that exports `routes`) needs vue-router. */
