@@ -40,3 +40,5 @@ export type {
 	ResourceOptions,
 	ResourceStart
 } from './useResource';
+export { getRouteParam, useRouteParam } from './routeParam';
+export type { VueRouteParam } from './routeParam';

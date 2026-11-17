@@ -32,3 +32,5 @@ export type {
 	VueSetupApp,
 	VueSetupAppContext
 } from '../../types/vue';
+export { getRouteParam, useRouteParam } from './routeParam';
+export type { VueRouteParam } from './routeParam';

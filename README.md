@@ -263,6 +263,12 @@ Rendering on the server would be thrown away by that client mount and would
 play CSS entrance animations twice. A page with `client: 'none'` has no client
 mount, so it is rendered on the server.
 
+Route parameters may disappear before the outgoing page unmounts. Use
+`useRouteParam(() => route.params.matchId)` or `getRouteParam(route.params.matchId)`
+from `@absolutejs/absolute/vue` and handle the `string | undefined` result.
+See [route parameter safety](docs/VUE_ROUTE_PARAMETERS.md) for navigation,
+cancellation and compiler configuration guidance.
+
 ### Vue server data
 
 `useServerData(key, fetcher)` loads data while a Vue page renders on the
