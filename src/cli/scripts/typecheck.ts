@@ -792,11 +792,12 @@ const svelteCheckKnowsNativeFlag = (from: string) => {
 	}
 };
 
-const svelteNativeAvailable = (from: string) =>
-	svelteCheckKnowsNativeFlag(from) &&
+const nativeTypeScriptInstalled = (from: string) =>
 	NATIVE_TYPESCRIPT_PACKAGES.some((name) =>
 		isNativeTypeScript(packageManifest(name, from))
 	);
+
+const SVELTE_NATIVE_HINT = `\x1b[33mnote\x1b[0m Svelte is type-checked with the project's TypeScript. svelte-check checks several times faster with TypeScript 7's native checker. Install it to enable: bun add -d @typescript/native@npm:typescript@7`;
 
 /** Whether svelte-check's native mode would check every file these includes
  *  match: not when one is a glob that ends in `.svelte`. */
@@ -861,12 +862,14 @@ const buildSvelteCheck = async (
 		// Read by dedupeSvelteResult, which renders it for people.
 		'machine-verbose'
 	];
-	if (
-		!useBunCheck ||
-		!svelteNativeChecksEveryFile(includes) ||
-		!svelteNativeAvailable(resolve(cacheDir))
-	)
-		return run('svelte-check', command);
+	const from = resolve(cacheDir);
+	const nativePossible =
+		useBunCheck &&
+		svelteNativeChecksEveryFile(includes) &&
+		svelteCheckKnowsNativeFlag(from);
+	const nativeInstalled = nativePossible && nativeTypeScriptInstalled(from);
+	if (nativePossible && !nativeInstalled) console.log(SVELTE_NATIVE_HINT);
+	if (!nativeInstalled) return run('svelte-check', command);
 	const native = await run('svelte-check', [...command, SVELTE_NATIVE_FLAG]);
 
 	return SVELTE_COMPLETED.test(native.output)

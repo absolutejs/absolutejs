@@ -49,7 +49,11 @@ const SCAFFOLD_EXPECTED: Record<FrameworkKey, PackageJsonSections> = {
 	},
 	svelte: {
 		dependencies: { svelte: '5.57.1' },
-		devDependencies: { 'svelte-check': '4.7.8', svelte2tsx: '0.7.63' }
+		devDependencies: {
+			'@typescript/native': 'npm:typescript@7.0.2',
+			'svelte-check': '4.7.8',
+			svelte2tsx: '0.7.63'
+		}
 	},
 	vue: {
 		dependencies: { vue: '3.5.43', 'vue-router': '4.6.4' },
@@ -60,7 +64,9 @@ const SCAFFOLD_EXPECTED: Record<FrameworkKey, PackageJsonSections> = {
 const toRecord = (specs: string[]) =>
 	Object.fromEntries(
 		specs.map((spec) => {
-			const at = spec.lastIndexOf('@');
+			// The first `@` past a scope's: a version can hold one too
+			// (`name@npm:typescript@7.0.2`, an alias).
+			const at = spec.indexOf('@', 1);
 
 			return [spec.slice(0, at), spec.slice(at + 1)];
 		})
