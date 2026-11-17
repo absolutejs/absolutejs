@@ -5,6 +5,7 @@ import {
 	dedupeSvelteResult,
 	dedupeVueResult,
 	svelteCheckIncludes,
+	svelteNativeChecksEveryFile,
 	vueShimSource
 } from '../../../src/cli/scripts/typecheck';
 import {
@@ -446,6 +447,21 @@ describe('svelteCheckIncludes', () => {
 		expect(
 			svelteCheckIncludes(projectRoot, ['src/svelte'], ['src/svelte'])
 		).toEqual(['../src/svelte/**/*']);
+	});
+});
+
+describe('svelteNativeChecksEveryFile', () => {
+	test('a configured directory, included whole, can be checked natively', () => {
+		expect(svelteNativeChecksEveryFile(['../src/svelte/**/*'])).toBe(true);
+	});
+
+	test('an island folder, included by its .svelte files, cannot: the native mode would skip them', () => {
+		expect(
+			svelteNativeChecksEveryFile([
+				'../src/frontend/svelte/**/*',
+				'../src/islands/**/*.svelte'
+			])
+		).toBe(false);
 	});
 });
 
