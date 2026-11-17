@@ -218,8 +218,9 @@ describe('absolute typecheck: React, Svelte, Vue and Angular together', () => {
 		expect(vue).not.toContain('Home.tsx');
 		// Svelte page props in a server file (the generated declarations),
 		// and a wrong prop inside a component (svelte-check).
-		expect(plain).toContain('src/server.ts');
-		expect(plain).toContain('cssPath');
+		expect(plain).toMatch(
+			/src\/server\.ts\(\d+,\d+\): error TS2322: Type 'number' is not assignable to type 'string'/
+		);
 		expect(svelte).toContain('src/svelte/pages/Pricing.svelte');
 		expect(svelte).toContain(
 			"Type 'string' is not assignable to type 'number'"

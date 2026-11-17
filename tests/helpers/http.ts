@@ -2,7 +2,8 @@ const DEFAULT_RETRY_DELAY_MS = 500;
 const DEFAULT_MAX_RETRIES = 120;
 
 export const fetchPage = async (url: string) => {
-	const res = await fetch(url);
+	// Match a browser navigation so HTML error and not-found conventions run.
+	const res = await fetch(url, { headers: { accept: 'text/html' } });
 	const html = await res.text();
 
 	return { headers: res.headers, html, status: res.status };

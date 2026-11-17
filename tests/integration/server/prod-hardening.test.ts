@@ -1,6 +1,6 @@
 import { describe, expect, test, afterAll } from 'bun:test';
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import { startProdServer, type ProdServer } from '../../helpers/prodServer';
 import { fetchPage } from '../../helpers/http';
 
@@ -62,10 +62,10 @@ describe('production bundle hardening', () => {
 		}
 	});
 
-	test('client-side JS bundles do NOT carry inline sourcemap comments (dev-only)', () => {
-		// Walk the outdir for *.js files (not .ssr.js / vendor / chunk
-		// internals — those land outside the served paths too, but
-		// being thorough is cheap).
+	test('public JS bundles do not expose inline source maps', async () => {
+		// Server bundles retain maps for stack traces but must be inaccessible
+		// over HTTP. Check every inline map, including server output, against
+		// the actual static routes rather than treating private files as public.
 		const seenJsFiles: string[] = [];
 		const walk = (dir: string) => {
 			if (!existsSync(dir)) return;
@@ -96,7 +96,12 @@ describe('production bundle hardening', () => {
 				text
 			);
 		});
-		expect(withInlineMap).toEqual([]);
+		for (const file of withInlineMap) {
+			const path = relative(server.outdir, file);
+			const response = await fetch(`${server.baseUrl}/${path}`);
+			await response.text();
+			expect(response.status).toBe(404);
+		}
 	});
 
 	test('hashed asset URLs in SSR HTML serve with `immutable` cache header', async () => {

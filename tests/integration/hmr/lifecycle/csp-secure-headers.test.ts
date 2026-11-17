@@ -139,6 +139,9 @@ describe('secureHeaders() in dev', () => {
 
 		// Hydrated: the Svelte counter responds to a click.
 		await page.goto(`${baseUrl}/svelte`, { waitUntil: 'load' });
+		await page.waitForFunction(() =>
+			Boolean(Reflect.get(window, '__SVELTE_COMPONENT__'))
+		);
 		const counter = page.locator('button').first();
 		await counter.click();
 		await page.waitForFunction(() =>

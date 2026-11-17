@@ -519,7 +519,10 @@ const assertCompileStressServer = async (baseUrl: string) => {
 	const boom = await fetchPage(`${baseUrl}/boom`);
 	expect(boom.status).toBe(500);
 	expect(boom.html).toContain('REACT_ERROR_CONVENTION');
-	expect(boom.html).toContain('BOOM_PAGE_FAILURE');
+	expect(boom.html).not.toContain('BOOM_PAGE_FAILURE');
+	expect(boom.html).toContain(
+		'Something went wrong while rendering this page.'
+	);
 };
 
 const readParitySnapshot = async (baseUrl: string) => {
@@ -601,7 +604,10 @@ const assertCompileAngularServer = async (baseUrl: string) => {
 	const boom = await fetchPage(`${baseUrl}/boom`);
 	expect(boom.status).toBe(500);
 	expect(boom.html).toContain('ANGULAR_ERROR_CONVENTION');
-	expect(boom.html).toContain('ANGULAR_BOOM_FAILURE');
+	expect(boom.html).not.toContain('ANGULAR_BOOM_FAILURE');
+	expect(boom.html).toContain(
+		'Something went wrong while rendering this page.'
+	);
 };
 
 const assertCompileSvelteServer = async (baseUrl: string) => {
@@ -629,7 +635,10 @@ const assertCompileSvelteServer = async (baseUrl: string) => {
 	const boom = await fetchPage(`${baseUrl}/boom`);
 	expect(boom.status).toBe(500);
 	expect(boom.html).toContain('SVELTE_ERROR_CONVENTION');
-	expect(boom.html).toContain('SVELTE_BOOM_FAILURE');
+	expect(boom.html).not.toContain('SVELTE_BOOM_FAILURE');
+	expect(boom.html).toContain(
+		'Something went wrong while rendering this page.'
+	);
 };
 
 const assertCompileVueServer = async (baseUrl: string) => {
@@ -657,7 +666,10 @@ const assertCompileVueServer = async (baseUrl: string) => {
 	const boom = await fetchPage(`${baseUrl}/boom`);
 	expect(boom.status).toBe(500);
 	expect(boom.html).toContain('VUE_ERROR_CONVENTION');
-	expect(boom.html).toContain('VUE_BOOM_FAILURE');
+	expect(boom.html).not.toContain('VUE_BOOM_FAILURE');
+	expect(boom.html).toContain(
+		'Something went wrong while rendering this page.'
+	);
 };
 
 const assertCompileDependencyStressServer = async (baseUrl: string) => {
@@ -691,7 +703,10 @@ const assertCompileDependencyStressServer = async (baseUrl: string) => {
 	const boom = await fetchPage(`${baseUrl}/boom`);
 	expect(boom.status).toBe(500);
 	expect(boom.html).toContain('DEPENDENCY_ERROR_CONVENTION');
-	expect(boom.html).toContain('DEPENDENCY_BOOM_FAILURE');
+	expect(boom.html).not.toContain('DEPENDENCY_BOOM_FAILURE');
+	expect(boom.html).toContain(
+		'Something went wrong while rendering this page.'
+	);
 };
 
 const assertCompileDependencyAssetsServer = async (baseUrl: string) => {
