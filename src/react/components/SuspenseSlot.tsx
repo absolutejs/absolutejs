@@ -4,6 +4,7 @@ import {
 	registerStreamingSlot,
 	warnMissingStreamingSlotCollector
 } from '../../core/streamingSlotRegistrar';
+import { REACT_SUSPENSE_PAYLOAD_KIND } from './suspenseSlotPayload';
 import {
 	getReactServerNodeRenderer,
 	type ReactServerNodeRenderer
@@ -24,6 +25,8 @@ type LegacySuspenseSlotProps = {
 
 type FrameworkSuspenseRenderProps<T = unknown> = {
 	children: (value: Awaited<T>) => ReactNode;
+	/** Browser only: called with the slot's value once it is known. */
+	onResolved?: (value: Awaited<T>) => void;
 	className?: string;
 	/** Stream this slot on every request even when the page is
 	 *  pre-rendered (partial prerendering): the cached shell keeps the
@@ -46,6 +49,8 @@ type FrameworkSuspenseRenderProps<T = unknown> = {
 
 type FrameworkSuspenseNodeProps = {
 	children?: ReactNode;
+	/** Browser only: called with the slot's value once it is known. */
+	onResolved?: (value: ReactNode) => void;
 	className?: string;
 	/** Stream this slot on every request even when the page is
 	 *  pre-rendered (partial prerendering): the cached shell keeps the
@@ -60,10 +65,12 @@ type FrameworkSuspenseNodeProps = {
 };
 
 type FrameworkSuspenseSlotProps<T = unknown> =
-	FrameworkSuspenseRenderProps<T> | FrameworkSuspenseNodeProps;
+	| FrameworkSuspenseRenderProps<T>
+	| FrameworkSuspenseNodeProps;
 
 type SuspenseSlotProps<T = unknown> =
-	LegacySuspenseSlotProps | FrameworkSuspenseSlotProps<T>;
+	| LegacySuspenseSlotProps
+	| FrameworkSuspenseSlotProps<T>;
 
 const isLegacyProps = <T,>(
 	props: SuspenseSlotProps<T>
@@ -169,15 +176,43 @@ const registerFrameworkSuspenseSlot = <T,>(
 		timeoutMs: props.timeoutMs,
 		resolve: async () => {
 			try {
-				const content = hasRenderChildren(props)
-					? props.children(await resolveRenderSuspenseValue(props))
-					: (props.children ??
-						(await resolveNodeSuspenseValue(props)) ??
-						null);
+				if (!hasRenderChildren(props))
+					return renderReactNodeToHtml(
+						props.children ??
+							(await resolveNodeSuspenseValue(props)) ??
+							null,
+						serverNodeRenderer
+					);
+				/* A value rendered through children(value) streams with
+				 * its HTML, so the browser can take the slot over with
+				 * the same value: the HTML shows at once and React makes
+				 * it interactive without fetching it again. */
+				const value = await resolveRenderSuspenseValue(props);
+				const html = await renderReactNodeToHtml(
+					props.children(value),
+					serverNodeRenderer
+				);
 
-				return renderReactNodeToHtml(content, serverNodeRenderer);
+				return {
+					html,
+					kind: REACT_SUSPENSE_PAYLOAD_KIND,
+					state: 'resolved',
+					value
+				};
 			} catch (error) {
-				return renderErrorFallback(props, error, serverNodeRenderer);
+				const html = await renderErrorFallback(
+					props,
+					error,
+					serverNodeRenderer
+				);
+
+				return hasRenderChildren(props)
+					? {
+							html,
+							kind: REACT_SUSPENSE_PAYLOAD_KIND,
+							state: 'error'
+						}
+					: html;
 			}
 		}
 	});
@@ -194,11 +229,15 @@ const renderLegacySuspenseSlot = (props: LegacySuspenseSlotProps) => (
 );
 
 const renderFrameworkSuspenseSlot = (
-	props: Pick<FrameworkSuspenseNodeProps, 'className' | 'fallback' | 'id'>
+	props: Pick<FrameworkSuspenseNodeProps, 'className' | 'fallback' | 'id'>,
+	streaming: boolean
 ) => (
 	<div
 		className={props.className}
 		data-absolute-slot="true"
+		/* Tells the browser this slot's content is on its way in the
+		 * response, so it waits for it rather than resolving again. */
+		data-absolute-slot-stream={streaming ? 'true' : undefined}
 		id={props.id}
 		suppressHydrationWarning
 	>
@@ -215,7 +254,7 @@ const renderServerSuspenseSlot = <T,>(props: SuspenseSlotProps<T>) => {
 
 	registerFrameworkSuspenseSlot(props);
 
-	return renderFrameworkSuspenseSlot(props);
+	return renderFrameworkSuspenseSlot(props, true);
 };
 
 export const SuspenseSlot = <T,>(props: SuspenseSlotProps<T>) => {
@@ -226,5 +265,5 @@ export const SuspenseSlot = <T,>(props: SuspenseSlotProps<T>) => {
 
 	if (isLegacyProps(props)) return renderLegacySuspenseSlot(props);
 
-	return renderFrameworkSuspenseSlot(props);
+	return renderFrameworkSuspenseSlot(props, false);
 };
