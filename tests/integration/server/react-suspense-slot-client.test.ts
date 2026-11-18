@@ -46,15 +46,16 @@ describe('React SuspenseSlot in the browser', () => {
 		expect(proc).toBeDefined();
 	}, 120_000);
 
-	test('streams the slot with its HTML and its value', async () => {
+	test('streams the slot in the page tree, with its value, without a collector', async () => {
 		const { html, status } = await fetchPage(baseUrl);
 
 		expect(status).toBe(200);
 		expect(html).toContain('id="shell"');
-		expect(html).toContain('data-absolute-slot-stream="true"');
-		expect(html).toContain('"kind":"react-suspense"');
-		expect(html).toContain('"value":{"start":3}');
-		expect(html).toContain('id=\\"counter\\"');
+		expect(html).toContain('data-absolute-slot-value="slot-count"');
+		expect(html).toContain('{"state":"resolved","value":{"start":3}}');
+		/* "count" comes from a context above the slot: the content rendered
+		 * inside the page's own tree. */
+		expect(html).toMatch(/id="counter"[^>]*>count<!-- --> <!-- -->3</u);
 	});
 
 	test('takes the streamed slot over: interactive, no hydration error, value handed on', async () => {

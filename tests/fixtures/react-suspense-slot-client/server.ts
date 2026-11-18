@@ -12,7 +12,6 @@ const app = new Elysia()
 		const index = asset(manifest, 'SuspenseSlotPageIndex');
 
 		return handleReactPageRequest({
-			collectStreamingSlots: true,
 			index,
 			Page: SuspenseSlotPage
 		});
