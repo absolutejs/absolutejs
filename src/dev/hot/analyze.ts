@@ -40,6 +40,12 @@ export type StatementPlan = {
 	deps: number[];
 	/** Imports used while the module evaluates: [module, name, call]. */
 	imports: Array<[string, string, 0 | 1]>;
+	/** Every import the statement's code can reach, now or later: through
+	 *  function bodies and the local declarations it references, as
+	 *  [module, name]. A function export built from these behaves
+	 *  differently once one of them changes, even though its own text did
+	 *  not: an importer that called it while evaluating has to re-run. */
+	reaches: Array<[string, string, 0 | 1]>;
 	cell: boolean;
 	/** Untransformed: re-evaluated by every version. */
 	always: boolean;
@@ -77,6 +83,10 @@ type ImportBinding = {
 type Reference = {
 	name: string;
 	deferred: boolean;
+	/** Function boundaries between the statement's top level and the
+	 *  reference: 1 is a function's own body, which runs when it is called;
+	 *  more is a callback that function creates, which runs later. */
+	depth: number;
 	call: boolean;
 	member?: string;
 	node: TS.Identifier;
@@ -348,6 +358,7 @@ const loopScopeNames = (tsc: Ts, init: TS.ForInitializer | undefined) =>
 const collectReferences = (tsc: Ts, root: TS.Node, topLevel: Set<string>) => {
 	const references: Reference[] = [];
 	const scopes: Set<string>[] = [];
+	let depth = 0;
 	const shadowed = (name: string) => scopes.some((scope) => scope.has(name));
 
 	const record = (node: TS.Identifier, deferred: boolean) => {
@@ -370,6 +381,7 @@ const collectReferences = (tsc: Ts, root: TS.Node, topLevel: Set<string>) => {
 		references.push({
 			call,
 			deferred,
+			depth,
 			member,
 			name,
 			node,
@@ -404,14 +416,20 @@ const collectReferences = (tsc: Ts, root: TS.Node, topLevel: Set<string>) => {
 				visit(decorator, deferred);
 		if (declaration.name && tsc.isComputedPropertyName(declaration.name))
 			visit(declaration.name, deferred);
-		withScope(names, () => {
-			for (const parameter of declaration.parameters) {
-				if (parameter.initializer) visit(parameter.initializer, true);
-				if (!tsc.isIdentifier(parameter.name))
-					visit(parameter.name, true);
-			}
-			if (declaration.body) visit(declaration.body, true);
-		});
+		depth += 1;
+		try {
+			withScope(names, () => {
+				for (const parameter of declaration.parameters) {
+					if (parameter.initializer)
+						visit(parameter.initializer, true);
+					if (!tsc.isIdentifier(parameter.name))
+						visit(parameter.name, true);
+				}
+				if (declaration.body) visit(declaration.body, true);
+			});
+		} finally {
+			depth -= 1;
+		}
 	};
 
 	const visitClassMember = (member: TS.ClassElement, deferred: boolean) => {
@@ -1087,6 +1105,46 @@ export const analyzeModule = (
 		return [...uses.values()];
 	};
 
+	// Imports a statement's code uses when it runs — and, for a function,
+	// when it is called: references in its own body (not in callbacks it
+	// creates, which run later through stable forwarders), following the
+	// local declarations it calls or reads the same way.
+	const recordReach = (
+		uses: Map<string, [string, string, 0 | 1]>,
+		imported: ImportBinding,
+		reference: Reference
+	) => {
+		if (imported.module === undefined) return;
+		const name =
+			imported.name === '*' && reference.member
+				? reference.member
+				: imported.name;
+		const key = `${imported.module}\u0000${name}`;
+		const call = reference.call ? 1 : 0;
+		if ((uses.get(key)?.[2] ?? 0) <= call)
+			uses.set(key, [imported.module, name, call]);
+	};
+	const reachableImports = (start: TopStatement) => {
+		const uses = new Map<string, [string, string, 0 | 1]>();
+		const seen = new Set<TopStatement>();
+		const walk = (statement: TopStatement) => {
+			if (seen.has(statement)) return;
+			seen.add(statement);
+			for (const reference of statement.refs) {
+				if (reference.depth > 1) continue;
+				const imported = imports.get(reference.name);
+				if (imported) recordReach(uses, imported, reference);
+				const target = imported
+					? undefined
+					: declaredBy.get(reference.name);
+				if (target && target !== statement) walk(target);
+			}
+		};
+		walk(start);
+
+		return [...uses.values()];
+	};
+
 	// The kind each exported local has.
 	const kindOfLocal = (name: string) => {
 		const statement = declaredBy.get(name);
@@ -1197,7 +1255,8 @@ export const analyzeModule = (
 				use.name,
 				use.call ? 1 : 0
 			]),
-			mutates: mutated === undefined ? [] : [mutated]
+			mutates: mutated === undefined ? [] : [mutated],
+			reaches: reachableImports(statement)
 		};
 	});
 

@@ -5,6 +5,7 @@ import type { HotModuleAnalysis } from './analyze';
 import { analyzeSource, isHotManaged } from './plugin';
 import {
 	managedModulePaths,
+	markExportsChanged,
 	moduleRecord,
 	nextTag,
 	rollback,
@@ -26,9 +27,17 @@ export type ServerChangeOutcome =
 
 type ExportMeta = HotModuleAnalysis['exports'];
 type Advanced =
-	{ ok: true; changed: Set<string> } | { ok: false; error: unknown };
+	| { ok: true; changed: Set<string> }
+	| { ok: false; error: unknown };
 type Pending = { module: string; changed: Set<string> };
-type Propagation = { modules: string[]; entryAffected: boolean; steps: number };
+type Propagation = {
+	modules: string[];
+	entryAffected: boolean;
+	steps: number;
+	/** Exports already passed on as changed through a function that
+	 *  reaches a change (module + name), so an import cycle stops. */
+	reached: Set<string>;
+};
 
 const MAX_PROPAGATION_STEPS = 500;
 
@@ -89,6 +98,46 @@ const usesChange = (
 			return call === 1 || meta[name]?.kind !== 'function';
 		})
 	);
+};
+
+/** Exports of `importer` whose code reaches one of `changed` in `module`
+ *  — a factory calling a changed factory — though their own text is the
+ *  same. Nothing in `importer` re-runs for them (its facade forwards to the
+ *  latest code), but a module that called one of them while evaluating
+ *  built its value with the old code, and has to re-run. */
+const exportsReaching = (
+	importer: string,
+	analysis: HotModuleAnalysis,
+	module: string,
+	changed: Set<string>,
+	progress: Propagation
+) => {
+	const reaching = new Set<string>();
+	const changedMeta = moduleRecord(module)?.meta ?? {};
+	/* A changed function counts when it is called; a changed value (or
+	 * class) when it is read. */
+	const counts = (imported: string, call: 0 | 1) =>
+		imported === '*'
+			? changed.size > 0
+			: changed.has(imported) &&
+				(call === 1 || changedMeta[imported]?.kind !== 'function');
+	for (const [name, meta] of Object.entries(analysis.exports)) {
+		const reaches = analysis.plan[meta.plan]?.reaches ?? [];
+		const key = `${importer}\u0000${name}`;
+		if (progress.reached.has(key)) continue;
+		if (
+			!reaches.some(
+				([source, imported, call]) =>
+					source === module && counts(imported, call)
+			)
+		)
+			continue;
+		progress.reached.add(key);
+		reaching.add(name);
+	}
+	markExportsChanged(importer, reaching);
+
+	return reaching;
 };
 
 const importNextVersion = async (path: string) => {
@@ -285,6 +334,7 @@ const applyOnce = async (
 	const propagation: Propagation = {
 		entryAffected: false,
 		modules: [path],
+		reached: new Set(),
 		steps: 0
 	};
 	const failure = await propagate(
@@ -335,7 +385,28 @@ const propagate = async (
 	const [next, ...rest] = pending;
 	if (!next || progress.steps >= MAX_PROPAGATION_STEPS) return undefined;
 	if (next.changed.size === 0) return propagate(rest, entry, progress);
-	const affected = importersOf(next.module, entry).filter((importer) => {
+	const importers = importersOf(next.module, entry);
+	/* Importers whose functions reach the change pass it on, whether or not
+	 * they re-run themselves. */
+	const reaching = new Map(
+		importers.map((importer) => {
+			const analysis = moduleRecord(importer)?.analysis;
+
+			return [
+				importer,
+				analysis
+					? exportsReaching(
+							importer,
+							analysis,
+							next.module,
+							next.changed,
+							progress
+						)
+					: new Set<string>()
+			] as const;
+		})
+	);
+	const affected = importers.filter((importer) => {
 		progress.steps += 1;
 		const analysis = moduleRecord(importer)?.analysis;
 		if (!analysis || !usesChange(analysis, next.module, next.changed))
@@ -362,14 +433,31 @@ const propagate = async (
 
 				return [
 					...collected,
-					{ changed: result.changed, module: importer }
+					{
+						changed: new Set([
+							...result.changed,
+							...(reaching.get(importer) ?? [])
+						]),
+						module: importer
+					}
 				];
 			}),
 		Promise.resolve([])
 	);
 	if (!Array.isArray(advanced)) return advanced;
+	const passedOn: Pending[] = importers
+		.filter(
+			(importer) =>
+				!affected.includes(importer) &&
+				importer !== entry &&
+				(reaching.get(importer)?.size ?? 0) > 0
+		)
+		.map((importer) => ({
+			changed: reaching.get(importer) ?? new Set(),
+			module: importer
+		}));
 
-	return propagate([...rest, ...advanced], entry, progress);
+	return propagate([...rest, ...advanced, ...passedOn], entry, progress);
 };
 
 const reportFailure = (path: string, error: unknown) => {
