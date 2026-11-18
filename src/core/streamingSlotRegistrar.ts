@@ -65,8 +65,45 @@ export const hasRegisteredStreamingSlotRegistrar = () =>
 	typeof getRegisteredStreamingSlotRegistrar() === 'function';
 export const isStreamingSlotCollectionActive = () =>
 	getCollectionController()?.isCollecting() === true;
+/* The request a slot was rendered for. Read through the shared storage's
+ * global key (the one absoluteRequestContext enters on each request) so
+ * this module, which components import, does not pull in Elysia. */
+const REQUEST_STORAGE_KEY = Symbol.for('absolutejs.requestAsyncLocalStorage');
+
+type RequestStorage = {
+	getStore: () => unknown;
+	run: <Result>(store: unknown, callback: () => Result) => Result;
+};
+
+const isRequestStorage = (value: unknown): value is RequestStorage =>
+	isObjectRecord(value) &&
+	typeof value.getStore === 'function' &&
+	typeof value.run === 'function';
+
+const getRequestStorage = () => {
+	const value = Reflect.get(globalThis, REQUEST_STORAGE_KEY);
+
+	return isRequestStorage(value) ? value : undefined;
+};
+
+/* A slot resolves while the response streams, after the request handler
+ * has returned, where its request's context may already be gone. Each slot
+ * keeps the context it was rendered in and resolves inside it, so code it
+ * calls (getCurrentAbsoluteRequest, an in-process API client forwarding
+ * the visitor's cookies) sees the request the slot belongs to. */
+const resolveInRenderContext = (slot: StreamingSlot) => {
+	const storage = getRequestStorage();
+	const store = storage?.getStore();
+	if (!storage || store === undefined) return slot;
+
+	return {
+		...slot,
+		resolve: () => storage.run(store, slot.resolve)
+	};
+};
+
 export const registerStreamingSlot = (slot: StreamingSlot) => {
-	getRegisteredStreamingSlotRegistrar()?.(slot);
+	getRegisteredStreamingSlotRegistrar()?.(resolveInRenderContext(slot));
 };
 export const setStreamingSlotCollectionController = (
 	controller: StreamingSlotCollectionController | null
