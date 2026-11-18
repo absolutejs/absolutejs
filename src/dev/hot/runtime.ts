@@ -356,6 +356,17 @@ const exportToken = (module: string, name: string, call: boolean) => {
 	return `${entry.kind}:${record.revisions.get(name) ?? 0}`;
 };
 
+/** Count exports of `path` as changed though their statements did not
+ *  re-run: their code reaches an export that did change (a factory calling
+ *  a changed factory). An importer's statement that called one while
+ *  evaluating then re-runs, as it would for a change of their own. */
+export const markExportsChanged = (path: string, names: Iterable<string>) => {
+	const record = records.get(path);
+	if (!record) return;
+	for (const name of names)
+		record.revisions.set(name, (record.revisions.get(name) ?? 0) + 1);
+};
+
 const statementOwners = (path: string, ids: Iterable<string>) =>
 	new Set([...ids].map((id) => ownerOf(path, id)));
 

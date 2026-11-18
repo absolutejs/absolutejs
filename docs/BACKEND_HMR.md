@@ -68,6 +68,15 @@ as a global, so the statements using `Card` re-run.
    `new Elysia().use(usageAnalyticsPlugin(db))`), that module's next version
    is imported too — and again only the affected statements re-run. This
    repeats up the import graph.
+   An export counts as changed for its importers when its own statement
+   re-ran, and also when its function calls a changed export while it runs
+   (a factory calling a changed factory: `createProjectApplication()` calling
+   `createDeliveryApplication()` from another module). Its module does not
+   re-run for that, since its facade already forwards to the new code, but an
+   importer that called it while evaluating built its value with the old
+   code, so that statement re-runs. Calls inside callbacks the function
+   creates (a route handler, a hook) don't count: they run later, through
+   forwarders, on the new code already.
 4. If the entry re-ran the statement that builds the app, `networking()` swaps
    the live `Bun.serve` handler. Lifecycle hooks are treated like statements:
    when the new app's `onStart`/`onStop` hooks are the same code as the

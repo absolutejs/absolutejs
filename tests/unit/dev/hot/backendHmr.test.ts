@@ -68,6 +68,15 @@ beforeAll(async () => {
 		'plugin.ts',
 		"import { getValue } from './handler';\nexport const makeRoutes = () => ({ value: () => getValue(), version: 'p1' });\n"
 	);
+	/* Two levels of factory: the entry calls makeOuter(), which calls
+	 * makeInner() from another module while the entry evaluates (an app
+	 * mounting a sub-app built by a factory in a third module). */
+	write('inner.ts', "export const makeInner = () => ({ version: 'i1' });\n");
+	write('helper.ts', "export const helper = () => 'h1';\n");
+	write(
+		'outer.ts',
+		"import { makeInner } from './inner';\nimport { helper } from './helper';\nexport const makeOuter = () => ({ inner: makeInner(), handle: () => helper() });\n"
+	);
 	write(
 		'cycleA.ts',
 		"import { b } from './cycleB';\nexport function a() { return 'a'; }\nexport const fromB = b();\n"
@@ -84,7 +93,11 @@ beforeAll(async () => {
 			"import { Thing } from './handler';",
 			"import { fromB, viaA } from './cycleA';",
 			"import { viaA as viaAFromB } from './cycleB';",
+			"import { makeOuter } from './outer';",
 			'export const routes = makeRoutes();',
+			'export const nested = makeOuter();',
+			'export const nestedVersion = () => nested.inner.version;',
+			'export const nestedHandle = () => nested.handle();',
 			'globalThis.__hotTest.entryRuns = (globalThis.__hotTest.entryRuns ?? 0) + 1;',
 			'setInterval(() => { globalThis.__hotTest.ticks = (globalThis.__hotTest.ticks ?? 0) + 1; }, 10);',
 			'let hits = 0;',
@@ -155,6 +168,33 @@ describe('backend HMR', () => {
 		expect(counter('entryRuns')).toBe(1);
 		expect(counter('pools')).toBe(1);
 		expect(app.config).toEqual({ loadedAt: 1 });
+	});
+
+	test('a factory edit reaches the entry through a factory that calls it', async () => {
+		expect(call('nestedVersion')).toBe('i1');
+		/* Importers are found among loaded modules under the working
+		 * directory, as in a project; this one lives in a temporary dir. */
+		const cwd = process.cwd();
+		process.chdir(root);
+		const outcome = await edit('inner.ts', "'i1'", "'i2'").finally(() =>
+			process.chdir(cwd)
+		);
+		expect(outcome.status).toBe('applied');
+		expect(call('nestedVersion')).toBe('i2');
+		expect(counter('entryRuns')).toBe(1);
+		expect(counter('pools')).toBe(1);
+	});
+
+	test('a helper a factory only uses in a callback it creates rebuilds nothing', async () => {
+		const cwd = process.cwd();
+		process.chdir(root);
+		const outcome = await edit('helper.ts', "'h1'", "'h2'").finally(() =>
+			process.chdir(cwd)
+		);
+		expect(outcome.status).toBe('applied');
+		expect(outcome.status === 'applied' && outcome.entry).toBe(false);
+		expect(outcome.status === 'applied' && outcome.modules).toHaveLength(1);
+		expect(call('nestedHandle')).toBe('h2');
 	});
 
 	test('module `let` state survives its module re-running', async () => {
