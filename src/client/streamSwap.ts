@@ -42,10 +42,16 @@ const streamSwapRuntime = () => {
 
 		return payload.kind === 'angular-defer';
 	};
-	const isVueSuspensePayload = (payload: unknown) => {
+	/* A payload that carries a value for a framework component to take
+	 * over (Vue's and React's SuspenseSlot): patched into the page while
+	 * no component has claimed it, and kept so the component can read the
+	 * value when it hydrates. */
+	const keepsValueAfterPatch = (payload: unknown) => {
 		if (!isObjectRecord(payload)) return false;
 
-		return payload.kind === 'vue-suspense';
+		return (
+			payload.kind === 'vue-suspense' || payload.kind === 'react-suspense'
+		);
 	};
 	const resolveHtml = (payload: unknown) => {
 		if (!isObjectRecord(payload)) {
@@ -99,7 +105,7 @@ const streamSwapRuntime = () => {
 		}
 		const html = resolveHtml(payload);
 		if (
-			isVueSuspensePayload(payload) &&
+			keepsValueAfterPatch(payload) &&
 			isPatchedPendingEntry(pendingEntry)
 		) {
 			return;
@@ -111,7 +117,7 @@ const streamSwapRuntime = () => {
 				detail: { html, id, payload }
 			})
 		);
-		if (isVueSuspensePayload(payload)) {
+		if (keepsValueAfterPatch(payload)) {
 			pending[id] = { domPatched: true, payload };
 
 			return;
