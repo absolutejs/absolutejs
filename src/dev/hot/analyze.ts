@@ -15,7 +15,7 @@ import type * as TS from 'typescript';
  * Every rewrite is an insertion or a same-line replacement, so line numbers
  * in stack traces still match the source file. */
 
-export const ANALYZER_VERSION = 4;
+export const ANALYZER_VERSION = 5;
 
 export type ExportKind = 'class' | 'function' | 'live' | 'value';
 
