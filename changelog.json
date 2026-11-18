@@ -5,6 +5,22 @@
 		{
 			"changes": [
 				{
+					"detail": "A streaming slot resolves while the response streams, after the request handler has returned. Each slot now keeps the request context it was rendered in and resolves inside it, so getCurrentAbsoluteRequest, and anything built on it such as an in-process API client that forwards the visitor's cookies, sees the request the slot belongs to.",
+					"kind": "fixed",
+					"summary": "Streaming slots resolve inside the request they were rendered for",
+					"symbols": [
+						"getCurrentAbsoluteRequest",
+						"SuspenseSlot",
+						"StreamSlot"
+					]
+				}
+			],
+			"date": "2026-11-18",
+			"version": "0.20.0-beta.197"
+		},
+		{
+			"changes": [
+				{
 					"detail": "A React SuspenseSlot rendered through children(value) now streams its value with its HTML. The browser SuspenseSlot takes the streamed slot over and renders children(value) interactively, with no hydration mismatch and no second fetch. A slot mounted after hydration (a client-side navigation) resolves in the browser from resolve or promise, showing fallback until it does. The new onResolved prop receives the value in the browser either way, so it can seed a cache such as React Query. Slots whose children are plain nodes stream HTML as before.",
 					"kind": "added",
 					"summary": "React SuspenseSlot stays interactive after streaming and resolves on client navigation",
