@@ -111,8 +111,46 @@ describe('handleReactPageRequest streaming', () => {
 
 		expect(html).toContain('react suspense fallback');
 		expect(html).toContain('react suspense resolved');
-		expect(html).toContain('__ABS_SLOT_ENQUEUE__');
 		expect(html).toContain('id="react-suspense"');
+		/* Streamed by React itself, in the page's tree, with its value for
+		 * the browser to hydrate from: no slot collector involved. */
+		expect(html).toContain('data-absolute-slot-value="react-suspense"');
+		expect(html).not.toContain('__ABS_SLOT_ENQUEUE__');
+	});
+
+	test('a dynamic framework-level SuspenseSlot still streams through the slot collector', async () => {
+		const DynamicSlotPage = () => (
+			<html lang="en">
+				<head>
+					<title>Dynamic React Suspense Slot</title>
+				</head>
+				<body>
+					<main>
+						<SuspenseSlot
+							dynamic
+							fallback={<p>dynamic fallback</p>}
+							id="react-dynamic"
+							promise={resolveReactSuspenseValue()}
+						>
+							{(value: { label: string }) => (
+								<strong>{value.label}</strong>
+							)}
+						</SuspenseSlot>
+					</main>
+				</body>
+			</html>
+		);
+		const response = await handleReactPageRequest({
+			collectStreamingSlots: true,
+			index: '/react-suspense-dynamic-index.js',
+			Page: DynamicSlotPage
+		});
+		const html = await response.text();
+
+		expect(html).toContain('dynamic fallback');
+		expect(html).toContain('__ABS_SLOT_ENQUEUE__');
+		expect(html).toContain('"kind":"react-suspense"');
+		expect(html).toContain('react suspense resolved');
 	});
 });
 

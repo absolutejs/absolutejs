@@ -5,6 +5,7 @@ import {
 	warnMissingStreamingSlotCollector
 } from '../../core/streamingSlotRegistrar';
 import { REACT_SUSPENSE_PAYLOAD_KIND } from './suspenseSlotPayload';
+import { NativeSlotBoundary, settleSlot } from './suspenseSlotContent';
 import {
 	getReactServerNodeRenderer,
 	type ReactServerNodeRenderer
@@ -257,7 +258,45 @@ const renderServerSuspenseSlot = <T,>(props: SuspenseSlotProps<T>) => {
 	return renderFrameworkSuspenseSlot(props, true);
 };
 
+/* children(value) rendered in the page's own tree under a native Suspense
+ * boundary: React streams it in the response, it keeps every context
+ * above it, and it needs no streaming-slot collector. The slot resolves
+ * once, here; the boundary's content reads the settled outcome. */
+const NativeSuspenseSlot = <T,>(props: FrameworkSuspenseRenderProps<T>) => (
+	<NativeSlotBoundary
+		className={props.className}
+		errorFallback={props.errorFallback}
+		fallback={props.fallback}
+		id={props.id}
+		outcome={settleSlot(
+			() => resolveRenderSuspenseValue(props),
+			props.timeoutMs
+		)}
+		render={(value) => props.children(valueOf<Awaited<T>>(value))}
+	/>
+);
+
+/* The value as the type children(value) takes: it came from this slot's
+ * own resolve, so it is that type; the overload says so without an
+ * assertion. */
+function valueOf<Value>(value: unknown): Value;
+function valueOf(value: unknown) {
+	return value;
+}
+
+/* Partial prerendering keeps a dynamic slot's fallback in the cached shell
+ * and patches it in per request, and a React Server Components render has
+ * no react-dom to stream with: both stream through the slot collector. */
+const streamsNatively = <T,>(
+	props: SuspenseSlotProps<T>
+): props is FrameworkSuspenseRenderProps<T> =>
+	!isLegacyProps(props) &&
+	hasRenderChildren(props) &&
+	props.dynamic !== true &&
+	getReactServerNodeRenderer() === undefined;
+
 export const SuspenseSlot = <T,>(props: SuspenseSlotProps<T>) => {
+	if (streamsNatively(props)) return <NativeSuspenseSlot {...props} />;
 	if (isStreamingSlotCollectionActive()) {
 		return renderServerSuspenseSlot(props);
 	}

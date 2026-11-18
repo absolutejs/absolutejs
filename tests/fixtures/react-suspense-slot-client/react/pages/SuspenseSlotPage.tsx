@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { createContext, useContext, useState } from 'react';
 import { SuspenseSlot } from '@absolutejs/absolute/react/components';
 
 const wait = (milliseconds: number) =>
@@ -10,9 +10,13 @@ const record = (entry: string) => {
 	document.body.dataset.resolvedSlots = list ? `${list}|${entry}` : entry;
 };
 
+/* Provided above the slot: its content must see it, on the server too. */
+const Unit = createContext('no context');
+
 /* Interactive content: proves the streamed slot was taken over by React. */
 const Counter = ({ start }: { start: number }) => {
 	const [count, setCount] = useState(start);
+	const unit = useContext(Unit);
 
 	return (
 		<button
@@ -20,7 +24,7 @@ const Counter = ({ start }: { start: number }) => {
 			onClick={() => setCount((current) => current + 1)}
 			type="button"
 		>
-			count {count}
+			{unit} {count}
 		</button>
 	);
 };
@@ -42,43 +46,45 @@ const LateSlot = () => (
 	</SuspenseSlot>
 );
 
-export const SuspenseSlotPage = () => {
+/* The page's body: a static shell, a streamed slot, and a button that
+ * mounts a second slot later. */
+const SlotDemo = () => {
 	const [late, setLate] = useState(false);
 
 	return (
-		<html lang="en">
-			<head>
-				<title>React SuspenseSlot Client Fixture</title>
-			</head>
-			<body>
-				<main>
-					<h1 id="shell">Static shell</h1>
-					<SuspenseSlot
-						fallback={<p id="count-fallback">count loading</p>}
-						id="slot-count"
-						onResolved={(value: { start: number }) =>
-							record(`count:${value.start}`)
-						}
-						resolve={async () => {
-							await wait(300);
+		<Unit.Provider value="count">
+			<h1 id="shell">Static shell</h1>
+			<SuspenseSlot
+				fallback={<p id="count-fallback">count loading</p>}
+				id="slot-count"
+				onResolved={(value: { start: number }) =>
+					record(`count:${value.start}`)
+				}
+				resolve={async () => {
+					await wait(300);
 
-							return { start: 3 };
-						}}
-					>
-						{(value: { start: number }) => (
-							<Counter start={value.start} />
-						)}
-					</SuspenseSlot>
-					<button
-						id="mount-late"
-						onClick={() => setLate(true)}
-						type="button"
-					>
-						Mount late
-					</button>
-					{late && <LateSlot />}
-				</main>
-			</body>
-		</html>
+					return { start: 3 };
+				}}
+			>
+				{(value: { start: number }) => <Counter start={value.start} />}
+			</SuspenseSlot>
+			<button id="mount-late" onClick={() => setLate(true)} type="button">
+				Mount late
+			</button>
+			{late && <LateSlot />}
+		</Unit.Provider>
 	);
 };
+
+export const SuspenseSlotPage = () => (
+	<html lang="en">
+		<head>
+			<title>React SuspenseSlot Client Fixture</title>
+		</head>
+		<body>
+			<main>
+				<SlotDemo />
+			</main>
+		</body>
+	</html>
+);

@@ -6,6 +6,14 @@ import {
 	useState
 } from 'react';
 import {
+	NativeSlotBoundary,
+	parseSlotOutcome,
+	SLOT_VALUE_ATTRIBUTE,
+	type SlotOutcome,
+	settledThenable,
+	settleSlot
+} from './suspenseSlotContent';
+import {
 	isReactSuspensePayload,
 	type ReactSuspensePayload
 } from './suspenseSlotPayload';
@@ -213,6 +221,75 @@ const FrameworkSuspenseSlot = <T,>(props: FrameworkSuspenseSlotProps<T>) => {
 	);
 };
 
+/* Each slot's outcome, by id, for as long as the slot is mounted: read
+ * from the server's boundary when the page hydrates, or resolved here. One
+ * promise per slot, so React's use() reads the same one on every render. */
+const outcomes = new Map<string, Promise<SlotOutcome>>();
+
+const streamedOutcome = (id: string) => {
+	if (typeof document === 'undefined') return undefined;
+	for (const script of document.querySelectorAll(
+		`script[${SLOT_VALUE_ATTRIBUTE}]`
+	))
+		if (script.getAttribute(SLOT_VALUE_ATTRIBUTE) === id)
+			return settledThenable(parseSlotOutcome(script.textContent ?? ''));
+
+	return undefined;
+};
+
+const outcomeFor = <T,>(props: FrameworkSuspenseSlotProps<T>) => {
+	const known = outcomes.get(props.id);
+	if (known) return known;
+	const outcome =
+		streamedOutcome(props.id) ??
+		settleSlot(() => resolveInBrowser(props), props.timeoutMs);
+	outcomes.set(props.id, outcome);
+
+	return outcome;
+};
+
+const renderValue = <T,>(
+	props: FrameworkSuspenseSlotProps<T>,
+	value: unknown
+) => renderOutcome(props, { state: 'resolved', value });
+
+/**
+ * children(value) under a native Suspense boundary, as the server renders
+ * it. On the first load the boundary's content and value stream in the
+ * response; React hydrates it from that value, nothing resolves twice, and
+ * every context above the slot reaches its content. Mounted later (a
+ * client-side navigation), it resolves here and shows `fallback` until it
+ * does.
+ */
+const NativeSuspenseSlot = <T,>(props: FrameworkSuspenseSlotProps<T>) => {
+	const latest = useRef(props);
+	useLayoutEffect(() => {
+		latest.current = props;
+	});
+	/* A slot that leaves lets its outcome go: mounted again, it resolves
+	 * again rather than showing what it held before. */
+	useEffect(
+		() => () => {
+			outcomes.delete(props.id);
+		},
+		[props.id]
+	);
+
+	return (
+		<NativeSlotBoundary
+			className={props.className}
+			errorFallback={props.errorFallback}
+			fallback={props.fallback}
+			id={props.id}
+			onResolved={(value) =>
+				latest.current.onResolved?.(valueOf<T>({ value }))
+			}
+			outcome={outcomeFor(props)}
+			render={(value) => renderValue(props, value)}
+		/>
+	);
+};
+
 export const SuspenseSlot = <T,>(props: SuspenseSlotProps<T>) => {
 	if (isLegacyProps(props)) {
 		return (
@@ -225,6 +302,12 @@ export const SuspenseSlot = <T,>(props: SuspenseSlotProps<T>) => {
 			/>
 		);
 	}
+
+	/* A slot the server streams through the slot collector (partial
+	 * prerendering, React Server Components) is taken over from that
+	 * stream; any other slot rendering children(value) is a native one. */
+	if (typeof props.children === 'function' && !streamIsComing(props.id))
+		return <NativeSuspenseSlot {...props} />;
 
 	return <FrameworkSuspenseSlot {...props} />;
 };
