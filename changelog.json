@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "Vue keeps the parsed type scope of every file it reads for `defineProps<Imported>()` in module state and never drops it. The compile cache correctly missed once a type file's hash moved, but the recompile then read that stale scope and resolved the type the file used to declare, so a prop added to a shared `types.ts` never appeared in the component until the dev server restarted. The paths whose hashes moved now travel with the compile job, and whichever process runs it drops those scopes first — which matters because once the build worker pool is warm every compile runs on a worker that kept the scopes from its earlier compiles.",
+					"kind": "fixed",
+					"summary": "Editing a type a Vue component imports recompiles it against the new type"
+				}
+			],
+			"date": "2026-11-19",
+			"version": "0.20.0-beta.206"
+		},
+		{
+			"changes": [
+				{
 					"detail": "`Bun.serve` binds a port that is already being listened on instead of throwing, in the same process or another, and whether or not `reusePort` is set. The kernel then splits connections between the two listeners, so `absolute dev` on a port another project already used reported that it started while that project answered a share of the requests. The placeholder now connects to the port before it listens and stays unbound when somebody answers, leaving the occupant its traffic. The check fails open, so a probe that cannot complete binds as before. The real server still binds without this check: a dev server on an occupied port starts, and only the placeholder stands aside. Recorded as UPSTREAM_ISSUES.md #8.",
 					"kind": "fixed",
 					"summary": "The dev server placeholder no longer claims a port another server already holds"

@@ -713,8 +713,20 @@ const compileVueFileUncached = async (
 			sourceFilePath
 		).replace(/\.js$/, '')
 	});
+	// Vue keeps the parsed type scope of every file it reads for
+	// `defineProps<Imported>()` in module state and never drops it, so the
+	// recompile below would resolve the type the file USED to declare: edit
+	// a shared `types.ts` and the new prop never appears. The compile runs
+	// here or on a build worker, and either may hold that stale scope, so
+	// the paths travel with the job instead of being cleared here.
+	const staleTypeDeps: string[] = [];
 	const restored = cacheKey
-		? readVueCompileCacheEntry(sourceFilePath, cacheKey)
+		? readVueCompileCacheEntry(
+				sourceFilePath,
+				cacheKey,
+				undefined,
+				(stalePath) => staleTypeDeps.push(stalePath)
+			)
 		: undefined;
 	vueCompileProfile.keyMs += performance.now() - cacheKeyStartedAt;
 	if (cacheKey) {
@@ -788,6 +800,7 @@ const compileVueFileUncached = async (
 				serverOutputPath,
 				sourceContent,
 				sourceFilePath,
+				staleTypeDeps,
 				styleSources
 			})
 	);
