@@ -137,16 +137,21 @@ export const vueCompileCacheFingerprint = (parts: {
 	]);
 };
 
-const typeDepsUnchanged = (typeDeps: Record<string, string>) => {
+/** Every recorded type dependency whose content no longer hashes to what
+ *  the entry was built against. Unreadable counts as changed. */
+const staleTypeDeps = (typeDeps: Record<string, string>) => {
+	const stale: string[] = [];
 	for (const [path, hash] of Object.entries(typeDeps)) {
 		try {
-			if (hashContent(readFileSync(path, 'utf-8')) !== hash) return false;
+			if (hashContent(readFileSync(path, 'utf-8')) !== hash) {
+				stale.push(path);
+			}
 		} catch {
-			return false;
+			stale.push(path);
 		}
 	}
 
-	return true;
+	return stale;
 };
 
 const isEntryShape = (value: unknown): value is VueCompileCacheEntry => {
@@ -170,15 +175,21 @@ const isEntryShape = (value: unknown): value is VueCompileCacheEntry => {
 export const readVueCompileCacheEntry = (
 	sourceFilePath: string,
 	key: string,
-	projectRoot?: string
+	projectRoot?: string,
+	onStaleTypeDep?: (path: string) => void
 ) => {
 	if (!vueCompileCacheEnabled()) return null;
 	const entryFile = entryFileFor(sourceFilePath, projectRoot);
 	if (!existsSync(entryFile)) return null;
 	try {
 		const parsed: unknown = JSON.parse(readFileSync(entryFile, 'utf-8'));
-		if (!isEntryShape(parsed) || parsed.key !== key) return null;
-		if (!typeDepsUnchanged(parsed.typeDeps)) return null;
+		if (!isEntryShape(parsed)) return null;
+		// Reported even when the key already missed: the compile that
+		// follows reads these files for types, and it must not read them
+		// out of a cache that predates the edit.
+		const stale = staleTypeDeps(parsed.typeDeps);
+		for (const path of stale) onStaleTypeDep?.(path);
+		if (parsed.key !== key || stale.length > 0) return null;
 
 		return parsed;
 	} catch {
