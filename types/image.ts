@@ -24,6 +24,8 @@ export type ImageConfig = {
 	imageSizes?: number[];
 	/** Output formats in preference order (default: ['webp']). Add 'avif' for smaller files at slower encode. */
 	formats?: ImageFormat[];
+	/** Largest the disk cache may grow, in bytes (default: 512 MiB). The oldest entries are deleted once it is passed. */
+	maximumCacheSize?: number;
 	/** Minimum cache TTL in seconds (default: 60) */
 	minimumCacheTTL?: number;
 	/** Allowed remote image origins */

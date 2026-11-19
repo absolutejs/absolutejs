@@ -5,6 +5,30 @@
 		{
 			"changes": [
 				{
+					"detail": "The image optimization endpoint could return files that are not images. It now reads local sources from the build directory only, refuses dot-paths, follows symlinks before checking where a file is, and requires a source to be a PNG, JPEG, GIF, WebP or AVIF by its contents before it is optimized, cached or returned. Anything else is a 404. Upgrade, rotate any secret kept in a project file such as `.env` if the server was reachable from the internet, and delete the image cache directory (`<buildDirectory>/.cache/images`, or `images.cacheDirectory`). An `<Image>` whose `src` is a project path rather than a site URL no longer resolves, and SVG sources, which were returned mislabelled, are refused.",
+					"kind": "security",
+					"summary": "The image optimization endpoint serves only images, and only from the build directory"
+				},
+				{
+					"detail": "A remote image is fetched with a 10 second timeout and a 50 MB limit, each redirect is checked against `images.remotePatterns` (three at most), and a response that is not an image is a 502. The disk cache is bounded by the new `images.maximumCacheSize` option, in bytes, 512 MiB by default: once it is passed the oldest entries are deleted.",
+					"kind": "security",
+					"summary": "Remote image fetches are limited and re-checked on redirect, and the image cache has a size bound",
+					"symbols": [
+						"ImageConfig"
+					]
+				},
+				{
+					"detail": "The `X-Absolute-Prerender-Bypass` header skipped the pre-render cache for any request that sent it. It now has to carry a token only the server process knows, which its own ISR re-render and partial-prerender requests send. Set `ABSOLUTE_PRERENDER_BYPASS_TOKEN` to choose the token for a test or probe that needs the uncached page.",
+					"kind": "security",
+					"summary": "A visitor can no longer skip the pre-render cache by sending the bypass header"
+				}
+			],
+			"date": "2026-11-19",
+			"version": "0.20.0-beta.204"
+		},
+		{
+			"changes": [
+				{
 					"detail": "beta.201 listed `@absolutejs/auth` 0.101 as something a project had to move with the Elysia 2.0.0-rc.0 release. It isn't: auth is this package's own dependency, installed with it. That entry is gone, and the sync one says what is true: sync is an optional peer, so only a project that uses it needs 3.x.",
 					"kind": "fixed",
 					"summary": "The Elysia 2.0.0-rc.0 upgrade no longer asks a project to move auth, which this package brings itself"

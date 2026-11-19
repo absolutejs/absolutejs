@@ -219,6 +219,7 @@ const getTimed = async (
 
 const prerendered = (name: string) => join(root, 'dist', '_prerendered', name);
 
+const BYPASS_TOKEN = 'partial-prerender-test-token';
 const results: Record<string, Timed> = {};
 
 beforeAll(async () => {
@@ -250,6 +251,7 @@ beforeAll(async () => {
 		cwd: root,
 		env: {
 			...process.env,
+			ABSOLUTE_PRERENDER_BYPASS_TOKEN: BYPASS_TOKEN,
 			FORCE_COLOR: '0',
 			NODE_ENV: 'production',
 			PORT: String(PORT),
@@ -264,6 +266,10 @@ beforeAll(async () => {
 	results.reactBob = await getTimed('/react', { cookie: 'user=bob' });
 	results.reactBypass = await getTimed('/react', {
 		cookie: 'user=cy',
+		'X-Absolute-Prerender-Bypass': BYPASS_TOKEN
+	});
+	results.reactForged = await getTimed('/react', {
+		cookie: 'user=dee',
 		'X-Absolute-Prerender-Bypass': '1'
 	});
 	results.svelteAda = await getTimed('/svelte', { cookie: 'user=ada' });
@@ -276,6 +282,16 @@ afterAll(async () => {
 });
 
 describe('partial prerendering under absolute start', () => {
+	test('a visitor cannot skip the shell by sending the bypass header', () => {
+		const forged = results.reactForged;
+		if (!forged) throw new Error('missing results');
+
+		expect(forged.headers.get('x-absolute-partial-prerender')).toBe(
+			'shell'
+		);
+		expect(forged.firstByteMs).toBeLessThan(SLOW_HANDLER_MS);
+	});
+
 	test('the build stores each route as a shell with its holes', async () => {
 		const reactShell = await readFile(prerendered('react.html'), 'utf-8');
 		const svelteShell = await readFile(prerendered('svelte.html'), 'utf-8');
