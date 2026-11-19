@@ -1049,6 +1049,7 @@ export const dev = async (
 			reusePort: true,
 			tls: parentListenerTls
 		});
+		await listener.ready;
 		if (!listener.server) {
 			// Something else holds the port right now (most often the
 			// previous child's socket still draining). Give up silently

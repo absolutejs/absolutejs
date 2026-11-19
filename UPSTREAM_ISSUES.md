@@ -15,13 +15,15 @@ its issue's state. Upstream closes issues that are not fixed (as a duplicate,
 "unable to reproduce", or "fixed" for a narrower case), so **only a passing
 repro retires an entry**.
 
-| #   | Problem                                           | Upstream                                         | Fixed?     |
-| --- | ------------------------------------------------- | ------------------------------------------------ | ---------- |
-| 3   | `@playwright/mcp` orphans Chrome trees            | playwright#41013 closed (dismissed), #43098 open | No         |
-| 4   | Svelte HMR drops `$state`                         | svelte#17995 (ours) open                         | No         |
-| 5   | Tailwind v4 at-rule warnings                      | bun#12878 open                                   | No (1.4.4) |
-| 6   | `String.raw` escapes non-ASCII on `target: "bun"` | bun#8745 open                                    | No (1.4.4) |
-| 7   | `Bun.Transpiler` ignores `reactFastRefresh`       | bun#32919 (ours) open                            | No (1.4.4) |
+| #   | Problem                                           | Upstream                                         | Fixed?      |
+| --- | ------------------------------------------------- | ------------------------------------------------ | ----------- |
+| 3   | `@playwright/mcp` orphans Chrome trees            | playwright#41013 closed (dismissed), #43098 open | No          |
+| 4   | Svelte HMR drops `$state`                         | svelte#17995 (ours) open                         | No          |
+| 5   | Tailwind v4 at-rule warnings                      | bun#12878 open                                   | No (1.4.4)  |
+| 6   | `String.raw` escapes non-ASCII on `target: "bun"` | bun#8745 open                                    | No (1.4.4)  |
+| 7   | `Bun.Transpiler` ignores `reactFastRefresh`       | bun#32919 (ours) open                            | No (1.4.4)  |
+| 8   | `Bun.serve` binds a port another server holds     | not filed yet                                    | No (1.4.4)  |
+| 9   | A thrown Vue render leaks `getCurrentInstance()`  | not filed yet                                    | No (3.5.27) |
 
 The Bun entries (#5, #6, #7) were re-run on **Bun 1.4.3** on 2026-10-12, and
 all three still reproduce. 1.4.3's React Fast Refresh fixes are in the dev
@@ -309,6 +311,88 @@ console.log(out.includes('$RefreshReg$'));
 ```
 
 ---
+
+## 8. `Bun.serve` binds a port another server already holds
+
+- **Dependency:** Bun (`bun`)
+- **Status:** **reproduces on Bun 1.4.4** (macOS and Linux, checked
+  2026-11-19). Not filed upstream yet.
+
+**Symptom.** A second `Bun.serve` on a port that is already being listened on
+succeeds instead of throwing `EADDRINUSE`, in the same process or another, and
+whether or not `reusePort` is set — passing `reusePort: false` explicitly makes
+no difference. The kernel then splits incoming connections between the two
+listeners, so a dev server reports that it started while another project's
+server answers a share of the requests.
+
+**Root cause.** `Bun.serve` appears to set `SO_REUSEPORT` unconditionally. A
+bind that cannot fail is no test of port ownership, which is how most tooling
+detects a port conflict.
+
+**Probe** (prints the occupant's body, from a server that believes it owns the
+port):
+
+```ts
+const occupant = Bun.serve({ port: 0, fetch: () => new Response('occupant') });
+const second = Bun.serve({
+	port: occupant.port,
+	reusePort: false,
+	fetch: () => new Response('second')
+});
+console.log(await (await fetch(`http://localhost:${second.port}/`)).text());
+```
+
+**Workaround.** `startEarlyListener` (`src/dev/earlyListener.ts`) connects to
+the port before it listens: nothing of ours is bound yet, so an accepted
+connection means somebody else's server, and the placeholder stays unbound and
+reports `conflict`. The probe fails open, because a dev server that refuses to
+start is worse than one that shares a port.
+
+**Still open in our code:** the real server binds without this check, so a
+`bun dev` against an occupied port still starts and still shares traffic. A
+pre-flight check in the dev startup path would close that.
+
+## 9. A Vue render that throws leaves `getCurrentInstance()` set for the rest of the process
+
+- **Dependency:** Vue (`vue`, `@vue/runtime-core` 3.5.27)
+- **Status:** **reproduces on 3.5.27** (checked 2026-11-19). Not filed
+  upstream yet.
+
+**Symptom.** After any SSR render whose render function throws,
+`getCurrentInstance()` keeps returning that component's instance forever, from
+anywhere, with no component on the stack.
+
+**Root cause.** `getCurrentInstance = () => currentInstance || currentRenderingInstance`
+(`runtime-core.cjs.js:7886`). `renderComponentRoot` saves the previous
+rendering instance, sets its own, and restores the previous one on the way out
+(`:4455`, `:4580`) — a throw skips that restore.
+
+**Why it cannot be worked around.** `setCurrentRenderingInstance` is not
+exported by `vue` or `@vue/runtime-core`, so no userland code can null it. A
+later successful render does not help either: it saves the leaked value as
+`prev` and restores it when it finishes. The `__VUE_INSTANCE_SETTERS__` global
+reaches `currentInstance` only, which is the other half of that `||`.
+
+**What it costs us.** Any guard that asks "am I inside a `setup()`?" stops
+working after a failed Vue SSR render. `useServerData` has exactly such a
+guard (`src/vue/useServerData.ts:75`), so after one failed render a later
+misuse — calling it outside `setup()` — is no longer reported and it attaches
+to the leaked instance instead. The failure is silent and lasts until the
+process restarts. Its own test documents the limitation
+(`tests/unit/vue/useServerData.test.ts`) and stands down when the process is
+already polluted, because the assertion cannot be made to hold.
+
+**Probe** (prints `true`, from outside any component):
+
+```ts
+const Boom = defineComponent({
+	setup: () => () => {
+		throw new Error('boom');
+	}
+});
+await renderToString(createSSRApp(Boom)).catch(() => undefined);
+console.log(getCurrentInstance() !== null);
+```
 
 ## Resolved
 

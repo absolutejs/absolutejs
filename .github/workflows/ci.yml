@@ -1,0 +1,79 @@
+# Runs the fast half of `scripts/releaseGate.ts` on every pull request, in the
+# order the gate runs it: typecheck and the changelog check both read `dist`,
+# so the build comes first.
+#
+# Bun is 1.4.4 rather than the 1.4.2 of `engines.bun` and publish.yml, because
+# `absolute fmt` is Bun's own formatter and refuses to run below 1.4.4. The
+# minimum supported Bun therefore cannot run this gate; raising `engines` or
+# formatting through `absolute prettier` would settle that either way.
+#
+# The integration inventory is not here. It boots a dev server per file against
+# the same `example/` fixtures (~46 minutes serial, ~23 across two shards) and
+# needs Chromium and the patched Bun, so it stays a local and on-demand run
+# until it has its own workflow.
+name: CI
+
+on:
+    pull_request:
+    push:
+        branches: [main]
+    workflow_dispatch:
+
+# A new push to a pull request makes the previous run's answer irrelevant.
+concurrency:
+    group: ci-${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions: {}
+
+env:
+    # The gate's environment: no telemetry, no colour codes in logs, and no
+    # shared transpiler cache (its entries hold checkout-specific paths).
+    BUN_RUNTIME_TRANSPILER_CACHE_PATH: '0'
+    FORCE_COLOR: '0'
+    TELEMETRY_OFF: '1'
+
+jobs:
+    lint:
+        name: Format and lint
+        runs-on: ubuntu-latest
+        timeout-minutes: 20
+        permissions:
+            contents: read
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  persist-credentials: false
+            - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+              with:
+                  bun-version: 1.4.4
+            - run: bun install --frozen-lockfile
+            - name: Link the package into its own node_modules
+              run: .github/scripts/link-self.sh
+            - run: bun run format:check
+            - run: bun run lint
+
+    test:
+        name: Unit tests, build and types
+        runs-on: ubuntu-latest
+        timeout-minutes: 45
+        permissions:
+            contents: read
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  persist-credentials: false
+            - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+              with:
+                  bun-version: 1.4.4
+            - run: bun install --frozen-lockfile
+            - name: Link the package into its own node_modules
+              run: .github/scripts/link-self.sh
+            - run: bun run test:unit
+            - run: bun run build
+            - name: Verify the published client bundle stays isolated
+              run: bun run verify:client-bundle
+            - name: Typecheck (reads dist, so it follows the build)
+              run: bun run typecheck
+            - name: Check the changelog against the published types
+              run: bun run check:package

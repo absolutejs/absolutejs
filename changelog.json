@@ -5,6 +5,22 @@
 		{
 			"changes": [
 				{
+					"detail": "`Bun.serve` binds a port that is already being listened on instead of throwing, in the same process or another, and whether or not `reusePort` is set. The kernel then splits connections between the two listeners, so `absolute dev` on a port another project already used reported that it started while that project answered a share of the requests. The placeholder now connects to the port before it listens and stays unbound when somebody answers, leaving the occupant its traffic. The check fails open, so a probe that cannot complete binds as before. The real server still binds without this check: a dev server on an occupied port starts, and only the placeholder stands aside. Recorded as UPSTREAM_ISSUES.md #8.",
+					"kind": "fixed",
+					"summary": "The dev server placeholder no longer claims a port another server already holds"
+				},
+				{
+					"detail": "`engines.bun` was `>=1.4.2`, but `absolute fmt` runs Bun's own formatter, which exists from 1.4.4, so the minimum could not run the formatting step of a project's own checks. The minimum is now 1.4.4. Projects installing through `@absolutejs/bvm` are told to move; stock Bun does not read `engines`, so an older runtime is not stopped at install, only unsupported. `absolute prettier` still formats through the pinned Prettier for projects that cannot move yet.",
+					"kind": "changed",
+					"summary": "The minimum supported Bun is 1.4.4, the first with the formatter `absolute fmt` uses"
+				}
+			],
+			"date": "2026-11-19",
+			"version": "0.20.0-beta.205"
+		},
+		{
+			"changes": [
+				{
 					"detail": "The image optimization endpoint could return files that are not images. It now reads local sources from the build directory only, refuses dot-paths, follows symlinks before checking where a file is, and requires a source to be a PNG, JPEG, GIF, WebP or AVIF by its contents before it is optimized, cached or returned. Anything else is a 404. Upgrade, rotate any secret kept in a project file such as `.env` if the server was reachable from the internet, and delete the image cache directory (`<buildDirectory>/.cache/images`, or `images.cacheDirectory`). An `<Image>` whose `src` is a project path rather than a site URL no longer resolves, and SVG sources, which were returned mislabelled, are refused.",
 					"kind": "security",
 					"summary": "The image optimization endpoint serves only images, and only from the build directory"
