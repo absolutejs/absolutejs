@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "beta.201 listed `@absolutejs/auth` 0.101 as something a project had to move with the Elysia 2.0.0-rc.0 release. It isn't: auth is this package's own dependency, installed with it. That entry is gone, and the sync one says what is true: sync is an optional peer, so only a project that uses it needs 3.x.",
+					"kind": "fixed",
+					"summary": "The Elysia 2.0.0-rc.0 upgrade no longer asks a project to move auth, which this package brings itself"
+				}
+			],
+			"date": "2026-11-19",
+			"version": "0.20.0-beta.203"
+		},
+		{
+			"changes": [
+				{
 					"detail": "The note that Elysia's `setup`/`cleanup` are `onStart`/`onStop` now reaches only projects that call `.setup()` or `.cleanup()` on an Elysia app, and the note about an HTML and an HTMX page sharing a name only projects with HTMX pages, instead of every project that imports `prepare` or `asset`.",
 					"kind": "changed",
 					"summary": "Upgrade notes about Elysia hooks and HTMX pages reach only the projects they apply to"
@@ -1387,30 +1398,13 @@
 					"migration": {
 						"dependencies": {
 							"names": [
-								"@absolutejs/auth"
-							],
-							"range": "^0.101.0"
-						},
-						"instruction": "Upgrade `@absolutejs/auth` to `^0.101.0`, which moved to Elysia 2.0.0-rc.0 too."
-					},
-					"summary": "Requires @absolutejs/auth 0.101.0",
-					"symbols": [
-						"prepare",
-						"startDevPrebuild"
-					]
-				},
-				{
-					"kind": "breaking",
-					"migration": {
-						"dependencies": {
-							"names": [
 								"@absolutejs/sync"
 							],
 							"range": "^3.0.0"
 						},
-						"instruction": "Upgrade `@absolutejs/sync` to `^3.0.0`, which moved to Elysia 2.0.0-rc.0 too."
+						"instruction": "If you use `@absolutejs/sync`, upgrade it to 3.x: this release's peer range is `>=3.0.0 <4`."
 					},
-					"summary": "Requires @absolutejs/sync 3.0.0",
+					"summary": "A project that uses @absolutejs/sync needs sync 3",
 					"symbols": [
 						"prepare",
 						"startDevPrebuild"
