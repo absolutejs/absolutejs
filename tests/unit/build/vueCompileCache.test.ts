@@ -3,7 +3,6 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, test } from 'bun:test';
-import { invalidateTypeCache } from '@vue/compiler-sfc';
 import { clearVueHmrCaches, compileVue } from '../../../src/build/compileVue';
 import {
 	hashContent,
@@ -134,9 +133,9 @@ describe('vue compile cache', () => {
 		// invalidates the components that read it.
 		tamper(cacheFileFor(childPath), 'STALE-CHILD');
 		await Bun.write(typesPath, typesSource('; subtitle?: string'));
-		// Vue's own in-process type-scope cache would otherwise serve the
-		// old `types.ts`; a real restart starts with it empty.
-		invalidateTypeCache(typesPath);
+		// No manual invalidateTypeCache here on purpose: the compile is what
+		// has to drop Vue's stale type scope, because that is all a dev
+		// rebuild does. Doing it by hand here hid that for a long time.
 		await resetProcessState();
 		const typesEdited = await compileVue([parentPath], root, false);
 		const typesEditedChild = readFileSync(

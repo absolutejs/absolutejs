@@ -159,9 +159,14 @@ export const compileVueSfc = async ({
 	serverOutputPath,
 	sourceContent,
 	sourceFilePath,
+	staleTypeDeps,
 	styleSources
 }: VueSfcCompileInput) => {
 	const compiler = await loadVueCompiler();
+	// This process may be a build worker that compiled these very files
+	// before the edit, and Vue would hand back the type scope it parsed
+	// then — resolving the type the file USED to declare.
+	for (const dep of staleTypeDeps ?? []) compiler.invalidateTypeCache(dep);
 	const { descriptor } = compiler.parse(sourceContent, {
 		filename: sourceFilePath
 	});

@@ -26,6 +26,12 @@ export type VueSfcCompileInput = {
 	 *  worker re-parses it with `@vue/compiler-sfc`. */
 	sourceContent: string;
 	sourceFilePath: string;
+	/** Type files this component reads whose content changed since its
+	 *  last compile. Vue caches each file's parsed type scope in module
+	 *  state and never drops it, so whichever process runs this job —
+	 *  the main thread or a long-lived build worker — has to drop these
+	 *  before resolving `defineProps<Imported>()` again. */
+	staleTypeDeps?: string[];
 	/** One entry per `<style>` block, in order. Preprocessor languages
 	 *  (`lang="scss"` …) are compiled on the main thread first because
 	 *  that step records dev-server dependency edges; the worker gets
