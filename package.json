@@ -35,7 +35,7 @@
 	"description": "A fullstack meta-framework for building web applications with TypeScript",
 	"devDependencies": {
 		"@absolutejs/blob": "0.5.2",
-		"@absolutejs/changelog": "^0.6.0",
+		"@absolutejs/changelog": "^0.8.0",
 		"@absolutejs/devices-expo": "0.0.12",
 		"@absolutejs/dispatch": "0.9.0",
 		"@absolutejs/manifest": "0.9.0",
@@ -587,7 +587,7 @@
 			]
 		}
 	},
-	"version": "0.20.0-beta.200",
+	"version": "0.20.0-beta.201",
 	"workspaces": [
 		"tests/fixtures/*",
 		"tests/fixtures/_packages/*"
