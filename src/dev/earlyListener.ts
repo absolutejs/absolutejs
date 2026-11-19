@@ -74,11 +74,17 @@ export type EarlyListenerOptions = {
 };
 
 export type EarlyListener = {
-	/** The placeholder server, or null while a bind retry is pending or
-	 *  after release. */
+	/** The placeholder server, or null while a bind retry is pending,
+	 *  after release, or when the port was already taken. */
 	readonly server: Server<undefined> | null;
 	readonly startedAt: number;
 	readonly released: boolean;
+	/** True when another listener already held the port, so this
+	 *  placeholder deliberately did not bind. */
+	readonly conflict: boolean;
+	/** Resolves once the bind decision is made. Read `server` or
+	 *  `conflict` after awaiting it, never before. */
+	readonly ready: Promise<void>;
 	release: () => void;
 };
 
@@ -268,12 +274,56 @@ export const signalParentPortHandoff = (port: number) => {
  *  background for a few seconds and then given up on silently — the real
  *  `.listen()` still reports the conflict the way it always did. Never
  *  throws: the placeholder is a nicety and must not break boot. */
+/** How long to wait for the occupancy probe before binding anyway. */
+const PORT_PROBE_TIMEOUT_MS = 250;
+
+const probeHost = (host: string) =>
+	host === '' || host === '0.0.0.0' || host === '::' ? '127.0.0.1' : host;
+
+/** Whether somebody is already listening on the dev port.
+ *
+ *  `Bun.serve` binds with `SO_REUSEPORT`, so a second bind on a busy port
+ *  SUCCEEDS — in this process or another — and the kernel then splits
+ *  incoming connections between the two listeners. A bind that cannot fail
+ *  is no test of ownership, and binding anyway would put this placeholder
+ *  in front of a share of another project's traffic. Connecting before we
+ *  listen is the only reliable check: nothing of ours is bound yet, so an
+ *  accepted connection is somebody else's server. See UPSTREAM_ISSUES.md.
+ *
+ *  Fails open: a probe that times out or errors for any other reason binds
+ *  as before, because a dev server that refuses to start is worse than one
+ *  that shares a port. */
+const portIsTaken = async (host: string, port: number) => {
+	try {
+		const socket = await Promise.race([
+			Bun.connect({
+				hostname: probeHost(host),
+				port,
+				socket: { data: () => undefined, error: () => undefined }
+			}),
+			Bun.sleep(PORT_PROBE_TIMEOUT_MS).then(() => null)
+		]);
+		if (!socket) return false;
+		socket.end();
+
+		return true;
+	} catch {
+		// Refused: the port is free.
+		return false;
+	}
+};
+
 export const startEarlyListener = (options: EarlyListenerOptions) => {
 	const startedAt = Date.now();
 	let server: Server<undefined> | null = null;
 	let released = false;
+	let conflict = false;
 	let attempts = 0;
 	let retryTimer: ReturnType<typeof setTimeout> | undefined;
+	let settleReady: (() => void) | undefined;
+	const ready = new Promise<void>((resolve) => {
+		settleReady = resolve;
+	});
 
 	const tryBind = () => {
 		if (released) return;
@@ -313,11 +363,25 @@ export const startEarlyListener = (options: EarlyListenerOptions) => {
 		}
 	};
 
-	tryBind();
+	const begin = async () => {
+		if (await portIsTaken(options.host, options.port)) {
+			conflict = true;
+			settleReady?.();
+
+			return;
+		}
+		tryBind();
+		settleReady?.();
+	};
+	void begin();
 
 	const listener: EarlyListener = {
+		ready,
 		release,
 		startedAt,
+		get conflict() {
+			return conflict;
+		},
 		get released() {
 			return released;
 		},

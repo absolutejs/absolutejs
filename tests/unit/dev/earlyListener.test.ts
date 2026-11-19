@@ -21,6 +21,7 @@ describe('early dev listener', () => {
 		const port = await getAvailablePort();
 		setBootPhase('initial build');
 		const listener = startEarlyListener({ host: 'localhost', port });
+		await listener.ready;
 		expect(listener.server).not.toBeNull();
 
 		const html = await fetch(`http://localhost:${port}/some/page`, {
@@ -60,7 +61,7 @@ describe('early dev listener', () => {
 
 	test('rejects websocket upgrades cleanly instead of crashing', async () => {
 		const port = await getAvailablePort();
-		startEarlyListener({ host: 'localhost', port });
+		await startEarlyListener({ host: 'localhost', port }).ready;
 
 		const outcome = await new Promise<'error' | 'open'>((resolve) => {
 			const socket = new WebSocket(`ws://localhost:${port}/hmr`);
@@ -77,7 +78,7 @@ describe('early dev listener', () => {
 
 	test('release frees the port synchronously for the real server', async () => {
 		const port = await getAvailablePort();
-		startEarlyListener({ host: 'localhost', port });
+		await startEarlyListener({ host: 'localhost', port }).ready;
 		// Keep-alive connection open against the placeholder.
 		await fetch(`http://localhost:${port}/`, {
 			headers: { accept: 'text/html' }
@@ -102,7 +103,7 @@ describe('early dev listener', () => {
 		expect(releaseEarlyListener()).toBe(false);
 	});
 
-	test('a busy port never throws — the placeholder just stays unbound', async () => {
+	test('a port another server already holds is left alone', async () => {
 		const port = await getAvailablePort();
 		const occupant = Bun.serve({
 			hostname: 'localhost',
@@ -111,8 +112,18 @@ describe('early dev listener', () => {
 		});
 		try {
 			const listener = startEarlyListener({ host: 'localhost', port });
+			await listener.ready;
+
+			// `Bun.serve` would bind this port a second time and let the
+			// kernel split connections between the two servers, so the
+			// placeholder probes the port before it listens.
+			expect(listener.conflict).toBe(true);
 			expect(listener.server).toBeNull();
-			expect(listener.released).toBe(false);
+
+			// Every request still reaches whoever already owned the port.
+			const res = await fetch(`http://localhost:${port}/`);
+			expect(await res.text()).toBe('occupied');
+
 			listener.release();
 			expect(listener.released).toBe(true);
 		} finally {
