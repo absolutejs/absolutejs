@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "The note that Elysia's `setup`/`cleanup` are `onStart`/`onStop` now reaches only projects that call `.setup()` or `.cleanup()` on an Elysia app, and the note about an HTML and an HTMX page sharing a name only projects with HTMX pages, instead of every project that imports `prepare` or `asset`.",
+					"kind": "changed",
+					"summary": "Upgrade notes about Elysia hooks and HTMX pages reach only the projects they apply to"
+				}
+			],
+			"date": "2026-11-19",
+			"version": "0.20.0-beta.202"
+		},
+		{
+			"changes": [
+				{
 					"detail": "The Elysia 2.0.0-rc.0 note from 0.20.0-beta.144 is now four entries a project can have applied: Elysia and every `@elysia/*` move to `^2.0.0-rc.0`, `@absolutejs/auth` to `^0.101.0` and `@absolutejs/sync` to `^3.0.0`, and every lifecycle hook called on an Elysia app is renamed to its `on` name. Only `setup`/`cleanup` becoming `onStart`/`onStop` is still for a person, since they now run at a different moment.",
 					"kind": "changed",
 					"summary": "Upgrading past Elysia 2.0.0-rc.0 can be applied rather than followed by hand"
@@ -842,6 +853,11 @@
 						"instruction": "If the build reports \"Manifest key \\\"…\\\" belongs to two pages\", rename one of the two files (for example `htmx/pages/Home.html` to `htmx/pages/HtmxHome.html`) and update the `asset(manifest, …)` call in its route. Builds without a collision are unaffected.",
 						"manual": true
 					},
+					"reaches": {
+						"files": [
+							"**/htmx/**/*.html"
+						]
+					},
 					"summary": "Two pages with the same name in the HTML and HTMX directories are a build error instead of one silently replacing the other",
 					"symbols": [
 						"asset",
@@ -1431,6 +1447,18 @@
 					"migration": {
 						"instruction": "Replace `.setup()` with `.onStart()` and `.cleanup()` with `.onStop()`: they now run when the server starts and stops. Check what yours do, since they no longer run at the same moment.",
 						"manual": true
+					},
+					"reaches": {
+						"calls": {
+							"methods": [
+								"setup",
+								"cleanup"
+							],
+							"owner": {
+								"export": "Elysia",
+								"module": "elysia"
+							}
+						}
 					},
 					"summary": "Elysia's `setup` and `cleanup` hooks are `onStart` and `onStop`",
 					"symbols": [
