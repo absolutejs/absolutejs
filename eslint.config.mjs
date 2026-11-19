@@ -27,6 +27,9 @@ export default defineConfig([
 			'**/compiled/**',
 			// Generated, cached, and vendored code — not authored by us.
 			'**/.absolutejs/**',
+			// Written by `absolute-changelog release`; its migration maps keep
+			// their own order (.prettierignore skips it for the same reason).
+			'changelog.json',
 			'tests/fixtures/capacitor-android-release/capacitor.config.ts',
 			'**/.absolutejs-hmr-*.ts',
 			'**/.cache/**',
