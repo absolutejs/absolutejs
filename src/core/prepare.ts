@@ -173,9 +173,8 @@ const loadMobileAssociationPlugin = async (
 	if (!mobile) {
 		return new Elysia({ name: 'absolutejs-mobile-associations-disabled' });
 	}
-	const { createAbsoluteMobileAssociationPlugin } = await import(
-		'../mobile/associationFiles'
-	);
+	const { createAbsoluteMobileAssociationPlugin } =
+		await import('../mobile/associationFiles');
 
 	return createAbsoluteMobileAssociationPlugin(mobile, process.cwd(), {
 		requireAll: true
@@ -370,9 +369,8 @@ const prepareDev = async (
 
 	let stepStartedAt = performance.now();
 	setBootPhase('patch route registration');
-	const { patchElysiaRouteRegistrationCallsites } = await import(
-		'./devRouteRegistrationCallsite'
-	);
+	const { patchElysiaRouteRegistrationCallsites } =
+		await import('./devRouteRegistrationCallsite');
 	patchElysiaRouteRegistrationCallsites();
 	recordStep('patch route registration', stepStartedAt);
 
@@ -408,9 +406,8 @@ const prepareDev = async (
 	};
 
 	const { setGlobalModuleServer } = await import('../dev/moduleServer');
-	const { createStyleTransformConfig } = await import(
-		'../build/stylePreprocessor'
-	);
+	const { createStyleTransformConfig } =
+		await import('../build/stylePreprocessor');
 	const moduleHandler = createModuleServer({
 		frameworkDirs: {
 			angular: config.angularDirectory,
@@ -891,9 +888,8 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 		// Partial prerendering renders a shell's dynamic holes through the
 		// app itself (partialPrerenderServe.ts), captured once it starts.
 		const { readPartialHoles } = await import('./partialPrerender');
-		const { servePartialPrerender } = await import(
-			'./partialPrerenderServe'
-		);
+		const { servePartialPrerender } =
+			await import('./partialPrerenderServe');
 		let appHandle: ((request: Request) => Promise<Response>) | undefined;
 
 		const prerenderPlugin = new Elysia({

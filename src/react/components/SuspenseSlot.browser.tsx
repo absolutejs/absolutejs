@@ -45,8 +45,7 @@ type FrameworkSuspenseSlotProps<T = unknown> = {
 };
 
 type SuspenseSlotProps<T = unknown> =
-	| LegacySuspenseSlotProps
-	| FrameworkSuspenseSlotProps<T>;
+	LegacySuspenseSlotProps | FrameworkSuspenseSlotProps<T>;
 
 type SlotWindow = Window & {
 	__ABS_SLOT_CONSUMERS__?: Record<
@@ -57,8 +56,7 @@ type SlotWindow = Window & {
 };
 
 type Outcome =
-	| { error: unknown; state: 'error' }
-	| { state: 'resolved'; value: unknown };
+	{ error: unknown; state: 'error' } | { state: 'resolved'; value: unknown };
 
 const isLegacyProps = <T,>(
 	props: SuspenseSlotProps<T>

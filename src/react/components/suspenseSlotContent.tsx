@@ -15,8 +15,7 @@ import {
  * resolving again. */
 
 export type SlotOutcome =
-	| { error: unknown; state: 'error' }
-	| { state: 'resolved'; value: unknown };
+	{ error: unknown; state: 'error' } | { state: 'resolved'; value: unknown };
 
 /* A promise React's use() reads at once: one already settled, marked the
  * way React marks the promises it has seen fulfil. */
