@@ -2,7 +2,31 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, test } from 'bun:test';
 import { getAvailablePort } from '../../helpers/ports';
-import { prerender } from '../../../src/core/prerender';
+import {
+	PRERENDER_BYPASS_HEADER,
+	PRERENDER_BYPASS_TOKEN,
+	isPrerenderBypass,
+	prerender
+} from '../../../src/core/prerender';
+
+describe('prerender bypass', () => {
+	const withHeader = (value: string) =>
+		new Request('http://localhost/', {
+			headers: { [PRERENDER_BYPASS_HEADER]: value }
+		});
+
+	test("only this process's token skips the pre-render cache", () => {
+		expect(isPrerenderBypass(withHeader(PRERENDER_BYPASS_TOKEN))).toBe(
+			true
+		);
+		expect(isPrerenderBypass(withHeader('1'))).toBe(false);
+		expect(isPrerenderBypass(new Request('http://localhost/'))).toBe(false);
+	});
+
+	test('the token is not a guessable constant', () => {
+		expect(PRERENDER_BYPASS_TOKEN.length).toBeGreaterThanOrEqual(32);
+	});
+});
 
 describe('prerender', () => {
 	test('only caches HTML responses as pre-rendered pages', async () => {

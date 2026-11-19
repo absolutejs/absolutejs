@@ -32,6 +32,8 @@ export type ServePartialPrerenderInput = {
 	holes: string[];
 	/** Header that makes the app skip the pre-render cache. */
 	bypassHeader: string;
+	/** The value that header has to carry (prerender.ts). */
+	bypassValue?: string;
 	request: Request;
 	/** This request's CSP nonce and security headers under secureHeaders(). */
 	nonce?: string;
@@ -64,9 +66,13 @@ const readShell = async (
 	};
 };
 
-const holesRequest = (request: Request, bypassHeader: string) => {
+const holesRequest = (
+	request: Request,
+	bypassHeader: string,
+	bypassValue = '1'
+) => {
 	const headers = new Headers(request.headers);
-	headers.set(bypassHeader, '1');
+	headers.set(bypassHeader, bypassValue);
 	headers.delete('if-none-match');
 	headers.delete('if-modified-since');
 
@@ -74,7 +80,11 @@ const holesRequest = (request: Request, bypassHeader: string) => {
 };
 
 const collectHoleSlots = async (input: ServePartialPrerenderInput) => {
-	const inner = holesRequest(input.request, input.bypassHeader);
+	const inner = holesRequest(
+		input.request,
+		input.bypassHeader,
+		input.bypassValue
+	);
 	const { response, slots } = await collectPartialHoles(() =>
 		runWithAbsoluteRequest(inner, () => input.handle(inner))
 	);

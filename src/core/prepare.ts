@@ -173,8 +173,9 @@ const loadMobileAssociationPlugin = async (
 	if (!mobile) {
 		return new Elysia({ name: 'absolutejs-mobile-associations-disabled' });
 	}
-	const { createAbsoluteMobileAssociationPlugin } =
-		await import('../mobile/associationFiles');
+	const { createAbsoluteMobileAssociationPlugin } = await import(
+		'../mobile/associationFiles'
+	);
 
 	return createAbsoluteMobileAssociationPlugin(mobile, process.cwd(), {
 		requireAll: true
@@ -369,8 +370,9 @@ const prepareDev = async (
 
 	let stepStartedAt = performance.now();
 	setBootPhase('patch route registration');
-	const { patchElysiaRouteRegistrationCallsites } =
-		await import('./devRouteRegistrationCallsite');
+	const { patchElysiaRouteRegistrationCallsites } = await import(
+		'./devRouteRegistrationCallsite'
+	);
 	patchElysiaRouteRegistrationCallsites();
 	recordStep('patch route registration', stepStartedAt);
 
@@ -406,8 +408,9 @@ const prepareDev = async (
 	};
 
 	const { setGlobalModuleServer } = await import('../dev/moduleServer');
-	const { createStyleTransformConfig } =
-		await import('../build/stylePreprocessor');
+	const { createStyleTransformConfig } = await import(
+		'../build/stylePreprocessor'
+	);
 	const moduleHandler = createModuleServer({
 		frameworkDirs: {
 			angular: config.angularDirectory,
@@ -870,8 +873,13 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 	recordStep('load prerender map', stepStartedAt);
 
 	if (prerenderMap.size > 0) {
-		const { PRERENDER_BYPASS_HEADER, readTimestamp, rerenderRoute } =
-			await import('./prerender');
+		const {
+			PRERENDER_BYPASS_HEADER,
+			PRERENDER_BYPASS_TOKEN,
+			isPrerenderBypass,
+			readTimestamp,
+			rerenderRoute
+		} = await import('./prerender');
 
 		const revalidateMs = config.static?.revalidate
 			? config.static.revalidate * MS_PER_SECOND
@@ -883,8 +891,9 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 		// Partial prerendering renders a shell's dynamic holes through the
 		// app itself (partialPrerenderServe.ts), captured once it starts.
 		const { readPartialHoles } = await import('./partialPrerender');
-		const { servePartialPrerender } =
-			await import('./partialPrerenderServe');
+		const { servePartialPrerender } = await import(
+			'./partialPrerenderServe'
+		);
 		let appHandle: ((request: Request) => Promise<Response>) | undefined;
 
 		const prerenderPlugin = new Elysia({
@@ -892,8 +901,9 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 		}).onRequest(({ request, set }) => {
 			const url = new URL(request.url);
 
-			// Allow bypass for ISR re-render requests
-			if (request.headers.get(PRERENDER_BYPASS_HEADER)) return undefined;
+			// Allow bypass for the server's own re-render and hole requests,
+			// which carry this process's token (prerender.ts).
+			if (isPrerenderBypass(request)) return undefined;
 
 			const filePath = prerenderMap.get(url.pathname);
 			if (!filePath) return undefined;
@@ -930,6 +940,7 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 			if (holes.length > 0 && appHandle) {
 				return servePartialPrerender({
 					bypassHeader: PRERENDER_BYPASS_HEADER,
+					bypassValue: PRERENDER_BYPASS_TOKEN,
 					filePath,
 					handle: appHandle,
 					holes,

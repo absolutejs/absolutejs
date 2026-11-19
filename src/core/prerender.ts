@@ -35,6 +35,34 @@ const DEFAULT_FETCH_TIMEOUT_MS = 10_000;
 /** Header used to bypass the prerender cache during ISR re-renders */
 export const PRERENDER_BYPASS_HEADER = 'X-Absolute-Prerender-Bypass';
 
+const BYPASS_TOKEN_KEY = Symbol.for('absolutejs.prerenderBypassToken');
+
+const createBypassToken = () => {
+	const token =
+		process.env.ABSOLUTE_PRERENDER_BYPASS_TOKEN || crypto.randomUUID();
+	Reflect.set(globalThis, BYPASS_TOKEN_KEY, token);
+
+	return token;
+};
+
+const readBypassToken = () => {
+	const existing: unknown = Reflect.get(globalThis, BYPASS_TOKEN_KEY);
+
+	return typeof existing === 'string' ? existing : createBypassToken();
+};
+
+/** The value the bypass header has to carry. The header skips the
+ *  pre-render cache, so it is a secret of this process rather than a
+ *  constant any visitor could send: the server's own re-render and hole
+ *  requests know it, and nobody else does. It lives on `globalThis` so two
+ *  copies of this module in one process still agree. Set
+ *  `ABSOLUTE_PRERENDER_BYPASS_TOKEN` to choose it, for a test or a probe
+ *  that needs the uncached page. */
+export const PRERENDER_BYPASS_TOKEN = readBypassToken();
+
+export const isPrerenderBypass = (request: Request) =>
+	request.headers.get(PRERENDER_BYPASS_HEADER) === PRERENDER_BYPASS_TOKEN;
+
 /** Convert a URL path to a filename: "/" → "index.html", "/vue" → "vue.html" */
 export const routeToFilename = (route: string) =>
 	route === '/' ? 'index.html' : `${route.slice(1).replace(/\//g, '-')}.html`;
@@ -140,7 +168,7 @@ export const rerenderRoute = async (
 		const res = await fetchWithTimeout(`http://localhost:${port}${route}`, {
 			headers: {
 				[PARTIAL_SHELL_HEADER]: '1',
-				[PRERENDER_BYPASS_HEADER]: '1'
+				[PRERENDER_BYPASS_HEADER]: PRERENDER_BYPASS_TOKEN
 			},
 			redirect: 'manual'
 		});

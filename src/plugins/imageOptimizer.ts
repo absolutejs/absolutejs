@@ -1,5 +1,4 @@
-import { existsSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { existsSync, realpathSync, statSync } from 'node:fs';
 import { Elysia } from 'elysia';
 import type { ImageConfig, ImageFormat } from '../../types/image';
 import {
@@ -16,6 +15,8 @@ import {
 	matchRemotePattern,
 	negotiateFormat,
 	optimizeImage,
+	pruneCache,
+	readCacheSize,
 	readFromCache,
 	writeToCache
 } from '../utils/imageProcessing';
@@ -30,30 +31,142 @@ const MS_PER_SECOND = 1000;
 /** Maximum image quality value */
 const MAX_QUALITY = 100;
 
+/** Largest source image, local or remote, the optimizer will read */
+const MAX_SOURCE_BYTES = 50 * 1024 * 1024;
+
+/** How long a remote source may take to respond and download */
+const REMOTE_FETCH_TIMEOUT_MS = 10_000;
+
+/** Redirects followed for a remote source; each hop is re-checked */
+const MAX_REMOTE_REDIRECTS = 3;
+
+/** Default bound on the disk cache, in bytes */
+const DEFAULT_MAXIMUM_CACHE_SIZE = 512 * 1024 * 1024;
+
+const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
+
+const PATH_SEPARATOR_PATTERN = /[\\/]/;
+
 /** Set of AVIF cache keys currently being generated to avoid duplicate work */
 const avifInProgress = new Set<string>();
 
-/** Try to resolve a path safely against a base directory, returning null if the file doesn't exist */
+/** Resolve a path inside a base directory, following symlinks, or null
+ *  when the file is missing or its real location is outside the base */
 const safeResolve = (path: string, baseDir: string) => {
 	try {
 		const resolved = validateSafePath(path, baseDir);
+		if (!existsSync(resolved)) return null;
 
-		if (existsSync(resolved)) return resolved;
-
-		return null;
+		return validateSafePath(realpathSync(resolved), realpathSync(baseDir));
 	} catch {
 		return null;
 	}
 };
 
-/** Resolve a local image path against build dir and project root */
+/** Resolve a local image against the build directory, the only place a
+ *  site's public files live. Dot-segments are refused outright: nothing
+ *  under `.env`, `.cache` or `..` is an image a page links to. */
 const resolveLocalImage = (url: string, buildDir: string) => {
 	const cleanPath = url.startsWith('/') ? url.slice(1) : url;
+	const hasDotSegment = cleanPath
+		.split(PATH_SEPARATOR_PATTERN)
+		.some((segment) => segment.startsWith('.'));
+	if (hasDotSegment) return null;
 
-	return (
-		safeResolve(cleanPath, buildDir) ??
-		safeResolve(cleanPath, resolve(process.cwd()))
-	);
+	return safeResolve(cleanPath, buildDir);
+};
+
+const notFound = (url: string) =>
+	new Response(`Image not found: ${url}`, { status: 404 });
+
+type BodyReader = ReadableStreamDefaultReader<Uint8Array>;
+
+/** Drain a body chunk by chunk, stopping once it passes the size limit */
+const readChunks = async (
+	reader: BodyReader,
+	chunks: Uint8Array[] = [],
+	total = 0
+): Promise<Uint8Array[] | null> => {
+	const { done, value } = await reader.read();
+	if (done) return chunks;
+
+	const size = total + value.byteLength;
+	if (size > MAX_SOURCE_BYTES) {
+		await reader.cancel();
+
+		return null;
+	}
+	chunks.push(value);
+
+	return readChunks(reader, chunks, size);
+};
+
+/** Read a response body, giving up once it passes the size limit */
+const readCappedBody = async (response: Response) => {
+	const declared = Number(response.headers.get('content-length') ?? 0);
+	if (declared > MAX_SOURCE_BYTES || !response.body) return null;
+
+	const chunks = await readChunks(response.body.getReader());
+
+	return chunks ? Buffer.concat(chunks) : null;
+};
+
+/** Fetch a remote source without following redirects blindly: every hop
+ *  has to match `remotePatterns`, or an allowed host could bounce the
+ *  server to an address the allow-list was written to exclude. */
+const fetchRemoteImage = async (
+	url: string,
+	remotePatterns: ImageConfig['remotePatterns'] & object,
+	signal: AbortSignal,
+	redirectsLeft = MAX_REMOTE_REDIRECTS
+): Promise<
+	{ error: Response } | { buffer: Buffer; upstreamEtag: string | undefined }
+> => {
+	const response = await fetch(url, { redirect: 'manual', signal });
+
+	if (REDIRECT_STATUSES.has(response.status)) {
+		const location = response.headers.get('location');
+		const next = location ? new URL(location, url).href : null;
+		if (
+			!next ||
+			redirectsLeft === 0 ||
+			!matchRemotePattern(next, remotePatterns)
+		) {
+			return {
+				error: new Response('Remote image redirect not allowed', {
+					status: 502
+				})
+			};
+		}
+
+		return fetchRemoteImage(
+			next,
+			remotePatterns,
+			signal,
+			redirectsLeft - 1
+		);
+	}
+
+	if (!response.ok) {
+		return {
+			error: new Response(
+				`Failed to fetch remote image: ${response.status}`,
+				{ status: 502 }
+			)
+		};
+	}
+
+	const buffer = await readCappedBody(response);
+	if (!buffer) {
+		return {
+			error: new Response('Remote image is too large', { status: 502 })
+		};
+	}
+
+	return {
+		buffer,
+		upstreamEtag: response.headers.get('ETag') ?? undefined
+	};
 };
 
 /** Parse and validate query parameters, returning an error Response or valid params */
@@ -123,10 +236,7 @@ const validateImageSecurity = (
 
 	const resolvedPath = resolveLocalImage(url, buildDir);
 	if (!resolvedPath) {
-		return {
-			error: new Response(`Image not found: ${url}`, { status: 404 }),
-			isRemote
-		};
+		return { error: notFound(url), isRemote };
 	}
 
 	return { isRemote, resolvedPath };
@@ -136,37 +246,24 @@ const validateImageSecurity = (
 const fetchSourceImage = async (
 	url: string,
 	isRemote: boolean,
-	resolvedPath: string | null
+	resolvedPath: string | null,
+	remotePatterns: ImageConfig['remotePatterns'] & object
 ) => {
 	if (isRemote) {
-		const response = await fetch(url);
-		if (!response.ok) {
-			return {
-				error: new Response(
-					`Failed to fetch remote image: ${response.status}`,
-					{ status: 502 }
-				)
-			};
-		}
-
-		return {
-			buffer: Buffer.from(await response.arrayBuffer()),
-			upstreamEtag: response.headers.get('ETag') ?? undefined
-		};
+		return fetchRemoteImage(
+			url,
+			remotePatterns,
+			AbortSignal.timeout(REMOTE_FETCH_TIMEOUT_MS)
+		);
 	}
 
-	if (!resolvedPath) {
-		return {
-			error: new Response(`Image not found: ${url}`, { status: 404 })
-		};
-	}
+	if (!resolvedPath) return { error: notFound(url) };
 
 	const file = Bun.file(resolvedPath);
-	if (!(await file.exists())) {
-		return {
-			error: new Response(`Image not found: ${url}`, { status: 404 })
-		};
+	if (!(await file.exists()) || !statSync(resolvedPath).isFile()) {
+		return { error: notFound(url) };
 	}
+	if (file.size > MAX_SOURCE_BYTES) return { error: notFound(url) };
 
 	return {
 		buffer: Buffer.from(await file.arrayBuffer()),
@@ -184,7 +281,8 @@ const scheduleAvifPregen = (
 	format: ImageFormat,
 	cacheDir: string,
 	minimumCacheTTL: number,
-	upstreamEtag: string | undefined
+	upstreamEtag: string | undefined,
+	store: (cacheKey: string, buffer: Buffer, meta: CacheMeta) => void
 ) => {
 	if (!configuredFormats.includes('avif') || format === 'avif') {
 		return;
@@ -212,7 +310,7 @@ const scheduleAvifPregen = (
 				expireAt: Date.now() + minimumCacheTTL,
 				upstreamEtag
 			};
-			writeToCache(cacheDir, avifCacheKey, avifBuffer, avifMeta);
+			store(avifCacheKey, avifBuffer, avifMeta);
 		} catch {
 			// AVIF generation failure is non-fatal
 		} finally {
@@ -243,6 +341,19 @@ export const imageOptimizer = (
 	const configuredFormats: ImageFormat[] = config?.formats ?? ['webp'];
 	const remotePatterns = config?.remotePatterns ?? [];
 	const cacheDir = getCacheDir(buildDir, config?.cacheDirectory);
+	const maximumCacheSize =
+		config?.maximumCacheSize ?? DEFAULT_MAXIMUM_CACHE_SIZE;
+
+	// Bytes on disk, counted once and then kept current by each write, so
+	// the directory is only walked again when the bound is crossed.
+	let cacheSize: number | undefined;
+	const store = (cacheKey: string, buffer: Buffer, meta: CacheMeta) => {
+		cacheSize ??= readCacheSize(cacheDir);
+		writeToCache(cacheDir, cacheKey, buffer, meta);
+		cacheSize += buffer.byteLength;
+		if (cacheSize <= maximumCacheSize) return;
+		cacheSize = pruneCache(cacheDir, maximumCacheSize);
+	};
 
 	return plugin.get(endpointPath, async ({ query, request }) => {
 		// ── Parse & Validate ────────────────────────────────
@@ -262,7 +373,13 @@ export const imageOptimizer = (
 
 		// ── Cache Lookup ────────────────────────────────────
 		const cacheKey = getCacheKey(url, width, quality, format);
-		const cached = readFromCache(cacheDir, cacheKey);
+		const cachedEntry = readFromCache(cacheDir, cacheKey);
+		// An entry that is not an image was written before sources were
+		// checked; never serve it.
+		const cached =
+			cachedEntry && sniffImageMime(cachedEntry.buffer)
+				? cachedEntry
+				: null;
 
 		if (cached && !isCacheStale(cached.meta)) {
 			const ifNoneMatch = request.headers.get('If-None-Match');
@@ -295,7 +412,8 @@ export const imageOptimizer = (
 			const source = await fetchSourceImage(
 				url,
 				isRemote,
-				resolvedPath ?? null
+				resolvedPath ?? null,
+				remotePatterns
 			);
 			if ('error' in source) return source.error;
 			sourceBuffer = source.buffer;
@@ -305,6 +423,15 @@ export const imageOptimizer = (
 				`Failed to load image: ${err instanceof Error ? err.message : 'unknown error'}`,
 				{ status: 500 }
 			);
+		}
+
+		// ── Source Check ────────────────────────────────────
+		// Only bytes that are an image go any further. Without this the
+		// fallback below would hand back whatever file the URL named.
+		if (!sniffImageMime(sourceBuffer)) {
+			return isRemote
+				? new Response('Remote source is not an image', { status: 502 })
+				: notFound(url);
 		}
 
 		// ── Optimize ────────────────────────────────────────
@@ -334,7 +461,7 @@ export const imageOptimizer = (
 		};
 
 		try {
-			writeToCache(cacheDir, cacheKey, optimizedBuffer, meta);
+			store(cacheKey, optimizedBuffer, meta);
 		} catch {
 			// Cache write failure is non-fatal
 		}
@@ -349,7 +476,8 @@ export const imageOptimizer = (
 			format,
 			cacheDir,
 			minimumCacheTTL,
-			upstreamEtag
+			upstreamEtag,
+			store
 		);
 
 		// ── Response ────────────────────────────────────────

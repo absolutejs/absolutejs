@@ -1,4 +1,12 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+	existsSync,
+	mkdirSync,
+	readFileSync,
+	readdirSync,
+	rmSync,
+	statSync,
+	writeFileSync
+} from 'node:fs';
 import { join, resolve } from 'node:path';
 import type {
 	ImageConfig,
@@ -397,6 +405,48 @@ export const optimizeImage = async (
 		return optimizeUnsupportedAvif(err, input, width, quality, format);
 	}
 };
+
+/** Share of the bound the cache is trimmed back to once it is crossed */
+const CACHE_PRUNE_TARGET = 0.8;
+
+const listCacheEntries = (cacheDir: string) => {
+	if (!existsSync(cacheDir)) return [];
+
+	return readdirSync(cacheDir)
+		.filter((name) => name.endsWith('.data'))
+		.flatMap((name) => {
+			try {
+				const { mtimeMs, size } = statSync(join(cacheDir, name));
+
+				return [{ mtimeMs, name, size }];
+			} catch {
+				return [];
+			}
+		});
+};
+
+/** Delete the least recently written entries until the cache is back
+ *  under its bound. Returns the bytes left on disk. */
+export const pruneCache = (cacheDir: string, maximumBytes: number) => {
+	const entries = listCacheEntries(cacheDir).sort(
+		(left, right) => left.mtimeMs - right.mtimeMs
+	);
+	const target = maximumBytes * CACHE_PRUNE_TARGET;
+	let total = entries.reduce((sum, entry) => sum + entry.size, 0);
+
+	for (const entry of entries) {
+		if (total <= target) break;
+		const dataPath = join(cacheDir, entry.name);
+		rmSync(dataPath, { force: true });
+		rmSync(dataPath.replace(/\.data$/, '.meta'), { force: true });
+		total -= entry.size;
+	}
+
+	return total;
+};
+
+export const readCacheSize = (cacheDir: string) =>
+	listCacheEntries(cacheDir).reduce((sum, entry) => sum + entry.size, 0);
 
 export const readFromCache = (cacheDir: string, cacheKey: string) => {
 	const metaPath = join(cacheDir, `${cacheKey}.meta`);
