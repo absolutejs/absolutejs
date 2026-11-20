@@ -1,16 +1,23 @@
 # The integration inventory: 181 files that build real projects, boot dev and
 # production servers, and drive Chromium. Far too slow for a pull request
-# (the HMR battery alone is ~46 minutes serial, ~23 across two shards), so it
+# (the HMR battery alone is ~46 minutes serial, ~18 across two shards), so it
 # runs nightly and on demand.
 #
 # It is worth running at all because it keeps finding what the fast gate
-# cannot: the dev server sharing an occupied port, Vue components recompiling
+# cannot: a dev server sharing an occupied port, Vue components recompiling
 # against stale types, a client bundle missing an export the server bundle
-# had. None of those were visible to unit tests.
+# had, Angular never hydrating under a nonce CSP. None of those were visible
+# to unit tests, which import from src/ and so never cross the package's
+# exports map, start a server, or open a browser.
 #
 # Two jobs rather than one per directory: the HMR battery dominates the clock,
 # so splitting it from everything else halves the wall time without paying
 # install and build on a dozen runners.
+#
+# Bun is stock 1.4.4: the React Fast Refresh tests guard themselves with
+# describe.skipIf and ship a stock-Bun counterpart, and four island HMR tests
+# skip for the same reason. Running the patched build here would turn those
+# skips into real coverage, at the cost of a signed download per run.
 name: Integration
 
 on:
@@ -19,6 +26,12 @@ on:
         # on the minute.
         - cron: '17 3 * * *'
     workflow_dispatch:
+        inputs:
+            only:
+                description: 'One directory under tests/integration (hmr, server, build, cli, dev, angular, pwa, ssr, images), or all'
+                default: all
+                required: false
+                type: string
 
 # A nightly should never cancel the run already going.
 concurrency:
@@ -35,11 +48,15 @@ env:
 jobs:
     hmr:
         name: HMR battery
-        # Pinned, not `ubuntu-latest`: that label now means Ubuntu 26.04,
-        # and Playwright 1.59.1 refuses to install Chromium there at all
-        # ("Playwright does not support chromium on ubuntu26.04-x64"), so
-        # both jobs died in the browser step. Move this to `ubuntu-latest`
-        # again once Playwright supports 26.04.
+        # Skipped when a dispatch asks for one of the other directories.
+        if: >-
+            ${{ github.event_name != 'workflow_dispatch' ||
+            inputs.only == 'all' || inputs.only == 'hmr' }}
+        # Pinned, not `ubuntu-latest`: that label now means Ubuntu 26.04, and
+        # Playwright 1.59.1 refuses to install Chromium there at all
+        # ("Playwright does not support chromium on ubuntu26.04-x64"), so both
+        # jobs died in the browser step. Move back to `ubuntu-latest` once
+        # Playwright supports 26.04.
         runs-on: ubuntu-24.04
         timeout-minutes: 90
         permissions:
@@ -62,23 +79,27 @@ jobs:
             - run: bun run build
             - name: Check the shard runner's dependencies
               run: rsync --version > /dev/null || sudo apt-get install -y rsync
-            - run: bun run scripts/shardedTests.ts tests/integration/hmr
+            - name: HMR battery
+              run: |
+                  status=0
+                  bun run scripts/shardedTests.ts tests/integration/hmr || status=1
+                  .github/scripts/keep-shard-logs.sh hmr
+                  exit $status
             - name: Keep the shard logs
               if: always()
               uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
               with:
                   name: hmr-shard-logs
-                  path: .test-shards/*.log
+                  path: ${{ runner.temp }}/shard-logs
                   retention-days: 7
                   if-no-files-found: ignore
-                  # `.test-shards` is a dot-directory, and the action skips
-                  # hidden paths by default — without this the glob matched
-                  # nothing, the step said nothing, and the first nightly
-                  # failure came with no logs to read.
-                  include-hidden-files: true
 
     rest:
         name: Servers, builds, CLI and browsers
+        # Skipped when a dispatch asks only for the HMR battery.
+        if: >-
+            ${{ github.event_name != 'workflow_dispatch' ||
+            inputs.only != 'hmr' }}
         # See the note on the hmr job: pinned for Playwright's sake.
         runs-on: ubuntu-24.04
         timeout-minutes: 60
@@ -100,35 +121,47 @@ jobs:
             - name: Check the shard runner's dependencies
               run: rsync --version > /dev/null || sudo apt-get install -y rsync
             # Every directory but hmr, each through the shard runner, then the
-            # four files that sit at the inventory's root (compile.test.ts
-            # among them, which the runner already knows to run alone; two of
-            # the other three gate themselves behind an env var and skip).
+            # four files at the inventory's root (compile.test.ts among them,
+            # which the runner already knows to run alone; two of the other
+            # three gate themselves behind an env var and skip).
+            #
+            # The runner always writes .test-shards/shard-0.log, so each
+            # directory overwrote the last one's logs — which is how the first
+            # failing nightly produced an artifact holding only the final,
+            # passing directory and no failures at all. keep-shard-logs.sh
+            # files them per directory instead.
             #
             # tests/integration/mobile is left out: it drives a device target
             # and fails without that tooling, and mobile has its own pipeline
             # in docs/MOBILE_CI.md. This workflow covers the web inventory.
             - name: Everything but the HMR battery
+              env:
+                  ONLY: ${{ inputs.only }}
               run: |
+                  dirs="server build cli dev angular pwa ssr images"
+                  roots=yes
+                  if [ -n "$ONLY" ] && [ "$ONLY" != all ]; then
+                    dirs="$ONLY"
+                    roots=no
+                  fi
                   status=0
-                  for dir in server build cli dev angular pwa ssr images; do
+                  for dir in $dirs; do
                     echo "::group::tests/integration/$dir"
                     bun run scripts/shardedTests.ts "tests/integration/$dir" || status=1
+                    .github/scripts/keep-shard-logs.sh "$dir"
                     echo "::endgroup::"
                   done
-                  echo "::group::tests/integration (root files)"
-                  bun test --max-concurrency 1 tests/integration/*.test.ts || status=1
-                  echo "::endgroup::"
+                  if [ "$roots" = yes ]; then
+                    echo "::group::tests/integration (root files)"
+                    bun test --max-concurrency 1 tests/integration/*.test.ts || status=1
+                    echo "::endgroup::"
+                  fi
                   exit $status
             - name: Keep the shard logs
               if: always()
               uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
               with:
                   name: rest-shard-logs
-                  path: .test-shards/*.log
+                  path: ${{ runner.temp }}/shard-logs
                   retention-days: 7
                   if-no-files-found: ignore
-                  # `.test-shards` is a dot-directory, and the action skips
-                  # hidden paths by default — without this the glob matched
-                  # nothing, the step said nothing, and the first nightly
-                  # failure came with no logs to read.
-                  include-hidden-files: true

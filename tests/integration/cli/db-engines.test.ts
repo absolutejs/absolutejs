@@ -48,30 +48,42 @@ const RUN_ID = `${process.pid}-${Date.now().toString(36)}`;
 const containers: string[] = [];
 const scratch = mkdtempSync(join(tmpdir(), 'absolute-db-live-'));
 
-const docker = (args: string[]) => {
-	const result = spawnSync(['docker', ...args], {
-		stderr: 'pipe',
-		stdout: 'pipe'
-	});
-
-	return {
-		ok: result.exitCode === 0,
-		stderr: result.stderr.toString().trim(),
-		stdout: result.stdout.toString().trim()
-	};
-};
-
-const dockerUnavailable = () => {
-	const probe = spawnSync(
-		['docker', 'info', '--format', '{{.ServerVersion}}'],
-		{
+/* Bun's spawnSync THROWS when the executable is missing, where Node
+ * returns a result carrying the error. An uncaught throw here is not a
+ * skipped test: bun:test reports it as an unhandled error between tests
+ * and the rest of the shard goes down with it. That is how a machine
+ * without Docker — a container, a fresh laptop — turned three unrelated
+ * `absolute typecheck` tests red, which took a nightly, a CI artifact and
+ * a local reproduction to explain. Everything that shells out to Docker
+ * here reports failure instead. */
+const runDocker = (args: string[]) => {
+	try {
+		const result = spawnSync(['docker', ...args], {
 			stderr: 'pipe',
 			stdout: 'pipe'
-		}
-	);
-	if (probe.exitCode === 0) return undefined;
+		});
 
-	return probe.stderr.toString().trim() || 'docker info failed';
+		return {
+			ok: result.exitCode === 0,
+			stderr: result.stderr.toString().trim(),
+			stdout: result.stdout.toString().trim()
+		};
+	} catch (error) {
+		return {
+			ok: false,
+			stderr: error instanceof Error ? error.message : 'docker not found',
+			stdout: ''
+		};
+	}
+};
+
+const docker = (args: string[]) => runDocker(args);
+
+const dockerUnavailable = () => {
+	const probe = runDocker(['info', '--format', '{{.ServerVersion}}']);
+	if (probe.ok) return undefined;
+
+	return probe.stderr || 'docker info failed';
 };
 
 const skipReason = dockerUnavailable();
