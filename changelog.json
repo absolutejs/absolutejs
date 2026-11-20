@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "A static file was served `public, max-age=31536000, immutable` when its name looked content-hashed, and that was guessed from the name: any 6-12 character segment mixing letters and digits counted. It caught the most conventional hand-named assets there are — `icon-192x192.png`, `icon-512x512.png`, `icons-sprite24.svg`, `clip-1080p60.mp4`, `photo-v2final.jpg` — so replacing a PWA icon on a rebrand reached nobody: `immutable` tells a browser not to revalidate at all, and the pin lasts a year. The build is now asked instead of guessed at. A path is cached forever when it is one of the hashed paths in manifest.json, a `/.absolutejs/*` hydration bundle, a `chunk-<hash>.js` the bundler emitted, or carries this framework's own eight-hex-character fingerprint (fontAssets). Everything else revalidates, which costs one conditional request answered 304 and cannot serve a stale year. The compiled standalone binary carries the same rule with the manifest's paths inlined at compile time, and a table-driven test holds the two copies to the same answers.",
+					"kind": "fixed",
+					"summary": "Only a file the build hashed is cached immutably"
+				}
+			],
+			"date": "2026-11-20",
+			"version": "0.20.0-beta.229"
+		},
+		{
+			"changes": [
+				{
 					"detail": "A pre-rendered route was stored under a flattened name: `/docs/guide` became `docs-guide.html`. prepare() rebuilds the route map from that directory on every boot and read the name back as `/docs-guide`, so a nested route never served from its own cache — it missed the map and rendered dynamically on every request, losing the point of pre-rendering it — while its HTML answered a URL nobody pre-rendered. Two routes could also land on one file, since `/a/b` and `/a-b` both wrote `docs-guide`-style names, and whichever rendered last won. A pre-rendered file now mirrors its URL (`docs/guide.html`), which is reversible and collision-free, and the directory listing recurses. The mapping and its inverse live in one module so the writer and the reader cannot disagree again — that disagreement was the bug.",
 					"kind": "fixed",
 					"summary": "A nested route is pre-rendered and served at its own path"

@@ -76,10 +76,13 @@ export const acceptedEncodings = (header: string | null) => {
 	return ENCODINGS.filter(({ encoding }) => accepted.has(encoding));
 };
 
-/** The cache policy for a static file: forever for a content-hashed name,
- *  revalidate for anything else. */
-export const assetCacheControl = (pathname: string) =>
-	isFingerprintedAsset(pathname)
+/** The cache policy for a static file: forever for a path the build
+ *  hashed, revalidate for anything else. */
+export const assetCacheControl = (
+	pathname: string,
+	hashed?: FingerprintedAssets
+) =>
+	isFingerprintedAsset(pathname, hashed)
 		? 'public, max-age=31536000, immutable'
 		: 'public, max-age=0, must-revalidate';
 
@@ -89,7 +92,7 @@ export const assetCacheControl = (pathname: string) =>
  *  both get the policy replaced (not appended). Only paths with an
  *  extension are touched, and a non-Response value only when a policy was
  *  already set, so pages and APIs keep their own headers. */
-export const createAssetCachePlugin = () =>
+export const createAssetCachePlugin = (hashed?: FingerprintedAssets) =>
 	new Elysia({ name: 'absolutejs-asset-cache' }).onAfterHandle(
 		'global',
 		({ request, responseValue, set }) => {
@@ -97,7 +100,7 @@ export const createAssetCachePlugin = () =>
 			const { pathname } = new URL(request.url);
 			if (pathname.endsWith('/') || !/\.[0-9a-z]+$/i.test(pathname))
 				return;
-			const policy = assetCacheControl(pathname);
+			const policy = assetCacheControl(pathname, hashed);
 			if (responseValue instanceof Response) {
 				responseValue.headers.set('cache-control', policy);
 
@@ -171,17 +174,54 @@ export const createPrecompressedPlugin = async (
 	);
 };
 
-/* Whether a static file's name carries a content hash (`Page.a1b2c3d4.js`,
-   `/chunk-xxxxxxxx.js`, the `/.absolutejs/*` hydration bundles): its URL
-   changes when its content does, so it can be cached forever. A content hash
-   always mixes letters and digits; a word like `generated` never does. */
-export const isFingerprintedAsset = (pathname: string) => {
-	if (pathname.startsWith('/.absolutejs/')) return true;
-	const base = pathname.slice(pathname.lastIndexOf('/') + 1);
-	const hash = base.match(/[.-]([0-9a-z]{6,12})\.[0-9a-z]+$/i)?.[1];
+/* A code-splitting chunk: `chunk-k3x9a0bq.js`, emitted by the client
+ * passes and referenced only from a hashed entry. The build does not
+ * record these individually, and nothing but the bundler writes that
+ * name, so this is the one shape still recognised by its name. */
+const CHUNK_NAME = /^chunk-[0-9a-z]{8,}\.js$/i;
 
-	return hash ? /[0-9]/.test(hash) && /[a-z]/i.test(hash) : false;
-};
+/* This framework's own content hash: exactly eight hex characters before
+ * the extension (`fontAssets.ts`'s `fingerprint()`). Every hand-written
+ * name that the old rule caught carries a letter outside hex —
+ * `sprite24`, `1080p60`, `v2final`, and the `x` in `512x512` — so this
+ * admits the hashes and none of them. Bun's own `[hash]` is base36 and
+ * wider than hex, which is why the manifest is consulted as well. */
+const HEX_HASH_NAME = /\.[0-9a-f]{8}\.[0-9a-z]+$/i;
+
+/* Which static files may be cached forever.
+ *
+ * This used to be a guess from the file name: a 6-12 character segment
+ * mixing letters and digits was treated as a content hash. It pinned the
+ * most conventional hand-named assets there are for a year, with
+ * `immutable`, so the browser would not even revalidate:
+ *
+ *   /icons/icon-192x192.png     192x192
+ *   /icons/icon-512x512.png     512x512
+ *   /assets/icons-sprite24.svg  sprite24
+ *   /video/clip-1080p60.mp4     1080p60
+ *
+ * Replace a PWA icon on a rebrand and returning visitors keep the old one
+ * for up to a year, with no way to force a refresh. That is the opposite
+ * of what a cache policy should fail towards.
+ *
+ * So the build is asked instead of guessed at: `prepare()` passes the
+ * hashed paths from `manifest.json`, whose URL does change with its
+ * content. Anything else revalidates — one conditional request, answered
+ * 304 — which costs a round trip and cannot serve a stale year. */
+export type FingerprintedAssets = { has: (pathname: string) => boolean };
+
+const chunkName = (pathname: string) =>
+	pathname.slice(pathname.lastIndexOf('/') + 1);
+
+/** Whether a static file's URL changes when its content does. */
+export const isFingerprintedAsset = (
+	pathname: string,
+	hashed?: FingerprintedAssets
+) =>
+	pathname.startsWith('/.absolutejs/') ||
+	CHUNK_NAME.test(chunkName(pathname)) ||
+	HEX_HASH_NAME.test(chunkName(pathname)) ||
+	(hashed?.has(pathname) ?? false);
 
 /** Writes `.br` and `.gz` beside every compressible file in `buildDir` that
  *  compression actually shrinks. Returns how many files got copies. */
