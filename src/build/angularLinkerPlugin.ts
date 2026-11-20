@@ -5,7 +5,23 @@ import type { BunPlugin } from 'bun';
 
 const CACHE_ROOT = resolve('.absolutejs', 'cache', 'angular-linker');
 
-export const ANGULAR_LINKER_CANDIDATE_RE = /[\\/]node_modules[\\/].*\.m?js$/;
+/* Files worth offering to the linker. `node_modules` covers an ordinary
+ * install; `dist/angular/` covers this framework's own output when the
+ * package is reached through a SYMLINK — a `bun link`, a workspace
+ * dependency, a `file:` install or the integration fixtures. Bun hands
+ * `onLoad` the real path, not the symlinked one, so such a package never
+ * matches the `node_modules` branch; its components then stay partially
+ * compiled, Angular falls back to its JIT compiler in the browser, and a
+ * nonce CSP (what `secureHeaders()` sends) blocks that outright with
+ * "'unsafe-eval' is not an allowed source of script" and the page never
+ * hydrates.
+ *
+ * Widening this costs one file read per candidate: the handler below asks
+ * Angular's own `needsLinking` before transforming anything. A symlinked
+ * THIRD-PARTY Angular library is still missed, since nothing in its path
+ * says Angular. */
+export const ANGULAR_LINKER_CANDIDATE_RE =
+	/(?:[\\/]node_modules[\\/]|[\\/]dist[\\/]angular[\\/]).*\.m?js$/;
 
 /**
  * Bun bundler plugin that runs the Angular Linker on partially compiled
