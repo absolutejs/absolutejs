@@ -873,9 +873,9 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 		const {
 			PRERENDER_BYPASS_HEADER,
 			PRERENDER_BYPASS_TOKEN,
-			isPrerenderBypass,
 			readTimestamp,
-			rerenderRoute
+			rerenderRoute,
+			shouldSkipPrerendered
 		} = await import('./prerender');
 
 		const revalidateMs = config.static?.revalidate
@@ -897,9 +897,10 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 		}).onRequest(({ request, set }) => {
 			const url = new URL(request.url);
 
-			// Allow bypass for the server's own re-render and hole requests,
-			// which carry this process's token (prerender.ts).
-			if (isPrerenderBypass(request)) return undefined;
+			// The server's own re-render and hole requests, and a form
+			// posted without JavaScript whose result rides in a cookie the
+			// cached file predates (prerender.ts).
+			if (shouldSkipPrerendered(request)) return undefined;
 
 			const filePath = prerenderMap.get(url.pathname);
 			if (!filePath) return undefined;
