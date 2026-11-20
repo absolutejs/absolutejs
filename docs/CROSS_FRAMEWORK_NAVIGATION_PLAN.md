@@ -231,14 +231,55 @@ every navigation.
 | Phase | Scope | Exit criteria |
 | --- | --- | --- |
 | 1 (done) | Layer + React ↔ Svelte via `<Link>`, styles, island store, back/forward + scroll, history fallback, CSP | Playwright (prod build): React→Svelte→React with no document request; target hydrates and is interactive; stylesheets swapped, Svelte scoped CSS applied; store value carried both ways; back/forward and scroll restore; same with the Navigation API removed; zero CSP violations under `secureHeaders()`; opt-out link does a full load. Packed-tarball e2e in prod and dev. |
-| 2 | Teardown completeness | Island dispose registry (islands unmounted with the old body); `__ABSOLUTE_PAGE_DISPOSE__` for HTML/HTMX pages (no-op) so they can participate; prefetch cache on `globalThis` so a Svelte `<Link>` hover warms the React-installed layer; dev HMR follows the swapped page (`__HMR_FRAMEWORK__`, per-page manifest); a framework-supplied index boot function instead of `?absolute-nav=` re-imports. Exit: React ↔ Svelte ↔ HTML ↔ HTMX with islands, no leaked roots (heap snapshot), HMR edit after a soft navigation applies. |
+| 2 | Teardown completeness | ~~Island dispose registry (islands unmounted with the old body)~~ **done, 0.20.0-beta.234**; `__ABSOLUTE_PAGE_DISPOSE__` for HTML/HTMX pages (no-op) so they can participate; prefetch cache on `globalThis` so a Svelte `<Link>` hover warms the React-installed layer; dev HMR follows the swapped page (`__HMR_FRAMEWORK__`, per-page manifest); a framework-supplied index boot function instead of `?absolute-nav=` re-imports. Exit: React ↔ Svelte ↔ HTML ↔ HTMX with islands, no leaked roots (heap snapshot), HMR edit after a soft navigation applies. |
 | 3 | Vue + Angular | Vue `<Link>` / vue-router and Angular `routerLink` hand off unmatched URLs; Angular zone and platform teardown verified. Exit: the Phase 1 suite for every framework pair (5×5 matrix in Playwright, prod + dev). |
 | 4 | Navigation API interception | `navigate` event `intercept()` where supported (forms, `location.assign`, programmatic), click/popstate fallback elsewhere; `config.navigation: true` injects `enableNavigation()` into every hydration index. Exit: suite passes in Chromium (Navigation API) and WebKit/Firefox (fallback). |
 | 5 | Persistent layouts | `data-absolute-persist` (2.4) plus layout-route emission. Exit: a React navbar island keeps state (input value, open menu) across React → Svelte → Vue. |
 
+## 4a. Island teardown (phase 2, shipped)
+
+`src/client/islandDisposers.ts` holds, for each hydrated island, the call
+that tears it down. The navigation layer runs them for everything inside
+the body it is about to replace, before the page's own
+`__ABSOLUTE_PAGE_DISPOSE__`. That order matters: a framework page root may
+own the markup an island is mounted into, so tearing the page down first
+detaches the island's host element and the island then unmounts against
+nodes that are already gone.
+
+Three things about it worth knowing:
+
+- **The store is on a `Symbol.for` key**, not module-level. Each
+  framework's client pass bundles its own copy of
+  `@absolutejs/absolute/client`, so a module-level collection would be one
+  store per copy: a React page's navigation layer would not see the
+  disposer its Svelte island registered. Same reason the island store
+  snapshot and the streaming-slot registrar live there.
+- **The hydrators register themselves.** `islandDisposers.ts` has no
+  imports, so nothing that imports it pulls in a framework. Each hydrator
+  is already loaded by a dynamic import only when an island of that
+  framework is on the page, and it registers its own disposer there —
+  React unmounts its root, Svelte awaits `unmount`, Vue unmounts its app,
+  and an Angular island is detached from the shared island application and
+  destroyed. The shared Angular application itself is left running: it is
+  created once per document and the next page's islands attach to it.
+- **Detached islands are pruned on every pass.** The store holds elements
+  strongly, so an island removed by its host framework rather than by a
+  navigation would be held here instead — one leak traded for a smaller
+  one. A `WeakSet` cannot be iterated, so it cannot answer "unmount
+  everything under this node".
+
+An island outside the swapped region is left mounted, which is the shape
+persistent layouts need (2.4, phase 5).
+
+Verified in `tests/integration/build/island-teardown-browser.test.ts` with
+a Svelte island on a React page — the case where the disposer and the
+navigation layer are in different bundle copies. The island runs an
+interval, and the test asserts the tick count stops moving after the
+navigation as well as that `onDestroy` ran: a flag could be set by a
+teardown that left the timer going.
+
 ## 5. Known limitations (phase 1)
 
-- Islands of the old page are not unmounted (memory only).
 - Only the layer's own bundle copy sees `<Link>` prefetches from its
   framework; a document prefetched by another framework's `<Link>` is
   still in the HTTP cache, so the fetch revalidates.

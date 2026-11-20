@@ -247,6 +247,17 @@ export const mountAngularIsland = async <Props extends Record<string, unknown>>(
 	componentRef.changeDetectorRef.detectChanges();
 	window.__ABS_ANGULAR_ISLAND_APPS__ ??= [];
 	window.__ABS_ANGULAR_ISLAND_APPS__.push(app);
+	/* So a soft navigation can tear this island down with the body it lives
+	 * in (client/islandDisposers.ts). Detached from the application before
+	 * it is destroyed, or the app keeps change-detecting a dead view. The
+	 * shared island application itself is deliberately left running: it is
+	 * created once per document and the next page's islands attach to it. */
+	const { registerIslandDisposer } =
+		await import('../client/islandDisposers');
+	registerIslandDisposer(element, () => {
+		app.detachView(componentRef.hostView);
+		componentRef.destroy();
+	});
 
 	return app;
 };

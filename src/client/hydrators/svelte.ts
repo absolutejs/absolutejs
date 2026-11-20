@@ -1,4 +1,5 @@
 import { hydrate as hydrateSvelte, mount, unmount } from 'svelte';
+import { registerIslandDisposer } from '../islandDisposers';
 
 const svelteIslandInstances = new WeakMap<
 	HTMLElement,
@@ -7,6 +8,19 @@ const svelteIslandInstances = new WeakMap<
 
 const isPropsRecord = (value: unknown): value is Record<string, unknown> =>
 	typeof value === 'object' && value !== null;
+
+/* So a soft navigation can unmount this instance with the body it lives in
+ * (client/islandDisposers.ts). Svelte's `unmount` is async, which is why
+ * the registry awaits its disposers. */
+const registerInstanceDisposer = (
+	element: HTMLElement,
+	instance: Record<string, unknown>
+) => {
+	registerIslandDisposer(element, async () => {
+		svelteIslandInstances.delete(element);
+		await unmount(instance);
+	});
+};
 
 export const hydrateSvelteIsland = (
 	component: import('svelte').Component<Record<string, unknown>>,
@@ -18,6 +32,7 @@ export const hydrateSvelteIsland = (
 		target: element
 	});
 	svelteIslandInstances.set(element, instance);
+	registerInstanceDisposer(element, instance);
 };
 
 export const isSvelteComponent = (
@@ -35,11 +50,10 @@ export const remountSvelteIsland = async (
 	const instance = svelteIslandInstances.get(element);
 	if (instance) await unmount(instance);
 	element.replaceChildren();
-	svelteIslandInstances.set(
-		element,
-		mount(component, {
-			props: isPropsRecord(props) ? props : undefined,
-			target: element
-		})
-	);
+	const next = mount(component, {
+		props: isPropsRecord(props) ? props : undefined,
+		target: element
+	});
+	svelteIslandInstances.set(element, next);
+	registerInstanceDisposer(element, next);
 };

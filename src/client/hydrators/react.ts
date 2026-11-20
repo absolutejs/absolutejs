@@ -6,6 +6,7 @@ import {
 } from 'react-dom/client';
 import { flushSync } from 'react-dom';
 import { prepareBrowserTranslationHydration } from '../browserTranslation';
+import { registerIslandDisposer } from '../islandDisposers';
 
 const reactIslandRoots = new WeakMap<HTMLElement, ReactRoot>();
 // The component each island root renders, for Fast Refresh (below).
@@ -13,6 +14,17 @@ const reactIslandComponents = new WeakMap<HTMLElement, unknown>();
 
 const isPropsRecord = (value: unknown): value is Record<string, unknown> =>
 	typeof value === 'object' && value !== null;
+
+/* So a soft navigation can unmount this root with the body it lives in
+ * (client/islandDisposers.ts). Registered per root rather than per
+ * element: a remount replaces the root, and the stale disposer with it. */
+const registerRootDisposer = (element: HTMLElement, root: ReactRoot) => {
+	registerIslandDisposer(element, () => {
+		reactIslandRoots.delete(element);
+		reactIslandComponents.delete(element);
+		root.unmount();
+	});
+};
 
 // The island marker is rendered by the host page's React tree as a
 // `dangerouslySetInnerHTML` boundary, so the host root tags it with internal
@@ -72,7 +84,10 @@ export const hydrateReactIsland = (
 		} finally {
 			restoreTranslation();
 		}
-		if (root !== undefined) reactIslandRoots.set(element, root);
+		if (root !== undefined) {
+			reactIslandRoots.set(element, root);
+			registerRootDisposer(element, root);
+		}
 		reactIslandComponents.set(element, component);
 	};
 
@@ -120,6 +135,7 @@ export const remountReactIsland = (
 		);
 	});
 	reactIslandRoots.set(element, root);
+	registerRootDisposer(element, root);
 	reactIslandComponents.set(element, component);
 };
 

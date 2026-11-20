@@ -36,6 +36,7 @@ import type {
 	EnableNavigationOptions,
 	NavigateDocumentOptions
 } from '../../types/navigation';
+import { disposeIslandsIn } from './islandDisposers';
 import { consumePrefetch } from './prefetch';
 
 /* Shared by every bundle copy of this module (each framework's client pass
@@ -915,6 +916,11 @@ const swapDocument = async (
 	// the callback it reads 0, which it then restores on a later back.
 	commitHistory(nav, request, loaded.url);
 	const swap = async () => {
+		// Islands first, then the page: a framework page root may own the
+		// markup an island is mounted into, so tearing the page down first
+		// detaches the island's host element and the island then unmounts
+		// against nodes that are already gone.
+		await disposeIslandsIn(document.body);
 		await disposeCurrentPage();
 		clearPageGlobals();
 		syncAttributes(
