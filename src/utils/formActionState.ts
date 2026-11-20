@@ -13,6 +13,14 @@ export const ACTION_FLASH_COOKIE = 'absolute_action';
 /* Same key as `REQUEST_STORAGE_KEY` in src/core/requestContext.ts. */
 const REQUEST_STORAGE_KEY = Symbol.for('absolutejs.requestAsyncLocalStorage');
 
+/* The server registers a verifier for the cookie's signature
+ * (src/core/formActionFlash.ts, which can import node:crypto). This module
+ * cannot: the typed client imports it, so it ships to the browser. With no
+ * verifier — in the browser — the signature is simply ignored, which costs
+ * nothing: a browser has no secret to check it with and no authority to
+ * act on the answer. */
+const FLASH_VERIFIER_KEY = Symbol.for('absolutejs.actionFlashVerifier');
+
 export type ActionFlash = {
 	/** The path the form posted to. */
 	action: string;
@@ -67,6 +75,36 @@ const decodeBase64Url = (value: string) => {
 	return new TextDecoder().decode(bytes);
 };
 
+/** Lets the server decide whether a cookie's signature is acceptable.
+ *  The verifier is given the raw cookie value and returns the payload to
+ *  decode, or undefined to reject the cookie outright. */
+export const registerActionFlashVerifier = (
+	verifier: (value: string) => string | undefined
+) => {
+	Reflect.set(globalThis, FLASH_VERIFIER_KEY, verifier);
+};
+
+/* `<payload>.<signature>`, or a bare payload from a version that did not
+ * sign. Split here so both sides agree on where the payload ends. */
+export const splitFlashValue = (value: string) => {
+	const separator = value.lastIndexOf('.');
+	if (separator <= 0 || separator === value.length - 1)
+		return { payload: value, signature: undefined };
+
+	return {
+		payload: value.slice(0, separator),
+		signature: value.slice(separator + 1)
+	};
+};
+
+const acceptedPayload = (value: string) => {
+	const verifier: unknown = Reflect.get(globalThis, FLASH_VERIFIER_KEY);
+	if (typeof verifier !== 'function') return splitFlashValue(value).payload;
+	const accepted: unknown = verifier(value);
+
+	return typeof accepted === 'string' ? accepted : undefined;
+};
+
 const decodeFlash = (value: string) => {
 	try {
 		const parsed: unknown = JSON.parse(decodeBase64Url(value));
@@ -102,7 +140,9 @@ export const getActionState = <Data = unknown, Fields extends string = string>(
 export const readActionFlash = (request: Request) => {
 	const value = cookieValue(request, ACTION_FLASH_COOKIE);
 	if (!value) return undefined;
-	const parsed = decodeFlash(value);
+	const payload = acceptedPayload(value);
+	if (payload === undefined) return undefined;
+	const parsed = decodeFlash(payload);
 	if (!isRecord(parsed)) return undefined;
 	const { action, result, route } = parsed;
 	if (typeof action !== 'string' || !isActionResult(result)) return undefined;

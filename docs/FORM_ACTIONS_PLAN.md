@@ -170,6 +170,11 @@ const signup = actions.useFormAction('/actions/signup', { initialState: signupSt
     - **Hand-built HTML or HTMX**, `csrfField()` returns the `<input>` markup, `csrfHeaders()` the header object, and `enhanceHtmxCsrf()` attaches the header to HTMX's own requests through `htmx:configRequest`.
   - All of them read the token through `readCsrfToken()` (`src/utils/csrfTokenRef.ts`), which is dependency-free and ships to the browser: on the server it calls the getter `formActions()` registered, and in the browser it reads the cookie. Because the cookie holds the token itself, both sides arrive at the same string, so a pre-rendered page can send a header for a token it was never able to embed. This mirrors `src/utils/cspNonceRef.ts`.
   - Angular components cannot import outside `src/angular/components` (the partial compile runs in a temp workspace), so `scripts/build.ts` rewrites that one specifier and publishes the helper beside the component, as it already does for the streaming-slot registrar.
+- **The result cookie (Phase 3, shipped).** `absolute_action` carries a no-JavaScript submission's result to the page it redirects to, and the server both writes and reads it — but anyone able to set a cookie for the site can forge one and make the next page render a result of their choosing. The rewriter escapes what it writes, so the exposure is a spoofed message rather than script, which is still worth refusing.
+  - The cookie is now `<payload>.<signature>`, signed with `ABSOLUTE_SECRET` under its own purpose (so a CSRF token's signature cannot stand in for it, or the reverse).
+  - Signing is active except in production with no secret configured. There, a generated key would be lost on restart and differ between instances, so a visitor would submit successfully and then see nothing; instead the cookie stays unsigned, is still accepted, and the server warns once naming the variable. Setting `ABSOLUTE_SECRET` is what turns the protection on.
+  - That is not a downgrade: whenever a secret is available, a cookie without a valid signature is **rejected** rather than merely preferred, so an attacker cannot strip the signature to reach the old behaviour.
+  - The verifier is registered for `readActionFlash` (`src/utils/formActionState.ts`), which the typed client imports and so cannot pull in `node:crypto` itself — the same indirection as the CSP nonce and the CSRF token.
   - `secureHeaders()` already sends `form-action 'self'`. The browser helpers emit no inline scripts. Any future inline bootstrap must use `nonceAttr()` (`src/utils/cspNonceRef.ts`).
 - **Auth.** An action is a route in the app, so the app's guards (`onBeforeHandle`, `.guard`) apply and its `derive` values reach the handler with their types (the reason for the `form` macro). A route-level `beforeHandle` runs after validation and sees the typed `body`, `fail` and derived values. Elysia checks what a route's own hooks return against the statuses the route declares, and a `form` route declares its 422, so the route's `beforeHandle` answers with one of these:
   - `status(401, 'Sign in first')`, after adding the status to the route's `response`. The route's map merges with the 422, and Eden gets the 401:
@@ -244,7 +249,7 @@ const signup = actions.useFormAction('/actions/signup', { initialState: signupSt
 ### Phase 3: hardening
 
 - ~~Signed CSRF tokens (`getCsrfToken`, `csrfField`, automatic in the helpers) as an opt-in `csrf: { token: true }`.~~ Shipped; see Security above.
-- A signed result cookie.
+- ~~A signed result cookie.~~ Shipped; see Security above.
 - Streaming byte limits for chunked bodies.
 - Nested-object and array-of-object field paths (`address.city`, `items[0].qty`) in normalisation and value echo.
 - Optimistic updates (`optimistic(formData)` in the hook).
