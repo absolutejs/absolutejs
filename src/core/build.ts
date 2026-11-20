@@ -55,6 +55,11 @@ import {
 	writeDefaultIslandBootstrap
 } from '../build/islandBootstrap';
 import {
+	createClientProcessEnvPlugin,
+	createServerOnlyPlugin,
+	resolveClientProcessEnvMode
+} from '../build/clientServerBoundary';
+import {
 	createMissingClientFrameworkPlugin,
 	resolveMissingClientFrameworks
 } from '../build/missingClientFrameworks';
@@ -1021,6 +1026,7 @@ const buildUnlocked = async ({
 	postcss,
 	tailwind,
 	bunBuild: bunBuildConfig,
+	clientBoundary,
 	options,
 	incrementalFiles,
 	mode,
@@ -2637,6 +2643,30 @@ const buildUnlocked = async ({
 	const missingClientFrameworkPlugins = missingClientFrameworkPlugin
 		? [missingClientFrameworkPlugin]
 		: [];
+	/* The server/client boundary, on every BROWSER pass and none of the
+	 * others: a module marked `@absolutejs/absolute/server-only` fails the
+	 * pass that resolved it, and an unguarded `process.env.X` in the
+	 * project's own client code is reported instead of left to throw
+	 * `ReferenceError: process is not defined` in a visitor's browser.
+	 * See src/build/clientServerBoundary.ts for why dev warns rather than
+	 * failing the pass. */
+	const clientProcessEnvMode = resolveClientProcessEnvMode(
+		clientBoundary?.processEnv,
+		hmr
+	);
+	const clientBoundaryPlugins = (define: Record<string, string>) => [
+		createServerOnlyPlugin(projectRoot),
+		...(clientProcessEnvMode === 'off'
+			? []
+			: [
+					createClientProcessEnvPlugin({
+						define,
+						generatedRoot,
+						mode: clientProcessEnvMode,
+						projectRoot
+					})
+				])
+	];
 	// Third-party Angular libraries (ngx-markdown, ngx-datatable, etc.)
 	// ship `ɵɵngDeclare*` partials and need linker processing — they're
 	// detected by `collectTransitiveAngularSpecs` and get a vendor/server
@@ -2700,6 +2730,7 @@ const buildUnlocked = async ({
 								}
 							: {}),
 						plugins: [
+							...clientBoundaryPlugins(clientDefine),
 							...missingReactRouterPlugins,
 							stylePreprocessorPlugin,
 							...islandRegistryPlugins
@@ -2809,6 +2840,9 @@ const buildUnlocked = async ({
 								naming: `[dir]/[name].[hash].[ext]`,
 								outdir: buildPath,
 								plugins: [
+									...clientBoundaryPlugins(
+										clientDefineWithVue
+									),
 									...missingReactRouterPlugins,
 									...missingClientFrameworkPlugins,
 									stylePreprocessorPlugin,
@@ -2875,6 +2909,7 @@ const buildUnlocked = async ({
 								naming: `[dir]/[name].[hash].[ext]`,
 								outdir: buildPath,
 								plugins: [
+									...clientBoundaryPlugins(clientDefine),
 									...missingClientFrameworkPlugins,
 									stylePreprocessorPlugin
 								],
@@ -2916,6 +2951,9 @@ const buildUnlocked = async ({
 								// (client/hydrators/react.ts).
 								...(hmr ? { reactFastRefresh: true } : {}),
 								plugins: [
+									...clientBoundaryPlugins(
+										clientDefineWithVue
+									),
 									...missingReactRouterPlugins,
 									...missingClientFrameworkPlugins,
 									stylePreprocessorPlugin,

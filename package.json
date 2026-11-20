@@ -209,6 +209,10 @@
 			"import": "./dist/react/server.js",
 			"types": "./dist/src/react/server.d.ts"
 		},
+		"./server-only": {
+			"import": "./dist/serverOnly.js",
+			"types": "./dist/src/serverOnly.d.ts"
+		},
 		"./style-module-shim": {
 			"types": "./dist/types/style-module-shim.d.ts"
 		},

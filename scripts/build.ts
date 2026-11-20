@@ -154,6 +154,9 @@ const SERVER_ENTRY_POINTS = [
 	'src/runtime/clientAssetArchive.ts',
 	'src/index.ts',
 	'src/build.ts',
+	// Published as `@absolutejs/absolute/server-only`. Its own entry point,
+	// not a re-export: importing it must pull in nothing else.
+	'src/serverOnly.ts',
 	'src/tunnel.ts',
 	'src/angular/index.ts',
 	'src/angular/browser.ts',

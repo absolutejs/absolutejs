@@ -565,6 +565,27 @@ export type BaseBuildConfig = {
 	mobile?: MobileConfig;
 	/** Generate and bootstrap one framework-agnostic installable web app. */
 	pwa?: PwaConfig;
+	/** What the build enforces at the server/client boundary.
+	 *
+	 *  A module that must never reach a browser bundle says so with
+	 *  `import '@absolutejs/absolute/server-only'`, and that is not
+	 *  configurable: shipping it to a browser is always a build error. */
+	clientBoundary?: {
+		/** `process.env.X` in your own client code. Bun does not inline it,
+		 *  so the reference survives into the bundle and throws
+		 *  `ReferenceError: process is not defined` in the browser —
+		 *  nothing leaks, but the page breaks. `'error'` fails the build,
+		 *  `'warn'` logs the file and line, `'off'` skips the check.
+		 *
+		 *  Default: `'error'` for `absolute build`, `'warn'` under
+		 *  `absolute dev`, where failing a bundling pass would take down
+		 *  every page in it rather than the one module at fault.
+		 *
+		 *  `process.env.NODE_ENV` is always allowed (Bun substitutes it),
+		 *  as is any key the pass's `define` substitutes, and any read
+		 *  tested with `typeof process !== 'undefined'`. */
+		processEnv?: 'error' | 'off' | 'warn';
+	};
 	stylesConfig?: string | StylesConfig;
 	stylePreprocessors?: StylePreprocessorConfig;
 	postcss?: PostCSSConfig;
