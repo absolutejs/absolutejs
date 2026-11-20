@@ -24,6 +24,7 @@ repro retires an entry**.
 | 7   | `Bun.Transpiler` ignores `reactFastRefresh`       | bun#32919 (ours) open                            | No (1.4.4)  |
 | 8   | `Bun.serve` binds a port another server holds     | not filed yet                                    | No (1.4.4)  |
 | 9   | A thrown Vue render leaks `getCurrentInstance()`  | not filed yet                                    | No (3.5.27) |
+| 10  | `node:net` `listen` does not raise `EADDRINUSE`   | not filed yet                                    | No (1.4.4)  |
 
 The Bun entries (#5, #6, #7) were re-run on **Bun 1.4.3** on 2026-10-12, and
 all three still reproduce. 1.4.3's React Fast Refresh fixes are in the dev
@@ -393,6 +394,49 @@ const Boom = defineComponent({
 await renderToString(createSSRApp(Boom)).catch(() => undefined);
 console.log(getCurrentInstance() !== null);
 ```
+
+## 10. `node:net`'s `listen` does not raise `EADDRINUSE` on an occupied port
+
+- **Dependency:** Bun (`bun`)
+- **Status:** **reproduces on Bun 1.4.4** (macOS and Linux, checked
+  2026-11-20). Not filed upstream yet. Close relative of #8, which is the
+  same gap in `Bun.serve`.
+
+**Symptom.** Two `node:net` servers take the same port silently. The
+second `listen` succeeds and no `'error'` event is emitted, where Node
+raises `EADDRINUSE`.
+
+**What it costs us.** It defeats the standard way of asking "is anyone
+listening here". `resolveDevPort` (`src/utils/resolveDevPort.ts`) used a
+`node:net` bind for exactly that question — and chose `node:net`
+deliberately, because `Bun.serve` was already unreliable for it (#8). So
+an occupied dev port looked free, `fellBack` stayed `false`, and two
+`absolute dev` servers each believed they had resolved the same port.
+Three tests in `tests/integration/dev/port-fallback.test.ts` failed on
+this, on CI and locally.
+
+**Probe** (prints the second listen succeeding):
+
+```ts
+import { createServer } from 'node:net';
+
+const first = createServer();
+await new Promise((done) => first.listen(0, 'localhost', done));
+const { port } = first.address();
+const second = createServer();
+console.log(
+	await new Promise((done) => {
+		second.once('error', (error) => done(`error: ${error.code}`));
+		second.listen(port, 'localhost', () => done('LISTENED'));
+	})
+);
+```
+
+**Workaround.** `src/utils/portProbe.ts` asks by connecting instead of
+binding: nothing of ours is listening, so an accepted connection is
+somebody else's server. Both the dev server's early listener and its port
+resolution now share it. The probe fails open, because a dev server that
+refuses to start is worse than one that shares a port.
 
 ## Resolved
 
