@@ -91,7 +91,7 @@ const CONFIG = `import { defineConfig } from '@absolutejs/absolute';
 export default defineConfig({
 	buildDirectory: './build',
 	reactDirectory: './react',
-	static: { revalidate: 2, routes: ['/react', '/svelte'] },
+	static: { revalidate: 2, routes: ['/react', '/svelte', '/docs/guide'] },
 	svelteDirectory: './svelte'
 });
 `;
@@ -121,6 +121,15 @@ export const server = new Elysia()
 			props: { user: userFrom(request) }
 		});
 	})
+	// A nested route: its file is \`_prerendered/docs/guide.html\`, and the
+	// echoed user proves which render answered — the cache was taken at
+	// build time with no cookie, so a dynamic render would say \`ada\`.
+	.get('/docs/guide', ({ request }) =>
+		new Response(
+			\`<!doctype html><html><head><title>Guide</title></head><body><p id="user">\${userFrom(request)}</p></body></html>\`,
+			{ headers: { 'content-type': 'text/html; charset=utf-8' } }
+		)
+	)
 	.get('/svelte', ({ request }) =>
 		handleSveltePageRequest({
 			collectStreamingSlots: true,
@@ -290,6 +299,27 @@ describe('partial prerendering under absolute start', () => {
 			'shell'
 		);
 		expect(forged.firstByteMs).toBeLessThan(SLOW_HANDLER_MS);
+	});
+
+	/* A nested route used to write `docs-guide.html`, which `prepare()`
+	 * read back as the route `/docs-guide`. So `/docs/guide` missed its own
+	 * cache and rendered on every request, while its HTML answered a URL
+	 * nobody pre-rendered. */
+	test('a nested route is stored at its own path and served from it', async () => {
+		expect(existsSync(prerendered('docs/guide.html'))).toBe(true);
+		// Not the flattened name, which would collide with a `/docs-guide`
+		// route and read back as the wrong URL.
+		expect(existsSync(prerendered('docs-guide.html'))).toBe(false);
+
+		const cached = await fetch(`http://localhost:${PORT}/docs/guide`, {
+			headers: { cookie: 'user=ada' }
+		});
+		const html = await cached.text();
+
+		// The cache was taken at build time with no cookie. `ada` here
+		// would mean the route rendered dynamically instead.
+		expect(html).toContain('>guest<');
+		expect(html).not.toContain('>ada<');
 	});
 
 	test('the build stores each route as a shell with its holes', async () => {
