@@ -5,6 +5,20 @@
 		{
 			"changes": [
 				{
+					"detail": "Token mode promised that a pre-rendered or static page, which cannot embed a per-visitor token, would have its browser helpers read the absolute_csrf cookie and send it as a header. The cookie was only issued by a page that rendered a token, so a visitor whose first stop was such a page had no cookie, the helpers had nothing to send, and every submission from that page was refused — with or without JavaScript. Once any route opts into tokens, every HTML page now issues the cookie, including pages that embed nothing. Only a page that embedded the token is marked private, no-store; a page that merely received the cookie keeps its caching, which is the point of pre-rendering it. An app with no token routes issues no cookie and still needs no secret. Found by the browser matrix that is Phase 3's exit criterion, which reaches the app through a proxy stripping Origin and Sec-Fetch-Site. Note the limitation that remains: a static HTML page under token mode needs JavaScript, because there is no field to render into one file served to every visitor.",
+					"kind": "fixed",
+					"summary": "A static or pre-rendered page can submit under CSRF token mode",
+					"symbols": [
+						"getCsrfToken"
+					]
+				}
+			],
+			"date": "2026-11-20",
+			"version": "0.20.0-beta.217"
+		},
+		{
+			"changes": [
+				{
 					"detail": "A POST to a form route with no content-type gave Elysia nothing to parse, so the body stayed undefined and the schema reported a single error against the whole body: `{ '': 'must be object' }`. A form shows its errors next to fields, so that message had nowhere to render, and `must be object` is the validator's own language rather than anything a visitor should read. Such a submission is now validated as an empty object, which reports every required field as Required — the shape the rest of the pipeline already expects. A request that declares a content-type is parsed exactly as before. Validation was never skipped and the handler never ran, so this changes the errors a malformed submission reports, not whether it is rejected.",
 					"kind": "fixed",
 					"summary": "A submission with no content-type reports per-field errors",

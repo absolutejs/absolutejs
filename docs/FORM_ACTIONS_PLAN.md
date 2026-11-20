@@ -163,7 +163,9 @@ const signup = actions.useFormAction('/actions/signup', { initialState: signupSt
   - `getCsrfToken()` reads the current request through `getCurrentAbsoluteRequest()` and mints on first use, exactly as `getCspNonce()` does. The response hook in `formActionFlash.ts` sets the cookie for a request that minted one, and marks any page carrying a token `cache-control: private, no-store` — the HTML is bound to one visitor's cookie, so a shared cache must not hand it to another.
   - The header is checked where the origin check already sits; the field has to wait for `transform`, because the body does not exist in `parse`. The token is deleted from the body afterwards, so it never reaches the schema or the echoed values.
   - The HMAC key is `ABSOLUTE_SECRET` (`src/utils/signingSecret.ts`). Production refuses to invent one — a per-process key would pass a smoke test and then reject real submissions after a restart or on a second instance. Development generates one silently.
-  - Prerendered pages can't embed a per-visitor token, so there `enhanceForms` / `useFormAction` read the cookie and send the header. That is why the cookie is not HttpOnly.
+  - Pre-rendered and static pages can't embed a per-visitor token, so there `enhanceForms` / `useFormAction` read the cookie and send the header. That is why the cookie is not HttpOnly.
+  - For that to work the cookie has to exist before any such page needs it, so once **any** route opts into tokens, every HTML page issues one — including pages that embed nothing. A visitor whose first stop was a static page previously had no cookie, so the helpers had nothing to send and every submission from that page was refused. Only a page that *embedded* the token is marked `private, no-store`; a page that merely received the cookie is the same bytes for everyone and keeps its caching, which is the point of pre-rendering it. An app with no token routes issues no cookie and needs no secret.
+  - **A static HTML page under token mode needs JavaScript.** It is one file for every visitor, so there is no field to render into it, and behind a header-stripping proxy nothing else identifies the submission. Such a page needs JavaScript, a framework page, or token mode off. The matrix pins this down rather than leaving it to be discovered.
   - How a form gets the token:
     - **With JavaScript, automatically.** `submitFormAction` — which every binding and `enhanceForms` goes through — sends the `x-absolute-csrf` header whenever the cookie is readable. Nothing to add.
     - **Without JavaScript**, the token has to be in the markup, so each framework has a component: `<CsrfField />` (React, Vue), `CsrfField.svelte`, `<absolute-csrf-field />` (Angular). Each renders the hidden field, or nothing when there is no token.
@@ -258,7 +260,7 @@ const signup = actions.useFormAction('/actions/signup', { initialState: signupSt
 - Nested-object and array-of-object field paths (`address.city`, `items[0].qty`) in normalisation and value echo.
 - Optimistic updates (`optimistic(formData)` in the hook).
 - Exit:
-  - token mode passes the matrix with `Sec-Fetch-Site` stripped by a proxy;
+  - ~~token mode passes the matrix with `Sec-Fetch-Site` stripped by a proxy~~ — `tests/integration/server/form-actions-csrf-token.test.ts`: the app is reached through a proxy that strips `Origin`, `Sec-Fetch-Site` and `Sec-Fetch-Mode`, a control route proves a cross-site post is accepted without tokens in that setup, and a real browser drives a React page with JavaScript off and a static HTML page with it on;
   - fuzzed cookies never break rendering;
   - an oversized chunked upload gets 413.
 

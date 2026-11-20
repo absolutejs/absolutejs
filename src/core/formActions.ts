@@ -22,7 +22,7 @@ import {
 	ACTION_REQUEST_HEADER,
 	isActionResult
 } from '../utils/formActionProtocol';
-import { verifyCsrfToken } from './csrfToken';
+import { enableCsrfCookies, verifyCsrfToken } from './csrfToken';
 
 import {
 	encodeActionFlash,
@@ -734,6 +734,10 @@ const formMacro = (value: FormActionValue) => {
 		preserveValues: options.preserveValues !== false,
 		redirect: options.redirect
 	};
+	// A page cannot ask for a token it was never given a cookie for, and
+	// the page that carries one is not this route, so the cookie has to be
+	// issued with every HTML page once any route wants a token.
+	if (options.csrf !== false && options.csrf?.token) enableCsrfCookies();
 
 	return {
 		$type: macroType<FormActionMacroType>(),

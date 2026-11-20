@@ -56,7 +56,14 @@ const COOKIE_MAX_AGE_SECONDS = 28_800;
  * framework entry carry their own copy of this module, exactly as
  * cspNonce.ts does, and a token minted by the renderer has to be visible
  * to the response hook that sets the cookie. */
-type IssuedToken = { minted: boolean; value: string };
+type IssuedToken = {
+	/** Whether a renderer put this token in the page's markup. Only then
+	 *  is the HTML one visitor's and uncacheable; a page that merely
+	 *  received the cookie is the same bytes for everyone. */
+	embedded: boolean;
+	minted: boolean;
+	value: string;
+};
 
 const ISSUED_KEY = Symbol.for('absolutejs.csrfIssued');
 
@@ -80,8 +87,19 @@ const cookieValue = (request: Request, name: string) => {
 	return undefined;
 };
 
+/* Set by the `form` macro when a route opts into tokens, so an app that
+ * uses none never issues a cookie and never needs a secret. Process-wide
+ * rather than per route, because the page that has to carry the token is
+ * not the route that checks it. */
+let cookiesEnabled = false;
+
+/** Called by the `form` macro for a route with `csrf: { token: true }`. */
+export const enableCsrfCookies = () => {
+	cookiesEnabled = true;
+};
+
 const tokenFor = (value: string | undefined) =>
-	value === undefined ? undefined : { minted: false, value };
+	value === undefined ? undefined : { embedded: false, minted: false, value };
 
 const mintToken = () => {
 	const random = Buffer.from(
@@ -89,6 +107,7 @@ const mintToken = () => {
 	).toString('base64url');
 
 	return {
+		embedded: false,
 		minted: true,
 		value: `${random}.${signValue(PURPOSE, random, signingSecret())}`
 	};
@@ -112,11 +131,28 @@ export const csrfSetCookie = (request: Request, secure: boolean) => {
 	].join('; ');
 };
 
-/** Whether a token was handed out while answering this request, minted or
- *  not — meaning the page it is rendering embeds one visitor's token and
- *  must not be served to another from a shared cache. */
-export const csrfTokenIssued = (request: Request) =>
-	issuedTokens().has(request);
+/** Whether a renderer embedded this request's token in the page, which
+ *  makes the HTML one visitor's and so unservable to another from a shared
+ *  cache. False for a page that was only given the cookie. */
+export const csrfTokenEmbedded = (request: Request) =>
+	issuedTokens().get(request)?.embedded === true;
+
+/** Gives this request a token if the app uses them and it arrived without
+ *  one, so the cookie exists before any page needs it.
+ *
+ *  A static or pre-rendered page cannot embed a per-visitor token — it is
+ *  one file for every visitor — so there the browser helpers read the
+ *  cookie and send the header instead. That only works if the cookie is
+ *  already there, and nothing had issued it: a visitor whose first stop
+ *  was such a page had no cookie, so the helpers had nothing to send and
+ *  every submission was refused. Issuing it with the page closes that,
+ *  and costs a cookie on apps that opted into tokens. */
+export const ensureCsrfCookie = (request: Request) => {
+	if (!cookiesEnabled) return;
+	const issued = issuedTokens();
+	if (issued.has(request) || cookieValue(request, CSRF_COOKIE_NAME)) return;
+	issued.set(request, mintToken());
+};
 
 /** The token to put in a form's hidden `_csrf` field.
  *
@@ -135,7 +171,7 @@ export const getCsrfToken = (
 		issued.get(request) ??
 		tokenFor(cookieValue(request, CSRF_COOKIE_NAME)) ??
 		mintToken();
-	issued.set(request, existing);
+	issued.set(request, { ...existing, embedded: true });
 
 	return existing.value;
 };

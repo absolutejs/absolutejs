@@ -21,7 +21,12 @@ import {
 	signingSecret,
 	verifyValue
 } from '../utils/signingSecret';
-import { csrfSetCookie, csrfTokenIssued, registerCsrfToken } from './csrfToken';
+import {
+	csrfSetCookie,
+	csrfTokenEmbedded,
+	ensureCsrfCookie,
+	registerCsrfToken
+} from './csrfToken';
 
 export { ACTION_FLASH_COOKIE, readActionFlash };
 export type { ActionFlash };
@@ -338,17 +343,26 @@ const isHtmlResponse = (response: Response) =>
  *  Returns undefined when there is nothing to add, so the response passes
  *  through untouched on every page that uses no token. */
 export const attachCsrfCookie = (request: Request, response: unknown) => {
-	if (!(response instanceof Response) || !csrfTokenIssued(request))
-		return undefined;
+	if (!(response instanceof Response)) return undefined;
+	// A page that embeds no token still needs the cookie, or a static or
+	// pre-rendered page has nothing for its helpers to send.
+	if (request.method === 'GET' && isHtmlResponse(response))
+		ensureCsrfCookie(request);
 	const secure = new URL(request.url).protocol === 'https:';
 	const cookie = csrfSetCookie(request, secure);
+	const embedded = csrfTokenEmbedded(request);
+	if (!cookie && !embedded) return undefined;
 	const headers = new Headers(response.headers);
 	if (cookie) headers.append('set-cookie', cookie);
-	// The HTML holds a token bound to this visitor's cookie. Served to
-	// anyone else from a CDN it would fail the check, so the page that
-	// embeds one is private by construction.
-	headers.set('cache-control', 'private, no-store');
-	headers.delete('etag');
+	// Only a page that embedded the token is one visitor's. Served to
+	// anyone else from a CDN it would fail the check, so it must not be
+	// cached — while a page that merely received the cookie is the same
+	// bytes for everyone and keeps its caching, which is the whole point
+	// of pre-rendering it.
+	if (embedded) {
+		headers.set('cache-control', 'private, no-store');
+		headers.delete('etag');
+	}
 
 	return new Response(response.body, {
 		headers,
