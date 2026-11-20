@@ -42,7 +42,9 @@ import {
 	type ActionResult
 } from '@absolutejs/absolute';
 import { handleReactPageRequest } from '@absolutejs/absolute/react';
+import { handleSveltePageRequest } from '@absolutejs/absolute/svelte';
 import { Signup } from './react/pages/Signup';
+import SvelteSignup from './svelte/pages/SvelteSignup.svelte';
 
 const escapeHtml = (value: string) =>
 	value.replace(/[&<>"]/g, (char) => \`&#\${char.charCodeAt(0)};\`);
@@ -56,6 +58,13 @@ export const server = new Elysia()
 		handleReactPageRequest({
 			Page: Signup,
 			index: asset(manifest, 'SignupIndex'),
+			props: { signupState: getActionState('/actions/signup') ?? null }
+		})
+	)
+	.get('/svelte', () =>
+		handleSveltePageRequest<typeof SvelteSignup>({
+			indexPath: asset(manifest, 'SvelteSignupIndex'),
+			pagePath: asset(manifest, 'SvelteSignup'),
 			props: { signupState: getActionState('/actions/signup') ?? null }
 		})
 	)
@@ -110,6 +119,49 @@ export const server = new Elysia()
 		({ body }) => ({ email: body.email })
 	)
 	.use(networking);
+`;
+
+const SIGNUP_SVELTE = `<script lang="ts">
+	import { formAction } from '@absolutejs/absolute/svelte';
+	import type { ActionState } from '@absolutejs/absolute';
+
+	type Props = { signupState: ActionState<{ greeting: string }, 'email' | 'name'> | null };
+
+	const { signupState }: Props = $props();
+	const signup = formAction<{ greeting: string }, 'email' | 'name'>(
+		'/actions/signup',
+		{ initialState: signupState }
+	);
+	// The fields live in component state, seeded from what a no-JS
+	// submission left behind. That covers both paths: SSR renders the
+	// seeded value into \`value\`, so the no-JS refill survives, and after
+	// hydration typing updates the state, so the re-render that shows an
+	// error cannot wipe it. A plain \`value={...}\` is re-applied on every
+	// re-render, and \`defaultValue\` is not rendered server-side.
+	const refill =
+		signupState?.status === 'error' ? (signupState.values ?? {}) : {};
+	let name = $state(typeof refill.name === 'string' ? refill.name : '');
+	let email = $state(typeof refill.email === 'string' ? refill.email : '');
+	let hydrated = $state(false);
+	$effect(() => {
+		hydrated = true;
+	});
+	$effect(() => {
+		if ($signup.state.status !== 'success') return;
+		name = '';
+		email = '';
+	});
+</script>
+
+<p id="hydrated">{hydrated ? 'yes' : 'no'}</p>
+<form {...signup.formProps} use:signup.enhance>
+	<input name="name" bind:value={name} />
+	{#if $signup.errors.name}<p id="name-error">{$signup.errors.name}</p>{/if}
+	<input name="email" bind:value={email} />
+	{#if $signup.errors.email}<p id="email-error">{$signup.errors.email}</p>{/if}
+	<button disabled={$signup.pending}>Join</button>
+</form>
+{#if $signup.data}<p id="welcome">{$signup.data.greeting}</p>{/if}
 `;
 
 const SIGNUP_TSX = `import { useEffect, useState } from 'react';
@@ -235,6 +287,7 @@ const writeProject = async (projectRoot: string) => {
 	await Promise.all(
 		[
 			'react/pages',
+			'svelte/pages',
 			'html/pages',
 			'html/scripts',
 			'htmx/pages',
@@ -271,12 +324,17 @@ export default defineConfig({
 	htmlDirectory: './html',
 	htmxDirectory: './htmx',
 	publicDirectory: './public',
-	reactDirectory: './react'
+	reactDirectory: './react',
+	svelteDirectory: './svelte'
 });
 `
 		),
 		writeFile(join(projectRoot, 'server.ts'), SERVER_TS),
 		writeFile(join(projectRoot, 'react/pages/Signup.tsx'), SIGNUP_TSX),
+		writeFile(
+			join(projectRoot, 'svelte/pages/SvelteSignup.svelte'),
+			SIGNUP_SVELTE
+		),
 		writeFile(join(projectRoot, 'html/pages/Contact.html'), CONTACT_HTML),
 		writeFile(
 			join(projectRoot, 'html/scripts/enhance-contact.ts'),
@@ -425,6 +483,38 @@ describe('form actions without JavaScript', () => {
 			expect(await page.locator('#welcome').count()).toBe(0);
 		}));
 
+	test('Svelte page: errors and typed values come back after the redirect, success shows the data', () =>
+		withSession(false, async ({ page }) => {
+			await page.goto(`${BASE}/svelte`);
+			expect(await page.textContent('#hydrated')).toBe('no');
+			await page.fill('input[name="name"]', 'A');
+			await page.fill('input[name="email"]', 'nope');
+			await Promise.all([
+				page.waitForURL(`${BASE}/svelte`),
+				page.click('button')
+			]);
+			await page.waitForSelector('#name-error');
+			expect(await page.textContent('#name-error')).toBe(
+				'Name must be at least 2 characters'
+			);
+			expect(await page.textContent('#email-error')).toBe(
+				'Enter a valid email'
+			);
+			// `getActionState` reaches the page as a prop, so the values the
+			// user typed are rendered server-side into the form.
+			expect(await page.inputValue('input[name="name"]')).toBe('A');
+			expect(await page.inputValue('input[name="email"]')).toBe('nope');
+
+			await page.fill('input[name="name"]', 'Ada');
+			await page.fill('input[name="email"]', 'ada@example.com');
+			await page.click('button');
+			await page.waitForSelector('#welcome');
+			expect(await page.textContent('#welcome')).toBe('Welcome, Ada');
+
+			await page.reload();
+			expect(await page.locator('#welcome').count()).toBe(0);
+		}));
+
 	test('static HTML page: the server writes the errors and values into the form; success redirects', () =>
 		withSession(false, async ({ page }) => {
 			await page.goto(`${BASE}/html`);
@@ -504,6 +594,40 @@ describe('form actions with JavaScript', () => {
 			await page.click('button');
 			await page.waitForSelector('#welcome');
 			expect(await page.textContent('#welcome')).toBe('Welcome, Grace');
+			expect(await page.inputValue('input[name="name"]')).toBe('');
+			expect(await windowMarked(page)).toBe(true);
+			expect(cspErrors).toEqual([]);
+		}));
+
+	test('Svelte page: use:enhance submits without a reload', () =>
+		withSession(true, async ({ cspErrors, page }) => {
+			await page.goto(`${BASE}/svelte`);
+			await page.waitForFunction(
+				() => document.querySelector('#hydrated')?.textContent === 'yes'
+			);
+			await markWindow(page);
+			await page.fill('input[name="name"]', 'taken');
+			await page.fill('input[name="email"]', 'nope');
+			await page.click('button');
+			await page.waitForSelector('#email-error');
+			expect(await page.textContent('#email-error')).toBe(
+				'Enter a valid email'
+			);
+			expect(await page.locator('#name-error').count()).toBe(0);
+			expect(await page.inputValue('input[name="name"]')).toBe('taken');
+
+			await page.fill('input[name="email"]', 'taken@example.com');
+			await page.click('button');
+			await page.waitForSelector('#name-error');
+			expect(await page.textContent('#name-error')).toBe(
+				'That name is taken'
+			);
+
+			await page.fill('input[name="name"]', 'Grace');
+			await page.click('button');
+			await page.waitForSelector('#welcome');
+			expect(await page.textContent('#welcome')).toBe('Welcome, Grace');
+			// Reset after a success, and the page never navigated.
 			expect(await page.inputValue('input[name="name"]')).toBe('');
 			expect(await windowMarked(page)).toBe(true);
 			expect(cspErrors).toEqual([]);
