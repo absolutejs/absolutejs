@@ -2,6 +2,7 @@ import { mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { StaticConfig } from '../../types/build';
 import { PARTIAL_SHELL_HEADER, writePartialHoles } from './partialPrerender';
+import { ACTION_FLASH_COOKIE } from '../utils/formActionState';
 import { renderedNonce, writeRenderedNonce } from './prerenderNonce';
 
 export type PrerenderFailure = {
@@ -63,9 +64,29 @@ export const PRERENDER_BYPASS_TOKEN = readBypassToken();
 export const isPrerenderBypass = (request: Request) =>
 	request.headers.get(PRERENDER_BYPASS_HEADER) === PRERENDER_BYPASS_TOKEN;
 
-/** Convert a URL path to a filename: "/" → "index.html", "/vue" → "vue.html" */
+/* Matches the cookie by NAME: a bare `includes` would also fire on a
+ * cookie whose name merely contains this one, or on a value that happens
+ * to mention it. */
+const ACTION_FLASH_COOKIE_RE = new RegExp(`(?:^|;\\s*)${ACTION_FLASH_COOKIE}=`);
+
+/** Whether this request must not be answered from the pre-rendered file.
+ *
+ *  Two reasons, both of which would otherwise show the visitor a stale
+ *  page:
+ *
+ *  - the server's own re-render and hole requests, which carry this
+ *    process's bypass token;
+ *  - a form posted without JavaScript, which redirects back with its
+ *    result in the one-shot `absolute_action` cookie. The cached file was
+ *    rendered before that submission, so serving it would show a form
+ *    with no errors and nothing typed back — the submission would look
+ *    ignored. The route renders instead and reads the cookie through
+ *    `getActionState`; its response is `no-store`, so nothing is cached. */
 export const routeToFilename = (route: string) =>
 	route === '/' ? 'index.html' : `${route.slice(1).replace(/\//g, '-')}.html`;
+export const shouldSkipPrerendered = (request: Request) =>
+	isPrerenderBypass(request) ||
+	ACTION_FLASH_COOKIE_RE.test(request.headers.get('cookie') ?? '');
 
 /** Write a timestamp file alongside the pre-rendered HTML */
 const writeTimestamp = async (htmlPath: string) => {

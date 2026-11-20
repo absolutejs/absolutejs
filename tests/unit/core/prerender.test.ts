@@ -6,7 +6,8 @@ import {
 	PRERENDER_BYPASS_HEADER,
 	PRERENDER_BYPASS_TOKEN,
 	isPrerenderBypass,
-	prerender
+	prerender,
+	shouldSkipPrerendered
 } from '../../../src/core/prerender';
 
 describe('prerender bypass', () => {
@@ -25,6 +26,52 @@ describe('prerender bypass', () => {
 
 	test('the token is not a guessable constant', () => {
 		expect(PRERENDER_BYPASS_TOKEN.length).toBeGreaterThanOrEqual(32);
+	});
+});
+
+describe('skipping the pre-rendered file', () => {
+	const withCookie = (cookie: string) =>
+		new Request('http://localhost/', { headers: { cookie } });
+
+	test('an ordinary visitor is served the cached file', () => {
+		expect(shouldSkipPrerendered(new Request('http://localhost/'))).toBe(
+			false
+		);
+		expect(shouldSkipPrerendered(withCookie('theme=dark'))).toBe(false);
+	});
+
+	test("the server's own re-render request skips it", () => {
+		expect(
+			shouldSkipPrerendered(
+				new Request('http://localhost/', {
+					headers: {
+						[PRERENDER_BYPASS_HEADER]: PRERENDER_BYPASS_TOKEN
+					}
+				})
+			)
+		).toBe(true);
+	});
+
+	test('a form result waiting in the cookie skips it', () => {
+		// Without this the visitor gets the page as it was built: no
+		// errors, nothing typed back, their submission apparently ignored.
+		expect(shouldSkipPrerendered(withCookie('absolute_action=abc'))).toBe(
+			true
+		);
+		expect(
+			shouldSkipPrerendered(withCookie('theme=dark; absolute_action=abc'))
+		).toBe(true);
+	});
+
+	test('a lookalike cookie does not skip it', () => {
+		// Matched by name, so neither a longer name nor a value that
+		// mentions it counts.
+		expect(
+			shouldSkipPrerendered(withCookie('absolute_action_other=1'))
+		).toBe(false);
+		expect(
+			shouldSkipPrerendered(withCookie('theme=absolute_action=nope'))
+		).toBe(false);
 	});
 });
 
