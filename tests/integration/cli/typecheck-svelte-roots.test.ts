@@ -127,6 +127,18 @@ const failedLabels = (output: string) =>
 const occurrences = (text: string, needle: string) =>
 	text.split(needle).length - 1;
 
+/* Fails with the checker's own output, so a run that reports something
+ * twice shows which lines repeated and under which heading. The count
+ * alone ("Expected 1, Received 2") is what three CI failures said for
+ * four days without saying what had doubled. */
+const expectReportedOnce = (label: string, text: string, pattern: RegExp) => {
+	const hits = text.match(pattern) ?? [];
+	if (hits.length === 1) return;
+	throw new Error(
+		`Expected ${String(pattern)} once under ${label}, found ${hits.length}. Output:\n${text}`
+	);
+};
+
 beforeAll(async () => {
 	await ensureDistBuild();
 	projectRoot = await mkdtemp(
@@ -255,7 +267,7 @@ describe('absolute typecheck: Svelte pages and Svelte islands together', () => {
 		expect(exitCode).not.toBe(0);
 		expect(reported.map((section) => section.name)).toEqual([PLAIN]);
 		expect(reported[0]?.body).toContain('TS2322');
-		expect(occurrences(output, "Type 'number' is not assignable")).toBe(1);
+		expectReportedOnce(PLAIN, output, /Type 'number' is not assignable/g);
 		expect(sections(output).map((section) => section.name)).toEqual([
 			PLAIN
 		]);

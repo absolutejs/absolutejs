@@ -159,6 +159,22 @@ describe('absolute typecheck: islands outside the framework directories', () => 
 		expect(exitCode).toBe(0);
 	}, 300_000);
 
+	/* Fails with the checker's own output, so a run that reports something
+	 * twice shows which lines repeated and under which heading. The count
+	 * alone ("Expected 1, Received 2") is what three CI failures said for
+	 * four days without saying what had doubled. */
+	const expectReportedOnce = (
+		label: string,
+		text: string,
+		pattern: RegExp
+	) => {
+		const hits = text.match(pattern) ?? [];
+		if (hits.length === 1) return;
+		throw new Error(
+			`Expected ${String(pattern)} once under ${label}, found ${hits.length}. Output:\n${text}`
+		);
+	};
+
 	test('a wrong prop on either island is still reported', async () => {
 		await writeServer("'one'", "'two'");
 		const { exitCode, output } = await typecheck();
@@ -173,7 +189,7 @@ describe('absolute typecheck: islands outside the framework directories', () => 
 		expect(plain).toContain(
 			"Type 'string' is not assignable to type 'number'"
 		);
-		expect(plain.match(/TS2322/g)).toHaveLength(1);
+		expectReportedOnce(PLAIN, plain, /TS2322/g);
 		// Vue island props: only the Vue checker sees the component's type.
 		expect(vue).toContain('src/server.ts');
 		expect(vue).toContain(
