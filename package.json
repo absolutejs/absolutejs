@@ -221,6 +221,14 @@
 			"import": "./dist/svelte/components/AwaitSlot.svelte",
 			"types": "./dist/svelte/components/AwaitSlot.svelte.d.ts"
 		},
+		"./svelte/components/CsrfField.js": {
+			"import": "./dist/svelte/components/CsrfField.svelte",
+			"types": "./dist/svelte/components/CsrfField.svelte.d.ts"
+		},
+		"./svelte/components/CsrfField.svelte": {
+			"import": "./dist/svelte/components/CsrfField.svelte",
+			"types": "./dist/svelte/components/CsrfField.svelte.d.ts"
+		},
 		"./svelte/components/Head.js": {
 			"import": "./dist/svelte/components/Head.svelte",
 			"types": "./dist/svelte/components/Head.svelte.d.ts"
@@ -587,7 +595,7 @@
 			]
 		}
 	},
-	"version": "0.20.0-beta.212",
+	"version": "0.20.0-beta.213",
 	"workspaces": [
 		"tests/fixtures/*",
 		"tests/fixtures/_packages/*"

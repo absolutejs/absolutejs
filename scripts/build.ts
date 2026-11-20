@@ -1079,6 +1079,10 @@ const compileAngularComponentsPartial = async () => {
 					'from $1./core/streamingSlotRegistry$1'
 				);
 				content = content.replace(
+					/from\s+(['"])\.\.\/\.\.\/utils\/csrfTokenRef['"]/g,
+					'from $1./utils/csrfTokenRef$1'
+				);
+				content = content.replace(
 					/from\s+(['"])\.\.\/\.\.\/core\/streamingSlotRegistrar['"]/g,
 					'from $1./core/streamingSlotRegistrar$1'
 				);
@@ -1113,6 +1117,10 @@ const compileAngularComponentsPartial = async () => {
 		await cp(
 			join('src', 'utils', 'cspNonceRef.ts'),
 			join(srcDir, 'utils', 'cspNonceRef.ts')
+		);
+		await cp(
+			join('src', 'utils', 'csrfTokenRef.ts'),
+			join(srcDir, 'utils', 'csrfTokenRef.ts')
 		);
 		await cp(
 			join('src', 'client', 'streamSwap.ts'),
@@ -1241,6 +1249,21 @@ const compileAngularComponentsPartial = async () => {
 			outdir: resolve(finalDir, 'core'),
 			sourcemap: false,
 			target: 'bun'
+		});
+
+		// Same treatment for the helpers a component imports from
+		// src/utils: the tsc pass skips every emitted file in a
+		// subdirectory, so without this the published component would
+		// import ./utils/… and find nothing there. Bundled for the
+		// browser, because these ship inside the client.
+		await Bun.build({
+			define: RUNTIME_NODE_ENV_DEFINE,
+			entrypoints: [resolve(srcDir, 'utils', 'csrfTokenRef.ts')],
+			format: 'esm',
+			minify: false,
+			outdir: resolve(finalDir, 'utils'),
+			sourcemap: false,
+			target: 'browser'
 		});
 	} finally {
 		removeTmpDir();

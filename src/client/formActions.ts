@@ -1,4 +1,5 @@
 import type { ActionErrorState, ActionResult } from '../../types/formAction';
+import { csrfHeaders } from '../utils/csrfTokenRef';
 import {
 	ACTION_ERROR_ATTRIBUTE,
 	ACTION_FORM_ATTRIBUTE,
@@ -59,7 +60,16 @@ export const submitFormAction = async <
 	const response = await fetch(path, {
 		body,
 		credentials: 'same-origin',
-		headers: { accept: 'application/json', [ACTION_REQUEST_HEADER]: '1' },
+		headers: {
+			accept: 'application/json',
+			[ACTION_REQUEST_HEADER]: '1',
+			// A server-rendered form already carries the token in its
+			// hidden field, but a pre-rendered one cannot: the page was
+			// built before any visitor had a cookie. Sending the header
+			// whenever the cookie is readable covers both, and costs a
+			// header on apps that use no tokens at all.
+			...csrfHeaders()
+		},
 		method: 'POST',
 		signal: options.signal
 	}).catch((error: unknown) => {
@@ -208,6 +218,38 @@ export const enhanceForm = (form: HTMLFormElement) => {
 		controller?.abort();
 		form.removeEventListener('submit', listener);
 	};
+};
+
+/* htmx:configRequest carries the request's headers in `event.detail`.
+ * Read defensively: the event is HTMX's, not ours, and this file is typed
+ * without it. */
+const htmxHeadersOf = (event: Event) => {
+	if (!('detail' in event)) return undefined;
+	const { detail } = event;
+	if (typeof detail !== 'object' || detail === null || !('headers' in detail))
+		return undefined;
+	const { headers } = detail;
+
+	return typeof headers === 'object' && headers !== null
+		? headers
+		: undefined;
+};
+
+/** Adds the CSRF token header to every HTMX request, for a page whose
+ *  forms HTMX submits rather than `enhanceForms`.
+ *
+ *  A server-rendered HTMX page can simply include `csrfField()` in the
+ *  form; this is for a pre-rendered one, which has no per-visitor token to
+ *  embed. Does nothing on a page with no token cookie. Returns a function
+ *  that removes the listener. */
+export const enhanceHtmxCsrf = (root: EventTarget = document) => {
+	const listener = (event: Event) => {
+		const headers = htmxHeadersOf(event);
+		if (headers) Object.assign(headers, csrfHeaders());
+	};
+	root.addEventListener('htmx:configRequest', listener);
+
+	return () => root.removeEventListener('htmx:configRequest', listener);
 };
 
 /* HTMX already submits these; enhancing them too would post twice. */

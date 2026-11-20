@@ -34,4 +34,5 @@ export { getCachedRouteData } from './ssrRender';
 export { Island } from './Island';
 export { IslandStore } from './islandStore';
 export { renderIsland } from './renderIsland';
+export { CsrfFieldComponent } from './components/csrf-field.component';
 export { StreamSlotComponent } from './components/stream-slot.component';

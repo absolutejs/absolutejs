@@ -17,11 +17,13 @@ import type {
 	FormActionRouteMeta,
 	FormActionValue
 } from '../../types/formAction';
+import { CSRF_FIELD_NAME } from '../utils/csrfTokenRef';
 import {
 	ACTION_REQUEST_HEADER,
 	isActionResult
 } from '../utils/formActionProtocol';
-import { CSRF_FIELD_NAME, verifyCsrfToken } from './csrfToken';
+import { verifyCsrfToken } from './csrfToken';
+
 import {
 	encodeActionFlash,
 	formActionRuntime,
