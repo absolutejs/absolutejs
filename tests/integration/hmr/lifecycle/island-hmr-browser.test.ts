@@ -10,6 +10,7 @@ import {
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
+import { runtimeSupportsReactFastRefresh } from '../../../../src/cli/patchedBun';
 import type { Page } from 'playwright';
 import { openPage, type BrowserSession } from '../../../helpers/browser';
 import { ensureDistBuild } from '../../../helpers/ensureDistBuild';
@@ -328,87 +329,17 @@ afterAll(async () => {
 	if (root) await rm(root, { force: true, recursive: true });
 });
 
-describe('dev: HMR on pages with islands', () => {
-	test('a React host page edit updates in place and keeps the islands alive', async () => {
-		const { messages, session } = await openWatched('/islands');
-		const { page } = session;
-		try {
-			await prepareIslands(page, [
-				'ReactCounter',
-				'SvelteCounter',
-				'VueCounter'
-			]);
-			await clickAndExpect(page, '.react-island', 'REACT_ISLAND 4');
-			await clickAndExpect(page, '.svelte-island', 'SVELTE_ISLAND 6');
-			await clickAndExpect(page, '.vue-island', 'VUE_ISLAND 8');
-
-			await editFile(
-				'src/frontend/react/pages/IslandsPage.tsx',
-				'>ISLANDS_PAGE<',
-				'>ISLANDS_PAGE_EDITED<'
-			);
-			await waitForText(page, '.heading', 'ISLANDS_PAGE_EDITED');
-			await editFile(
-				'src/frontend/react/components/Label.tsx',
-				'LABEL_TEXT',
-				'LABEL_EDITED'
-			);
-			await waitForText(page, '.label', 'LABEL_EDITED');
-			await expectNotReloaded(page);
-
-			// The islands kept their state and still respond.
-			expect(await textOf(page, '.react-island')).toBe('REACT_ISLAND 4');
-			expect(await textOf(page, '.svelte-island')).toBe(
-				'SVELTE_ISLAND 6'
-			);
-			expect(await textOf(page, '.vue-island')).toBe('VUE_ISLAND 8');
-			await clickAndExpect(page, '.react-island', 'REACT_ISLAND 5');
-			await clickAndExpect(page, '.svelte-island', 'SVELTE_ISLAND 7');
-			await clickAndExpect(page, '.vue-island', 'VUE_ISLAND 9');
-			expect(messages.filter(isHydrationWarning)).toEqual([]);
-		} finally {
-			await session.close();
-		}
-		await expectCleanReload('/islands', '.heading', 'ISLANDS_PAGE_EDITED');
-	}, 120_000);
-
-	type IslandCase = {
-		file: string;
-		from: string;
-		name: 'React' | 'Svelte' | 'Vue';
-		others: string[];
-		selector: string;
-		to: string;
-	};
-	const islandCases: IslandCase[] = [
-		{
-			file: 'src/islands/ReactCounter.tsx',
-			from: 'REACT_ISLAND {count}',
-			name: 'React',
-			others: ['.svelte-island', '.vue-island'],
-			selector: '.react-island',
-			to: 'REACT_EDITED {count}'
-		},
-		{
-			file: 'src/islands/SvelteCounter.svelte',
-			from: 'SVELTE_ISLAND {count}',
-			name: 'Svelte',
-			others: ['.react-island', '.vue-island'],
-			selector: '.svelte-island',
-			to: 'SVELTE_EDITED {count}'
-		},
-		{
-			file: 'src/islands/VueCounter.vue',
-			from: 'VUE_ISLAND {{ count }}',
-			name: 'Vue',
-			others: ['.react-island', '.svelte-island'],
-			selector: '.vue-island',
-			to: 'VUE_EDITED {{ count }}'
-		}
-	];
-
-	for (const island of islandCases) {
-		test(`a ${island.name} island edit re-mounts that island in place`, async () => {
+/* These keep React state across an edit, which needs the Fast Refresh
+ * transform `Bun.Transpiler` only performs in AbsoluteJS's patched Bun
+ * (UPSTREAM_ISSUES.md #7). On stock Bun the edit remounts instead and the
+ * state is gone, so the assertions below cannot hold — the same reason
+ * react-state-preservation.test.ts guards itself this way. The nightly
+ * integration workflow runs stock Bun, so these skip there; the release
+ * gate runs the patched build, so they run before a publish. */
+describe.skipIf(!runtimeSupportsReactFastRefresh())(
+	'dev: HMR on pages with islands',
+	() => {
+		test('a React host page edit updates in place and keeps the islands alive', async () => {
 			const { messages, session } = await openWatched('/islands');
 			const { page } = session;
 			try {
@@ -417,71 +348,158 @@ describe('dev: HMR on pages with islands', () => {
 					'SvelteCounter',
 					'VueCounter'
 				]);
-				for (const other of island.others) await page.click(other);
-				const othersBefore = await Promise.all(
-					island.others.map((other) => textOf(page, other))
-				);
+				await clickAndExpect(page, '.react-island', 'REACT_ISLAND 4');
+				await clickAndExpect(page, '.svelte-island', 'SVELTE_ISLAND 6');
+				await clickAndExpect(page, '.vue-island', 'VUE_ISLAND 8');
 
-				await editFile(island.file, island.from, island.to);
-				await page.waitForFunction(
-					(target) =>
-						/_EDITED \d+$/.test(
-							document.querySelector(target)?.textContent ?? ''
-						),
-					island.selector,
-					{ timeout: 30_000 }
+				await editFile(
+					'src/frontend/react/pages/IslandsPage.tsx',
+					'>ISLANDS_PAGE<',
+					'>ISLANDS_PAGE_EDITED<'
 				);
+				await waitForText(page, '.heading', 'ISLANDS_PAGE_EDITED');
+				await editFile(
+					'src/frontend/react/components/Label.tsx',
+					'LABEL_TEXT',
+					'LABEL_EDITED'
+				);
+				await waitForText(page, '.label', 'LABEL_EDITED');
 				await expectNotReloaded(page);
 
-				// The other islands kept their state.
-				expect(
-					await Promise.all(
-						island.others.map((other) => textOf(page, other))
-					)
-				).toEqual(othersBefore);
-				// The re-mounted island responds.
-				const before = (await textOf(page, island.selector)) ?? '';
-				const count = Number(before.split(' ').pop());
-				await page.click(island.selector);
-				await waitForText(
-					page,
-					island.selector,
-					before.replace(/\d+$/, String(count + 1))
+				// The islands kept their state and still respond.
+				expect(await textOf(page, '.react-island')).toBe(
+					'REACT_ISLAND 4'
 				);
+				expect(await textOf(page, '.svelte-island')).toBe(
+					'SVELTE_ISLAND 6'
+				);
+				expect(await textOf(page, '.vue-island')).toBe('VUE_ISLAND 8');
+				await clickAndExpect(page, '.react-island', 'REACT_ISLAND 5');
+				await clickAndExpect(page, '.svelte-island', 'SVELTE_ISLAND 7');
+				await clickAndExpect(page, '.vue-island', 'VUE_ISLAND 9');
 				expect(messages.filter(isHydrationWarning)).toEqual([]);
 			} finally {
 				await session.close();
 			}
-			const edited = island.to.replace(/ \{.*$/, '');
-			const startByName: Record<string, number> = {
-				React: 3,
-				Svelte: 5,
-				Vue: 7
-			};
 			await expectCleanReload(
 				'/islands',
-				island.selector,
-				`${edited} ${startByName[island.name]}`
+				'.heading',
+				'ISLANDS_PAGE_EDITED'
 			);
 		}, 120_000);
-	}
 
-	test('an island inside an HTML page updates in place', async () => {
-		const { session } = await openWatched('/html');
-		const { page } = session;
-		try {
-			await prepareIslands(page, ['ReactCounter']);
-			await editFile(
-				'src/islands/ReactCounter.tsx',
-				'REACT_EDITED {count}',
-				'REACT_AGAIN {count}'
-			);
-			await waitForText(page, '.react-island', 'REACT_AGAIN 1');
-			await expectNotReloaded(page);
-			await clickAndExpect(page, '.react-island', 'REACT_AGAIN 2');
-		} finally {
-			await session.close();
+		type IslandCase = {
+			file: string;
+			from: string;
+			name: 'React' | 'Svelte' | 'Vue';
+			others: string[];
+			selector: string;
+			to: string;
+		};
+		const islandCases: IslandCase[] = [
+			{
+				file: 'src/islands/ReactCounter.tsx',
+				from: 'REACT_ISLAND {count}',
+				name: 'React',
+				others: ['.svelte-island', '.vue-island'],
+				selector: '.react-island',
+				to: 'REACT_EDITED {count}'
+			},
+			{
+				file: 'src/islands/SvelteCounter.svelte',
+				from: 'SVELTE_ISLAND {count}',
+				name: 'Svelte',
+				others: ['.react-island', '.vue-island'],
+				selector: '.svelte-island',
+				to: 'SVELTE_EDITED {count}'
+			},
+			{
+				file: 'src/islands/VueCounter.vue',
+				from: 'VUE_ISLAND {{ count }}',
+				name: 'Vue',
+				others: ['.react-island', '.svelte-island'],
+				selector: '.vue-island',
+				to: 'VUE_EDITED {{ count }}'
+			}
+		];
+
+		for (const island of islandCases) {
+			test(`a ${island.name} island edit re-mounts that island in place`, async () => {
+				const { messages, session } = await openWatched('/islands');
+				const { page } = session;
+				try {
+					await prepareIslands(page, [
+						'ReactCounter',
+						'SvelteCounter',
+						'VueCounter'
+					]);
+					for (const other of island.others) await page.click(other);
+					const othersBefore = await Promise.all(
+						island.others.map((other) => textOf(page, other))
+					);
+
+					await editFile(island.file, island.from, island.to);
+					await page.waitForFunction(
+						(target) =>
+							/_EDITED \d+$/.test(
+								document.querySelector(target)?.textContent ??
+									''
+							),
+						island.selector,
+						{ timeout: 30_000 }
+					);
+					await expectNotReloaded(page);
+
+					// The other islands kept their state.
+					expect(
+						await Promise.all(
+							island.others.map((other) => textOf(page, other))
+						)
+					).toEqual(othersBefore);
+					// The re-mounted island responds.
+					const before = (await textOf(page, island.selector)) ?? '';
+					const count = Number(before.split(' ').pop());
+					await page.click(island.selector);
+					await waitForText(
+						page,
+						island.selector,
+						before.replace(/\d+$/, String(count + 1))
+					);
+					expect(messages.filter(isHydrationWarning)).toEqual([]);
+				} finally {
+					await session.close();
+				}
+				const edited = island.to.replace(/ \{.*$/, '');
+				const startByName: Record<string, number> = {
+					React: 3,
+					Svelte: 5,
+					Vue: 7
+				};
+				await expectCleanReload(
+					'/islands',
+					island.selector,
+					`${edited} ${startByName[island.name]}`
+				);
+			}, 120_000);
 		}
-		await expectCleanReload('/html', '.react-island', 'REACT_AGAIN 1');
-	}, 120_000);
-});
+
+		test('an island inside an HTML page updates in place', async () => {
+			const { session } = await openWatched('/html');
+			const { page } = session;
+			try {
+				await prepareIslands(page, ['ReactCounter']);
+				await editFile(
+					'src/islands/ReactCounter.tsx',
+					'REACT_EDITED {count}',
+					'REACT_AGAIN {count}'
+				);
+				await waitForText(page, '.react-island', 'REACT_AGAIN 1');
+				await expectNotReloaded(page);
+				await clickAndExpect(page, '.react-island', 'REACT_AGAIN 2');
+			} finally {
+				await session.close();
+			}
+			await expectCleanReload('/html', '.react-island', 'REACT_AGAIN 1');
+		}, 120_000);
+	}
+);
