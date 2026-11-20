@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "Starting a second `absolute dev` while one was already running resolved the same port for both: `resolveDevPort` asked whether a port was free by binding it with `node:net`, and under Bun that bind succeeds on an occupied port without raising `EADDRINUSE` — two listeners take the port silently. `fellBack` stayed `false`, no fallback happened, and the kernel then split requests between the two servers. Port detection now asks by connecting rather than binding, in one shared helper the dev server's early listener uses too. Recorded as UPSTREAM_ISSUES.md #10, next to #8, which is the same gap in `Bun.serve`.",
+					"kind": "fixed",
+					"summary": "A second dev server no longer resolves a port the first one already holds"
+				}
+			],
+			"date": "2026-11-20",
+			"version": "0.20.0-beta.210"
+		},
+		{
+			"changes": [
+				{
 					"detail": "`useFormAction(path, { initialState })` returns `state`, `pending`, `errors`, `values`, `data` and `message` as signals, and `[absoluteAction]` binds it to the `<form>` it sits on: the directive writes the real `action`, `method=\"post\"` and `enctype` during server rendering, so the form posts without JavaScript, and takes the submission over once hydrated. `getActionState(path)` hands a no-JS result to the page through `requestContext`. Seed a signal from `values()` and write it back on input rather than binding `values()` to `[value]`: a bound `[value]` is re-applied on every change detection, so the pass that renders an error would wipe what the user typed. The composable calls no `inject()`, so it can be created in a plain class or a test; the directive owns what needs injection. This completes Phase 2's bindings: React, Svelte, Vue and Angular now share one shape, and `useFormAction` is now exported from `@absolutejs/absolute/angular` as well as the React and Vue entries.",
 					"kind": "added",
 					"summary": "Angular pages get a form-action binding: useFormAction plus [absoluteAction]",
