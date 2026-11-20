@@ -63,6 +63,11 @@ export class StreamSlotComponent {
 	};
 
 	@Input() className?: string;
+	/** Stream this slot on every request even when the page is
+	 *  pre-rendered (partial prerendering): the cached shell keeps the
+	 *  fallback. Set it on anything that reads the request or must be
+	 *  fresh. */
+	@Input() dynamic?: boolean;
 	@Input() errorHtml?: string;
 	@Input() fallbackHtml = '';
 	@Input({ required: true }) id!: string;
@@ -77,6 +82,7 @@ export class StreamSlotComponent {
 			);
 
 			registerStreamingSlot({
+				dynamic: this.dynamic,
 				errorHtml: this.errorHtml,
 				fallbackHtml: this.fallbackHtml,
 				id: this.id,

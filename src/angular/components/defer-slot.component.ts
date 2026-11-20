@@ -66,6 +66,11 @@ export class DeferSlotComponent implements AfterViewInit {
 	private serverSlotRegistered = false;
 
 	@Input() className?: string;
+	/** Stream this slot on every request even when the page is
+	 *  pre-rendered (partial prerendering): the cached shell keeps the
+	 *  fallback. Set it on anything that reads the request or must be
+	 *  fresh. */
+	@Input() dynamic?: boolean;
 	@Input() id = '';
 	@Input() resolve?: DeferSlotResolver;
 	@ContentChild(DeferResolvedTemplateDirective)
@@ -162,6 +167,7 @@ export class DeferSlotComponent implements AfterViewInit {
 		}
 
 		registerStreamingSlot({
+			dynamic: this.dynamic,
 			id,
 			resolve
 		});
