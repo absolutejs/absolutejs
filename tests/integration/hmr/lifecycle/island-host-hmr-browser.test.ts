@@ -10,6 +10,7 @@ import {
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
+import { runtimeSupportsReactFastRefresh } from '../../../../src/cli/patchedBun';
 import type { Page } from 'playwright';
 import { openPage, type BrowserSession } from '../../../helpers/browser';
 import { ensureDistBuild } from '../../../helpers/ensureDistBuild';
@@ -319,40 +320,54 @@ afterAll(async () => {
 	if (root) await rm(root, { force: true, recursive: true });
 });
 
-describe('dev: repeated host edits on a page with an island', () => {
-	test(`${EDIT_COUNT} host page edits each apply once and keep state`, async () => {
-		const watched = await openWatched('/islands');
-		try {
-			await prepareHost(watched.session.page);
-			await runEdits(
-				watched,
-				'src/frontend/react/pages/IslandsPage.tsx',
-				'HOST',
-				'.heading'
-			);
-			expect(
-				watched.messages.filter((message) => /hydrat/i.test(message))
-			).toEqual([]);
-		} finally {
-			await watched.session.close();
-		}
-	}, 300_000);
+/* These keep React state across an edit, which needs the Fast Refresh
+ * transform `Bun.Transpiler` only performs in AbsoluteJS's patched Bun
+ * (UPSTREAM_ISSUES.md #7). On stock Bun the edit remounts instead and the
+ * state is gone, so the assertions below cannot hold — the same reason
+ * react-state-preservation.test.ts guards itself this way. The nightly
+ * integration workflow runs stock Bun, so these skip there; the release
+ * gate runs the patched build, so they run before a publish. */
+describe.skipIf(!runtimeSupportsReactFastRefresh())(
+	'dev: repeated host edits on a page with an island',
+	() => {
+		test(`${EDIT_COUNT} host page edits each apply once and keep state`, async () => {
+			const watched = await openWatched('/islands');
+			try {
+				await prepareHost(watched.session.page);
+				await runEdits(
+					watched,
+					'src/frontend/react/pages/IslandsPage.tsx',
+					'HOST',
+					'.heading'
+				);
+				expect(
+					watched.messages.filter((message) =>
+						/hydrat/i.test(message)
+					)
+				).toEqual([]);
+			} finally {
+				await watched.session.close();
+			}
+		}, 300_000);
 
-	test(`${EDIT_COUNT} imported component edits each apply once and keep state`, async () => {
-		const watched = await openWatched('/islands');
-		try {
-			await prepareHost(watched.session.page);
-			await runEdits(
-				watched,
-				'src/frontend/react/components/Label.tsx',
-				'LABEL',
-				'.label'
-			);
-			expect(
-				watched.messages.filter((message) => /hydrat/i.test(message))
-			).toEqual([]);
-		} finally {
-			await watched.session.close();
-		}
-	}, 300_000);
-});
+		test(`${EDIT_COUNT} imported component edits each apply once and keep state`, async () => {
+			const watched = await openWatched('/islands');
+			try {
+				await prepareHost(watched.session.page);
+				await runEdits(
+					watched,
+					'src/frontend/react/components/Label.tsx',
+					'LABEL',
+					'.label'
+				);
+				expect(
+					watched.messages.filter((message) =>
+						/hydrat/i.test(message)
+					)
+				).toEqual([]);
+			} finally {
+				await watched.session.close();
+			}
+		}, 300_000);
+	}
+);

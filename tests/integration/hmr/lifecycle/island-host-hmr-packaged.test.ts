@@ -11,6 +11,7 @@ import {
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
+import { runtimeSupportsReactFastRefresh } from '../../../../src/cli/patchedBun';
 import type { Page } from 'playwright';
 import { openPage, type BrowserSession } from '../../../helpers/browser';
 import { ensureDistBuild } from '../../../helpers/ensureDistBuild';
@@ -404,176 +405,192 @@ afterAll(async () => {
 	if (root) await rm(root, { force: true, recursive: true });
 });
 
-describe('dev (packaged framework): a React page with islands', () => {
-	test('the first host edit after a fresh boot reaches the page', async () => {
-		await startServer();
-		const watched = await openWatched();
-		try {
-			await expectEditVisible(
-				watched,
-				'src/frontend/react/pages/IslandsPage.tsx',
-				'.heading',
-				'HOST'
-			);
-		} finally {
-			await watched.session.close();
-		}
-	}, 600_000);
-
-	test('the page outside the islands handles events', async () => {
-		const watched = await openWatched();
-		const { page } = watched.session;
-		try {
-			await clickAndCount(page, '.host-counter');
-			await clickAndCount(page, '.react-island');
-			await clickAndCount(page, '.svelte-island');
-			await clickAndCount(page, '.vue-island');
-		} finally {
-			await watched.session.close();
-		}
-	}, 120_000);
-
-	test('repeated page and imported-component edits reach the page and keep state', async () => {
-		const watched = await openWatched();
-		const { page } = watched.session;
-		try {
-			await clickAndCount(page, '.host-counter');
-			await clickAndCount(page, '.react-island');
-			const hostCount = await textOf(page, '.host-counter');
-			const islandCount = await textOf(page, '.react-island');
-			for (let round = 0; round < 5; round++) {
+/* These keep React state across an edit, which needs the Fast Refresh
+ * transform `Bun.Transpiler` only performs in AbsoluteJS's patched Bun
+ * (UPSTREAM_ISSUES.md #7). On stock Bun the edit remounts instead and the
+ * state is gone, so the assertions below cannot hold — the same reason
+ * react-state-preservation.test.ts guards itself this way. The nightly
+ * integration workflow runs stock Bun, so these skip there; the release
+ * gate runs the patched build, so they run before a publish. */
+describe.skipIf(!runtimeSupportsReactFastRefresh())(
+	'dev (packaged framework): a React page with islands',
+	() => {
+		test('the first host edit after a fresh boot reaches the page', async () => {
+			await startServer();
+			const watched = await openWatched();
+			try {
 				await expectEditVisible(
 					watched,
 					'src/frontend/react/pages/IslandsPage.tsx',
 					'.heading',
 					'HOST'
 				);
-				await expectEditVisible(
-					watched,
-					'src/frontend/react/components/App.tsx',
-					'.label',
-					'LABEL'
+			} finally {
+				await watched.session.close();
+			}
+		}, 600_000);
+
+		test('the page outside the islands handles events', async () => {
+			const watched = await openWatched();
+			const { page } = watched.session;
+			try {
+				await clickAndCount(page, '.host-counter');
+				await clickAndCount(page, '.react-island');
+				await clickAndCount(page, '.svelte-island');
+				await clickAndCount(page, '.vue-island');
+			} finally {
+				await watched.session.close();
+			}
+		}, 120_000);
+
+		test('repeated page and imported-component edits reach the page and keep state', async () => {
+			const watched = await openWatched();
+			const { page } = watched.session;
+			try {
+				await clickAndCount(page, '.host-counter');
+				await clickAndCount(page, '.react-island');
+				const hostCount = await textOf(page, '.host-counter');
+				const islandCount = await textOf(page, '.react-island');
+				for (let round = 0; round < 5; round++) {
+					await expectEditVisible(
+						watched,
+						'src/frontend/react/pages/IslandsPage.tsx',
+						'.heading',
+						'HOST'
+					);
+					await expectEditVisible(
+						watched,
+						'src/frontend/react/components/App.tsx',
+						'.label',
+						'LABEL'
+					);
+				}
+				expect(await textOf(page, '.host-counter')).toBe(hostCount);
+				expect(await textOf(page, '.react-island')).toBe(islandCount);
+			} finally {
+				await watched.session.close();
+			}
+		}, 300_000);
+
+		/* Edit an island and wait until `selector` reads `expected`, without a
+		 * reload. */
+		const editIsland = async (
+			watched: Watched,
+			file: string,
+			from: string,
+			to: string,
+			selector: string,
+			expected: string
+		) => {
+			const { page } = watched.session;
+			const logStart = serverLog.length;
+			await editFile(file, from, to);
+			try {
+				await waitForText(page, selector, expected, 10_000);
+			} catch {
+				throw new Error(
+					`${file}: ${selector} reads "${await textOf(page, selector)}", ` +
+						`expected "${expected}"; console: ${watched.messages.join(' | ')}; ` +
+						`server: ${serverLog.slice(logStart).join('')}`
 				);
 			}
-			expect(await textOf(page, '.host-counter')).toBe(hostCount);
-			expect(await textOf(page, '.react-island')).toBe(islandCount);
-		} finally {
-			await watched.session.close();
-		}
-	}, 300_000);
+			expect(
+				await page.evaluate(() => Reflect.get(window, '__noReload'))
+			).toBe(true);
+		};
 
-	/* Edit an island and wait until `selector` reads `expected`, without a
-	 * reload. */
-	const editIsland = async (
-		watched: Watched,
-		file: string,
-		from: string,
-		to: string,
-		selector: string,
-		expected: string
-	) => {
-		const { page } = watched.session;
-		const logStart = serverLog.length;
-		await editFile(file, from, to);
-		try {
-			await waitForText(page, selector, expected, 10_000);
-		} catch {
-			throw new Error(
-				`${file}: ${selector} reads "${await textOf(page, selector)}", ` +
-					`expected "${expected}"; console: ${watched.messages.join(' | ')}; ` +
-					`server: ${serverLog.slice(logStart).join('')}`
-			);
-		}
-		expect(
-			await page.evaluate(() => Reflect.get(window, '__noReload'))
-		).toBe(true);
-	};
+		test('island edits keep island state where the framework HMR can', async () => {
+			const watched = await openWatched();
+			const { page } = watched.session;
+			try {
+				await clickAndCount(page, '.host-counter');
+				await clickAndCount(page, '.react-island');
+				await clickAndCount(page, '.svelte-island');
+				await clickAndCount(page, '.vue-island');
+				const host = await textOf(page, '.host-counter');
+				expect([
+					await textOf(page, '.react-island'),
+					await textOf(page, '.svelte-island'),
+					await textOf(page, '.vue-island')
+				]).toEqual([
+					'REACT_ISLAND 4',
+					'SVELTE_ISLAND 6',
+					'VUE_ISLAND 8'
+				]);
 
-	test('island edits keep island state where the framework HMR can', async () => {
-		const watched = await openWatched();
-		const { page } = watched.session;
-		try {
-			await clickAndCount(page, '.host-counter');
-			await clickAndCount(page, '.react-island');
-			await clickAndCount(page, '.svelte-island');
-			await clickAndCount(page, '.vue-island');
-			const host = await textOf(page, '.host-counter');
-			expect([
-				await textOf(page, '.react-island'),
-				await textOf(page, '.svelte-island'),
-				await textOf(page, '.vue-island')
-			]).toEqual(['REACT_ISLAND 4', 'SVELTE_ISLAND 6', 'VUE_ISLAND 8']);
+				// React: Fast Refresh keeps hook state while the hooks stay the
+				// same, and resets it when they change.
+				await editIsland(
+					watched,
+					'src/islands/ReactCounter.tsx',
+					'REACT_ISLAND {count}',
+					'REACT_EDITED {count}',
+					'.react-island',
+					'REACT_EDITED 4'
+				);
+				await clickAndCount(page, '.react-island');
+				await editIsland(
+					watched,
+					'src/islands/ReactCounter.tsx',
+					'const [count, setCount] = useState(start);',
+					'const [count, setCount] = useState(start);\n\tconst [label] = useState("REACT_HOOKS");',
+					'.react-island',
+					'REACT_EDITED 3'
+				);
+				await editIsland(
+					watched,
+					'src/islands/ReactCounter.tsx',
+					'REACT_EDITED {count}',
+					'{label} {count}',
+					'.react-island',
+					'REACT_HOOKS 3'
+				);
 
-			// React: Fast Refresh keeps hook state while the hooks stay the
-			// same, and resets it when they change.
-			await editIsland(
-				watched,
-				'src/islands/ReactCounter.tsx',
-				'REACT_ISLAND {count}',
-				'REACT_EDITED {count}',
-				'.react-island',
-				'REACT_EDITED 4'
-			);
-			await clickAndCount(page, '.react-island');
-			await editIsland(
-				watched,
-				'src/islands/ReactCounter.tsx',
-				'const [count, setCount] = useState(start);',
-				'const [count, setCount] = useState(start);\n\tconst [label] = useState("REACT_HOOKS");',
-				'.react-island',
-				'REACT_EDITED 3'
-			);
-			await editIsland(
-				watched,
-				'src/islands/ReactCounter.tsx',
-				'REACT_EDITED {count}',
-				'{label} {count}',
-				'.react-island',
-				'REACT_HOOKS 3'
-			);
+				// Vue: a template edit re-renders in place and keeps state; a
+				// script edit reloads the component, which starts over.
+				await editIsland(
+					watched,
+					'src/islands/VueCounter.vue',
+					'VUE_ISLAND {{ count }}',
+					'VUE_EDITED {{ count }}',
+					'.vue-island',
+					'VUE_EDITED 8'
+				);
+				await clickAndCount(page, '.vue-island');
+				await editIsland(
+					watched,
+					'src/islands/VueCounter.vue',
+					'const count = ref(props.start);',
+					'const count = ref(props.start + 10);',
+					'.vue-island',
+					'VUE_EDITED 17'
+				);
 
-			// Vue: a template edit re-renders in place and keeps state; a
-			// script edit reloads the component, which starts over.
-			await editIsland(
-				watched,
-				'src/islands/VueCounter.vue',
-				'VUE_ISLAND {{ count }}',
-				'VUE_EDITED {{ count }}',
-				'.vue-island',
-				'VUE_EDITED 8'
-			);
-			await clickAndCount(page, '.vue-island');
-			await editIsland(
-				watched,
-				'src/islands/VueCounter.vue',
-				'const count = ref(props.start);',
-				'const count = ref(props.start + 10);',
-				'.vue-island',
-				'VUE_EDITED 17'
-			);
+				// Svelte: its HMR recreates the swapped component, so the edited
+				// island starts over.
+				await editIsland(
+					watched,
+					'src/islands/SvelteCounter.svelte',
+					'SVELTE_ISLAND {count}',
+					'SVELTE_EDITED {count}',
+					'.svelte-island',
+					'SVELTE_EDITED 5'
+				);
 
-			// Svelte: its HMR recreates the swapped component, so the edited
-			// island starts over.
-			await editIsland(
-				watched,
-				'src/islands/SvelteCounter.svelte',
-				'SVELTE_ISLAND {count}',
-				'SVELTE_EDITED {count}',
-				'.svelte-island',
-				'SVELTE_EDITED 5'
-			);
-
-			// Every edit left the page and the other islands alone, and all
-			// of them still respond.
-			expect(await textOf(page, '.host-counter')).toBe(host);
-			expect(await textOf(page, '.react-island')).toBe('REACT_HOOKS 3');
-			expect(await textOf(page, '.vue-island')).toBe('VUE_EDITED 17');
-			await clickAndCount(page, '.host-counter');
-			await clickAndCount(page, '.react-island');
-			await clickAndCount(page, '.svelte-island');
-			await clickAndCount(page, '.vue-island');
-		} finally {
-			await watched.session.close();
-		}
-	}, 300_000);
-});
+				// Every edit left the page and the other islands alone, and all
+				// of them still respond.
+				expect(await textOf(page, '.host-counter')).toBe(host);
+				expect(await textOf(page, '.react-island')).toBe(
+					'REACT_HOOKS 3'
+				);
+				expect(await textOf(page, '.vue-island')).toBe('VUE_EDITED 17');
+				await clickAndCount(page, '.host-counter');
+				await clickAndCount(page, '.react-island');
+				await clickAndCount(page, '.svelte-island');
+				await clickAndCount(page, '.vue-island');
+			} finally {
+				await watched.session.close();
+			}
+		}, 300_000);
+	}
+);

@@ -4,12 +4,14 @@
  *  to `portRange-1` neighbors. With `strictPort: true`, fails on the very
  *  first conflict so users who pin a port know immediately.
  *
- *  Bun's `Bun.serve` rejects EADDRINUSE asynchronously and only after
- *  partially binding, which is awkward to clean up — `node:net.createServer`
- *  is simpler and battle-tested for this exact "is anyone listening here"
- *  probe. */
+ *  The probe connects rather than binds. A bind cannot answer the
+ *  question under Bun: `node:net`'s `listen` does not raise `EADDRINUSE`
+ *  (two `createServer()` listeners silently take the same port), and
+ *  `Bun.serve` binds with `SO_REUSEPORT`. Both made an occupied port look
+ *  free, so two `absolute dev` servers each believed they had resolved it.
+ *  See src/utils/portProbe.ts and UPSTREAM_ISSUES.md #8 and #10. */
 
-import { createServer } from 'node:net';
+import { isPortTaken } from './portProbe';
 
 export type ResolveDevPortOptions = {
 	strictPort?: boolean;
@@ -17,24 +19,8 @@ export type ResolveDevPortOptions = {
 	host?: string;
 };
 
-export const isPortFree = (port: number, host = 'localhost') =>
-	new Promise<boolean>((resolve) => {
-		const server = createServer();
-		server.unref();
-		server.once('error', (err: NodeJS.ErrnoException) => {
-			if (err.code === 'EADDRINUSE') {
-				resolve(false);
-
-				return;
-			}
-			// Other errors (EACCES, etc.) — treat as "not free" so we
-			// keep probing instead of crashing.
-			resolve(false);
-		});
-		server.listen(port, host, () => {
-			server.close(() => resolve(true));
-		});
-	});
+export const isPortFree = async (port: number, host = 'localhost') =>
+	!(await isPortTaken(host, port));
 
 export type ResolveDevPortResult = {
 	port: number;
