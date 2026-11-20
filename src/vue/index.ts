@@ -18,6 +18,7 @@ export {
 } from './browserTranslation';
 export { Image } from './components/Image';
 export { CsrfField } from './components/CsrfField';
+export { provideI18n, useI18n } from './i18n';
 export { StreamSlot, SuspenseSlot } from './components';
 export { useResource } from './useResource';
 export { useServerData } from './useServerData';

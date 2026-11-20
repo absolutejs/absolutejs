@@ -35,3 +35,4 @@ export type {
 } from '../../types/vue';
 export { getRouteParam, useRouteParam } from './routeParam';
 export type { VueRouteParam } from './routeParam';
+export { provideI18n, useI18n } from './i18n';

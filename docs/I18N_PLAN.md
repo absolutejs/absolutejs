@@ -108,7 +108,7 @@ export default { … } satisfies Translation<typeof en>;
 | Server (any) | 1 | `({ i18n, locale }) => i18n.t(…)`, `i18n.payload(ns)`, `i18n.alternates()`, `i18n.localizePath(path, locale?)`, `getRequestLocale()`; standalone `defineI18n(...).translator(locale)` for scripts/prerender |
 | React | 1 | `<I18nProvider value={payload}>` + `useI18n<typeof en>()` from `@absolutejs/absolute/react/hooks`; the page renders `<html lang={i18n.locale} dir={i18n.dir}>` itself |
 | Svelte | 1 | `const { t } = setI18n<typeof en>(i18n)` in the page, `getI18n<typeof en>()` in children (Svelte context) from `@absolutejs/absolute/svelte`; the document shell writes `<html lang dir>` from the request locale |
-| Vue | 2 | `provideI18n(payload)` / `useI18n<typeof en>()` via `provide`/`inject`, exported from `@absolutejs/absolute/vue`; Vue shell `lang`/`dir` |
+| Vue | 2 ✅ | `provideI18n(payload)` / `useI18n<typeof en>()` via `provide`/`inject`, exported from `@absolutejs/absolute/vue`; the shell writes `lang`/`dir` from the request locale through `htmlLangAttributes()`, as Svelte's renderers do |
 | Angular | 2 | `provideAbsoluteI18n(payload)` + an `I18nService` (signals: `locale`, `dir`, `t`) and a pure `t` pipe; SSR `LOCALE_ID` from the request; shell `lang`/`dir` |
 | HTML / HTMX | 2 | Server-side substitution in the HTML page handlers: `data-i18n="key"` (text), `data-i18n-attr="title:key"`, `data-i18n-params='{"n":2}'`, run with the request translator before streaming; `<html lang dir>` filled in. HTMX fragments use the same pass. Build-time per-locale emission for fully static HTML is Phase 3. |
 | Islands | 3 | Island props carry their own namespace payload; `createTypedIsland` gains an `i18n` option |
