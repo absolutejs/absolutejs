@@ -5,6 +5,21 @@
 		{
 			"changes": [
 				{
+					"detail": "form: { body, csrf: { token: true } } adds a signed double-submit token to the cross-origin check that is already on by default. The absolute_csrf cookie holds a random value and the hidden _csrf field, or the x-absolute-csrf header, holds an HMAC of it, so a cross-site page cannot produce a matching pair even though the browser attaches the cookie for it. getCsrfToken() mints the token while rendering the way getCspNonce() does, the runtime sets the cookie and marks the page private, no-store, and the token is stripped from the body before validation. Signing uses ABSOLUTE_SECRET, which production requires rather than generating a per-process key that would stop working after a restart or on a second instance. Turn it on where Sec-Fetch-Site and Origin cannot be trusted: behind a proxy that strips them, or alongside an untrusted subdomain.",
+					"kind": "added",
+					"summary": "Opt-in signed CSRF tokens for form actions",
+					"symbols": [
+						"ActionCsrfOptions",
+						"getCsrfToken"
+					]
+				}
+			],
+			"date": "2026-11-20",
+			"version": "0.20.0-beta.212"
+		},
+		{
+			"changes": [
+				{
 					"detail": "A form on a pre-rendered page posted without JavaScript redirects back with its result in the one-shot `absolute_action` cookie, but the page was answered from the file captured at build time — so the visitor saw the form with no errors, nothing typed back, and their submission apparently ignored. A request carrying that cookie now falls through to the route, which reads it through `getActionState`; the response is already `no-store`, so nothing poisons the pre-render or ISR cache. The cookie is matched by name, so a cookie whose name merely contains it, or a value that mentions it, does not trigger the bypass. This completes Phase 2 of docs/FORM_ACTIONS_PLAN.md.",
 					"kind": "fixed",
 					"summary": "A form on a pre-rendered page shows its result when JavaScript is off"
