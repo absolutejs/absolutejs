@@ -5,6 +5,20 @@
 		{
 			"changes": [
 				{
+					"detail": "maxBodySize was enforced from content-length, which a chunked request does not send — fetch with a stream body, or any client using Transfer-Encoding: chunked. Such a request declared nothing, passed the check, and could then send as much as it liked, so a route with maxBodySize: 10 would hand its handler megabytes. When nothing is declared the body is now read with a cap and stops at the first chunk that crosses it, so a rejected request costs memory bounded by the limit rather than by what the client chose to send, and the submission gets the same 413 a declared oversize body gets. The bytes already read are served back through the same request rather than parsed here, which keeps Elysia the only thing that parses a body: a chunked body therefore cannot reach a handler in a different shape from a declared one.",
+					"kind": "security",
+					"summary": "maxBodySize now applies to a request that declares no size",
+					"symbols": [
+						"formActions"
+					]
+				}
+			],
+			"date": "2026-11-20",
+			"version": "0.20.0-beta.215"
+		},
+		{
+			"changes": [
+				{
 					"detail": "The absolute_action cookie, which carries a no-JavaScript submission's result to the page it redirects to, was unsigned base64 JSON. Anyone able to set a cookie for the site — an untrusted subdomain, an active attacker on a connection without HSTS, a malicious extension — could forge one and make the next page render a result of their choosing; the rewriter escapes what it writes, so the exposure was a spoofed message rather than script. The cookie is now signed with ABSOLUTE_SECRET under its own purpose, and one without a valid signature is ignored. Signing is active except in production with no secret configured, where a generated key would be lost on restart and differ between instances, leaving a visitor with a successful submission and no result at all; there the cookie stays unsigned, is still accepted, and the server warns once naming the variable. That is not a downgrade, because whenever a secret is available a missing signature is rejected rather than merely preferred. Existing apps keep working on upgrade; setting ABSOLUTE_SECRET is what turns the protection on.",
 					"kind": "security",
 					"summary": "The no-JavaScript form result cookie is signed",
