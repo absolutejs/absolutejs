@@ -5,6 +5,22 @@
 		{
 			"changes": [
 				{
+					"detail": "`secureHeaders()` now sends Cross-Origin-Opener-Policy and Cross-Origin-Resource-Policy, and can send Strict-Transport-Security. COOP defaults to `same-origin-allow-popups` rather than `same-origin`, because full isolation severs window.opener and breaks an OAuth popup mid-flow; CORP defaults to `same-site` rather than `same-origin`, because serving your own assets from a CDN subdomain is the common case. Both take an explicit value or `false`. HSTS is off unless asked for: it is the one header here that cannot be walked back, since a browser that has it treats the host as HTTPS-only until the max-age expires and `includeSubDomains` or `preload` outlive any later change — an HTTP-only staging subdomain becomes unreachable for anyone who saw it once. `hsts: true` sends max-age=15552000 with neither flag, an object sets them explicitly, and it is only sent to a request that arrived over HTTPS, directly or through a proxy whose X-Forwarded-Proto says so. The plugin stays opt-in, because a CSP arriving on an upgrade would break any app with an inline script or a widget that is not nonce-aware; instead `absolute doctor` now reports when an app's server entry does not mount it, which nothing else would have said.",
+					"kind": "added",
+					"summary": "secureHeaders() sends COOP and CORP, and HSTS on request",
+					"symbols": [
+						"secureHeaders",
+						"securityHeadersFor",
+						"SecureHeadersOptions"
+					]
+				}
+			],
+			"date": "2026-11-20",
+			"version": "0.20.0-beta.231"
+		},
+		{
+			"changes": [
+				{
 					"detail": "A React Server Components build produces the Flight payload a browser runs, so the Flight runtime's version is part of what ships. The build checked only that react-server-dom-webpack was installed, not which version: 19.0.0–19.2.0 carry the Flight RCE CVE-2025-55182, and 19.2.1–19.2.2 the follow-up DoS and source-exposure fixes, so a build against any of them shipped a known vulnerability while the peer range `^19.2.0` allowed it. The build now refuses a Flight runtime below 19.2.3, naming the CVE and the single command that upgrades react, react-dom and the runtime together, and also refuses a version that does not equal react's own, since the renderer and the Flight runtime are released together and are not compatible across versions. Two deliberate narrownesses: a patched 19.0.x or 19.1.x line carries the fixes too but its patch numbers are recorded nowhere, so only 19.2.3 and above are recognised and the error says so; and a version that cannot be read — a workspace link — warns instead of failing a build the installed code may be fine for. Nothing changes for an app without a reactServerComponentsDirectory.",
 					"kind": "security",
 					"summary": "A React Server Components build refuses a vulnerable Flight runtime"
