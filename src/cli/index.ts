@@ -234,6 +234,17 @@ if (command === 'dev') {
 		console.error(error instanceof Error ? error.message : String(error));
 		process.exitCode = 1;
 	}
+} else if (command === 'i18n') {
+	sendTelemetryEvent('cli:command', { command });
+	const [subcommand, ...rest] = args;
+	if (subcommand !== 'check') {
+		console.error(
+			'Usage: absolute i18n check <default-catalog> [locale-catalog…] [--json]'
+		);
+		process.exit(1);
+	}
+	const { i18nCheck } = await import('./scripts/i18nCheck');
+	await i18nCheck(rest);
 } else if (command === 'typecheck') {
 	sendTelemetryEvent('cli:command', { command });
 	const configPath = parseNamedArg('--config');
