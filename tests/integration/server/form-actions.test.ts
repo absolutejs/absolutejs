@@ -44,9 +44,11 @@ import {
 import { handleReactPageRequest } from '@absolutejs/absolute/react';
 import { handleSveltePageRequest } from '@absolutejs/absolute/svelte';
 import { handleVuePageRequest } from '@absolutejs/absolute/vue';
+import { handleAngularPageRequest } from '@absolutejs/absolute/angular';
 import { Signup } from './react/pages/Signup';
 import SvelteSignup from './svelte/pages/SvelteSignup.svelte';
 import VueSignup from './vue/pages/VueSignup.vue';
+import type * as AngularSignupPage from './angular/pages/angular-signup';
 
 const escapeHtml = (value: string) =>
 	value.replace(/[&<>"]/g, (char) => \`&#\${char.charCodeAt(0)};\`);
@@ -75,6 +77,15 @@ export const server = new Elysia()
 			indexPath: asset(manifest, 'VueSignupIndex'),
 			pagePath: asset(manifest, 'VueSignup'),
 			props: { signupState: getActionState('/actions/signup') ?? null }
+		})
+	)
+	.get('/angular', () =>
+		handleAngularPageRequest<AngularSignupPage.Context>({
+			indexPath: asset(manifest, 'AngularSignupIndex'),
+			pagePath: asset(manifest, 'AngularSignup'),
+			requestContext: {
+				signupState: getActionState('/actions/signup') ?? null
+			}
 		})
 	)
 	.get('/html', () => handleHTMLPageRequest(asset(manifest, 'Contact')))
@@ -128,6 +139,67 @@ export const server = new Elysia()
 		({ body }) => ({ email: body.email })
 	)
 	.use(networking);
+`;
+
+const SIGNUP_ANGULAR = `import { Component, afterNextRender, signal } from '@angular/core';
+import { useFormAction, usePageContext } from '@absolutejs/absolute/angular';
+import { AbsoluteActionDirective } from '@absolutejs/absolute/angular/components';
+import type { ActionState } from '@absolutejs/absolute';
+
+export type Context = {
+	signupState: ActionState<{ greeting: string }, 'email' | 'name'> | null;
+};
+
+@Component({
+	imports: [AbsoluteActionDirective],
+	selector: 'angular-signup',
+	standalone: true,
+	template: \`
+		<p id="hydrated">{{ hydrated() ? 'yes' : 'no' }}</p>
+		<form [absoluteAction]="signup">
+			<input name="name" [value]="name()" (input)="onName($event)" />
+			@if (signup.errors()['name']) {
+				<p id="name-error">{{ signup.errors()['name'] }}</p>
+			}
+			<input name="email" [value]="email()" (input)="onEmail($event)" />
+			@if (signup.errors()['email']) {
+				<p id="email-error">{{ signup.errors()['email'] }}</p>
+			}
+			<button [disabled]="signup.pending()">Join</button>
+		</form>
+		@if (signup.data()) {
+			<p id="welcome">{{ signup.data()?.greeting }}</p>
+		}
+	\`
+})
+export class AngularSignupComponent {
+	private ctx = usePageContext<Context>();
+	readonly signup = useFormAction<{ greeting: string }, 'email' | 'name'>(
+		'/actions/signup',
+		{ initialState: this.ctx.signupState }
+	);
+	// Signals seeded from what a no-JS submission left behind, written back
+	// on input: SSR renders the seeded value, and binding [value] to a
+	// signal the input itself updates cannot wipe what the user typed.
+	readonly name = signal(String(this.signup.values()['name'] ?? ''));
+	readonly email = signal(String(this.signup.values()['email'] ?? ''));
+	readonly hydrated = signal(false);
+
+	constructor() {
+		// Browser only, unlike ngOnInit, which also runs during SSR.
+		afterNextRender(() => this.hydrated.set(true));
+	}
+
+	onName(event: Event) {
+		const target = event.target;
+		if (target instanceof HTMLInputElement) this.name.set(target.value);
+	}
+
+	onEmail(event: Event) {
+		const target = event.target;
+		if (target instanceof HTMLInputElement) this.email.set(target.value);
+	}
+}
 `;
 
 const SIGNUP_VUE = `<script setup lang="ts">
@@ -334,6 +406,7 @@ const writeProject = async (projectRoot: string) => {
 			'react/pages',
 			'svelte/pages',
 			'vue/pages',
+			'angular/pages',
 			'html/pages',
 			'html/scripts',
 			'htmx/pages',
@@ -372,7 +445,8 @@ export default defineConfig({
 	publicDirectory: './public',
 	reactDirectory: './react',
 	svelteDirectory: './svelte',
-	vueDirectory: './vue'
+	vueDirectory: './vue',
+	angularDirectory: './angular'
 });
 `
 		),
@@ -383,6 +457,10 @@ export default defineConfig({
 			SIGNUP_SVELTE
 		),
 		writeFile(join(projectRoot, 'vue/pages/VueSignup.vue'), SIGNUP_VUE),
+		writeFile(
+			join(projectRoot, 'angular/pages/angular-signup.ts'),
+			SIGNUP_ANGULAR
+		),
 		writeFile(join(projectRoot, 'html/pages/Contact.html'), CONTACT_HTML),
 		writeFile(
 			join(projectRoot, 'html/scripts/enhance-contact.ts'),
@@ -463,6 +541,7 @@ afterAll(async () => {
 
 type Session = {
 	context: BrowserContext;
+	consoleErrors: string[];
 	cspErrors: string[];
 	page: Page;
 };
@@ -472,11 +551,14 @@ const openSession = async (javaScriptEnabled: boolean) => {
 	const context = await browser.newContext({ javaScriptEnabled });
 	const page = await context.newPage();
 	const cspErrors: string[] = [];
+	const consoleErrors: string[] = [];
 	page.on('console', (message) => {
 		if (/Content Security Policy/i.test(message.text()))
 			cspErrors.push(message.text());
+		if (message.type() === 'error') consoleErrors.push(message.text());
 	});
-	const session: Session = { context, cspErrors, page };
+	page.on('pageerror', (error) => consoleErrors.push(error.message));
+	const session: Session = { consoleErrors, context, cspErrors, page };
 
 	return session;
 };
@@ -580,6 +662,39 @@ describe('form actions without JavaScript', () => {
 			expect(await page.textContent('#email-error')).toBe(
 				'Enter a valid email'
 			);
+			expect(await page.inputValue('input[name="name"]')).toBe('A');
+			expect(await page.inputValue('input[name="email"]')).toBe('nope');
+
+			await page.fill('input[name="name"]', 'Ada');
+			await page.fill('input[name="email"]', 'ada@example.com');
+			await page.click('button');
+			await page.waitForSelector('#welcome');
+			expect(await page.textContent('#welcome')).toBe('Welcome, Ada');
+
+			await page.reload();
+			expect(await page.locator('#welcome').count()).toBe(0);
+		}));
+
+	test('Angular page: errors and typed values come back after the redirect, success shows the data', () =>
+		withSession(false, async ({ page }) => {
+			await page.goto(`${BASE}/angular`);
+			expect(await page.textContent('#hydrated')).toBe('no');
+			await page.fill('input[name="name"]', 'A');
+			await page.fill('input[name="email"]', 'nope');
+			await Promise.all([
+				page.waitForURL(`${BASE}/angular`),
+				page.click('button')
+			]);
+			await page.waitForSelector('#name-error');
+			expect(await page.textContent('#name-error')).toBe(
+				'Name must be at least 2 characters'
+			);
+			expect(await page.textContent('#email-error')).toBe(
+				'Enter a valid email'
+			);
+			// The directive wrote a real action and method, so this posted
+			// without any JavaScript, and the signals seeded from
+			// getActionState rendered the values server-side.
 			expect(await page.inputValue('input[name="name"]')).toBe('A');
 			expect(await page.inputValue('input[name="email"]')).toBe('nope');
 
@@ -743,6 +858,61 @@ describe('form actions with JavaScript', () => {
 			expect(await windowMarked(page)).toBe(true);
 			expect(cspErrors).toEqual([]);
 		}));
+
+	test(
+		'Angular page: [absoluteAction] submits without a reload',
+		() =>
+			withSession(true, async ({ consoleErrors, cspErrors, page }) => {
+				await page.goto(`${BASE}/angular`);
+				// Angular bootstraps a whole application; it is slower to hydrate
+				// than the other three, and a failure to hydrate at all should
+				// report the browser's own complaint rather than a bare timeout.
+				await page
+					.waitForFunction(
+						() =>
+							document.querySelector('#hydrated')?.textContent ===
+							'yes',
+						undefined,
+						{ timeout: 20_000 }
+					)
+					.catch(() => {
+						throw new Error(
+							`Angular never hydrated. Console: ${consoleErrors.join(' | ') || '(nothing)'}`
+						);
+					});
+				await markWindow(page);
+				await page.fill('input[name="name"]', 'taken');
+				await page.fill('input[name="email"]', 'nope');
+				await page.click('button');
+				await page.waitForSelector('#email-error');
+				expect(await page.textContent('#email-error')).toBe(
+					'Enter a valid email'
+				);
+				expect(await page.locator('#name-error').count()).toBe(0);
+				// The signal the input writes back keeps the typed value through
+				// the change detection that renders the error.
+				expect(await page.inputValue('input[name="name"]')).toBe(
+					'taken'
+				);
+
+				await page.fill('input[name="email"]', 'taken@example.com');
+				await page.click('button');
+				await page.waitForSelector('#name-error');
+				expect(await page.textContent('#name-error')).toBe(
+					'That name is taken'
+				);
+
+				await page.fill('input[name="name"]', 'Grace');
+				await page.click('button');
+				await page.waitForSelector('#welcome');
+				expect(await page.textContent('#welcome')).toBe(
+					'Welcome, Grace'
+				);
+				expect(await windowMarked(page)).toBe(true);
+				expect(cspErrors).toEqual([]);
+			}),
+		60_000
+	);
 
 	test('static HTML page: enhanceForms renders errors in place and follows the redirect', () =>
 		withSession(true, async ({ cspErrors, page }) => {

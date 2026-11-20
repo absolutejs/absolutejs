@@ -1184,6 +1184,17 @@ const compileAngularComponentsPartial = async () => {
 				diag.file?.fileName?.startsWith(resolvedSrcDir)
 		);
 		if (errors.length > 0) logAngularErrorsAndExit(errors);
+		// Errors from outside the copied sources are tolerated above, but a
+		// program that emitted nothing has still failed: dist/angular/
+		// components would publish empty and every Angular consumer would
+		// lose Image, StreamSlot and the defer directives. A cross-directory
+		// import added to this folder is enough to cause it.
+		if (Object.keys(emitted).length === 0) {
+			console.error(
+				'Angular partial compilation emitted no files. A component in src/angular/components probably imports outside that directory, which cannot resolve in the temp workspace.'
+			);
+			process.exit(1);
+		}
 
 		// Copy emitted JS files to final dir, adding .js extensions to relative imports
 		const resolveOutputDir = (fileName: string) => {
