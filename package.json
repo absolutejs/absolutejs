@@ -544,7 +544,7 @@
 		"test:native:ios:lifecycle": "ABSOLUTE_TEST_NATIVE_IOS=1 bun test tests/native/ios-lifecycle-conformance.test.ts",
 		"test:native:ios:updates": "ABSOLUTE_TEST_NATIVE_IOS=1 bun test tests/native/ios-embedded-bundle-conformance.test.ts -t 'signed web updates'",
 		"test:packed-compile": "bun run scripts/testPackedCompile.ts",
-		"test:unit": "bun test --max-concurrency 1 tests/unit",
+		"test:unit": "bun run scripts/unitTests.ts",
 		"typecheck": "bun run src/cli/index.ts typecheck --config example/absolute.config.ts",
 		"verify:client-bundle": "bun run scripts/verifyPublishedClientBundle.ts"
 	},
@@ -595,7 +595,7 @@
 			]
 		}
 	},
-	"version": "0.20.0-beta.220",
+	"version": "0.20.0-beta.221",
 	"workspaces": [
 		"tests/fixtures/*",
 		"tests/fixtures/_packages/*"
