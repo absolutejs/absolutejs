@@ -1,4 +1,5 @@
 import { createApp, createSSRApp, h, type App as VueApp } from 'vue';
+import { registerIslandDisposer } from '../islandDisposers';
 
 const vueIslandApps = new WeakMap<HTMLElement, VueApp>();
 // The component each island app renders, for hot updates (below).
@@ -6,6 +7,16 @@ const vueIslandComponents = new WeakMap<HTMLElement, object>();
 
 const isPropsRecord = (value: unknown): value is Record<string, unknown> =>
 	typeof value === 'object' && value !== null;
+
+/* So a soft navigation can unmount this app with the body it lives in
+ * (client/islandDisposers.ts). */
+const registerAppDisposer = (element: HTMLElement, app: VueApp) => {
+	registerIslandDisposer(element, () => {
+		vueIslandApps.delete(element);
+		vueIslandComponents.delete(element);
+		app.unmount();
+	});
+};
 
 export const hydrateVueIsland = (
 	component: import('vue').Component<Record<string, unknown>>,
@@ -21,6 +32,7 @@ export const hydrateVueIsland = (
 	});
 	app.mount(element);
 	vueIslandApps.set(element, app);
+	registerAppDisposer(element, app);
 	if (isPropsRecord(component)) vueIslandComponents.set(element, component);
 };
 export const isVueComponent = (
@@ -42,6 +54,7 @@ export const remountVueIsland = (
 	});
 	app.mount(element);
 	vueIslandApps.set(element, app);
+	registerAppDisposer(element, app);
 	if (isPropsRecord(component)) vueIslandComponents.set(element, component);
 };
 
