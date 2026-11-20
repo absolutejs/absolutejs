@@ -1,4 +1,5 @@
 import { requestRenderUrl } from '../utils/requestRenderUrl';
+import { htmlLangAttributes } from '../utils/localeRef';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { lstat, mkdir, readlink, symlink } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
@@ -535,7 +536,9 @@ export const handleAngularPageRequest = async <Page = unknown>(
 					PageComponent
 				);
 
-				const htmlString = `<!DOCTYPE html><html>${resolvedHeadTag}<body><${selector}></${selector}></body></html>`;
+				// `lang` and `dir` from the request's locale, as Svelte's
+				// and Vue's renderers do.
+				const htmlString = `<!DOCTYPE html><html${htmlLangAttributes()}>${resolvedHeadTag}<body><${selector}></${selector}></body></html>`;
 
 				resetSsrSanitizer();
 				const sanitizer = getSsrSanitizer(deps);

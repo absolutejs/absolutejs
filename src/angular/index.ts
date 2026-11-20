@@ -35,4 +35,7 @@ export { Island } from './Island';
 export { IslandStore } from './islandStore';
 export { renderIsland } from './renderIsland';
 export { CsrfFieldComponent } from './components/csrf-field.component';
+export { ABSOLUTE_I18N, type AngularI18n } from './components/i18n.token';
+export { TPipe } from './components/t.pipe';
+export { ABSOLUTE_I18N_PAYLOAD, injectI18n, provideAbsoluteI18n } from './i18n';
 export { StreamSlotComponent } from './components/stream-slot.component';
