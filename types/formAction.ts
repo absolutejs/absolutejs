@@ -24,6 +24,36 @@ export type ActionFormValues<Fields extends string = string> = Partial<
 
 export type ActionIdleState = { status: 'idle' };
 
+/** Options every framework's form-action binding takes in the browser.
+ *  Distinct from `FormActionOptions`, which is the server's `form` route
+ *  option. */
+export type FormActionBindingOptions = {
+	/** The result a submission without JavaScript left for this page:
+	 *  `getActionState(path)` in the route, handed down as a prop. It
+	 *  arrives through a cookie and props, so any action state is
+	 *  accepted; the binding's type parameters type it. */
+	initialState?: ActionState | null;
+	/** Clear the form's fields after a successful submission that doesn't
+	 *  redirect. Default true. */
+	resetOnSuccess?: boolean;
+};
+
+/** What `$formAction(path)` reads as in a Svelte template. */
+export type SvelteFormActionValue<
+	Data = unknown,
+	Fields extends string = string
+> = {
+	/** The handler's return value, after a successful submission. */
+	data: Data | undefined;
+	errors: ActionFieldErrors<Fields>;
+	/** A message for the whole form, when the action set one. */
+	message: string | undefined;
+	pending: boolean;
+	state: ActionState<Data, Fields>;
+	/** What the user typed, after a submission without JavaScript failed. */
+	values: ActionFormValues<Fields>;
+};
+
 export type ActionSuccessState<Data = unknown> = {
 	status: 'success';
 	/** The handler's return value. Undefined after a submission without
