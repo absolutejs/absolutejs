@@ -10,8 +10,17 @@ import {
 import {
 	ACTION_FLASH_COOKIE,
 	readActionFlash,
+	registerActionFlashVerifier,
+	splitFlashValue,
 	type ActionFlash
 } from '../utils/formActionState';
+import { logWarn } from '../utils/logger';
+import {
+	hasSigningSecret,
+	signValue,
+	signingSecret,
+	verifyValue
+} from '../utils/signingSecret';
 import { csrfSetCookie, csrfTokenIssued, registerCsrfToken } from './csrfToken';
 
 export { ACTION_FLASH_COOKIE, readActionFlash };
@@ -25,14 +34,71 @@ export type { ActionFlash };
  * `<form data-absolute-action>` by `formActionRuntime` below. */
 
 const FLASH_MAX_AGE_SECONDS = 60;
-/* A cookie must stay under 4096 bytes including its name and attributes. */
-const FLASH_MAX_VALUE_BYTES = 3_500;
+/* A cookie must stay under 4096 bytes including its name and attributes.
+ * The signature and its separator come out of the same budget. */
+const FLASH_SIGNATURE_BYTES = 44;
+const FLASH_MAX_VALUE_BYTES = 3_500 - FLASH_SIGNATURE_BYTES;
+const FLASH_PURPOSE = 'flash';
+
+/* Signing the result cookie.
+ *
+ * The server sets this cookie and reads it back, but anyone who can set a
+ * cookie for the site can forge one — an untrusted subdomain, an active
+ * attacker on a connection without HSTS, a malicious extension — and make
+ * the next page render a result of their choosing. The rewriter escapes
+ * what it writes, so the damage is a spoofed message rather than script,
+ * which is still worth refusing.
+ *
+ * Signing needs `ABSOLUTE_SECRET`, which until now only mattered to
+ * projects that opted into CSRF tokens, so an app that has not set one
+ * keeps working exactly as before and is warned once. There is no
+ * downgrade in that: whenever a secret IS available, a cookie without a
+ * valid signature is rejected rather than merely preferred, so an attacker
+ * cannot strip the signature to reach the old behaviour. */
+
+let warnedAboutUnsignedFlash = false;
+
+const warnOnceAboutUnsignedFlash = () => {
+	if (warnedAboutUnsignedFlash) return;
+	warnedAboutUnsignedFlash = true;
+	logWarn(
+		'ABSOLUTE_SECRET is not set, so form results from submissions made without JavaScript travel in an unsigned cookie. Anyone able to set a cookie for this site can then make a page show a result of their choosing. Set ABSOLUTE_SECRET to a long random string (`openssl rand -hex 32`), the same value on every instance, and the cookie is signed and verified.'
+	);
+};
+
+/* True except in production with no secret configured, which is the one
+ * case where signing would do more harm than good: a generated key would
+ * be lost on restart and differ between instances, so a visitor would
+ * submit successfully and then see no result at all. */
+const flashSigningActive = () => {
+	if (hasSigningSecret()) return true;
+	warnOnceAboutUnsignedFlash();
+
+	return false;
+};
 
 const cookieAttributes = (secure: boolean, maxAge: number) =>
 	`Path=/; Max-Age=${maxAge}; HttpOnly; SameSite=Lax${secure ? '; Secure' : ''}`;
 
 const encodeValue = (flash: ActionFlash) =>
 	Buffer.from(JSON.stringify(flash)).toString('base64url');
+
+const signedValue = (payload: string) =>
+	flashSigningActive()
+		? `${payload}.${signValue(FLASH_PURPOSE, payload, signingSecret())}`
+		: payload;
+
+/* Registered for the browser-safe reader, which cannot import node:crypto
+ * itself. Returns the payload to decode, or undefined to drop the cookie. */
+const acceptFlashValue = (value: string) => {
+	const { payload, signature } = splitFlashValue(value);
+	if (!flashSigningActive()) return payload;
+	if (!signature) return undefined;
+
+	return verifyValue(FLASH_PURPOSE, payload, signature, signingSecret())
+		? payload
+		: undefined;
+};
 
 /* The flash, then smaller versions of it: without the echoed values (or
  * the success data), then with nothing but the outcome. */
@@ -67,12 +133,16 @@ export const clearActionFlashCookie = (secure: boolean) =>
  *  details) until it fits a cookie. */
 export const encodeActionFlash = (flash: ActionFlash, secure: boolean) => {
 	const encoded = flashCandidates(flash).map(encodeValue);
+	// flashCandidates always yields at least the flash itself, so the last
+	// fallback is only here to satisfy the checker.
 	const value =
 		encoded.find(
 			(candidate) => candidate.length <= FLASH_MAX_VALUE_BYTES
-		) ?? encoded[encoded.length - 1];
+		) ??
+		encoded[encoded.length - 1] ??
+		'';
 
-	return `${ACTION_FLASH_COOKIE}=${value}; ${cookieAttributes(secure, FLASH_MAX_AGE_SECONDS)}`;
+	return `${ACTION_FLASH_COOKIE}=${signedValue(value)}; ${cookieAttributes(secure, FLASH_MAX_AGE_SECONDS)}`;
 };
 
 /* ---------------------------------------------------------------- *
@@ -320,6 +390,9 @@ export const formActionRuntime = () => {
 	// So a framework's <CsrfField /> can reach the token without importing
 	// the request context (src/utils/csrfTokenRef.ts).
 	registerCsrfToken();
+	// And so the browser-safe flash reader can check a signature it has no
+	// way to compute (src/utils/formActionState.ts).
+	registerActionFlashVerifier(acceptFlashValue);
 
 	return new Elysia({ name: 'absolutejs-form-action-runtime' }).mapResponse(
 		'global',
