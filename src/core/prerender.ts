@@ -82,8 +82,9 @@ const ACTION_FLASH_COOKIE_RE = new RegExp(`(?:^|;\\s*)${ACTION_FLASH_COOKIE}=`);
  *    with no errors and nothing typed back — the submission would look
  *    ignored. The route renders instead and reads the cookie through
  *    `getActionState`; its response is `no-store`, so nothing is cached. */
-export const routeToFilename = (route: string) =>
-	route === '/' ? 'index.html' : `${route.slice(1).replace(/\//g, '-')}.html`;
+import { filenameToRoute, routeToFilename } from './prerenderPaths';
+
+export { filenameToRoute, routeToFilename };
 export const shouldSkipPrerendered = (request: Request) =>
 	isPrerenderBypass(request) ||
 	ACTION_FLASH_COOKIE_RE.test(request.headers.get('cookie') ?? '');

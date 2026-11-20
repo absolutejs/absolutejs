@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto';
 import { runUntracked } from '../dev/hotResources';
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { basename, join, relative, resolve as resolvePath } from 'node:path';
+import { existsSync, readdirSync, readFileSync, type Dirent } from 'node:fs';
+import { filenameToRoute } from './prerenderPaths';
+import { join, relative, resolve as resolvePath } from 'node:path';
 import { encodeSrcPath } from '../dev/srcPath';
 import { Elysia, ElysiaError, InternalServerError, NotFound } from 'elysia';
 import type { staticPlugin } from '@elysia/static';
@@ -542,23 +543,36 @@ const prepareDev = async (
 };
 
 /** Load pre-rendered HTML files from disk into a route → filepath map */
+/* Recursive, because a pre-rendered route is a path now
+ * (`docs/guide.html`), not a flattened name. Reading only the top level
+ * would silently drop every nested route from the map — which is what the
+ * flattened layout did by another route. */
+const prerenderedFiles = (directory: string, prefix = ''): string[] => {
+	let entries: Dirent[];
+	try {
+		entries = readdirSync(directory, { withFileTypes: true });
+	} catch {
+		/* unreadable directory: nothing to serve from it */
+		return [];
+	}
+
+	return entries.flatMap((entry) => {
+		const relativePath = prefix ? `${prefix}/${entry.name}` : entry.name;
+		if (entry.isDirectory())
+			return prerenderedFiles(join(directory, entry.name), relativePath);
+
+		return entry.name.endsWith('.html') ? [relativePath] : [];
+	});
+};
+
 const loadPrerenderMap = (prerenderDir: string) => {
 	const map = new Map<string, string>();
 	if (!existsSync(prerenderDir)) return map;
-
-	let entries: string[];
-	try {
-		entries = readdirSync(prerenderDir);
-	} catch {
-		/* directory doesn't exist or can't be read */
-		return map;
-	}
-
-	for (const entry of entries) {
-		if (!entry.endsWith('.html')) continue;
-		const name = basename(entry, '.html');
-		const route = name === 'index' ? '/' : `/${name}`;
-		map.set(route, join(prerenderDir, entry));
+	for (const relativePath of prerenderedFiles(prerenderDir)) {
+		map.set(
+			filenameToRoute(relativePath),
+			join(prerenderDir, relativePath)
+		);
 	}
 
 	return map;
