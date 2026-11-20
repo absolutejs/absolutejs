@@ -43,4 +43,5 @@ export {
 	DeferResolvedTemplateDirective
 } from './components/defer-slot-templates.directive';
 export { ImageComponent } from './components/image.component';
+export { CsrfFieldComponent } from './components/csrf-field.component';
 export { StreamSlotComponent } from './components/stream-slot.component';

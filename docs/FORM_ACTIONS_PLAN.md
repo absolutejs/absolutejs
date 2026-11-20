@@ -158,13 +158,18 @@ const signup = actions.useFormAction('/actions/signup', { initialState: signupSt
     - requests with neither header (curl, server-to-server, very old browsers) pass.
   - Failures get `403` before the body is read: the `parse` hook records the rejection and skips parsing, and `transform` throws it into the route's error hook.
   - A cross-site page therefore can't even set a victim's result cookie. `form: { body, csrf: false }` turns the check off for actions meant to be called from other sites.
-- **CSRF tokens (Phase 3, server half shipped, opt-in).** Signed double-submit tokens for deployments that must cover browsers which send neither header, or that have a same-site but untrusted subdomain. `form: { body, csrf: { token: true } }`.
-  - The `absolute_csrf` cookie holds a random value; the hidden `_csrf` field or the `x-absolute-csrf` header holds an HMAC of it (`src/core/csrfToken.ts`). The server stores nothing: given the cookie and the field, the signature is the whole proof.
+- **CSRF tokens (Phase 3, shipped, opt-in).** Signed double-submit tokens for deployments that must cover browsers which send neither header, or that have a same-site but untrusted subdomain. `form: { body, csrf: { token: true } }`.
+  - The token is `<random>.<hmac of random>` and the `absolute_csrf` cookie holds that whole string (`src/core/csrfToken.ts`). A submission must present the same string again, and is accepted only when the signature is this server's **and** the presented token equals the cookie. Both checks matter: without the equality one, any token this server ever signed would validate against another visitor's cookie; without the signature, a subdomain that can set a cookie on the parent domain could plant a value it knows and echo it back.
   - `getCsrfToken()` reads the current request through `getCurrentAbsoluteRequest()` and mints on first use, exactly as `getCspNonce()` does. The response hook in `formActionFlash.ts` sets the cookie for a request that minted one, and marks any page carrying a token `cache-control: private, no-store` — the HTML is bound to one visitor's cookie, so a shared cache must not hand it to another.
   - The header is checked where the origin check already sits; the field has to wait for `transform`, because the body does not exist in `parse`. The token is deleted from the body afterwards, so it never reaches the schema or the echoed values.
   - The HMAC key is `ABSOLUTE_SECRET` (`src/utils/signingSecret.ts`). Production refuses to invent one — a per-process key would pass a smoke test and then reject real submissions after a restart or on a second instance. Development generates one silently.
   - Prerendered pages can't embed a per-visitor token, so there `enhanceForms` / `useFormAction` read the cookie and send the header. That is why the cookie is not HttpOnly.
-  - Still to do: `csrfField()` per framework and automatic inclusion in `formProps`, so a hand-written `<input type="hidden" name="_csrf">` is not the only way in.
+  - How a form gets the token:
+    - **With JavaScript, automatically.** `submitFormAction` — which every binding and `enhanceForms` goes through — sends the `x-absolute-csrf` header whenever the cookie is readable. Nothing to add.
+    - **Without JavaScript**, the token has to be in the markup, so each framework has a component: `<CsrfField />` (React, Vue), `CsrfField.svelte`, `<absolute-csrf-field />` (Angular). Each renders the hidden field, or nothing when there is no token.
+    - **Hand-built HTML or HTMX**, `csrfField()` returns the `<input>` markup, `csrfHeaders()` the header object, and `enhanceHtmxCsrf()` attaches the header to HTMX's own requests through `htmx:configRequest`.
+  - All of them read the token through `readCsrfToken()` (`src/utils/csrfTokenRef.ts`), which is dependency-free and ships to the browser: on the server it calls the getter `formActions()` registered, and in the browser it reads the cookie. Because the cookie holds the token itself, both sides arrive at the same string, so a pre-rendered page can send a header for a token it was never able to embed. This mirrors `src/utils/cspNonceRef.ts`.
+  - Angular components cannot import outside `src/angular/components` (the partial compile runs in a temp workspace), so `scripts/build.ts` rewrites that one specifier and publishes the helper beside the component, as it already does for the streaming-slot registrar.
   - `secureHeaders()` already sends `form-action 'self'`. The browser helpers emit no inline scripts. Any future inline bootstrap must use `nonceAttr()` (`src/utils/cspNonceRef.ts`).
 - **Auth.** An action is a route in the app, so the app's guards (`onBeforeHandle`, `.guard`) apply and its `derive` values reach the handler with their types (the reason for the `form` macro). A route-level `beforeHandle` runs after validation and sees the typed `body`, `fail` and derived values. Elysia checks what a route's own hooks return against the statuses the route declares, and a `form` route declares its 422, so the route's `beforeHandle` answers with one of these:
   - `status(401, 'Sign in first')`, after adding the status to the route's `response`. The route's map merges with the 422, and Eden gets the 401:
@@ -238,7 +243,7 @@ const signup = actions.useFormAction('/actions/signup', { initialState: signupSt
 
 ### Phase 3: hardening
 
-- Signed CSRF tokens (`getCsrfToken`, `csrfField`, automatic in the helpers) as an opt-in `csrf: { token: true }`.
+- ~~Signed CSRF tokens (`getCsrfToken`, `csrfField`, automatic in the helpers) as an opt-in `csrf: { token: true }`.~~ Shipped; see Security above.
 - A signed result cookie.
 - Streaming byte limits for chunked bodies.
 - Nested-object and array-of-object field paths (`address.city`, `items[0].qty`) in normalisation and value echo.

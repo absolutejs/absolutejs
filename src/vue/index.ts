@@ -17,6 +17,7 @@ export {
 	preserveBrowserTranslation
 } from './browserTranslation';
 export { Image } from './components/Image';
+export { CsrfField } from './components/CsrfField';
 export { StreamSlot, SuspenseSlot } from './components';
 export { useResource } from './useResource';
 export { useServerData } from './useServerData';

@@ -27,6 +27,20 @@ const missingInProduction = () =>
 		`${SECRET_ENV} is not set. Signing a CSRF token or a form-action result cookie needs a secret that survives a restart and is shared by every instance, so production will not fall back to a generated one. Set ${SECRET_ENV} to a long random string (\`openssl rand -hex 32\`), the same value on every instance.`
 	);
 
+/** Whether `one` and `other` are the same string, compared in constant
+ *  time.
+ *
+ *  For comparing a value a caller presented against one it should not be
+ *  able to learn, where a plain `===` leaks how long a common prefix was.
+ *  Different lengths are reported directly: `timingSafeEqual` throws on a
+ *  mismatch, and a length is not worth hiding. */
+export const constantTimeEquals = (one: string, other: string) => {
+	const left = Buffer.from(one);
+	const right = Buffer.from(other);
+
+	return left.length === right.length && timingSafeEqual(left, right);
+};
+
 /** Whether a secret is available without throwing — for a caller that
  *  would rather degrade than fail. */
 export const hasSigningSecret = () =>
@@ -60,16 +74,10 @@ export const signValue = (purpose: string, value: string, secret: string) =>
  *  `purpose`.
  *
  *  Compared in constant time, so a near-miss reveals nothing about how
- *  much of the signature was right. Lengths are checked first because
- *  `timingSafeEqual` throws on a mismatch. */
+ *  much of the signature was right. */
 export const verifyValue = (
 	purpose: string,
 	value: string,
 	signature: string,
 	secret: string
-) => {
-	const expected = Buffer.from(signValue(purpose, value, secret));
-	const given = Buffer.from(signature);
-
-	return expected.length === given.length && timingSafeEqual(expected, given);
-};
+) => constantTimeEquals(signValue(purpose, value, secret), signature);

@@ -12,7 +12,7 @@ import {
 	readActionFlash,
 	type ActionFlash
 } from '../utils/formActionState';
-import { csrfSetCookie, csrfTokenIssued } from './csrfToken';
+import { csrfSetCookie, csrfTokenIssued, registerCsrfToken } from './csrfToken';
 
 export { ACTION_FLASH_COOKIE, readActionFlash };
 export type { ActionFlash };
@@ -316,8 +316,12 @@ export const consumeActionFlash = (request: Request, response: unknown) => {
 
 /** Part of the `absolutejs` plugin from `prepare()`: renders and clears
  *  form-action results on HTML pages, and issues CSRF cookies. */
-export const formActionRuntime = () =>
-	new Elysia({ name: 'absolutejs-form-action-runtime' }).mapResponse(
+export const formActionRuntime = () => {
+	// So a framework's <CsrfField /> can reach the token without importing
+	// the request context (src/utils/csrfTokenRef.ts).
+	registerCsrfToken();
+
+	return new Elysia({ name: 'absolutejs-form-action-runtime' }).mapResponse(
 		'global',
 		({ request, responseValue }) => {
 			const consumed = consumeActionFlash(request, responseValue);
@@ -327,3 +331,4 @@ export const formActionRuntime = () =>
 			);
 		}
 	);
+};

@@ -15,6 +15,8 @@ import {
 	readActionFlash
 } from '../../../src/core/formActionFlash';
 import { getCsrfToken } from '../../../src/core/csrfToken';
+import { runWithAbsoluteRequest } from '../../../src/core/requestContext';
+import { readCsrfToken } from '../../../src/utils/csrfTokenRef';
 import {
 	formActions,
 	getActionState,
@@ -1099,6 +1101,57 @@ describe('form routes — signed CSRF tokens', () => {
 			'x-absolute-csrf': first.token
 		});
 		expect(response.status).toBe(403);
+	});
+
+	test('a renderer reaches the same token through the request context', async () => {
+		// How <CsrfField /> gets it: formActions() registers the getter,
+		// readCsrfToken() calls it, and it mints through whichever request
+		// the context is currently on — no plumbing in the page.
+		const request = new Request(`${ORIGIN}/join`);
+		const token = runWithAbsoluteRequest(request, () => readCsrfToken());
+		expect(token).toBeDefined();
+		// Same request, same token: a form with two fields, or a page with
+		// two forms, does not mint twice.
+		expect(runWithAbsoluteRequest(request, () => readCsrfToken())).toBe(
+			token
+		);
+		// And it is the token the cookie carries, which is what lets a
+		// pre-rendered page read the cookie and send the header.
+		const issuedPage = await tokenApp.handle(new Request(`${ORIGIN}/join`));
+		const issued = csrfCookieOf(issuedPage)?.split(';')[0]?.split('=')[1];
+		const response = await postMember(form([['name', 'Ada']]), {
+			cookie: `absolute_csrf=${issued}`,
+			'x-absolute-csrf': issued ?? ''
+		});
+		expect(response.status).toBe(303);
+	});
+
+	test('a cookie this server did not sign is rejected, even echoed back', async () => {
+		// Cookie tossing: a subdomain can set a cookie on the parent
+		// domain, so a value the attacker planted is one they know. They
+		// still cannot sign it.
+		const planted = 'planted.notasignature';
+		const response = await postMember(form([['name', 'Ada']]), {
+			cookie: `absolute_csrf=${planted}`,
+			'x-absolute-csrf': planted
+		});
+		expect(response.status).toBe(403);
+	});
+
+	test('a token that is not <value>.<signature> is rejected', async () => {
+		const malformed = ['nodot', '.leading', 'trailing.'];
+		const statuses = await Promise.all(
+			malformed.map(
+				async (token) =>
+					(
+						await postMember(form([['name', 'Ada']]), {
+							cookie: `absolute_csrf=${token}`,
+							'x-absolute-csrf': token
+						})
+					).status
+			)
+		);
+		expect(statuses).toEqual([403, 403, 403]);
 	});
 
 	test('a route that did not opt in needs no token', async () => {

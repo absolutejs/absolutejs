@@ -4,6 +4,7 @@
  * context and render on the server as they do in classic SSR. Link and usePrefetch come from the "use client" module,
  * which the RSC build turns into client references; the published build
  * keeps that import external so the directive survives. */
+export { CsrfField } from '../CsrfField';
 export { Head } from '../Head';
 export { Image } from '../Image';
 export { JsonLd } from '../JsonLd';
