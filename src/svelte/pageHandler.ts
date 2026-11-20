@@ -1,6 +1,7 @@
 import { HTML_CONTENT_TYPE } from '../constants';
 import { requestRenderUrl } from '../utils/requestRenderUrl';
 import { nonceAttr } from '../utils/cspNonceRef';
+import { serializeInitialProps } from '../utils/initialProps';
 import type { Component as SvelteComponent } from 'svelte';
 import type { SveltePropsOf } from '../../types/svelte';
 import { compileSvelteServerModule } from '../core/svelteServerModule';
@@ -279,8 +280,9 @@ export const handleSveltePageRequest = async <
 					headContent: composedHeadContent,
 					settle: routerSsr.settle,
 					bootstrapScriptContent: () =>
-						`${BROWSER_TRANSLATION_BASELINE_SCRIPT}window.__ABS_SLOT_HYDRATION_PENDING__=true;${routerSsr.bootstrapScript()}window.__INITIAL_PROPS__=${JSON.stringify(
-							resolvedProps
+						`${BROWSER_TRANSLATION_BASELINE_SCRIPT}window.__ABS_SLOT_HYDRATION_PENDING__=true;${routerSsr.bootstrapScript()}window.__INITIAL_PROPS__=${serializeInitialProps(
+							resolvedProps,
+							`The Svelte page ${input.pagePath}`
 						)};${resolvedIndexPath ? `import(${JSON.stringify(resolvedIndexPath)});` : ''}`
 				}
 			);

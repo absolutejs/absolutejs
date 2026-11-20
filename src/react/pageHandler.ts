@@ -1,6 +1,7 @@
 import { HTML_CONTENT_TYPE } from '../constants';
 import { requestRenderUrl } from '../utils/requestRenderUrl';
 import { readCspNonce } from '../utils/cspNonceRef';
+import { serializeInitialProps } from '../utils/initialProps';
 import { isProductionRuntime } from '../utils/runtimeMode';
 import type { ComponentType as ReactComponent } from 'react';
 import { injectIslandPageContextStream } from '../core/islandPageContext';
@@ -175,7 +176,10 @@ export const handleReactPageRequest = async <
 					: createElement(Page);
 
 			const propsScript = maybeProps
-				? `window.__INITIAL_PROPS__=${JSON.stringify(maybeProps)};`
+				? `window.__INITIAL_PROPS__=${serializeInitialProps(
+						maybeProps,
+						`The React page ${pageName || resolvedIndex}`
+					)};`
 				: '';
 
 			// Buffer React Refresh registrations until the runtime loads.

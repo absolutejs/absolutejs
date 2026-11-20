@@ -1,3 +1,4 @@
+import { assertNoServerSecrets } from '../utils/serverSecrets';
 import type {
 	IslandComponentDefinition,
 	IslandRegistry,
@@ -58,8 +59,14 @@ export const parseIslandProps = (rawProps: string | null) => {
 
 	return JSON.parse(rawProps);
 };
-export const serializeIslandProps = (props: unknown) =>
-	JSON.stringify(props ?? {});
+export const serializeIslandProps = (props: unknown) => {
+	const serialized = JSON.stringify(props ?? {});
+	// An island's props travel in a `data-props` attribute, which is as
+	// public as the props script.
+	assertNoServerSecrets(serialized, 'An island');
+
+	return serialized;
+};
 
 export {
 	getIslandManifestEntries,
