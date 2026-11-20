@@ -854,19 +854,16 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 	);
 	recordStep('create static plugin', stepStartedAt);
 
-	// Cache policy for static assets. Content-hashed filenames (e.g.
-	// `Page.a1b2c3d4.js`, `/chunk-xxxxxxxx.js`, and the `/.absolutejs/*` hydration
-	// bundles) are safe to cache forever; their URL changes when the content
-	// does. Stable-named-but-content-variable files (Tailwind's
-	// `tailwind.generated.css`, vendor bundles like `vue.js`, user assets) must
-	// revalidate, or a deploy's CSS/asset changes never reach returning visitors
-	// (their URL never changes but `immutable` tells the browser never to check).
-	// Without this, @elysia/static + the generated-assets handler apply one
-	// blanket policy and stale non-hashed assets get pinned for up to a year.
-	// A content-hashed filename always mixes letters AND digits in its hash
-	// segment (e.g. `a1b2c3d4`); dictionary-word segments (`generated`, `vue`,
-	// `iconfont`) never do, so they correctly fall through to revalidation.
-	const assetCachePlugin = createAssetCachePlugin();
+	// Cache policy for static assets. A path the build hashed — every value
+	// in `manifest.json`, plus the `/.absolutejs/*` hydration bundles and the
+	// bundler's own `chunk-<hash>.js` — is safe to cache forever, because its
+	// URL changes when its content does. Everything else revalidates,
+	// including a user asset whose name merely looks hashed: this used to be
+	// guessed from the name, which pinned `icon-512x512.png` for a year.
+	const hashedAssetPaths = new Set(
+		Object.values(manifest).filter((value) => typeof value === 'string')
+	);
+	const assetCachePlugin = createAssetCachePlugin(hashedAssetPaths);
 
 	// Check for pre-rendered pages (from SSG or compile)
 	stepStartedAt = performance.now();

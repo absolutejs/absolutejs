@@ -814,6 +814,23 @@ const generateEntrypoint = (
 	const nativeMappings: string[] = [];
 	const embeddedMappings: string[] = [];
 	const mappings: string[] = [];
+	/* The paths the build hashed, read from the manifest and inlined: the
+	 * compiled server decides its cache policy from this rather than from
+	 * what a file name looks like. Same rule as
+	 * `src/core/precompressed.ts`, which is the source of truth; the table
+	 * in `tests/unit/core/assetCachePolicy.test.ts` holds the two copies to
+	 * the same answers. */
+	const manifestPath = join(distDir, 'manifest.json');
+	const readHashedAssetPaths = () => {
+		if (!existsSync(manifestPath)) return [];
+		const parsed: unknown = JSON.parse(readFileSync(manifestPath, 'utf-8'));
+		if (typeof parsed !== 'object' || parsed === null) return [];
+
+		return Object.values(parsed).filter(
+			(value): value is string => typeof value === 'string'
+		);
+	};
+	const hashedAssetPaths = readHashedAssetPaths();
 	const embeddedVarMap = new Map<string, string>();
 	const nativeAssets = resolveCompileNativeAssets(buildConfig);
 
@@ -960,13 +977,19 @@ const MIME: Record<string, string> = {
 const getMime = (p: string) =>
 	MIME[p.substring(p.lastIndexOf("."))] ?? "application/octet-stream";
 
-// Content-hashed filenames (hash segment mixes letters AND digits) are safe to
-// cache forever; stable-named-but-content-variable files (tailwind.generated.css,
-// vendor bundles) must revalidate so a deploy's changes reach returning visitors.
+// A path the build hashed may be cached forever, because its URL changes
+// with its content. Everything else revalidates, including a file whose
+// name merely looks hashed: guessing from the name pinned icon-512x512.png
+// for a year. Mirrors src/core/precompressed.ts.
+const HASHED_ASSETS = new Set<string>([
+${hashedAssetPaths.map((path) => `	${JSON.stringify(path)},`).join('\n')}
+]);
 const isFingerprintedAsset = (p: string) => {
+	if (p.startsWith("/.absolutejs/")) return true;
 	const base = p.slice(p.lastIndexOf("/") + 1);
-	const hash = base.match(/[.-]([0-9a-z]{6,12})\\.[0-9a-z]+$/i)?.[1];
-	return hash ? /[0-9]/.test(hash) && /[a-z]/i.test(hash) : false;
+	if (/^chunk-[0-9a-z]{8,}\\.js$/i.test(base)) return true;
+	if (/\\.[0-9a-f]{8}\\.[0-9a-z]+$/i.test(base)) return true;
+	return HASHED_ASSETS.has(p);
 };
 
 // ── Server ──────────────────────────────────────────────────────
