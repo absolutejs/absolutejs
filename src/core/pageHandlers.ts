@@ -1,6 +1,7 @@
 import { HTML_CONTENT_TYPE } from '../constants';
 import { file } from 'bun';
 import { transformCurrentStaticPageHtml } from '../build/staticIslandPages';
+import { translateStaticHtml } from './htmlI18n';
 import { withPageCacheHeaders } from './pageResponseCache';
 import { extractStaticStreamingTags } from './staticStreaming';
 import {
@@ -76,9 +77,8 @@ const handleStaticPageRequest = async (
 	const html = settings.enableHTMXStreaming
 		? await withHtmxStyleNonce(nonced)
 		: nonced;
-	const transformedHtml = await transformCurrentStaticPageHtml(
-		html,
-		settings
+	const transformedHtml = await translateStaticHtml(
+		await transformCurrentStaticPageHtml(html, settings)
 	);
 	const htmlWithTranslationBaseline = htmlContainsIslands(transformedHtml)
 		? injectBrowserTranslationBaseline(transformedHtml)
