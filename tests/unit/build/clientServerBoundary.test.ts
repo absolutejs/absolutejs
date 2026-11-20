@@ -189,23 +189,29 @@ describe('the default mode', () => {
 });
 
 describe('the marker module itself', () => {
-	test('is inert on the server and throws where there is a document', async () => {
-		// The backstop for the paths the bundler is not on — chiefly the dev
-		// module server, which serves unbundled ESM per file, so a module
-		// reached only at runtime never passes through a client pass.
-		const { SERVER_ONLY } = await import('../../../src/serverOnly');
-
-		expect(SERVER_ONLY).toBe(true);
-
+	test('is inert on a server and throws where there is a document', async () => {
+		/* The backstop for the paths the bundler is not on — chiefly the dev
+		 * module server, which serves unbundled ESM per file, so a module
+		 * reached only at runtime never passes through a client pass.
+		 *
+		 * Evaluated from source rather than imported, with `globalThis`
+		 * shadowed. Importing it would make this test depend on test order:
+		 * any file in the same process that installs a happy-dom
+		 * `document` first makes the import itself throw — which is the
+		 * module working, not failing. */
 		const source = await Bun.file(
 			new URL('../../../src/serverOnly.ts', import.meta.url)
 		).text();
-		const inBrowser = new Function(
+		const evaluate = new Function(
 			'globalThis',
 			source.replace('export const SERVER_ONLY = true;', '')
 		);
 
-		expect(() => inBrowser({ document: {} })).toThrow(
+		expect(() => evaluate({})).not.toThrow();
+		expect(() => evaluate({ document: {} })).toThrow(
+			/evaluated in a browser/
+		);
+		expect(() => evaluate({ window: {} })).toThrow(
 			/evaluated in a browser/
 		);
 	});
