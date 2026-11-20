@@ -209,6 +209,10 @@
 			"import": "./dist/react/server.js",
 			"types": "./dist/src/react/server.d.ts"
 		},
+		"./server-only": {
+			"import": "./dist/serverOnly.js",
+			"types": "./dist/src/serverOnly.d.ts"
+		},
 		"./style-module-shim": {
 			"types": "./dist/types/style-module-shim.d.ts"
 		},
@@ -595,7 +599,7 @@
 			]
 		}
 	},
-	"version": "0.20.0-beta.232",
+	"version": "0.20.0-beta.233",
 	"workspaces": [
 		"tests/fixtures/*",
 		"tests/fixtures/_packages/*"

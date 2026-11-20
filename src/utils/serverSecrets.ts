@@ -41,8 +41,19 @@ const isSensitive = ([name, value]: [string, string | undefined]) =>
 	value.length >= MINIMUM_LENGTH;
 
 /* Read once: the environment does not change under a running server, and
- * this runs on every render. */
+ * this runs on every render.
+ *
+ * The `typeof process` test is load-bearing, not defensive. This module is
+ * reachable from BROWSER code: `getIslandMarkerAttributes`
+ * (core/islandMarkupAttributes.ts) calls `serializeIslandProps`, and an
+ * island re-derives its own marker attributes in the browser to find the
+ * element it hydrates into (client/preserveIslandMarkup.ts). Bun does not
+ * inline `process.env`, so without the test that path threw
+ * `ReferenceError: process is not defined` in the browser. There is
+ * nothing to guard there in any case — a browser has no environment, and
+ * the props it is re-serializing are already in the page. */
 const secrets = () => {
+	if (typeof process === 'undefined') return [];
 	cached ??= Object.entries(process.env)
 		.filter(isSensitive)
 		.map(([name, value]) => ({ name, value: String(value) }));

@@ -159,3 +159,64 @@ describe('the page handlers refuse it', () => {
 		expect(serializeIslandProps({ name: 'Ada' })).toBe('{"name":"Ada"}');
 	});
 });
+
+/* This module is reachable from BROWSER code, which the guard has to
+ * survive: an island re-derives its own marker attributes to find the
+ * element it hydrates into (client/preserveIslandMarkup.ts →
+ * getIslandMarkerAttributes → serializeIslandProps). Bun does not inline
+ * `process.env`, so reading the environment there threw and the island
+ * never hydrated. Found by the client-boundary build check
+ * (src/build/clientServerBoundary.ts) on this repo's own example build. */
+type BrowserIslandExports = {
+	serializeIslandProps?: (props: unknown) => string;
+};
+
+describe('in a browser bundle, where there is no environment', () => {
+	const browserBundle = async () => {
+		const result = await Bun.build({
+			entrypoints: ['src/core/islands.ts'],
+			format: 'cjs',
+			target: 'browser',
+			throw: false
+		});
+
+		expect(result.success).toBe(true);
+
+		return (await result.outputs[0]?.text()) ?? '';
+	};
+
+	/** Evaluates the bundle with `process` bound to undefined, which is as
+	 *  close as this runtime gets to a browser's missing global. (There the
+	 *  error is `ReferenceError: process is not defined`; here it is a
+	 *  TypeError on `process.env` — the same crash either way.) */
+	const evaluate = (code: string) => {
+		const module: { exports: BrowserIslandExports } = { exports: {} };
+		new Function('module', 'exports', 'process', code)(
+			module,
+			module.exports,
+			undefined
+		);
+
+		return module.exports;
+	};
+
+	test('island props serialize without reading the environment', async () => {
+		const { serializeIslandProps } = evaluate(await browserBundle());
+
+		expect(serializeIslandProps?.({ name: 'Ada' })).toBe('{"name":"Ada"}');
+	});
+
+	test('and the guard is what makes that true', async () => {
+		// Without it the same bundle throws, so this test cannot pass for
+		// some other reason.
+		const unguarded = (await browserBundle()).replace(
+			/if \(typeof process === "undefined"\)\s*return \[\];?/,
+			''
+		);
+		const { serializeIslandProps } = evaluate(unguarded);
+
+		expect(() => serializeIslandProps?.({ name: 'Ada' })).toThrow(
+			/process/
+		);
+	});
+});
