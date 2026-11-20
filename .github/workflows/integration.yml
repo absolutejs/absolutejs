@@ -35,7 +35,12 @@ env:
 jobs:
     hmr:
         name: HMR battery
-        runs-on: ubuntu-latest
+        # Pinned, not `ubuntu-latest`: that label now means Ubuntu 26.04,
+        # and Playwright 1.59.1 refuses to install Chromium there at all
+        # ("Playwright does not support chromium on ubuntu26.04-x64"), so
+        # both jobs died in the browser step. Move this to `ubuntu-latest`
+        # again once Playwright supports 26.04.
+        runs-on: ubuntu-24.04
         timeout-minutes: 90
         permissions:
             contents: read
@@ -69,7 +74,8 @@ jobs:
 
     rest:
         name: Servers, builds, CLI and browsers
-        runs-on: ubuntu-latest
+        # See the note on the hmr job: pinned for Playwright's sake.
+        runs-on: ubuntu-24.04
         timeout-minutes: 60
         permissions:
             contents: read
