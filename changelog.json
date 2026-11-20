@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "A form on a pre-rendered page posted without JavaScript redirects back with its result in the one-shot `absolute_action` cookie, but the page was answered from the file captured at build time — so the visitor saw the form with no errors, nothing typed back, and their submission apparently ignored. A request carrying that cookie now falls through to the route, which reads it through `getActionState`; the response is already `no-store`, so nothing poisons the pre-render or ISR cache. The cookie is matched by name, so a cookie whose name merely contains it, or a value that mentions it, does not trigger the bypass. This completes Phase 2 of docs/FORM_ACTIONS_PLAN.md.",
+					"kind": "fixed",
+					"summary": "A form on a pre-rendered page shows its result when JavaScript is off"
+				}
+			],
+			"date": "2026-11-20",
+			"version": "0.20.0-beta.211"
+		},
+		{
+			"changes": [
+				{
 					"detail": "Starting a second `absolute dev` while one was already running resolved the same port for both: `resolveDevPort` asked whether a port was free by binding it with `node:net`, and under Bun that bind succeeds on an occupied port without raising `EADDRINUSE` — two listeners take the port silently. `fellBack` stayed `false`, no fallback happened, and the kernel then split requests between the two servers. Port detection now asks by connecting rather than binding, in one shared helper the dev server's early listener uses too. Recorded as UPSTREAM_ISSUES.md #10, next to #8, which is the same gap in `Bun.serve`.",
 					"kind": "fixed",
 					"summary": "A second dev server no longer resolves a port the first one already holds"
