@@ -257,7 +257,12 @@ const signup = actions.useFormAction('/actions/signup', { initialState: signupSt
 - ~~Signed CSRF tokens (`getCsrfToken`, `csrfField`, automatic in the helpers) as an opt-in `csrf: { token: true }`.~~ Shipped; see Security above.
 - ~~A signed result cookie.~~ Shipped; see Security above.
 - ~~Streaming byte limits for chunked bodies.~~ Shipped; see Security above.
-- Nested-object and array-of-object field paths (`address.city`, `items[0].qty`) in normalisation and value echo.
+- ~~Nested-object and array-of-object field paths (`address.city`, `items[0].qty`) in normalisation and value echo.~~ Shipped:
+  - Both notations are read (`items[0].sku` and `items.0.sku`), and a path is written back in the one most form authors use — dots between keys, brackets around indices — so a failure at `/items/0/sku` is reported as `items[0].sku` and lands on that input.
+  - Expansion is driven by the schema, never by the submitted names: a name the schema does not declare is left exactly as it arrived and fails validation as an unknown field rather than creating something. That is also what makes `__proto__.polluted=1` inert, with an explicit refusal of `__proto__`, `constructor` and `prototype` on top.
+  - Normalisation recurses, so a checkbox two levels down still arrives as `false` when it was not ticked, and an array of objects normalises each entry. A sparse index (`items[2]` with no `items[0]`) is compacted rather than left as holes that validate as missing objects.
+  - A property's own `error` message now resolves along the path, so `address.city` reads the message on `city` instead of the one on `address`.
+  - The echoed values stay keyed by the names the inputs had, because that is what the no-JavaScript re-render and the bindings match against; `captureValues` runs before expansion for that reason.
 - Optimistic updates (`optimistic(formData)` in the hook).
 - Exit:
   - ~~token mode passes the matrix with `Sec-Fetch-Site` stripped by a proxy~~ — `tests/integration/server/form-actions-csrf-token.test.ts`: the app is reached through a proxy that strips `Origin`, `Sec-Fetch-Site` and `Sec-Fetch-Mode`, a control route proves a cross-site post is accepted without tokens in that setup, and a real browser drives a React page with JavaScript off and a static HTML page with it on;

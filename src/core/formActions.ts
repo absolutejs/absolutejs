@@ -23,6 +23,13 @@ import {
 	isActionResult
 } from '../utils/formActionProtocol';
 import { enableCsrfCookies, verifyCsrfToken } from './csrfToken';
+import {
+	instancePathToField,
+	isNestedFieldName,
+	parseFieldName,
+	schemaAtPath,
+	setAtPath
+} from './formFieldPaths';
 
 import {
 	encodeActionFlash,
@@ -358,12 +365,91 @@ const normalizeField = (kind: FieldKind, value: unknown) => {
  * empty number input sends '', one checked box of a group sends a single
  * value and an empty file input sends an empty File. Map those onto what
  * the schema expects so validation judges what the user meant. */
-const normalizeFormBody = (schema: TObject, body: Record<string, unknown>) => {
-	for (const [key, property] of Object.entries(schema.properties)) {
-		const value = normalizeField(kindOf(property), body[key]);
-		if (value === undefined) Reflect.deleteProperty(body, key);
-		else Reflect.set(body, key, value);
+/* A form sends one flat list of names, so a nested body is spelled into
+ * them: `address.city`, `items[0].sku`. Expansion is schema-driven — a
+ * name the schema does not declare is left exactly as it arrived and
+ * fails validation as before, which is also why `__proto__.x=1` means
+ * nothing here. */
+const expandNestedFields = (schema: TObject, body: Record<string, unknown>) => {
+	Object.keys(body)
+		.filter(isNestedFieldName)
+		.forEach((key) => {
+			const segments = parseFieldName(key);
+			if (schemaAtPath(schema, segments) === undefined) return;
+			setAtPath(body, segments, Reflect.get(body, key));
+			Reflect.deleteProperty(body, key);
+		});
+};
+
+const objectPropertiesOf = (schema: unknown) => {
+	const members =
+		isRecord(schema) && Array.isArray(schema.anyOf)
+			? schema.anyOf
+			: [schema];
+	const found = members.find(
+		(member) => isRecord(member) && isRecord(member.properties)
+	);
+
+	return isRecord(found) && isRecord(found.properties)
+		? found.properties
+		: undefined;
+};
+
+const itemsSchemaOf = (schema: unknown) => {
+	const members =
+		isRecord(schema) && Array.isArray(schema.anyOf)
+			? schema.anyOf
+			: [schema];
+	const found = members.find(
+		(member) => isRecord(member) && member.type === 'array'
+	);
+
+	return isRecord(found) ? found.items : undefined;
+};
+
+/* A browser submits contiguous indices, but a hand-built body need not:
+ * `items[2].sku` alone would leave holes that validate as missing
+ * objects. Dropping them keeps the array the list the form meant. */
+const compactEntries = (value: unknown) =>
+	Array.isArray(value)
+		? value.filter((entry) => entry !== undefined && entry !== null)
+		: value;
+
+const normalizeProperties = (
+	properties: Record<string, unknown>,
+	target: Record<string, unknown>
+) => {
+	for (const [key, property] of Object.entries(properties)) {
+		const value = normalizeValue(property, Reflect.get(target, key));
+		if (value === undefined) Reflect.deleteProperty(target, key);
+		else Reflect.set(target, key, value);
 	}
+};
+
+/* One value against its schema: an object's properties and an array's
+ * entries are walked, so a boolean nested two deep still becomes false
+ * when its checkbox was not ticked. */
+const normalizeValue = (schema: unknown, value: unknown): unknown => {
+	const properties = objectPropertiesOf(schema);
+	if (properties) {
+		if (!isRecord(value)) return value;
+		normalizeProperties(properties, value);
+
+		return value;
+	}
+	const normalized = normalizeField(kindOf(schema), value);
+	const items = itemsSchemaOf(schema);
+	if (!items || !Array.isArray(normalized)) return normalized;
+	const entries = compactEntries(normalized);
+
+	return Array.isArray(entries)
+		? entries.map((entry) => normalizeValue(items, entry))
+		: entries;
+};
+
+const normalizeFormBody = (schema: TObject, body: Record<string, unknown>) => {
+	expandNestedFields(schema, body);
+	normalizeProperties(schema.properties, body);
 };
 
 const isFormContent = (request: Request) => {
@@ -404,25 +490,41 @@ const captureValues = (request: Request, body: Record<string, unknown>) => {
  * Validation errors → one message per field
  * ---------------------------------------------------------------- */
 
-const pathToField = (instancePath: string) =>
-	instancePath.replace(/^\//, '').split('/').join('.');
+const pathToField = instancePathToField;
 
+/* A property's own `error` message. Resolved along the whole path, so
+ * `address.city` reads the message on `city` rather than the one on
+ * `address` — the parent's message would be wrong for every field it
+ * contains. An optional property arrives as a union, so its members are
+ * searched too. */
 const customMessage = (schema: TObject, field: string) => {
-	const [top = field] = field.split('.');
-	const property: unknown = schema.properties[top];
-	if (!isRecord(property)) return undefined;
+	const resolved = schemaAtPath(schema, parseFieldName(field));
+	if (!isRecord(resolved)) return undefined;
+	if (typeof resolved.error === 'string') return resolved.error;
+	const members = Array.isArray(resolved.anyOf) ? resolved.anyOf : [];
+	const withMessage = members.find(
+		(member) => isRecord(member) && typeof member.error === 'string'
+	);
 
-	return typeof property.error === 'string' ? property.error : undefined;
+	return isRecord(withMessage) && typeof withMessage.error === 'string'
+		? withMessage.error
+		: undefined;
 };
 
+/* A missing property is reported against its parent, so the field is the
+ * parent's path plus the property: `/address` missing `city` is
+ * `address.city`, not `city`. */
 const requiredFields = (entry: Record<string, unknown>) => {
 	const { params } = entry;
 	if (!isRecord(params) || !Array.isArray(params.requiredProperties))
 		return [];
+	const parent =
+		typeof entry.instancePath === 'string' ? entry.instancePath : '';
+	const prefix = pathToField(parent);
 
-	return params.requiredProperties.filter(
-		(name): name is string => typeof name === 'string'
-	);
+	return params.requiredProperties
+		.filter((name): name is string => typeof name === 'string')
+		.map((name) => (prefix === '' ? name : `${prefix}.${name}`));
 };
 
 const entryFields = (entry: Record<string, unknown>) => {
