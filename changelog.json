@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "`formAction(path, { initialState })` returns a store — `$signup.state`, `pending`, `errors`, `values`, `data`, `message` — plus `formProps` for a real `method=\"post\"` form and `use:signup.enhance`, which takes the submission over once the page has hydrated. Without JavaScript the same form posts normally and `getActionState(path)` hands the result to the page as a prop, exactly as the React hook does. Seed component state from `values` and bind it (`bind:value`): Svelte re-applies a `value={…}` attribute on every re-render, so showing an error would wipe what the user typed, and `defaultValue` is not rendered server-side. Vue and Angular bindings are still to come; their pages use `getActionState` with `enhanceForms` in the meantime.",
+					"kind": "added",
+					"summary": "Svelte pages get a form-action store with use:enhance"
+				}
+			],
+			"date": "2026-11-20",
+			"version": "0.20.0-beta.207"
+		},
+		{
+			"changes": [
+				{
 					"detail": "Vue keeps the parsed type scope of every file it reads for `defineProps<Imported>()` in module state and never drops it. The compile cache correctly missed once a type file's hash moved, but the recompile then read that stale scope and resolved the type the file used to declare, so a prop added to a shared `types.ts` never appeared in the component until the dev server restarted. The paths whose hashes moved now travel with the compile job, and whichever process runs it drops those scopes first — which matters because once the build worker pool is warm every compile runs on a worker that kept the scopes from its earlier compiles.",
 					"kind": "fixed",
 					"summary": "Editing a type a Vue component imports recompiles it against the new type"
