@@ -1012,10 +1012,14 @@ describe('form routes — signed CSRF tokens', () => {
 		expect(joinPage.headers.get('cache-control')).toBe('private, no-store');
 	});
 
-	test('a page that embeds no token is left alone', async () => {
-		const joinPage = await tokenApp.handle(new Request(`${ORIGIN}/plain`));
-		expect(csrfCookieOf(joinPage)).toBeUndefined();
-		expect(joinPage.headers.get('cache-control')).not.toBe(
+	test('a page that embeds no token still gets the cookie, and stays cacheable', async () => {
+		// A static or pre-rendered page cannot embed a per-visitor token,
+		// so its forms read the cookie and send the header — which needs
+		// the cookie to be there already. The page itself is the same
+		// bytes for everyone, so it keeps its caching.
+		const plainPage = await tokenApp.handle(new Request(`${ORIGIN}/plain`));
+		expect(csrfCookieOf(plainPage)).toBeDefined();
+		expect(plainPage.headers.get('cache-control')).not.toBe(
 			'private, no-store'
 		);
 	});
