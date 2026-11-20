@@ -1,6 +1,7 @@
 import { HTML_CONTENT_TYPE } from '../constants';
 import { escapeScriptContent } from '../utils/escapeScriptContent';
 import { nonceAttr } from '../utils/cspNonceRef';
+import { serializeInitialProps } from '../utils/initialProps';
 import { isDevelopmentRuntime } from '../utils/runtimeMode';
 import { withPageCacheHeaders } from '../core/pageResponseCache';
 import {
@@ -114,7 +115,7 @@ const buildHtmlShell = (
 	props: Record<string, unknown> | undefined,
 	hmrShim: string
 ) => {
-	const propsScript = `window.__INITIAL_PROPS__=${escapeScriptContent(JSON.stringify(props ?? {}))};`;
+	const propsScript = `window.__INITIAL_PROPS__=${escapeScriptContent(serializeInitialProps(props, 'An Ember page'))};`;
 	const indexImport = indexPath
 		? `<script${nonceAttr()} type="module" src="${indexPath}"></script>`
 		: '';

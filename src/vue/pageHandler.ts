@@ -2,6 +2,7 @@ import { HTML_CONTENT_TYPE } from '../constants';
 import { requestRenderUrl } from '../utils/requestRenderUrl';
 import { escapeScriptContent } from '../utils/escapeScriptContent';
 import { nonceAttr } from '../utils/cspNonceRef';
+import { serializeInitialProps } from '../utils/initialProps';
 import { htmlLangAttributes } from '../utils/localeRef';
 import { isDevelopmentRuntime } from '../utils/runtimeMode';
 import type { Component as VueComponent } from 'vue';
@@ -409,7 +410,10 @@ export const handleVuePageRequest = async <Component extends VueComponent>(
 				return clientMode === 'none'
 					? `</div>${teleportHost}${ssrOnlyHmrShim}</body></html>`
 					: `</div>${teleportHost}<script${nonceAttr()}>${BROWSER_TRANSLATION_BASELINE_SCRIPT}window.__INITIAL_PROPS__=${escapeScriptContent(
-							JSON.stringify(maybeProps ?? {})
+							serializeInitialProps(
+								maybeProps,
+								`The Vue page ${input.pagePath}`
+							)
 						)}</script>${serializeServerDataScript(serverData)}<script${nonceAttr()} type="module" src="${resolvedIndexPath}"></script></body></html>`;
 			};
 
