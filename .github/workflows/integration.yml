@@ -14,10 +14,13 @@
 # so splitting it from everything else halves the wall time without paying
 # install and build on a dozen runners.
 #
-# Bun is stock 1.4.4: the React Fast Refresh tests guard themselves with
-# describe.skipIf and ship a stock-Bun counterpart, and four island HMR tests
-# skip for the same reason. Running the patched build here would turn those
-# skips into real coverage, at the cost of a signed download per run.
+# Two jobs run on stock 1.4.4, which is what most users have, and a third runs
+# the React Fast Refresh tests on the patched build. Stock Bun ignores
+# `reactFastRefresh` on Bun.Transpiler (oven-sh/bun#32919), so 29 tests across
+# five files guard themselves with describe.skipIf and used to run nowhere but
+# a maintainer's own machine. They run beside the stock battery rather than
+# instead of it: the counterpart tests that assert the degraded behaviour ("no
+# reload on any Bun") have to keep running on stock Bun.
 name: Integration
 
 on:
@@ -93,6 +96,39 @@ jobs:
                   path: ${{ runner.temp }}/shard-logs
                   retention-days: 7
                   if-no-files-found: ignore
+
+    patched-bun-hmr:
+        name: HMR battery (patched Bun)
+        # Skipped when a dispatch asks for one of the other directories: these
+        # are all under tests/integration/hmr.
+        if: >-
+            ${{ github.event_name != 'workflow_dispatch' ||
+            inputs.only == 'all' || inputs.only == 'hmr' }}
+        # See the note on the hmr job: pinned for Playwright's sake.
+        runs-on: ubuntu-24.04
+        timeout-minutes: 45
+        permissions:
+            contents: read
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  persist-credentials: false
+            - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+              with:
+                  bun-version: 1.4.4
+            - run: bun install --frozen-lockfile
+            - name: Link the package into its own node_modules
+              run: .github/scripts/link-self.sh
+            - name: Install Chromium
+              run: bunx playwright install --with-deps chromium
+            - run: bun run build
+            # Installs the pinned patched build with bvm (which verifies its
+            # signature and checksum), refuses to continue if the runtime
+            # cannot actually do Fast Refresh — a missing build would
+            # otherwise skip all 29 tests and pass — and then runs the
+            # guarded files, which it discovers rather than lists.
+            - name: Fast Refresh tests on the patched build
+              run: bun run scripts/patchedBunTests.ts
 
     rest:
         name: Servers, builds, CLI and browsers

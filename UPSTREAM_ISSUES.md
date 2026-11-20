@@ -299,6 +299,16 @@ offers [absolutejs/patched-bun](https://github.com/absolutejs/patched-bun)
 (Bun plus the backported fix). Its source hunks apply cleanly to Bun 1.4.2;
 only the patch's own test hunk needs fresh context.
 
+**CI**: the nightly runs a third job, `HMR battery (patched Bun)`, which
+installs the pinned patched build with bvm and runs the 29 tests across five
+files that guard themselves on this probe (`scripts/patchedBunTests.ts`). It
+runs _beside_ the stock-Bun battery, not instead of it: stock Bun is what most
+users have, and the counterpart tests that assert the degraded behaviour ("no
+reload on any Bun") have to keep running there. The job asserts the probe
+before running anything — without that, a missing patched build would skip all
+29 and pass. When Bun ships the fix, delete the job and the guards; the probe
+is behavioural, so nothing needs a version bump.
+
 **Probe** (prints `false` while the bug exists):
 
 ```ts
