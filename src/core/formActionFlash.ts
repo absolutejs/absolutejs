@@ -12,6 +12,7 @@ import {
 	readActionFlash,
 	type ActionFlash
 } from '../utils/formActionState';
+import { csrfSetCookie, csrfTokenIssued } from './csrfToken';
 
 export { ACTION_FLASH_COOKIE, readActionFlash };
 export type { ActionFlash };
@@ -260,6 +261,32 @@ export const rewriteActionForms = (
 const isHtmlResponse = (response: Response) =>
 	(response.headers.get('content-type') ?? '').includes('text/html');
 
+/** Sets the `absolute_csrf` cookie on a page that minted a token while
+ *  rendering, and keeps a page carrying one visitor's token out of shared
+ *  caches.
+ *
+ *  Returns undefined when there is nothing to add, so the response passes
+ *  through untouched on every page that uses no token. */
+export const attachCsrfCookie = (request: Request, response: unknown) => {
+	if (!(response instanceof Response) || !csrfTokenIssued(request))
+		return undefined;
+	const secure = new URL(request.url).protocol === 'https:';
+	const cookie = csrfSetCookie(request, secure);
+	const headers = new Headers(response.headers);
+	if (cookie) headers.append('set-cookie', cookie);
+	// The HTML holds a token bound to this visitor's cookie. Served to
+	// anyone else from a CDN it would fail the check, so the page that
+	// embeds one is private by construction.
+	headers.set('cache-control', 'private, no-store');
+	headers.delete('etag');
+
+	return new Response(response.body, {
+		headers,
+		status: response.status,
+		statusText: response.statusText
+	});
+};
+
 /** Consumes the flash on the first HTML page served while it is set. */
 export const consumeActionFlash = (request: Request, response: unknown) => {
 	if (request.method !== 'GET' || !(response instanceof Response))
@@ -288,10 +315,15 @@ export const consumeActionFlash = (request: Request, response: unknown) => {
 };
 
 /** Part of the `absolutejs` plugin from `prepare()`: renders and clears
- *  form-action results on HTML pages. */
+ *  form-action results on HTML pages, and issues CSRF cookies. */
 export const formActionRuntime = () =>
 	new Elysia({ name: 'absolutejs-form-action-runtime' }).mapResponse(
 		'global',
-		({ request, responseValue }) =>
-			consumeActionFlash(request, responseValue)
+		({ request, responseValue }) => {
+			const consumed = consumeActionFlash(request, responseValue);
+
+			return (
+				attachCsrfCookie(request, consumed ?? responseValue) ?? consumed
+			);
+		}
 	);

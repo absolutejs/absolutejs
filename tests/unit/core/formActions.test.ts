@@ -14,6 +14,7 @@ import {
 	encodeActionFlash,
 	readActionFlash
 } from '../../../src/core/formActionFlash';
+import { getCsrfToken } from '../../../src/core/csrfToken';
 import {
 	formActions,
 	getActionState,
@@ -940,5 +941,176 @@ describe('form routes — a beforeHandle that reads the context', () => {
 			{ confirmed: true },
 			{ by: 'Ada', confirmed: true }
 		]);
+	});
+});
+
+/* ---------------------------------------------------------------- *
+ * Signed CSRF tokens: `csrf: { token: true }`
+ * ---------------------------------------------------------------- */
+
+const tokenApp = new Elysia()
+	.use(formActions())
+	.get('/join', ({ request }) => {
+		const token = getCsrfToken(request);
+
+		return new Response(
+			`<!doctype html><form method="post" action="/members" data-absolute-action>
+<input type="hidden" name="_csrf" value="${token}">
+<input name="name" value="">
+</form>`,
+			{ headers: { 'content-type': 'text/html; charset=utf-8' } }
+		);
+	})
+	.get(
+		'/plain',
+		() =>
+			new Response('<!doctype html><p>no form</p>', {
+				headers: { 'content-type': 'text/html; charset=utf-8' }
+			})
+	)
+	.post(
+		'/members',
+		{
+			form: {
+				body: t.Object({ name: t.String({ minLength: 2 }) }),
+				csrf: { token: true }
+			}
+		},
+		// Echoes the whole body, so a `_csrf` left in it would show up.
+		({ body }) => ({ ...body })
+	);
+
+const csrfCookieOf = (response: Response) =>
+	response.headers
+		.getSetCookie()
+		.find((cookie) => cookie.startsWith('absolute_csrf='));
+
+const issuedPair = async () => {
+	const joinPage = await tokenApp.handle(new Request(`${ORIGIN}/join`));
+	const html = await joinPage.text();
+	const cookie = csrfCookieOf(joinPage)?.split(';')[0] ?? '';
+	const token = /name="_csrf" value="([^"]+)"/.exec(html)?.[1] ?? '';
+
+	return { cookie, token };
+};
+
+const postMember = (body: BodyInit, headers: Record<string, string> = {}) =>
+	tokenApp.handle(requestTo('/members', body, headers));
+
+describe('form routes — signed CSRF tokens', () => {
+	test('a page that embeds a token issues the cookie and is not cached', async () => {
+		const joinPage = await tokenApp.handle(new Request(`${ORIGIN}/join`));
+		const cookie = csrfCookieOf(joinPage);
+		expect(cookie).toBeDefined();
+		expect(cookie).toContain('SameSite=Lax');
+		expect(cookie).toContain('Path=/');
+		// Readable script-side on purpose: a prerendered page has to read
+		// it to send the header.
+		expect(cookie).not.toContain('HttpOnly');
+		expect(joinPage.headers.get('cache-control')).toBe('private, no-store');
+	});
+
+	test('a page that embeds no token is left alone', async () => {
+		const joinPage = await tokenApp.handle(new Request(`${ORIGIN}/plain`));
+		expect(csrfCookieOf(joinPage)).toBeUndefined();
+		expect(joinPage.headers.get('cache-control')).not.toBe(
+			'private, no-store'
+		);
+	});
+
+	test('the cookie is not rotated for a visitor who already has one', async () => {
+		const { cookie } = await issuedPair();
+		const again = await tokenApp.handle(
+			new Request(`${ORIGIN}/join`, { headers: { cookie } })
+		);
+		expect(csrfCookieOf(again)).toBeUndefined();
+	});
+
+	test('the hidden field is accepted, and is not one of the form values', async () => {
+		const { cookie, token } = await issuedPair();
+		const response = await postMember(
+			form([
+				['name', 'Ada'],
+				['_csrf', token]
+			]),
+			{ cookie }
+		);
+		expect(response.status).toBe(303);
+		expect(flashOf(response)?.result).toEqual({
+			data: { name: 'Ada' },
+			status: 'success'
+		});
+	});
+
+	test('the token is not echoed among the values after an error', async () => {
+		const { cookie, token } = await issuedPair();
+		const response = await postMember(
+			form([
+				['name', 'A'],
+				['_csrf', token]
+			]),
+			{ cookie }
+		);
+		const { result } = flashOf(response) ?? {};
+		expect(result?.status).toBe('error');
+		expect(result?.status === 'error' ? result.values : undefined).toEqual({
+			name: 'A'
+		});
+	});
+
+	test('the header is accepted, for a page that could not embed a field', async () => {
+		const { cookie, token } = await issuedPair();
+		const response = await postMember(form([['name', 'Ada']]), {
+			cookie,
+			'x-absolute-csrf': token
+		});
+		expect(response.status).toBe(303);
+	});
+
+	test('a submission with no token is rejected', async () => {
+		const { cookie } = await issuedPair();
+		const response = await postMember(form([['name', 'Ada']]), { cookie });
+		expect(response.status).toBe(403);
+	});
+
+	test('a token that is not this server’s signature is rejected', async () => {
+		const { cookie, token } = await issuedPair();
+		const forged = `${token.slice(0, -2)}${token.endsWith('aa') ? 'bb' : 'aa'}`;
+		const response = await postMember(form([['name', 'Ada']]), {
+			cookie,
+			'x-absolute-csrf': forged
+		});
+		expect(response.status).toBe(403);
+	});
+
+	test('a token without its cookie is rejected', async () => {
+		const { token } = await issuedPair();
+		const response = await postMember(form([['name', 'Ada']]), {
+			'x-absolute-csrf': token
+		});
+		expect(response.status).toBe(403);
+	});
+
+	test('a token signed for one cookie does not work with another', async () => {
+		const first = await issuedPair();
+		const second = await issuedPair();
+		const response = await postMember(form([['name', 'Ada']]), {
+			cookie: second.cookie,
+			'x-absolute-csrf': first.token
+		});
+		expect(response.status).toBe(403);
+	});
+
+	test('a route that did not opt in needs no token', async () => {
+		const response = await post(
+			'/users',
+			form([
+				['name', 'Ada'],
+				['email', 'ada@example.com'],
+				['newsletter', 'on'],
+				['tags', 'a']
+			])
+		);
+		expect(response.status).toBe(303);
 	});
 });

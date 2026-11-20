@@ -17,6 +17,7 @@ export { formActionRuntime } from './formActionFlash';
 export { createFormActionClient } from '../client/formActionClient';
 export { onHotDispose } from '../dev/hotResources';
 export { getCspNonce } from './cspNonce';
+export { getCsrfToken, CSRF_FIELD_NAME, CSRF_HEADER_NAME } from './csrfToken';
 export {
 	onVital,
 	type VitalHandler,
