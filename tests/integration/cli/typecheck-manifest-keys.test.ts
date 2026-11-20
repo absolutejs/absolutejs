@@ -162,6 +162,22 @@ describe('absolute typecheck: manifest keys', () => {
 		expect(exitCode).toBe(0);
 	}, 300_000);
 
+	/* Fails with the checker's own output, so a run that reports something
+	 * twice shows which lines repeated and under which heading. The count
+	 * alone ("Expected 1, Received 2") is what three CI failures said for
+	 * four days without saying what had doubled. */
+	const expectReportedOnce = (
+		label: string,
+		text: string,
+		pattern: RegExp
+	) => {
+		const hits = text.match(pattern) ?? [];
+		if (hits.length === 1) return;
+		throw new Error(
+			`Expected ${String(pattern)} once under ${label}, found ${hits.length}. Output:\n${text}`
+		);
+	};
+
 	test('a misspelled key is a type error', async () => {
 		await writeServer('Abuot');
 		const { exitCode, output } = await typecheck();
@@ -170,7 +186,7 @@ describe('absolute typecheck: manifest keys', () => {
 		expect(output).toContain('src/server.ts');
 		expect(output).toContain('TS2345');
 		expect(output).toContain('"Abuot"');
-		expect(output.match(/TS2345/g)).toHaveLength(1);
+		expectReportedOnce('absolute typecheck', output, /TS2345/g);
 	}, 300_000);
 
 	/* The editor note said to add the declaration to `include`, but a

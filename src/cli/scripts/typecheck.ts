@@ -87,11 +87,30 @@ const STACK_OVERFLOW = 'Maximum call stack size exceeded';
  * far below a typical 8 MB thread stack. */
 const DEEP_STACK_KB = 4000;
 
+/* A checker that notices it is running in GitHub Actions prints a
+ * `::error file=…` workflow command beside each diagnostic — bun check
+ * does — so every error reached the log twice: once in the shape this
+ * command renders, once as an annotation it never saw. The second copy
+ * also bypassed the de-duplication below, so an error two checkers both
+ * found could be annotated by the one whose copy was dropped, and the
+ * annotation's path is relative to the checker's own config rather than
+ * the workspace, which GitHub cannot resolve.
+ *
+ * This command owns what reaches the log, so checkers run without that
+ * signal. */
+const checkerEnv = () => {
+	const env: Record<string, string | undefined> = { ...process.env };
+	Reflect.deleteProperty(env, 'GITHUB_ACTIONS');
+
+	return env;
+};
+
 const spawnChecker = async (
 	name: string,
 	command: string[]
 ): Promise<CheckerResult> => {
 	const proc = Bun.spawn(command, {
+		env: checkerEnv(),
 		stderr: 'pipe',
 		stdout: 'pipe'
 	});
