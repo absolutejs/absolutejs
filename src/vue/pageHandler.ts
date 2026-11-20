@@ -2,6 +2,7 @@ import { HTML_CONTENT_TYPE } from '../constants';
 import { requestRenderUrl } from '../utils/requestRenderUrl';
 import { escapeScriptContent } from '../utils/escapeScriptContent';
 import { nonceAttr } from '../utils/cspNonceRef';
+import { htmlLangAttributes } from '../utils/localeRef';
 import { isDevelopmentRuntime } from '../utils/runtimeMode';
 import type { Component as VueComponent } from 'vue';
 import type { SSRContext } from 'vue/server-renderer';
@@ -387,7 +388,11 @@ export const handleVuePageRequest = async <Component extends VueComponent>(
 			const ssrContext: SSRContext = {
 				[SERVER_DATA_CONTEXT_KEY]: serverData
 			};
-			const head = `<!DOCTYPE html><html>${resolvedHeadTag}<body><div id="root">`;
+			// `lang` and `dir` from the request's locale, as Svelte's
+			// renderers do: without them a screen reader announces every
+			// page in the browser's default language and an RTL locale
+			// renders left to right.
+			const head = `<!DOCTYPE html><html${htmlLangAttributes()}>${resolvedHeadTag}<body><div id="root">`;
 			const ssrOnlyHmrShim =
 				clientMode === 'none' && isDevelopmentRuntime()
 					? await getSsrOnlyHmrShim()
