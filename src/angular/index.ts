@@ -12,11 +12,13 @@ export {
 } from './deterministicEnv';
 export { handleAngularPageRequest } from './pageHandler';
 export {
+	useFormAction,
 	usePageContext,
 	useResource,
 	useSubscription,
 	useTimers
 } from './composables';
+export type { FormAction } from './composables';
 export type {
 	Observer,
 	Resource,

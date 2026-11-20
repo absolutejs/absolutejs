@@ -10,12 +10,14 @@ export {
 	provideDeterministicEnv
 } from './deterministicEnv';
 export {
+	useFormAction,
 	usePageContext,
 	useResource,
 	useSubscription,
 	useTimers
 } from './composables';
 export type {
+	FormAction,
 	Observer,
 	Resource,
 	ResourceFetcher,
