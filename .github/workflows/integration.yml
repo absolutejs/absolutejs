@@ -71,6 +71,11 @@ jobs:
                   path: .test-shards/*.log
                   retention-days: 7
                   if-no-files-found: ignore
+                  # `.test-shards` is a dot-directory, and the action skips
+                  # hidden paths by default — without this the glob matched
+                  # nothing, the step said nothing, and the first nightly
+                  # failure came with no logs to read.
+                  include-hidden-files: true
 
     rest:
         name: Servers, builds, CLI and browsers
@@ -122,3 +127,8 @@ jobs:
                   path: .test-shards/*.log
                   retention-days: 7
                   if-no-files-found: ignore
+                  # `.test-shards` is a dot-directory, and the action skips
+                  # hidden paths by default — without this the glob matched
+                  # nothing, the step said nothing, and the first nightly
+                  # failure came with no logs to read.
+                  include-hidden-files: true
