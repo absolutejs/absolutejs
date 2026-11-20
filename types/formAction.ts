@@ -27,12 +27,23 @@ export type ActionIdleState = { status: 'idle' };
 /** Options every framework's form-action binding takes in the browser.
  *  Distinct from `FormActionOptions`, which is the server's `form` route
  *  option. */
-export type FormActionBindingOptions = {
+export type FormActionBindingOptions<Data = unknown> = {
 	/** The result a submission without JavaScript left for this page:
 	 *  `getActionState(path)` in the route, handed down as a prop. It
 	 *  arrives through a cookie and props, so any action state is
 	 *  accepted; the binding's type parameters type it. */
 	initialState?: ActionState | null;
+	/** What to show as `data` while the submission is in flight, derived
+	 *  from what is being sent. Called once per submission, before the
+	 *  request starts; the real result replaces it, and a failure clears
+	 *  it so `errors` are what the form shows.
+	 *
+	 *  `pending` is what says the value is provisional, so treat `data`
+	 *  as confirmed only when `pending` is false. A mapper that throws is
+	 *  reported to the console and the submission continues without a
+	 *  provisional value: it decorates the wait, and the form still has
+	 *  work to do. */
+	optimistic?(body: FormData): Data;
 	/** Clear the form's fields after a successful submission that doesn't
 	 *  redirect. Default true. */
 	resetOnSuccess?: boolean;

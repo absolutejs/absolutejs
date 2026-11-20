@@ -228,3 +228,35 @@ test('destroy stops the listener, so the form posts normally again', async () =>
 
 	expect(bodies).toHaveLength(0);
 });
+
+test('an optimistic value is data until the real one lands', async () => {
+	answerWith({ data: { id: 7 }, status: 'success' });
+	const action = formAction<{ id: number }, Fields>('/signup', {
+		optimistic: (body) => ({ id: Number(body.get('id')) })
+	});
+	const body = new FormData();
+	body.set('id', '1');
+
+	const promise = action.submit(body);
+	// Provisional, with pending saying so.
+	expect(read(action).data).toEqual({ id: 1 });
+	expect(read(action).pending).toBe(true);
+	await promise;
+
+	expect(read(action).data).toEqual({ id: 7 });
+	expect(read(action).pending).toBe(false);
+});
+
+test('a failed submission clears the optimistic value', async () => {
+	answerWith({ errors: { email: 'No' }, status: 'error' });
+	const action = formAction<{ id: number }, Fields>('/signup', {
+		optimistic: () => ({ id: 1 })
+	});
+
+	await action.submit(new FormData());
+
+	// Otherwise the form would show a success that never happened, next
+	// to the error explaining why it did not.
+	expect(read(action).data).toBeUndefined();
+	expect(read(action).errors.email).toBe('No');
+});

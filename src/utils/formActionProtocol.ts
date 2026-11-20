@@ -52,3 +52,46 @@ export const isActionState = <Data = unknown, Fields extends string = string>(
 	value: ActionState
 ): value is ActionState<Data, Fields> =>
 	value.status === 'idle' || isActionResult<Data, Fields>(value);
+
+/** The provisional value an `optimistic` mapper returns, wrapped so that
+ *  a mapper returning undefined stays distinguishable from no submission
+ *  at all.
+ *
+ *  A mapper that throws must not take the submission down with it: it
+ *  decorates the wait, and the form still has work to do. But it cannot
+ *  be silent either — the binding's own submit handler swallows
+ *  rejections to ignore aborted submissions, so an exception here would
+ *  vanish and leave a form that just never updates. So it is reported and
+ *  the submission proceeds with no provisional value. */
+export const optimisticValue = <Data>(
+	mapper: ((body: FormData) => Data) | undefined,
+	body: FormData
+) => {
+	if (!mapper) return undefined;
+	try {
+		return { value: mapper(body) };
+	} catch (error) {
+		console.error(
+			"[absolute] a form action's `optimistic` mapper threw; the submission continues without a provisional value.",
+			error
+		);
+
+		return undefined;
+	}
+};
+
+/** What a binding shows as `data`: the provisional value while a
+ *  submission is in flight, else the handler's return value from a
+ *  successful result.
+ *
+ *  Shared so the four bindings cannot drift on it. The provisional value
+ *  is wrapped by its caller, so a mapper that returns undefined is
+ *  distinguishable from no submission at all. */
+export const shownActionData = <Data, Fields extends string>(
+	state: ActionState<Data, Fields>,
+	optimistic: { value: Data } | undefined
+) => {
+	if (optimistic) return optimistic.value;
+
+	return state.status === 'success' ? state.data : undefined;
+};

@@ -26,7 +26,7 @@ export const createFormActionClient = <App>() => ({
 	/** Typed `useFormAction`. */
 	useFormAction: <Path extends FormActionPaths<App>>(
 		path: Path,
-		options?: UseFormActionOptions
+		options?: UseFormActionOptions<FormActionDataOf<App, Path>>
 	) =>
 		useFormAction<
 			FormActionDataOf<App, Path>,

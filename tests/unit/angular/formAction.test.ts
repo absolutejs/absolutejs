@@ -140,3 +140,52 @@ describe('Angular useFormAction', () => {
 		expect(signup.pending()).toBe(false);
 	});
 });
+
+describe('Angular useFormAction and optimistic data', () => {
+	test('an optimistic value is data until the real one lands', async () => {
+		answerWith({ data: { id: 7 }, status: 'success' });
+		const signup = useFormAction<{ id: number }, Fields>('/signup', {
+			optimistic: (body) => ({ id: Number(body.get('id')) })
+		});
+		const body = new FormData();
+		body.set('id', '1');
+
+		const promise = signup.submit(body);
+		// Provisional, with pending saying so.
+		expect(signup.data()).toEqual({ id: 1 });
+		expect(signup.pending()).toBe(true);
+		await promise;
+
+		expect(signup.data()).toEqual({ id: 7 });
+		expect(signup.pending()).toBe(false);
+	});
+
+	test('a failed submission clears the optimistic value', async () => {
+		answerWith({ errors: { email: 'No' }, status: 'error' });
+		const signup = useFormAction<{ id: number }, Fields>('/signup', {
+			optimistic: () => ({ id: 1 })
+		});
+
+		await signup.submit(new FormData());
+
+		expect(signup.data()).toBeUndefined();
+		expect(signup.errors().email).toBe('No');
+	});
+
+	test('abort drops the optimistic value with the submission', async () => {
+		answerWith({ data: { id: 7 }, status: 'success' });
+		const signup = useFormAction<{ id: number }, Fields>('/signup', {
+			optimistic: () => ({ id: 1 })
+		});
+
+		const promise = signup.submit(new FormData());
+		expect(signup.data()).toEqual({ id: 1 });
+		signup.abort();
+
+		// Nothing is in flight any more, so there is nothing for a
+		// provisional value to be provisional about.
+		expect(signup.data()).toBeUndefined();
+		expect(signup.pending()).toBe(false);
+		await promise;
+	});
+});

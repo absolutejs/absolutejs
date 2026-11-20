@@ -8,7 +8,11 @@ import type {
 	FormActionBindingOptions
 } from '../../types/formAction';
 import { submitFormAction } from '../client/formActions';
-import { isActionState } from '../utils/formActionProtocol';
+import {
+	isActionState,
+	optimisticValue,
+	shownActionData
+} from '../utils/formActionProtocol';
 
 const IDLE: ActionIdleState = { status: 'idle' };
 
@@ -61,7 +65,7 @@ const submitterOf = (event: SubmitEvent, form: HTMLFormElement) => {
  */
 export const useFormAction = <Data = unknown, Fields extends string = string>(
 	path: string,
-	options: FormActionBindingOptions = {}
+	options: FormActionBindingOptions<Data> = {}
 ) => {
 	const restored = options.initialState;
 	const resetOnSuccess = options.resetOnSuccess !== false;
@@ -72,6 +76,9 @@ export const useFormAction = <Data = unknown, Fields extends string = string>(
 		restored && isActionState<Data, Fields>(restored) ? restored : IDLE
 	);
 	const pending = ref(false);
+	// Wrapped, so a provisional `undefined` is still distinguishable from
+	// "no submission in flight".
+	const optimistic = shallowRef<{ value: Data } | undefined>(undefined);
 	let controller: AbortController | undefined;
 
 	onScopeDispose(() => controller?.abort());
@@ -94,13 +101,18 @@ export const useFormAction = <Data = unknown, Fields extends string = string>(
 	const settle = (own: AbortController) => {
 		if (controller !== own) return;
 		pending.value = false;
+		optimistic.value = undefined;
 	};
 
 	const submit = async (body: FormData) => {
+		// Before aborting the previous submission: the caller's mapper may
+		// throw, and then nothing should have been disturbed.
+		const provisional = optimisticValue(options.optimistic, body);
 		controller?.abort();
 		const own = new AbortController();
 		controller = own;
 		pending.value = true;
+		optimistic.value = provisional;
 		try {
 			return adopt(
 				await submitFormAction<Data, Fields>(path, body, {
@@ -133,12 +145,11 @@ export const useFormAction = <Data = unknown, Fields extends string = string>(
 
 	const reset = () => {
 		state.value = IDLE;
+		optimistic.value = undefined;
 	};
 
 	return {
-		data: computed(() =>
-			state.value.status === 'success' ? state.value.data : undefined
-		),
+		data: computed(() => shownActionData(state.value, optimistic.value)),
 		// Annotated: without it the empty-object branch widens the type
 		// and `errors.value.email` stops type-checking for the caller.
 		errors: computed<ActionFieldErrors<Fields>>(() =>
