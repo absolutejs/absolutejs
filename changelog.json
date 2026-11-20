@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "Soft navigation refuses to swap a page that registered no `__ABSOLUTE_PAGE_DISPOSE__` hook, which is right for a framework page whose hydration index never finished — there is a half-mounted app whose markup must not be pulled out from under it — and wrong for a static HTML or HTMX page, where there is nothing to tear down. Static pages could therefore be navigated to and never from: a React to HTML trip swapped in place and the link back did a full document load. A page is now marked as having nothing to tear down in the two cases where that is known: when the document the layer just swapped in has no module script and no inline `import()`, so no index is coming; and when `enableNavigation()` finds no hook already registered, which is the static page that installs the layer itself. A page that does load modules is left alone, so a framework index that failed still falls back to a full load. The mark never replaces a real hook, and the two cannot race on a framework page: an index registers at module evaluation and `enableNavigation()` is documented to be called from a component, which runs after that.",
+					"kind": "fixed",
+					"summary": "A static page can be navigated away from without a full page load"
+				}
+			],
+			"date": "2026-11-20",
+			"version": "0.20.0-beta.235"
+		},
+		{
+			"changes": [
+				{
 					"detail": "A soft navigation replaces the document body, and the islands in the body it replaced were never unmounted: their React roots, Svelte instances, Vue apps and Angular component refs stayed alive with their effects, timers, subscriptions and listeners, attached to nodes no longer in the document — and it compounded, every navigation leaving another page's worth. The navigation layer now tears down each island inside the body it is about to replace, before the page's own teardown. That order matters: a framework page root may own the markup an island is mounted into, so tearing the page down first detaches the island's host element and the island then unmounts against nodes that are already gone. An island outside the swapped region is left mounted, which is the shape persistent layouts need. The registry lives on a `Symbol.for` key rather than in a module, because each framework's client pass bundles its own copy of the client runtime and a React page's navigation layer has to see the disposer its Svelte island registered; and each hydrator registers its own disposer, so nothing in the registry imports a framework. Verified in a browser with a Svelte island on a React page, asserting that the island's interval stops rather than only that its teardown hook ran.",
 					"kind": "fixed",
 					"summary": "Islands are unmounted when a soft navigation swaps their page away"
