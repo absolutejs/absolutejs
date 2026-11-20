@@ -692,6 +692,27 @@ const disposeCurrentPage = async () => {
 const canTearDown = () =>
 	typeof Reflect.get(window, DISPOSE_GLOBAL) === 'function';
 
+/* A page with no framework app to tear down.
+ *
+ * `canTearDown()` gates the whole layer: a page that registers no
+ * `__ABSOLUTE_PAGE_DISPOSE__` falls back to a full document load. That is
+ * right for a framework page whose hydration index never finished — there
+ * is a half-mounted app whose markup must not be swapped out from under
+ * it — and wrong for a static HTML or HTMX page, where there is nothing to
+ * tear down at all. The result was that every link from a static page did
+ * a full load, and a React → HTML → React trip soft-navigated once and
+ * then reloaded, so static pages could be navigated *to* and never *from*.
+ *
+ * Registering a no-op is what lets them take part (navigation plan phase
+ * 2). It never replaces a real hook, and the two cannot race on a
+ * framework page: an index registers its hook at module evaluation, and
+ * `enableNavigation()` is documented to be called from a component (a
+ * React effect, a Svelte `onMount`), which by definition runs after that. */
+const markPageWithoutTeardown = () => {
+	if (canTearDown()) return;
+	Reflect.set(window, DISPOSE_GLOBAL, () => undefined);
+};
+
 /* ------------------------------------------------------------------ */
 /* Scripts                                                             */
 /* ------------------------------------------------------------------ */
@@ -935,7 +956,15 @@ const swapDocument = async (
 	await runSwap(nav, swap);
 	resetFocus();
 	await runScripts(nav, scripts);
-	await waitForPageReady(loadsModules(scripts));
+	const hasModules = loadsModules(scripts);
+	await waitForPageReady(hasModules);
+	/* A document with no module script and no inline `import()` has no
+	 * hydration index coming, so nothing will register a teardown hook: it
+	 * is a static page, and the next navigation away from it should swap
+	 * rather than reload. A page that DOES load modules is left alone — if
+	 * its index never registered a hook, the full load is the safe
+	 * outcome. */
+	if (!hasModules) markPageWithoutTeardown();
 	reapplyScroll(request, loaded.url);
 	announcePage();
 
@@ -1136,6 +1165,9 @@ export const enableNavigation = (options: EnableNavigationOptions = {}) => {
 		disable: () => teardownRuntime(nav)
 	};
 	Reflect.set(globalThis, RUNTIME_KEY, publicRuntime);
+	// A static page takes part by making this call like any other page;
+	// on a framework page the index has already registered the real hook.
+	markPageWithoutTeardown();
 };
 
 const OUTCOMES = new Set<unknown>([

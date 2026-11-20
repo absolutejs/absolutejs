@@ -231,7 +231,7 @@ every navigation.
 | Phase | Scope | Exit criteria |
 | --- | --- | --- |
 | 1 (done) | Layer + React ↔ Svelte via `<Link>`, styles, island store, back/forward + scroll, history fallback, CSP | Playwright (prod build): React→Svelte→React with no document request; target hydrates and is interactive; stylesheets swapped, Svelte scoped CSS applied; store value carried both ways; back/forward and scroll restore; same with the Navigation API removed; zero CSP violations under `secureHeaders()`; opt-out link does a full load. Packed-tarball e2e in prod and dev. |
-| 2 | Teardown completeness | ~~Island dispose registry (islands unmounted with the old body)~~ **done, 0.20.0-beta.234**; `__ABSOLUTE_PAGE_DISPOSE__` for HTML/HTMX pages (no-op) so they can participate; prefetch cache on `globalThis` so a Svelte `<Link>` hover warms the React-installed layer; dev HMR follows the swapped page (`__HMR_FRAMEWORK__`, per-page manifest); a framework-supplied index boot function instead of `?absolute-nav=` re-imports. Exit: React ↔ Svelte ↔ HTML ↔ HTMX with islands, no leaked roots (heap snapshot), HMR edit after a soft navigation applies. |
+| 2 | Teardown completeness | ~~Island dispose registry (islands unmounted with the old body)~~ **done, 0.20.0-beta.234**; ~~`__ABSOLUTE_PAGE_DISPOSE__` for HTML/HTMX pages (no-op) so they can participate~~ **done, 0.20.0-beta.235**; prefetch cache on `globalThis` so a Svelte `<Link>` hover warms the React-installed layer; dev HMR follows the swapped page (`__HMR_FRAMEWORK__`, per-page manifest); a framework-supplied index boot function instead of `?absolute-nav=` re-imports. Exit: React ↔ Svelte ↔ HTML ↔ HTMX with islands, no leaked roots (heap snapshot), HMR edit after a soft navigation applies. |
 | 3 | Vue + Angular | Vue `<Link>` / vue-router and Angular `routerLink` hand off unmatched URLs; Angular zone and platform teardown verified. Exit: the Phase 1 suite for every framework pair (5×5 matrix in Playwright, prod + dev). |
 | 4 | Navigation API interception | `navigate` event `intercept()` where supported (forms, `location.assign`, programmatic), click/popstate fallback elsewhere; `config.navigation: true` injects `enableNavigation()` into every hydration index. Exit: suite passes in Chromium (Navigation API) and WebKit/Firefox (fallback). |
 | 5 | Persistent layouts | `data-absolute-persist` (2.4) plus layout-route emission. Exit: a React navbar island keeps state (input value, open menu) across React → Svelte → Vue. |
@@ -277,6 +277,41 @@ navigation layer are in different bundle copies. The island runs an
 interval, and the test asserts the tick count stops moving after the
 navigation as well as that `onDestroy` ran: a flag could be set by a
 teardown that left the timer going.
+
+## 4b. Static pages taking part (phase 2, shipped)
+
+`canTearDown()` gates the whole layer: a page that registered no
+`__ABSOLUTE_PAGE_DISPOSE__` falls back to a full document load. For a
+framework page whose index never finished that is the safe outcome — there
+is a half-mounted app whose markup must not be pulled out from under it.
+For a static HTML or HTMX page it was simply wrong: there is nothing to
+tear down, so static pages could be navigated **to** and never **from**,
+and a React → HTML → React trip soft-navigated once and then reloaded.
+
+A page is marked as having nothing to tear down in the two cases where
+that is known rather than guessed:
+
+- **Swapped in.** The document the layer just inserted has no module
+  script and no inline `import()` (`loadsModules`), so no hydration index
+  is coming and nothing will register a hook. The static page needs no
+  script of its own for this.
+- **Entered cold.** `enableNavigation()` finds no hook already registered.
+  A static page that is the entry point has to load the client module and
+  make that call anyway to intercept its own links, so the call that
+  installs the layer is also what says there is no app behind it.
+
+A document that *does* load modules is left alone, so a framework index
+that failed still falls back to a full load. The mark never replaces a
+real hook, and the two cannot race on a framework page: an index registers
+its hook at module evaluation, and `enableNavigation()` is documented to
+be called from a component (a React effect, a Svelte `onMount`), which by
+definition runs after that. Calling `enableNavigation()` from a plain
+inline script on a *framework* page is the one way to invert that order,
+and it is already against the documented usage.
+
+Verified in `tests/integration/build/static-page-navigation-browser.test.ts`
+for both routes, asserting zero document requests across the round trip —
+a reload would pass a "did we arrive" check and lose the entire point.
 
 ## 5. Known limitations (phase 1)
 
