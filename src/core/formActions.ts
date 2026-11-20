@@ -172,6 +172,98 @@ const tokenRejectionFor = (
 	return new ActionRejection(HTTP_FORBIDDEN, 'Missing or invalid CSRF token');
 };
 
+/* ---------------------------------------------------------------- *
+ * Bounded body reads
+ * ---------------------------------------------------------------- */
+
+/* `maxBodySize` was enforced from `content-length`, which a chunked
+ * request does not send: `fetch` with a stream body, or any client using
+ * `Transfer-Encoding: chunked`, declared nothing and so passed the check
+ * no matter how much it then sent. A route with `maxBodySize: 10` would
+ * hand its handler megabytes.
+ *
+ * So when nothing was declared, read the body here with a cap and stop at
+ * the first chunk that crosses it. The bytes already read are then served
+ * back through the same request, by overriding the four methods Elysia's
+ * parser calls on it, which leaves Elysia the only thing that parses a
+ * body: a reimplementation here would mean one shape for declared bodies
+ * and another for chunked ones, differing in whatever its query parser
+ * does that a hand-rolled one does not. */
+
+const concatChunks = (chunks: readonly Uint8Array[], total: number) => {
+	// Backed by an explicit ArrayBuffer, so the view types as
+	// Uint8Array<ArrayBuffer> and counts as a BodyInit.
+	const bytes = new Uint8Array(new ArrayBuffer(total));
+	let offset = 0;
+	chunks.forEach((chunk) => {
+		bytes.set(chunk, offset);
+		offset += chunk.length;
+	});
+
+	return bytes;
+};
+
+/* Recursive rather than a while loop, so each read is awaited without
+ * `no-await-in-loop`. Resolves the collected chunks, or undefined once
+ * the cap is crossed — the remaining chunks are never read. */
+const readCapped = async (
+	reader: ReadableStreamDefaultReader<Uint8Array>,
+	limit: number,
+	chunks: Uint8Array[],
+	total: number
+): Promise<{ bytes: Uint8Array<ArrayBuffer> } | undefined> => {
+	const { done, value } = await reader.read();
+	if (done) return { bytes: concatChunks(chunks, total) };
+	const size = total + value.length;
+	if (size > limit) {
+		await reader.cancel();
+
+		return undefined;
+	}
+	chunks.push(value);
+
+	return readCapped(reader, limit, chunks, size);
+};
+
+/* The methods Elysia's web-standard parser calls (see its
+ * adapter/web-standard/parse.ts), answered from bytes already in hand.
+ * Own properties shadow the prototype's, so the request keeps its
+ * identity — several WeakMaps here and in the request context are keyed
+ * on it. */
+const serveCollectedBody = (
+	request: Request,
+	bytes: Uint8Array<ArrayBuffer>
+) => {
+	const { headers } = request;
+	const define = (name: string, value: () => unknown) => {
+		Object.defineProperty(request, name, { configurable: true, value });
+	};
+	define('arrayBuffer', () => new Response(bytes, { headers }).arrayBuffer());
+	define('blob', () => new Response(bytes, { headers }).blob());
+	define('bytes', () => new Response(bytes, { headers }).bytes());
+	define('formData', () => new Response(bytes, { headers }).formData());
+	define('json', () => new Response(bytes, { headers }).json());
+	define('text', () => new Response(bytes, { headers }).text());
+};
+
+/** A 413 when an undeclared body runs past `maxBodySize`, after reading no
+ *  more than that. Undefined when the size was declared (already checked),
+ *  when there is no body, or when it fits. */
+const overflowRejection = async (request: Request, maxBodySize: number) => {
+	if (request.headers.get('content-length') !== null) return undefined;
+	const { body } = request;
+	if (!body) return undefined;
+	const collected = await readCapped(body.getReader(), maxBodySize, [], 0);
+	if (!collected)
+		return new ActionRejection(
+			HTTP_PAYLOAD_TOO_LARGE,
+			'Form submission is too large'
+		);
+	serveCollectedBody(request, collected.bytes);
+
+	return undefined;
+};
+
 /* Elysia turns an error thrown while parsing into a generic 400, so the
  * parse hook records the rejection and skips reading the body (an empty
  * object stands in for it); the transform hook then throws it, which
@@ -681,8 +773,10 @@ const formMacro = (value: FormActionValue) => {
 
 			return response;
 		},
-		parse: ({ request }: FormActionHookContext) => {
-			const rejection = rejectionFor(request, options.csrf, maxBodySize);
+		parse: async ({ request }: FormActionHookContext) => {
+			const rejection =
+				rejectionFor(request, options.csrf, maxBodySize) ??
+				(await overflowRejection(request, maxBodySize));
 			if (!rejection) return undefined;
 			pendingRejections.set(request, rejection);
 

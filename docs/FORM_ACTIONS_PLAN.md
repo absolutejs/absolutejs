@@ -170,6 +170,10 @@ const signup = actions.useFormAction('/actions/signup', { initialState: signupSt
     - **Hand-built HTML or HTMX**, `csrfField()` returns the `<input>` markup, `csrfHeaders()` the header object, and `enhanceHtmxCsrf()` attaches the header to HTMX's own requests through `htmx:configRequest`.
   - All of them read the token through `readCsrfToken()` (`src/utils/csrfTokenRef.ts`), which is dependency-free and ships to the browser: on the server it calls the getter `formActions()` registered, and in the browser it reads the cookie. Because the cookie holds the token itself, both sides arrive at the same string, so a pre-rendered page can send a header for a token it was never able to embed. This mirrors `src/utils/cspNonceRef.ts`.
   - Angular components cannot import outside `src/angular/components` (the partial compile runs in a temp workspace), so `scripts/build.ts` rewrites that one specifier and publishes the helper beside the component, as it already does for the streaming-slot registrar.
+- **Body size on a chunked request (Phase 3, shipped).** `maxBodySize` was enforced from `content-length`, which a chunked request does not send — `fetch` with a stream body, or any client using `Transfer-Encoding: chunked`. Such a request declared nothing, passed the check, and could then send as much as it liked: a route with `maxBodySize: 10` would hand its handler megabytes.
+  - When nothing is declared, the body is now read in `parse` with a cap, stopping at the first chunk that crosses it, so the memory a rejected request costs is bounded by the limit rather than by what the client chose to send.
+  - The bytes already read are served back through the same request, by overriding the four methods Elysia's parser calls on it (`arrayBuffer`, `formData`, `json`, `text` — `blob` and `bytes` too, for completeness). Own properties shadow the prototype's, so the request keeps its identity, which matters: several `WeakMap`s here and in the request context are keyed on it.
+  - That indirection is the point. Parsing the bytes here instead would mean one body shape for declared requests and another for chunked ones, differing in whatever Elysia's query parser does that a hand-rolled one does not — comma-separated values, `+`, percent escapes. A test feeds identical payloads down both paths and asserts the handler sees identical bodies.
 - **The result cookie (Phase 3, shipped).** `absolute_action` carries a no-JavaScript submission's result to the page it redirects to, and the server both writes and reads it — but anyone able to set a cookie for the site can forge one and make the next page render a result of their choosing. The rewriter escapes what it writes, so the exposure is a spoofed message rather than script, which is still worth refusing.
   - The cookie is now `<payload>.<signature>`, signed with `ABSOLUTE_SECRET` under its own purpose (so a CSRF token's signature cannot stand in for it, or the reverse).
   - Signing is active except in production with no secret configured. There, a generated key would be lost on restart and differ between instances, so a visitor would submit successfully and then see nothing; instead the cookie stays unsigned, is still accepted, and the server warns once naming the variable. Setting `ABSOLUTE_SECRET` is what turns the protection on.
@@ -250,7 +254,7 @@ const signup = actions.useFormAction('/actions/signup', { initialState: signupSt
 
 - ~~Signed CSRF tokens (`getCsrfToken`, `csrfField`, automatic in the helpers) as an opt-in `csrf: { token: true }`.~~ Shipped; see Security above.
 - ~~A signed result cookie.~~ Shipped; see Security above.
-- Streaming byte limits for chunked bodies.
+- ~~Streaming byte limits for chunked bodies.~~ Shipped; see Security above.
 - Nested-object and array-of-object field paths (`address.city`, `items[0].qty`) in normalisation and value echo.
 - Optimistic updates (`optimistic(formData)` in the hook).
 - Exit:
