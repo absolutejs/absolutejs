@@ -8,7 +8,11 @@ import type {
 	SvelteFormActionValue
 } from '../../types/formAction';
 import { submitFormAction } from '../client/formActions';
-import { isActionState } from '../utils/formActionProtocol';
+import {
+	isActionState,
+	optimisticValue,
+	shownActionData
+} from '../utils/formActionProtocol';
 
 const IDLE: ActionIdleState = { status: 'idle' };
 
@@ -83,13 +87,14 @@ const createFormActionStore = <Value>(initial: Value) => {
  */
 export const formAction = <Data = unknown, Fields extends string = string>(
 	path: string,
-	options: FormActionBindingOptions = {}
+	options: FormActionBindingOptions<Data> = {}
 ) => {
 	const resetOnSuccess = options.resetOnSuccess !== false;
 	const restored = options.initialState;
 	let state: ActionState<Data, Fields> =
 		restored && isActionState<Data, Fields>(restored) ? restored : IDLE;
 	let pending = false;
+	let optimistic: { value: Data } | undefined;
 	let controller: AbortController | undefined;
 
 	const snapshot = (): SvelteFormActionValue<Data, Fields> => {
@@ -99,7 +104,7 @@ export const formAction = <Data = unknown, Fields extends string = string>(
 			state.status === 'error' ? (state.values ?? {}) : {};
 
 		return {
-			data: state.status === 'success' ? state.data : undefined,
+			data: shownActionData(state, optimistic),
 			errors,
 			message: state.status === 'error' ? state.message : undefined,
 			pending,
@@ -129,14 +134,19 @@ export const formAction = <Data = unknown, Fields extends string = string>(
 	const settle = (own: AbortController) => {
 		if (controller !== own) return;
 		pending = false;
+		optimistic = undefined;
 		publish();
 	};
 
 	const submit = async (body: FormData) => {
+		// Before aborting the previous submission: the caller's mapper may
+		// throw, and then nothing should have been disturbed.
+		const provisional = optimisticValue(options.optimistic, body);
 		controller?.abort();
 		const own = new AbortController();
 		controller = own;
 		pending = true;
+		optimistic = provisional;
 		publish();
 		try {
 			return adopt(
@@ -180,6 +190,7 @@ export const formAction = <Data = unknown, Fields extends string = string>(
 
 	const reset = () => {
 		state = IDLE;
+		optimistic = undefined;
 		publish();
 	};
 

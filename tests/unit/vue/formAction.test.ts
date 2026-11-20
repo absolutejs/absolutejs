@@ -102,6 +102,74 @@ describe('Vue useFormAction', () => {
 		stop();
 	});
 
+	test('an optimistic value is data until the real one lands', async () => {
+		answerWith({ data: { id: 7 }, status: 'success' });
+		const { stop, value: signup } = inScope(() =>
+			useFormAction<{ id: number }, Fields>('/signup', {
+				optimistic: (body) => ({ id: Number(body.get('id')) })
+			})
+		);
+		const body = new FormData();
+		body.set('id', '1');
+
+		const promise = signup.submit(body);
+		// Provisional, with pending saying so.
+		expect(signup.data.value).toEqual({ id: 1 });
+		expect(signup.pending.value).toBe(true);
+		await promise;
+
+		expect(signup.data.value).toEqual({ id: 7 });
+		expect(signup.pending.value).toBe(false);
+		stop();
+	});
+
+	test('a failed submission clears the optimistic value', async () => {
+		answerWith({ errors: { email: 'No' }, status: 'error' });
+		const { stop, value: signup } = inScope(() =>
+			useFormAction<{ id: number }, Fields>('/signup', {
+				optimistic: () => ({ id: 1 })
+			})
+		);
+
+		await signup.submit(new FormData());
+
+		// Otherwise the form would show a success that never happened,
+		// next to the error explaining why it did not.
+		expect(signup.data.value).toBeUndefined();
+		expect(signup.errors.value.email).toBe('No');
+		stop();
+	});
+
+	test('a mapper that throws is reported, and the submission goes on', async () => {
+		answerWith({ data: { id: 7 }, status: 'success' });
+		const { stop, value: signup } = inScope(() =>
+			useFormAction<{ id: number }, Fields>('/signup', {
+				optimistic: () => {
+					throw new Error('bad mapper');
+				}
+			})
+		);
+		const logged: unknown[] = [];
+		const original = console.error;
+		console.error = (...args: unknown[]) => logged.push(args[0]);
+
+		try {
+			const result = await signup.submit(new FormData());
+			// The mapper decorates the wait; the form still had work to do.
+			expect(result.status).toBe('success');
+			expect(signup.data.value).toEqual({ id: 7 });
+		} finally {
+			console.error = original;
+		}
+		// And not silent: the binding's own submit handler swallows
+		// rejections to ignore aborted submissions, so an exception left
+		// to propagate would vanish and look like a form that never
+		// updates.
+		expect(logged).toHaveLength(1);
+		expect(String(logged[0])).toContain('`optimistic` mapper threw');
+		stop();
+	});
+
 	test('field errors, message and values reach the refs', async () => {
 		answerWith({
 			errors: { email: 'Already registered' },

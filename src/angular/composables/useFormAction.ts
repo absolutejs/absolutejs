@@ -8,7 +8,11 @@ import type {
 	FormActionBindingOptions
 } from '../../../types/formAction';
 import { submitFormAction } from '../../client/formActions';
-import { isActionState } from '../../utils/formActionProtocol';
+import {
+	isActionState,
+	optimisticValue,
+	shownActionData
+} from '../../utils/formActionProtocol';
 
 const IDLE: ActionIdleState = { status: 'idle' };
 
@@ -77,7 +81,7 @@ export type FormAction<Data = unknown, Fields extends string = string> = {
  */
 export const useFormAction = <Data = unknown, Fields extends string = string>(
 	path: string,
-	options: FormActionBindingOptions = {}
+	options: FormActionBindingOptions<Data> = {}
 ): FormAction<Data, Fields> => {
 	const restored = options.initialState;
 	const resetOnSuccess = options.resetOnSuccess !== false;
@@ -85,6 +89,9 @@ export const useFormAction = <Data = unknown, Fields extends string = string>(
 		restored && isActionState<Data, Fields>(restored) ? restored : IDLE
 	);
 	const pending = signal(false);
+	// Wrapped, so a provisional `undefined` is still distinguishable from
+	// "no submission in flight".
+	const optimistic = signal<{ value: Data } | undefined>(undefined);
 	let controller: AbortController | undefined;
 
 	/** Adopt a result, unless a newer submission already replaced this
@@ -105,13 +112,18 @@ export const useFormAction = <Data = unknown, Fields extends string = string>(
 	const settle = (own: AbortController) => {
 		if (controller !== own) return;
 		pending.set(false);
+		optimistic.set(undefined);
 	};
 
 	const submit = async (body: FormData) => {
+		// Before aborting the previous submission: the caller's mapper may
+		// throw, and then nothing should have been disturbed.
+		const provisional = optimisticValue(options.optimistic, body);
 		controller?.abort();
 		const own = new AbortController();
 		controller = own;
 		pending.set(true);
+		optimistic.set(provisional);
 		try {
 			return adopt(
 				await submitFormAction<Data, Fields>(path, body, {
@@ -129,12 +141,6 @@ export const useFormAction = <Data = unknown, Fields extends string = string>(
 
 		return current.status === 'error' ? current : null;
 	});
-	const successState = computed(() => {
-		const current = state();
-
-		return current.status === 'success' ? current : null;
-	});
-
 	/** Give up on the submission in flight. The controller is dropped as
 	 *  well as aborted, so a response that still arrives is discarded by
 	 *  `adopt`, and `pending` is cleared here because `settle` then sees
@@ -143,11 +149,12 @@ export const useFormAction = <Data = unknown, Fields extends string = string>(
 		controller?.abort();
 		controller = undefined;
 		pending.set(false);
+		optimistic.set(undefined);
 	};
 
 	return {
 		abort,
-		data: computed(() => successState()?.data),
+		data: computed(() => shownActionData(state(), optimistic())),
 		errors: computed<ActionFieldErrors<Fields>>(
 			() => errorState()?.errors ?? {}
 		),
@@ -160,6 +167,9 @@ export const useFormAction = <Data = unknown, Fields extends string = string>(
 		values: computed<ActionFormValues<Fields>>(
 			() => errorState()?.values ?? {}
 		),
-		reset: () => state.set(IDLE)
+		reset: () => {
+			state.set(IDLE);
+			optimistic.set(undefined);
+		}
 	};
 };
