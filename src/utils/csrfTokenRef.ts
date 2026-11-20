@@ -54,8 +54,16 @@ export const csrfField = (token: string | undefined = readCsrfToken()) =>
 /** The header a fetch submission should carry, or `{}` without a token.
  *  `submitFormAction` already sends it; this is for a hand-rolled fetch,
  *  or for HTMX through `htmx:configRequest`. */
-export const csrfHeaders = (token: string | undefined = readCsrfToken()) =>
-	token ? { [CSRF_HEADER_NAME]: token } : {};
+export const csrfHeaders = (token: string | undefined = readCsrfToken()) => {
+	// One record either way, rather than `token ? {…} : {}`: that union
+	// spreads into a caller's header object as a union of shapes, one of
+	// them carrying an optional-undefined property, and `fetch` will not
+	// take it as HeadersInit.
+	const headers: Record<string, string> = {};
+	if (token) headers[CSRF_HEADER_NAME] = token;
+
+	return headers;
+};
 
 /** The token for the page being rendered (server) or shown (browser), or
  *  undefined when this app issues none. */
