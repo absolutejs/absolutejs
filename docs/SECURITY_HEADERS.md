@@ -38,6 +38,38 @@ export const server = new Elysia()
 | `X-Content-Type-Options` | `nosniff` |
 | `Referrer-Policy` | `strict-origin-when-cross-origin` |
 | `Permissions-Policy` | `camera=(), geolocation=(), microphone=(), payment=(), usb=()` |
+| `Cross-Origin-Opener-Policy` | `same-origin-allow-popups` |
+| `Cross-Origin-Resource-Policy` | `same-site` |
+| `Strict-Transport-Security` | **off** — `hsts: true` sends `max-age=15552000` |
+
+Three notes on those defaults, because the stricter value is the obvious
+choice and the wrong one here:
+
+- **COOP is `same-origin-allow-popups`, not `same-origin`.** Full isolation
+  severs `window.opener`, which breaks an OAuth popup mid-flow. Pass
+  `crossOriginOpenerPolicy: 'same-origin'` when nothing opens a popup —
+  that is also what `SharedArrayBuffer` and precise timers need, alongside
+  COEP.
+- **CORP is `same-site`, not `same-origin`.** Serving your own assets from
+  a CDN subdomain is the common case, and `same-origin` blocks it.
+- **HSTS is off.** It is the one header here that cannot be walked back:
+  once a browser has it, that host is HTTPS-only until the max-age
+  expires, and `includeSubDomains` or `preload` outlive any change you
+  make to the header — an HTTP-only staging subdomain becomes unreachable
+  for anyone who saw it once. Turn it on with `hsts: true` when the app is
+  HTTPS-only, and raise it deliberately:
+
+  ```ts
+  secureHeaders({ hsts: { maxAge: 31536000, includeSubDomains: true, preload: true } })
+  ```
+
+  It is only sent to a request that arrived over HTTPS, directly or
+  through a proxy whose `X-Forwarded-Proto` says so.
+
+`absolute doctor` reports when an app does not mount `secureHeaders()` at
+all, since nothing else would say so. The plugin stays opt-in on purpose:
+a CSP arriving on an upgrade would break any app with an inline script or
+a third-party widget that is not nonce-aware.
 
 The default policy:
 

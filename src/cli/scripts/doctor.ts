@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import { DEFAULT_PORT } from '../../constants';
 import { loadRawConfig } from '../../utils/loadConfig';
 import { isPortInUse, portListenerPids } from '../../utils/portInUse';
@@ -223,6 +223,48 @@ const printReport = (checks: Check[]) => {
 	);
 };
 
+/* Whether the app mounts `secureHeaders()`. It is opt-in by design — a
+ * CSP arriving on an upgrade would break any app with an inline script or
+ * a third-party widget — so this is the nudge instead: an app that never
+ * mounts it sends no CSP, no COOP and no HSTS, and nothing else would
+ * ever say so.
+ *
+ * Read from the source rather than the running app: `doctor` does not
+ * boot the server, and a grep is honest about what it knows. A dynamic
+ * `.use(plugins)` that happens to include it reads as missing, which
+ * is a warning rather than a failure for that reason. */
+const SERVER_CANDIDATES = [
+	'src/backend/server.ts',
+	'src/server.ts',
+	'server.ts',
+	'src/index.ts'
+];
+
+const secureHeadersCheck = () => {
+	const found = SERVER_CANDIDATES.map((candidate) =>
+		join(process.cwd(), candidate)
+	).find((path) => existsSync(path));
+	if (!found)
+		return check(
+			'warn',
+			'Security headers',
+			`no server entry found (looked for ${SERVER_CANDIDATES.join(', ')})`
+		);
+	const source = readFileSync(found, 'utf-8');
+	if (source.includes('secureHeaders('))
+		return check(
+			'ok',
+			'Security headers',
+			`secureHeaders() mounted in ${relative(process.cwd(), found)}`
+		);
+
+	return check(
+		'warn',
+		'Security headers',
+		`secureHeaders() is not mounted in ${relative(process.cwd(), found)}, so no CSP, COOP or HSTS is sent. Add .use(secureHeaders()) — and hsts: true once the app is HTTPS-only.`
+	);
+};
+
 const gatherChecks = async () => {
 	const config = await loadConfigOrNull();
 	const configCheck =
@@ -239,7 +281,8 @@ const gatherChecks = async () => {
 		configCheck,
 		...(config === null ? [] : frameworkChecks(config)),
 		env,
-		port
+		port,
+		secureHeadersCheck()
 	];
 };
 
