@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'bun:test';
 import { Elysia, t } from 'elysia';
+import { readActionFlash } from '../../../src/core/formActionFlash';
 import { formActions } from '../../../src/core/formActions';
+import { ACTION_FLASH_COOKIE } from '../../../src/utils/formActionState';
 
 const ORIGIN = 'http://app.test';
 const LIMIT = 2_000;
@@ -168,5 +170,65 @@ describe('maxBodySize on a body that declares no size', () => {
 		// the handler with an undefined body rather than a 422, which this
 		// test deliberately does not pin down.
 		expect(response.status).not.toBe(413);
+	});
+});
+
+/* ---------------------------------------------------------------- *
+ * A submission with nothing to parse
+ * ---------------------------------------------------------------- */
+
+const errorsApp = new Elysia()
+	.use(formActions())
+	.post(
+		'/subscribe',
+		{ form: t.Object({ name: t.String({ minLength: 2 }) }) },
+		({ body }) => ({ seen: body.name })
+	);
+
+const resultOf = async (response: Response) => {
+	const cookie = response.headers
+		.getSetCookie()
+		.find((entry) => entry.startsWith(`${ACTION_FLASH_COOKIE}=`));
+
+	return cookie
+		? readActionFlash(
+				new Request(ORIGIN, {
+					headers: { cookie: cookie.split(';')[0] ?? '' }
+				})
+			)?.result
+		: undefined;
+};
+
+describe('a submission with no content-type', () => {
+	test('reports its errors per field, not against the whole body', async () => {
+		const response = await errorsApp.handle(
+			new Request(`${ORIGIN}/subscribe`, {
+				headers: { 'sec-fetch-site': 'same-origin' },
+				method: 'POST'
+			})
+		);
+		// Not `{ '': 'must be object' }`: a form shows errors next to
+		// fields, and `must be object` is the validator talking to itself.
+		expect(await resultOf(response)).toEqual({
+			errors: { name: 'Required' },
+			status: 'error'
+		});
+	});
+
+	test('a declared form body still parses normally', async () => {
+		const response = await errorsApp.handle(
+			new Request(`${ORIGIN}/subscribe`, {
+				body: 'name=Ada',
+				headers: {
+					'content-type': URLENCODED,
+					'sec-fetch-site': 'same-origin'
+				},
+				method: 'POST'
+			})
+		);
+		expect(await resultOf(response)).toEqual({
+			data: { seen: 'Ada' },
+			status: 'success'
+		});
 	});
 });

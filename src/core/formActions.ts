@@ -777,10 +777,21 @@ const formMacro = (value: FormActionValue) => {
 			const rejection =
 				rejectionFor(request, options.csrf, maxBodySize) ??
 				(await overflowRejection(request, maxBodySize));
-			if (!rejection) return undefined;
-			pendingRejections.set(request, rejection);
+			if (rejection) {
+				pendingRejections.set(request, rejection);
 
-			return {};
+				return {};
+			}
+			// With no content-type there is nothing for Elysia to parse, so
+			// `body` stays undefined and the schema reports one error
+			// against the whole body: `{ '': 'must be object' }`. A form's
+			// errors are per field, and `must be object` is the validator's
+			// language rather than anything a visitor should read. An empty
+			// object says the same thing in the shape the rest of the
+			// pipeline expects: every required field Required.
+			if (!request.headers.get('content-type')) return {};
+
+			return undefined;
 		},
 		transform: ({ body, request }: FormActionHookContext) => {
 			const rejection =
