@@ -5,6 +5,23 @@
 		{
 			"changes": [
 				{
+					"detail": "The four form bindings take an `optimistic` mapper: `optimistic: (body) => Data` is called once per submission, before the request starts, and what it returns becomes `data` until the real result replaces it, so a form can show what was just submitted without waiting for the server. A failure clears it, so the form shows its errors rather than a success that never happened, and `pending` is what says the value is provisional — treat `data` as confirmed only when `pending` is false. A mapper that throws is reported to the console and the submission continues without a provisional value: it cannot fail the submission, because it only decorates the wait, and it cannot be silent, because each binding's submit handler swallows rejections to ignore aborted submissions. Available on React's useFormAction, Svelte's formAction, Vue's useFormAction and Angular's useFormAction, with the behaviour shared so the bindings cannot drift.",
+					"kind": "added",
+					"summary": "Optimistic data while a form submission is in flight",
+					"symbols": [
+						"formAction",
+						"FormActionBindingOptions",
+						"useFormAction",
+						"UseFormActionOptions"
+					]
+				}
+			],
+			"date": "2026-11-20",
+			"version": "0.20.0-beta.219"
+		},
+		{
+			"changes": [
+				{
 					"detail": "A form sends one flat list of names, so a nested body has to be spelled into them. Until now `address.city=Paris` arrived as a key of that name and the submission failed with `address` Required, which made any schema with an object or an array of objects unusable from a plain form. Such names are now expanded into the shape the schema declares: both `items[0].sku` and `items.0.sku` are read, and a failure is reported under the name the input has, so `/items/0/sku` becomes `items[0].sku` and the message lands on that field. Normalisation recurses, so a checkbox two levels down still arrives as false when it was not ticked and each entry of an array of objects is normalised; a sparse index is compacted rather than left as a hole. A property's own `error` message resolves along the path, so `address.city` reads the message on `city` rather than the one on `address`. Expansion is driven by the schema, so a name it does not declare is left as it arrived and fails validation as an unknown field rather than creating anything, and a name reaching through `__proto__`, `constructor` or `prototype` is refused outright. The echoed values stay keyed by the names the inputs had, which is what the no-JavaScript re-render matches against.",
 					"kind": "added",
 					"summary": "Nested and array field names in form bodies",
