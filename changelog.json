@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "`useFormAction(path, { initialState })` returns `state`, `pending`, `errors`, `values`, `data` and `message` as refs, plus `formProps` — `action`, `method=\"post\"`, `enctype` and the submit listener, so `v-bind=\"signup.formProps\"` is the whole wiring. The form posts for real without JavaScript, `getActionState(path)` hands the result to the page as a prop, and the listener takes over once hydrated. Seed a `ref` from `values` and `v-model` it: binding `values` straight to `:value` makes the field controlled, so the re-render that shows an error would wipe what the user typed. Angular is the last Phase 2 binding; its pages use `getActionState` with `enhanceForms` in the meantime.",
+					"kind": "added",
+					"summary": "Vue pages get a useFormAction composable"
+				}
+			],
+			"date": "2026-11-20",
+			"version": "0.20.0-beta.208"
+		},
+		{
+			"changes": [
+				{
 					"detail": "`formAction(path, { initialState })` returns a store — `$signup.state`, `pending`, `errors`, `values`, `data`, `message` — plus `formProps` for a real `method=\"post\"` form and `use:signup.enhance`, which takes the submission over once the page has hydrated. Without JavaScript the same form posts normally and `getActionState(path)` hands the result to the page as a prop, exactly as the React hook does. Seed component state from `values` and bind it (`bind:value`): Svelte re-applies a `value={…}` attribute on every re-render, so showing an error would wipe what the user typed, and `defaultValue` is not rendered server-side. Vue and Angular bindings are still to come; their pages use `getActionState` with `enhanceForms` in the meantime.",
 					"kind": "added",
 					"summary": "Svelte pages get a form-action store with use:enhance"

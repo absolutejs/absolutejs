@@ -41,4 +41,5 @@ export type {
 	ResourceStart
 } from './useResource';
 export { getRouteParam, useRouteParam } from './routeParam';
+export { useFormAction } from './useFormAction';
 export type { VueRouteParam } from './routeParam';

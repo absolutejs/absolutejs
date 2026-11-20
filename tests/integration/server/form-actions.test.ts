@@ -43,8 +43,10 @@ import {
 } from '@absolutejs/absolute';
 import { handleReactPageRequest } from '@absolutejs/absolute/react';
 import { handleSveltePageRequest } from '@absolutejs/absolute/svelte';
+import { handleVuePageRequest } from '@absolutejs/absolute/vue';
 import { Signup } from './react/pages/Signup';
 import SvelteSignup from './svelte/pages/SvelteSignup.svelte';
+import VueSignup from './vue/pages/VueSignup.vue';
 
 const escapeHtml = (value: string) =>
 	value.replace(/[&<>"]/g, (char) => \`&#\${char.charCodeAt(0)};\`);
@@ -65,6 +67,13 @@ export const server = new Elysia()
 		handleSveltePageRequest<typeof SvelteSignup>({
 			indexPath: asset(manifest, 'SvelteSignupIndex'),
 			pagePath: asset(manifest, 'SvelteSignup'),
+			props: { signupState: getActionState('/actions/signup') ?? null }
+		})
+	)
+	.get('/vue', () =>
+		handleVuePageRequest<typeof VueSignup>({
+			indexPath: asset(manifest, 'VueSignupIndex'),
+			pagePath: asset(manifest, 'VueSignup'),
 			props: { signupState: getActionState('/actions/signup') ?? null }
 		})
 	)
@@ -119,6 +128,42 @@ export const server = new Elysia()
 		({ body }) => ({ email: body.email })
 	)
 	.use(networking);
+`;
+
+const SIGNUP_VUE = `<script setup lang="ts">
+import { onMounted, ref } from 'vue';
+import { useFormAction } from '@absolutejs/absolute/vue';
+import type { ActionState } from '@absolutejs/absolute';
+
+const props = defineProps<{
+	signupState: ActionState<{ greeting: string }, 'email' | 'name'> | null;
+}>();
+const signup = useFormAction<{ greeting: string }, 'email' | 'name'>(
+	'/actions/signup',
+	{ initialState: props.signupState }
+);
+// The fields live in refs seeded from what a no-JS submission left behind.
+// SSR renders the seeded value, and after hydration the typing lives in
+// the ref, so the re-render that shows an error cannot wipe it.
+const name = ref(String(signup.values.value.name ?? ''));
+const email = ref(String(signup.values.value.email ?? ''));
+const hydrated = ref(false);
+onMounted(() => {
+	hydrated.value = true;
+});
+</script>
+
+<template>
+	<p id="hydrated">{{ hydrated ? 'yes' : 'no' }}</p>
+	<form v-bind="signup.formProps">
+		<input name="name" v-model="name" />
+		<p v-if="signup.errors.value.name" id="name-error">{{ signup.errors.value.name }}</p>
+		<input name="email" v-model="email" />
+		<p v-if="signup.errors.value.email" id="email-error">{{ signup.errors.value.email }}</p>
+		<button :disabled="signup.pending.value">Join</button>
+	</form>
+	<p v-if="signup.data.value" id="welcome">{{ signup.data.value.greeting }}</p>
+</template>
 `;
 
 const SIGNUP_SVELTE = `<script lang="ts">
@@ -288,6 +333,7 @@ const writeProject = async (projectRoot: string) => {
 		[
 			'react/pages',
 			'svelte/pages',
+			'vue/pages',
 			'html/pages',
 			'html/scripts',
 			'htmx/pages',
@@ -325,7 +371,8 @@ export default defineConfig({
 	htmxDirectory: './htmx',
 	publicDirectory: './public',
 	reactDirectory: './react',
-	svelteDirectory: './svelte'
+	svelteDirectory: './svelte',
+	vueDirectory: './vue'
 });
 `
 		),
@@ -335,6 +382,7 @@ export default defineConfig({
 			join(projectRoot, 'svelte/pages/SvelteSignup.svelte'),
 			SIGNUP_SVELTE
 		),
+		writeFile(join(projectRoot, 'vue/pages/VueSignup.vue'), SIGNUP_VUE),
 		writeFile(join(projectRoot, 'html/pages/Contact.html'), CONTACT_HTML),
 		writeFile(
 			join(projectRoot, 'html/scripts/enhance-contact.ts'),
@@ -515,6 +563,36 @@ describe('form actions without JavaScript', () => {
 			expect(await page.locator('#welcome').count()).toBe(0);
 		}));
 
+	test('Vue page: errors and typed values come back after the redirect, success shows the data', () =>
+		withSession(false, async ({ page }) => {
+			await page.goto(`${BASE}/vue`);
+			expect(await page.textContent('#hydrated')).toBe('no');
+			await page.fill('input[name="name"]', 'A');
+			await page.fill('input[name="email"]', 'nope');
+			await Promise.all([
+				page.waitForURL(`${BASE}/vue`),
+				page.click('button')
+			]);
+			await page.waitForSelector('#name-error');
+			expect(await page.textContent('#name-error')).toBe(
+				'Name must be at least 2 characters'
+			);
+			expect(await page.textContent('#email-error')).toBe(
+				'Enter a valid email'
+			);
+			expect(await page.inputValue('input[name="name"]')).toBe('A');
+			expect(await page.inputValue('input[name="email"]')).toBe('nope');
+
+			await page.fill('input[name="name"]', 'Ada');
+			await page.fill('input[name="email"]', 'ada@example.com');
+			await page.click('button');
+			await page.waitForSelector('#welcome');
+			expect(await page.textContent('#welcome')).toBe('Welcome, Ada');
+
+			await page.reload();
+			expect(await page.locator('#welcome').count()).toBe(0);
+		}));
+
 	test('static HTML page: the server writes the errors and values into the form; success redirects', () =>
 		withSession(false, async ({ page }) => {
 			await page.goto(`${BASE}/html`);
@@ -629,6 +707,39 @@ describe('form actions with JavaScript', () => {
 			expect(await page.textContent('#welcome')).toBe('Welcome, Grace');
 			// Reset after a success, and the page never navigated.
 			expect(await page.inputValue('input[name="name"]')).toBe('');
+			expect(await windowMarked(page)).toBe(true);
+			expect(cspErrors).toEqual([]);
+		}));
+
+	test('Vue page: the form props listener submits without a reload', () =>
+		withSession(true, async ({ cspErrors, page }) => {
+			await page.goto(`${BASE}/vue`);
+			await page.waitForFunction(
+				() => document.querySelector('#hydrated')?.textContent === 'yes'
+			);
+			await markWindow(page);
+			await page.fill('input[name="name"]', 'taken');
+			await page.fill('input[name="email"]', 'nope');
+			await page.click('button');
+			await page.waitForSelector('#email-error');
+			expect(await page.textContent('#email-error')).toBe(
+				'Enter a valid email'
+			);
+			expect(await page.locator('#name-error').count()).toBe(0);
+			// The ref keeps what the user typed through the error re-render.
+			expect(await page.inputValue('input[name="name"]')).toBe('taken');
+
+			await page.fill('input[name="email"]', 'taken@example.com');
+			await page.click('button');
+			await page.waitForSelector('#name-error');
+			expect(await page.textContent('#name-error')).toBe(
+				'That name is taken'
+			);
+
+			await page.fill('input[name="name"]', 'Grace');
+			await page.click('button');
+			await page.waitForSelector('#welcome');
+			expect(await page.textContent('#welcome')).toBe('Welcome, Grace');
 			expect(await windowMarked(page)).toBe(true);
 			expect(cspErrors).toEqual([]);
 		}));

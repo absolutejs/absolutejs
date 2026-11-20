@@ -23,6 +23,7 @@ export { defineRoutes, defineVueSetupApp } from './defineVuePage';
 export { applyVueRouterRedirect } from './routerRedirectProviders';
 export { Link } from './router/Link';
 export { usePrefetch } from './usePrefetch';
+export { useFormAction } from './useFormAction';
 export type { UsePrefetchOptions } from './usePrefetch';
 export type { PrefetchKind, PrefetchMode } from '../../types/prefetch';
 export type {
