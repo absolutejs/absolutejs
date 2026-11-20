@@ -146,14 +146,28 @@ export default { … } satisfies Translation<typeof en>;
   missing key in any `Translation<typeof en>` catalog, an unknown key passed
   to `t()`, a missing/extra/wrongly-typed ICU parameter, and a `defineI18n`
   whose `loaders` miss a locale.
-- **`absolute i18n`** (Phase 2): `absolute i18n check` loads the config's
-  catalogs and reports (a) keys missing per locale (for JSON catalogs that
-  the type system can't see), (b) parameter mismatches between a locale and
-  the default (`{count}` translated as `{n}`), (c) ICU syntax errors, and (d)
-  unused keys — found by scanning sources for `t('…')`/`$t`/pipe usage with
-  the TypeScript AST (dynamic keys reported as "unknown, kept"). `--json` for
-  CI; non-zero exit on missing/mismatch. `absolute i18n extract` writes
-  missing keys as TODO stubs.
+- **`absolute i18n check <default> [locale…]`** (Phase 2 ✅ for a, b, c):
+  reports (a) keys a locale never translated, (b) ICU argument mismatches
+  against the default (`{count}` translated as `{n}`, which renders the
+  literal `{n}`), and (c) unbalanced ICU braces in any catalog, which
+  renders the message's own source. `--json` for CI. Non-zero exit on all
+  three; a key the default does not have is reported and does not fail.
+  Catalogs are **named on the command line**, not discovered: `absolute.config.ts`
+  has no i18n field, because `defineI18n` is called in app code. Discovering
+  them would mean duplicating that declaration in the config or importing the
+  server to find it — a decision worth making deliberately, not inside this
+  command.
+  - Still open: (d) unused keys, which needs the TypeScript AST for
+    `t('…')`/`$t`/pipe usage *and* the `data-i18n` attributes HTML and HTMX
+    pages now use (beta.226), with dynamic keys reported as "unknown, kept".
+    Reporting a key as unused because it is only referenced from an HTML
+    attribute would train people to ignore the tool.
+  - Still open: `absolute i18n extract`, which writes missing keys as TODO
+    stubs.
+  - Note what `absolute typecheck` already covers, so this does not claim
+    it: a loader typed `Translation<typeof en>` must carry every key with
+    the right parameters. What it cannot see is a catalog read at runtime
+    (`Bun.file('fr.json').json()` is `any`), and it does not parse ICU.
 
 ## Phases and exit criteria
 
