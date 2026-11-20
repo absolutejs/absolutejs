@@ -85,6 +85,16 @@ export type ActionState<Data = unknown, Fields extends string = string> =
  * ---------------------------------------------------------------- */
 
 export type ActionCsrfOptions = {
+	/** Also require a signed token: the `absolute_csrf` cookie plus a
+	 *  matching `_csrf` field or `x-absolute-csrf` header. Off by default,
+	 *  because the header check above already covers every browser that
+	 *  sends `Sec-Fetch-Site` or `Origin`. Turn it on where those cannot
+	 *  be trusted — a proxy that strips them, or an untrusted subdomain of
+	 *  the same site — and set `ABSOLUTE_SECRET` in production.
+	 *
+	 *  The four browser bindings add the field automatically; a
+	 *  hand-written form needs `csrfField()` in it. */
+	token?: boolean;
 	/** Origins (scheme://host[:port]) allowed to post besides the page's
 	 *  own, e.g. a separate front-end domain. */
 	trustedOrigins?: readonly string[];

@@ -21,6 +21,7 @@ import {
 	ACTION_REQUEST_HEADER,
 	isActionResult
 } from '../utils/formActionProtocol';
+import { CSRF_FIELD_NAME, verifyCsrfToken } from './csrfToken';
 import {
 	encodeActionFlash,
 	formActionRuntime,
@@ -152,6 +153,21 @@ const rejectionFor = (
 		);
 
 	return undefined;
+};
+
+/* The token half of the CSRF check, when `csrf: { token: true }` asks for
+ * it. Separate from rejectionFor because it needs the parsed body: the
+ * header arrives with the request, but the hidden field — the only half a
+ * page without JavaScript can send — exists only once the body is read. */
+const tokenRejectionFor = (
+	request: Request,
+	csrf: ActionCsrfOptions | false | undefined,
+	body: unknown
+) => {
+	if (csrf === false || !csrf?.token) return undefined;
+	if (verifyCsrfToken(request, body)) return undefined;
+
+	return new ActionRejection(HTTP_FORBIDDEN, 'Missing or invalid CSRF token');
 };
 
 /* Elysia turns an error thrown while parsing into a generic 400, so the
@@ -671,9 +687,15 @@ const formMacro = (value: FormActionValue) => {
 			return {};
 		},
 		transform: ({ body, request }: FormActionHookContext) => {
-			const rejection = pendingRejections.get(request);
+			const rejection =
+				pendingRejections.get(request) ??
+				tokenRejectionFor(request, options.csrf, body);
 			if (rejection) throw rejection;
 			if (!isRecord(body) || !isFormContent(request)) return;
+			// The token is protocol, not one of the form's fields: leaving
+			// it in would reach the schema as an unknown property and show
+			// up among the values echoed back into the re-rendered form.
+			delete body[CSRF_FIELD_NAME];
 			captureValues(request, body);
 			normalizeFormBody(schema, body);
 		}
