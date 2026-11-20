@@ -377,15 +377,86 @@ const findOutput = (outputs: BuildArtifact[], name: string) =>
 const toWebPath = (buildPath: string, path: string) =>
 	`/${relative(buildPath, path).replace(/\\/g, '/')}`;
 
-const assertFlightPackage = (projectRoot: string) => {
+/* The floor from decision 1 of `docs/REACT_SERVER_COMPONENTS_PLAN.md`:
+ * 19.0.0–19.2.0 carry the Flight RCE (CVE-2025-55182) and 19.2.1–19.2.2
+ * the follow-up DoS and source-exposure fixes, so a server-components
+ * build needs 19.2.3 or newer.
+ *
+ * Checked at build time rather than left to the peer range, because a
+ * peer range warns once at install and is then forgotten — and this is
+ * the build that produces the Flight payload a browser runs.
+ *
+ * Narrower than the plan in one way, deliberately: the plan also accepts a
+ * patched 19.0.x or 19.1.x line, whose patch numbers it does not record,
+ * so this recognises only >=19.2.3 and the message says so. */
+export const FLIGHT_MINIMUM_VERSION = '19.2.3';
+
+const flightPackageVersion = (projectRoot: string) => {
+	const manifestPath = Bun.resolveSync(
+		'react-server-dom-webpack/package.json',
+		projectRoot
+	);
+	const parsed: unknown = JSON.parse(readFileSync(manifestPath, 'utf-8'));
+	if (typeof parsed !== 'object' || parsed === null) return undefined;
+	const { version } =
+		Reflect.get(parsed, 'version') === undefined
+			? { version: undefined }
+			: { version: Reflect.get(parsed, 'version') };
+
+	return typeof version === 'string' ? version : undefined;
+};
+
+/** Why this pair of versions may not be built against, or undefined when
+ *  they may. A version that could not be read is not blocked: a workspace
+ *  link should not fail a build the installed code is fine for, and the
+ *  caller warns instead. */
+export const flightVersionProblem = (
+	version: string | undefined,
+	reactVersion?: string | undefined
+) => {
+	if (version === undefined) return undefined;
+	const upgrade = `\`bun add react@^${FLIGHT_MINIMUM_VERSION} react-dom@^${FLIGHT_MINIMUM_VERSION} react-server-dom-webpack@^${FLIGHT_MINIMUM_VERSION}\``;
+	if (!Bun.semver.satisfies(version, `>=${FLIGHT_MINIMUM_VERSION}`))
+		return `react-server-dom-webpack ${version} carries a known Flight vulnerability (CVE-2025-55182 below 19.2.1, DoS and source exposure below ${FLIGHT_MINIMUM_VERSION}) and a React Server Components build would ship it. Upgrade react, react-dom and the Flight runtime together: ${upgrade}. A patched 19.0.x or 19.1.x line also carries the fixes; this check recognises only ${FLIGHT_MINIMUM_VERSION} and above.`;
+	if (reactVersion !== undefined && reactVersion !== version)
+		return `react-server-dom-webpack ${version} does not match react ${reactVersion}. The Flight runtime and the renderer are released together and are not compatible across versions: ${upgrade}.`;
+
+	return undefined;
+};
+
+const packageVersion = (specifier: string, projectRoot: string) => {
+	const manifestPath = Bun.resolveSync(specifier, projectRoot);
+	const parsed: unknown = JSON.parse(readFileSync(manifestPath, 'utf-8'));
+	if (typeof parsed !== 'object' || parsed === null) return undefined;
+	const version: unknown = Reflect.get(parsed, 'version');
+
+	return typeof version === 'string' ? version : undefined;
+};
+
+const reactVersion = (projectRoot: string) => {
 	try {
-		Bun.resolveSync('react-server-dom-webpack/package.json', projectRoot);
+		return packageVersion('react/package.json', projectRoot);
+	} catch {
+		return undefined;
+	}
+};
+
+const assertFlightPackage = (projectRoot: string) => {
+	let version: string | undefined;
+	try {
+		version = flightPackageVersion(projectRoot);
 	} catch {
 		throw new Error(
 			'reactServerComponentsDirectory is set but react-server-dom-webpack is not installed. ' +
 				'Add it at the same version as react (for example `bun add react-server-dom-webpack@<your react version>`).'
 		);
 	}
+	const problem = flightVersionProblem(version, reactVersion(projectRoot));
+	if (problem) throw new Error(problem);
+	if (version === undefined)
+		console.warn(
+			`[absolutejs] could not read react-server-dom-webpack's version, so the ${FLIGHT_MINIMUM_VERSION} floor for a React Server Components build was not checked.`
+		);
 };
 
 const emptyResult = (): ReactServerBuildResult => ({

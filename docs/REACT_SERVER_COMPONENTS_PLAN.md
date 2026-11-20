@@ -64,9 +64,16 @@ current pipeline byte for byte.
    resolves it from the project and fails with that instruction when it is
    missing. **Security:** 19.0.0–19.2.0 have the Flight RCE
    (CVE-2025-55182) and 19.2.1–19.2.2 the follow-up DoS/source-exposure
-   fixes; require ≥ 19.2.3 (or the patched 19.0.x/19.1.x lines). Phase 2
-   adds a build-time version check (`react-server-dom-webpack` version ===
-   `react` version and not in a vulnerable range).
+   fixes; require ≥ 19.2.3 (or the patched 19.0.x/19.1.x lines). The
+   build-time check is in ✅: `assertFlightPackage` reads the installed
+   `react-server-dom-webpack` version, refuses anything below
+   `FLIGHT_MINIMUM_VERSION` with the CVE named, and refuses a version that
+   does not equal `react`'s, since the two ship together. Narrower than
+   this decision in one way, deliberately: the patched 19.0.x/19.1.x patch
+   numbers are not recorded anywhere, so only ≥ 19.2.3 is recognised and
+   the error says as much. A version that cannot be read (a workspace
+   link) warns rather than failing a build the installed code is fine
+   for.
 2. **Separate opt-in directory, separate pass.** `reactServerComponentsDirectory`
    (pages directly in `<dir>/pages`). Keeping RSC pages out of
    `reactDirectory` means `generateReactIndexFiles`, the React vendor
