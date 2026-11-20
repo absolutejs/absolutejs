@@ -22,6 +22,8 @@ import {
 import { createTranslator, isMessageTree } from '../i18n/translator';
 import {
 	registerRequestLocaleGetter,
+	registerRequestTranslateGetter,
+	type RequestTranslate,
 	type RequestLocale
 } from '../utils/localeRef';
 
@@ -281,12 +283,23 @@ export const defineI18n = <
 };
 
 const requestLocales = new WeakMap<Request, RequestLocale>();
+/* The request's `t()`, for render code that cannot reach the route
+ * context: the HTML and HTMX page handlers substitute `data-i18n` with
+ * it. */
+const requestTranslates = new WeakMap<Request, RequestTranslate>();
 
 /** The current request's locale, once `i18nPlugin()` resolved it. */
 export const getRequestLocale = () => {
 	const request = getCurrentAbsoluteRequest();
 
 	return request ? requestLocales.get(request) : undefined;
+};
+
+/** The current request's `t()`, once `i18nPlugin()` resolved its locale. */
+export const getRequestTranslate = () => {
+	const request = getCurrentAbsoluteRequest();
+
+	return request ? requestTranslates.get(request) : undefined;
 };
 
 const looksLikePageNavigation = (request: Request, pathname: string) => {
@@ -316,6 +329,7 @@ export const i18nPlugin = <
 		(config.strategy ?? 'prefix') === 'prefix' &&
 		config.prefixDefault === true;
 	registerRequestLocaleGetter(getRequestLocale);
+	registerRequestTranslateGetter(getRequestTranslate);
 
 	const redirectToLocale = (request: Request) => {
 		const url = new URL(request.url);
@@ -344,6 +358,9 @@ export const i18nPlugin = <
 			const requestPayload = await i18n.payload(locale);
 			const translator = createTranslator<Catalog>(requestPayload);
 			requestLocales.set(request, { dir: translator.dir, locale });
+			// An HTML page's `data-i18n="…"` key is a runtime string, so
+			// substitution needs the untyped view of the same messages.
+			requestTranslates.set(request, createTranslator(requestPayload).t);
 			set.headers['content-language'] = locale;
 			if (resolution.source !== 'path' && resolution.source !== 'domain')
 				set.headers['vary'] = appendVary(set.headers['vary'], [
