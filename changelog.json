@@ -5,6 +5,25 @@
 		{
 			"changes": [
 				{
+					"detail": "`useFormAction(path, { initialState })` returns `state`, `pending`, `errors`, `values`, `data` and `message` as signals, and `[absoluteAction]` binds it to the `<form>` it sits on: the directive writes the real `action`, `method=\"post\"` and `enctype` during server rendering, so the form posts without JavaScript, and takes the submission over once hydrated. `getActionState(path)` hands a no-JS result to the page through `requestContext`. Seed a signal from `values()` and write it back on input rather than binding `values()` to `[value]`: a bound `[value]` is re-applied on every change detection, so the pass that renders an error would wipe what the user typed. The composable calls no `inject()`, so it can be created in a plain class or a test; the directive owns what needs injection. This completes Phase 2's bindings: React, Svelte, Vue and Angular now share one shape, and `useFormAction` is now exported from `@absolutejs/absolute/angular` as well as the React and Vue entries.",
+					"kind": "added",
+					"summary": "Angular pages get a form-action binding: useFormAction plus [absoluteAction]",
+					"symbols": [
+						"useFormAction"
+					]
+				},
+				{
+					"detail": "Bun hands a bundler plugin the real path of a file, not the symlinked one, and the Angular linker only offered files whose path contained `node_modules`. A project that reaches this package through a symlink — `bun link`, a workspace dependency, a `file:` install — therefore never had its Angular components linked: they stayed partially compiled, Angular fell back to its JIT compiler in the browser, and a nonce Content-Security-Policy (what `secureHeaders()` sends) refused that with \"'unsafe-eval' is not an allowed source of script\", so the page never hydrated. The linker now also offers this package's own `dist/angular` output, which is what such an install resolves to. A symlinked third-party Angular library is still missed, since nothing in its path identifies it as Angular.",
+					"kind": "fixed",
+					"summary": "Angular pages hydrate under a nonce CSP when the package is installed through a symlink"
+				}
+			],
+			"date": "2026-11-20",
+			"version": "0.20.0-beta.209"
+		},
+		{
+			"changes": [
+				{
 					"detail": "`useFormAction(path, { initialState })` returns `state`, `pending`, `errors`, `values`, `data` and `message` as refs, plus `formProps` — `action`, `method=\"post\"`, `enctype` and the submit listener, so `v-bind=\"signup.formProps\"` is the whole wiring. The form posts for real without JavaScript, `getActionState(path)` hands the result to the page as a prop, and the listener takes over once hydrated. Seed a `ref` from `values` and `v-model` it: binding `values` straight to `:value` makes the field controlled, so the re-render that shows an error would wipe what the user typed. Angular is the last Phase 2 binding; its pages use `getActionState` with `enhanceForms` in the meantime.",
 					"kind": "added",
 					"summary": "Vue pages get a useFormAction composable"
