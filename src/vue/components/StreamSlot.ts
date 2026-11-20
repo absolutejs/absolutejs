@@ -7,6 +7,11 @@ import {
 
 type StreamSlotProps = {
 	className?: string;
+	/** Stream this slot on every request even when the page is
+	 *  pre-rendered (partial prerendering): the cached shell keeps the
+	 *  fallback. Set it on anything that reads the request or must be
+	 *  fresh. */
+	dynamic?: boolean;
 	errorHtml?: string;
 	fallbackHtml: string;
 	id: string;
@@ -18,6 +23,7 @@ export const StreamSlot = defineComponent({
 	name: 'AbsoluteStreamSlot',
 	props: {
 		className: { default: undefined, type: String },
+		dynamic: { default: undefined, type: Boolean },
 		errorHtml: { default: undefined, type: String },
 		fallbackHtml: { default: '', type: String },
 		id: { required: true, type: String },
@@ -50,6 +56,7 @@ const registerStreamSlotForSsr = (props: StreamSlotProps) => {
 	}
 
 	registerStreamingSlot({
+		dynamic: props.dynamic,
 		errorHtml: props.errorHtml,
 		fallbackHtml: props.fallbackHtml,
 		id: props.id,

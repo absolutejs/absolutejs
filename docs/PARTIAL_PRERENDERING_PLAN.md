@@ -202,8 +202,8 @@ still CPU. Phase 2 can cut it:
 | --- | --- | --- |
 | React | `StreamSlot`/`SuspenseSlot` `dynamic` | 1 (done) |
 | Svelte | `StreamSlot`/`AwaitSlot` `dynamic`, `<!-- absolute:stream dynamic -->` | 1 (done) |
-| Vue | `StreamSlot`/`SuspenseSlot` `dynamic` | 2 |
-| Angular | `StreamSlot`/`DeferSlot` `dynamic`, `@defer` lowering with a `dynamic` marker | 2 |
+| Vue | `StreamSlot`/`SuspenseSlot` `dynamic` | 2 ✅ |
+| Angular | `StreamSlot`/`DeferSlot` `dynamic` ✅; `@defer` lowering with a `dynamic` marker, still 2 |
 | HTML | islands only; a dynamic island is Phase 4 | 4 |
 | HTMX | deferred fragment fetch (below) | 3 |
 
