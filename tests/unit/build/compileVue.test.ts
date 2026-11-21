@@ -290,7 +290,7 @@ defineProps<PageProps>();
 				: '';
 
 			expect(indexContent).toContain(
-				'const shouldHydrate = typeof window === "undefined" ? false : !(isHMR || isSsrDirty || hasSpaRoutes || isClientRender);'
+				'const shouldHydrate = typeof window === "undefined" ? false : !(isHMR || isSsrDirty || isClientRender);'
 			);
 			expect(indexContent).toContain(
 				'import { prepareBrowserTranslationHydration } from "@absolutejs/absolute/vue";'
@@ -312,7 +312,7 @@ defineProps<PageProps>();
 		}
 	});
 
-	test('fresh-mounts routed SPA pages instead of hydrating SSR shell', async () => {
+	test('hydrates routed SPA pages rather than fresh-mounting them', async () => {
 		const root = await mkdtemp(join(tmpdir(), 'absolutejs-compile-vue-'));
 		const pagePath = join(root, 'Portal.vue');
 
@@ -351,12 +351,18 @@ export const routes = defineRoutes([
 				? await Bun.file(indexPath).text()
 				: '';
 
+			/* Routed pages HYDRATE the server's markup; they used to
+			 * fresh-mount, which is why the handler shipped an empty
+			 * `#root` for them — the mount discarded the markup, so
+			 * rendering it wasted a render and fired every CSS entrance
+			 * animation twice. Both halves changed together (parity item
+			 * 3.8), so `hasSpaRoutes` is no longer part of the decision
+			 * and `createApp` is reserved for HMR, an SSR-dirty document
+			 * and an explicitly client-rendered page. */
 			expect(indexContent).toContain(
-				'const hasSpaRoutes = Array.isArray(Reflect.get(PageModule, "routes"));'
+				'const shouldHydrate = typeof window === "undefined" ? false : !(isHMR || isSsrDirty || isClientRender);'
 			);
-			expect(indexContent).toContain(
-				'const shouldHydrate = typeof window === "undefined" ? false : !(isHMR || isSsrDirty || hasSpaRoutes || isClientRender);'
-			);
+			expect(indexContent).not.toContain('|| hasSpaRoutes');
 		} finally {
 			await rm(root, { force: true, recursive: true });
 		}

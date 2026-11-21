@@ -1035,7 +1035,16 @@ export const compileVue = async (
 					'const isHMR = typeof window !== "undefined" && sessionStorage.getItem("__HMR_ACTIVE__");',
 					'const isSsrDirty = typeof window !== "undefined" && window.__SSR_DIRTY__;',
 					'const isClientRender = typeof window !== "undefined" && window.__ABSOLUTE_PAGE_RENDER_MODE__ === "client";',
-					'const shouldHydrate = typeof window === "undefined" ? false : !(isHMR || isSsrDirty || hasSpaRoutes || isClientRender);',
+					/* `hasSpaRoutes` used to force a fresh mount here, and
+					 * the server skipped rendering a routed page's body
+					 * BECAUSE of that — the two were interlocked, and the
+					 * stated cost of SSR-ing one (a wasted render, and
+					 * every CSS entrance animation firing twice) followed
+					 * from the fresh mount discarding the markup, not from
+					 * the render itself. Hydrating instead reuses the
+					 * server's markup, so the animation fires once and the
+					 * render is not wasted. */
+					'const shouldHydrate = typeof window === "undefined" ? false : !(isHMR || isSsrDirty || isClientRender);',
 					'const app = shouldHydrate ? createSSRApp(Comp, mergedProps) : createApp(Comp, mergedProps);',
 					'',
 					'async function bootstrapApp() {',
