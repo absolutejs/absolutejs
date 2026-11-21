@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "A Vue page exporting `routes` shipped an empty `#root`: no content for a crawler, no first paint before JavaScript, and nothing for a soft navigation to swap in. It is now server-rendered at the matched route and hydrated on the client. This was the largest single gap against Nuxt in the parity plan (item 3.8), and it was a deliberate decision rather than an oversight — the generated client index booted a routed page with `createApp`, a fresh mount that discards server markup, so rendering the body would have wasted a render and fired every CSS entrance animation twice. That reasoning described the client's mount strategy rather than a property of routed pages, and the two were interlocked: the index hydrates now, so the markup is reused, the animation fires once and nothing is thrown away. The server side needed no new code at all, because the auto-synthesised `setupApp` already built the router with a memory history, pushed the request URL and awaited `router.isReady()` before the render — it had to, for redirects and not-found handling to work — so the matched route was always ready and simply was not rendered. A browser test holds the whole claim: the matched route is in the server HTML, a different URL renders a different route, the element the parser created is still the one in the document after hydration, the page is interactive, no hydration mismatch is logged, and client-side routing still works.",
+					"kind": "fixed",
+					"summary": "A Vue page exporting routes is server-rendered and hydrated"
+				}
+			],
+			"date": "2026-11-21",
+			"version": "0.20.0-beta.244"
+		},
+		{
+			"changes": [
+				{
 					"detail": "An island registry may name a component of any framework, but the build only compiles a framework's island sources when that framework's pages directory is configured. Without it the island entry had no compiled client path, so `islandEntries` fell back to emitting the registry definition — whose component is null, because the real component was never bundled. The build succeeded and the island was dead on arrival, keeping its server markup forever. The build now fails instead, listing each framework, the component sources that cannot compile and the config key to set. What it checks is the config key, not where the island's files live: island components usually sit beside the registry rather than in a pages directory, and that stays supported. Found while testing islands on static pages, and it had been shipping unnoticed — the existing test for static-page islands declares a React island with no reactDirectory, so every build it ever ran produced a dead island, and it passed because it only asserts the bootstrap script tag is in the HTML. That fixture is corrected here. Making islands compile with no pages directory at all is the better answer and is deliberately not this change: it needs a compile root for sources outside any framework directory plus that framework's vendor bundle, which is gated on the same directory, and an island compiled without a vendor trips the build's un-vendored-import guard.",
 					"kind": "fixed",
 					"summary": "The build refuses an island whose framework directory is not configured"
