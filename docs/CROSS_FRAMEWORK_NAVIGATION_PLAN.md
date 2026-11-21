@@ -415,11 +415,36 @@ help; neither did moving the page's `enableNavigation` import to a lazy
 not known — only that going through the package entry in a real app does
 not.
 
-Still open for a complete Angular row: `absLink`, the prefetching link
-directive (parity item 2.8), does not exist, so an Angular page has only
-a plain anchor — and `routerLink` hand-off, which is what the phase's
-wording is really about, needs a fixture page that installs the Angular
-router with `provideRouter`.
+`absLink`, the prefetching link directive (parity item 2.8, and the API
+the roadmap already specified), shipped in 0.20.0-beta.241:
+
+```html
+<a absLink href="/pricing">Pricing</a>
+<a absLink prefetch="hover" href="/docs">Docs</a>
+```
+
+It never calls `preventDefault`. `routerLink` is Angular's way to
+navigate inside an Angular router, and a directive competing for clicks
+would fight it — this one warms the cache and lets the click go wherever
+it should, the navigation layer or the browser. Its prefetch kinds match
+what `usePrefetch` gives the other frameworks: a deliberate signal
+(hover, focus, pointerdown) takes `'route'`, the document plus the
+payload naming the modules and CSS to warm with it, and scrolling into
+view takes `'document'`.
+
+It reaches the prefetch runtime through `src/utils/prefetchRef.ts`, an
+import-free indirection on a `Symbol.for` key that `src/client/prefetch.ts`
+registers itself with as it loads. A component in
+`src/angular/components` cannot import the real module: the partial
+compile copies that directory alone into a flat workspace, and an import
+climbing out of it makes the step emit **nothing**, publishing every
+Angular component empty while the build reports success. The same
+treatment `csrfTokenRef` gets — rewrite, copy, and its own `Bun.build`
+entrypoint because the tsc pass skips subdirectory emits.
+
+Still open for a complete Angular row: `routerLink` hand-off, which is
+what the phase's wording is really about, needs a fixture page that
+installs the Angular router with `provideRouter`.
 
 ## 4f. Where the matrix actually stands
 
@@ -456,8 +481,8 @@ should not be read as done:
   heap snapshot.
 
 Phase 3 still needs, for a complete 5×5: Svelte ↔ Vue ↔ Angular ↔ HTMX
-pairs that do not go through React, `absLink` (parity item 2.8), and
-`routerLink` hand-off from a page that installs the Angular router.
+pairs that do not go through React, and `routerLink` hand-off from a page
+that installs the Angular router.
 
 ## 5. Known limitations (phase 1)
 

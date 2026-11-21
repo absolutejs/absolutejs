@@ -1086,6 +1086,10 @@ const compileAngularComponentsPartial = async () => {
 					'from $1./utils/csrfTokenRef$1'
 				);
 				content = content.replace(
+					/from\s+(['"])\.\.\/\.\.\/utils\/prefetchRef['"]/g,
+					'from $1./utils/prefetchRef$1'
+				);
+				content = content.replace(
 					/from\s+(['"])\.\.\/\.\.\/core\/streamingSlotRegistrar['"]/g,
 					'from $1./core/streamingSlotRegistrar$1'
 				);
@@ -1124,6 +1128,10 @@ const compileAngularComponentsPartial = async () => {
 		await cp(
 			join('src', 'utils', 'csrfTokenRef.ts'),
 			join(srcDir, 'utils', 'csrfTokenRef.ts')
+		);
+		await cp(
+			join('src', 'utils', 'prefetchRef.ts'),
+			join(srcDir, 'utils', 'prefetchRef.ts')
 		);
 		await cp(
 			join('src', 'client', 'streamSwap.ts'),
@@ -1261,7 +1269,10 @@ const compileAngularComponentsPartial = async () => {
 		// browser, because these ship inside the client.
 		await Bun.build({
 			define: RUNTIME_NODE_ENV_DEFINE,
-			entrypoints: [resolve(srcDir, 'utils', 'csrfTokenRef.ts')],
+			entrypoints: [
+				resolve(srcDir, 'utils', 'csrfTokenRef.ts'),
+				resolve(srcDir, 'utils', 'prefetchRef.ts')
+			],
 			format: 'esm',
 			minify: false,
 			outdir: resolve(finalDir, 'utils'),
