@@ -274,6 +274,14 @@
 			"import": "./dist/svelte/router/index.ts",
 			"types": "./dist/src/svelte/router/index.d.ts"
 		},
+		"./svelte/router/LazyPage.js": {
+			"import": "./dist/svelte/router/LazyPage.svelte",
+			"types": "./dist/svelte/router/LazyPage.svelte.d.ts"
+		},
+		"./svelte/router/LazyPage.svelte": {
+			"import": "./dist/svelte/router/LazyPage.svelte",
+			"types": "./dist/svelte/router/LazyPage.svelte.d.ts"
+		},
 		"./svelte/router/Link.js": {
 			"import": "./dist/svelte/router/Link.svelte",
 			"types": "./dist/svelte/router/Link.svelte.d.ts"

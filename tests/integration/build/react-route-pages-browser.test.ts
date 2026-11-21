@@ -24,6 +24,7 @@ import { useState } from 'react';
 import { Route, Routes } from 'react-router';
 import { Account } from '../components/Account';
 import { Billing } from '../components/Billing';
+import { Frame } from '../components/Frame';
 
 const Nav = () => {
 	const [clicks, setClicks] = useState(0);
@@ -51,7 +52,14 @@ export function LazyShell({ url }: { url?: string }) {
 					<main>
 						<Routes>
 							<Route element={<Billing />} path="/billing" />
-							<Route element={<Account />} path="/account" />
+							<Route
+								element={
+									<Frame title="Account">
+										<Account />
+									</Frame>
+								}
+								path="/account"
+							/>
 						</Routes>
 					</main>
 				</UniversalRouter>
@@ -94,6 +102,16 @@ beforeAll(async () => {
 	await writeFile(join(fixtureRoot, 'react', 'pages', 'LazyShell.tsx'), SHELL);
 	await writeFile(join(fixtureRoot, 'react', 'components', 'Billing.tsx'), page('Billing', 'billing'));
 	await writeFile(join(fixtureRoot, 'react', 'components', 'Account.tsx'), page('Account', 'account'));
+	// A page frame wrapping a route's page: it stays in the entry.
+	await writeFile(
+		join(fixtureRoot, 'react', 'components', 'Frame.tsx'),
+		`import type { ReactNode } from 'react';
+
+export function Frame({ children, title }: { children: ReactNode; title: string }) {
+	return <div data-frame={title}>{children}</div>;
+}
+`
+	);
 	const rel = (path: string) => relative(process.cwd(), join(fixtureRoot, path));
 	const result = await build({
 		buildDirectory: rel('build'),
@@ -195,8 +213,12 @@ describe('React router pages load when first shown, with nothing to write', () =
 			);
 
 			// To another page, client-side, then back: Billing is not fetched again.
+			// Account sits inside a page frame: the frame is in the entry, the
+			// page is fetched when its route is first shown.
+			const fetchedBeforeAccount = servedChunks.length;
 			await tab.click('#to-account');
-			await tab.waitForSelector('section[data-page="account"]', { timeout: 10_000 });
+			await tab.waitForSelector('[data-frame="Account"] section[data-page="account"]', { timeout: 10_000 });
+			expect(servedChunks.length).toBe(fetchedBeforeAccount + 1);
 			const fetchedBefore = servedChunks.length;
 			await tab.click('#to-billing');
 			await tab.waitForSelector('section[data-page="billing"]', { timeout: 2_000 });

@@ -52,20 +52,33 @@ describe('Svelte router pages load lazily', () => {
 		expect(compiles(out)).toBe(true);
 	});
 
-	test('a prop computed from the params stays as written', () => {
-		const source = page(`	<Route path="/editor/:id">
+	test('a prop computed from the params keeps the snippet; the page loads lazily inside it', () => {
+		const out =
+			lower(
+				page(`	<Route path="/editor/:id">
 		{#snippet content(params)}<Editor id={Number(params.id)} />{/snippet}
-	</Route>`);
+	</Route>`)
+			) ?? '';
 
-		expect(lower(source)).toBeNull();
+		expect(out).toContain(
+			'{#snippet content(params)}<AbsoluteRoutePage id='
+		);
+		expect(out).toContain('props={{ id: Number(params.id) }}');
+		expect(compiles(out)).toBe(true);
 	});
 
-	test('a snippet holding more than the page stays as written', () => {
-		const source = page(`	<Route path="/">
+	test('markup beside the page stays; the page loads lazily in place', () => {
+		const out =
+			lower(
+				page(`	<Route path="/">
 		{#snippet content()}<h1>Hi</h1><Home />{/snippet}
-	</Route>`);
+	</Route>`)
+			) ?? '';
 
-		expect(lower(source)).toBeNull();
+		expect(out).toContain(
+			'{#snippet content()}<h1>Hi</h1><AbsoluteRoutePage id='
+		);
+		expect(compiles(out)).toBe(true);
 	});
 
 	test('a page the file also uses elsewhere stays eager', () => {
@@ -115,6 +128,29 @@ describe('Svelte router pages load lazily', () => {
 				)
 			)
 		).toBeNull();
+	});
+
+	test('a page inside a wrapper becomes a LazyPage; the wrapper stays', () => {
+		const out =
+			lower(
+				page(
+					`	<Route path="/editor/:id">
+		{#snippet content(params)}<Frame title="Edit"><Editor id={params.id} /></Frame>{/snippet}
+	</Route>`,
+					`\n\timport Frame from './Frame.svelte';`
+				)
+			) ?? '';
+
+		expect(out).toContain('<Frame title="Edit"><AbsoluteRoutePage id=');
+		expect(out).toContain(
+			`loader={() => import("./Editor.svelte")} props={{ id: params.id }} />`
+		);
+		expect(out).toContain(
+			`import AbsoluteRoutePage from "@absolutejs/absolute/svelte/router/LazyPage.svelte";`
+		);
+		expect(out).not.toContain(`import Editor from './Editor.svelte';`);
+		expect(out).toContain(`import Frame from './Frame.svelte';`);
+		expect(compiles(out)).toBe(true);
 	});
 
 	test('a file with no router is left alone', () => {
