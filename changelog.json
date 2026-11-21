@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "Adding an `error` convention turned streaming off for React pages. The handler buffered the whole document whenever an error convention existed for the page or anywhere in the app, so a page that streamed its shell in milliseconds began arriving only once its slowest Suspense boundary had resolved — measured at 603ms to first byte against 11ms for the same page without the convention. Nothing announced it: adding `error.tsx` looks unrelated to streaming, and the only symptom is a page that got slower. The buffering existed so the handler could answer a failed render with the convention's error page instead of half a document, and it was not needed for that: the only error that can be answered with an error page is one in the shell, and `renderToReadableStream` rejects for those before a byte is written, so the handler's catch still gets it. An error after the shell is React's to report through a boundary either way, since the status and the opening markup are already committed. React pages now stream whether or not an error convention exists, and a shell error still answers with the convention's page.",
+					"kind": "fixed",
+					"summary": "An `error` convention no longer turns off streaming for React pages"
+				}
+			],
+			"date": "2026-11-21",
+			"version": "0.20.0-beta.260"
+		},
+		{
+			"changes": [
+				{
 					"detail": "An island whose element leaves the document while it is still mounting is now unmounted immediately instead of being registered as a live island. An Angular page removes the server's markup after rendering its own, so the islands runtime's scan finds both copies and starts hydrating the server's one a moment before it is detached: that instance stayed alive on nodes nobody could see, with its effects, timers and subscriptions running, until the next navigation pruned it — two disposers for one element, on every load of every Angular page with an island. The fix is one guard in the disposer registry and is not Angular-specific: any host framework that re-creates the markup an island sits in can detach it mid-hydration. It also removes the wasted work rather than only the leak, because a framework that flushes mount effects asynchronously never finishes mounting an instance that is unmounted in the same turn.",
 					"kind": "fixed",
 					"summary": "An island hydrated into markup that was already discarded is unmounted instead of leaking"
