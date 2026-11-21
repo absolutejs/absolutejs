@@ -180,10 +180,23 @@ export const generateReactIndexFiles = async (
 			: [
 					`import { hydrateRoot, createRoot } from 'react-dom/client';`,
 					`import { flushSync } from 'react-dom';`,
-					`import { createElement } from 'react';`,
+					`import { createElement, Component } from 'react';`,
 					`import { prepareBrowserTranslationHydration } from '@absolutejs/absolute/client';`
 				];
 
+		/* The boundary used to be development-only, and a production page
+		 * with a render error was left EMPTY: the error reaches the root,
+		 * React unmounts it, and the visitor's page becomes a blank
+		 * document with the error in the console. Measured — the heading
+		 * the visitor was reading, and every other element, gone.
+		 *
+		 * Development keeps its behaviour exactly (the overlay, and `null`
+		 * so the overlay is all there is). Production renders a plain
+		 * fallback in place of the page: it says what happened and offers a
+		 * reload, which is the minimum a visitor can act on. An app's own
+		 * `error` convention is not wired into this yet — that needs the
+		 * convention compiled into the client bundle, and is the follow-up
+		 * recorded in the parity plan. */
 		const errorBoundaryDef = isDev
 			? [
 					`\n// Dev-only Error Boundary to catch React render errors`,
@@ -218,7 +231,44 @@ export const generateReactIndexFiles = async (
 					`\t}`,
 					`}\n`
 				]
-			: [];
+			: [
+					`\n// Error Boundary: a render error must not empty the page.`,
+					`class ErrorBoundary extends Component {`,
+					`	constructor(props) {`,
+					`		super(props);`,
+					`		this.state = { hasError: false };`,
+					`		window.__ERROR_BOUNDARY__ = this;`,
+					`	}`,
+					`	static getDerivedStateFromError() {`,
+					`		return { hasError: true };`,
+					`	}`,
+					`	componentDidCatch(error) {`,
+					`		console.error('[absolute] a render error replaced this page:', error);`,
+					`	}`,
+					`	reset() {`,
+					`		this.setState({ hasError: false });`,
+					`	}`,
+					`	render() {`,
+					`		if (!this.state.hasError) return this.props.children;`,
+					``,
+					`		return createElement(`,
+					`			'div',`,
+					`			{ 'data-absolute-error': 'react', role: 'alert' },`,
+					`			createElement('h1', null, 'Something went wrong'),`,
+					`			createElement(`,
+					`				'p',`,
+					`				null,`,
+					`				'This page stopped working. Reloading may fix it.'`,
+					`			),`,
+					`			createElement(`,
+					`				'button',`,
+					`				{ onClick: () => window.location.reload(), type: 'button' },`,
+					`				'Reload'`,
+					`			)`,
+					`		);`,
+					`	}`,
+					`}\n`
+				];
 
 		const indexSource = [
 			...hmrPreamble,
@@ -312,7 +362,7 @@ export const generateReactIndexFiles = async (
 			`\t\t}\n`,
 			`\t\t// Render into the same root container when falling back to client-only`,
 			`\t\tconst root = createRoot(container);`,
-			`\t\troot.render(${isDev ? `createElement(ErrorBoundary, null, createElement(PageComponent, mergedProps))` : `createElement(PageComponent, mergedProps)`});`,
+			`\t\troot.render(createElement(ErrorBoundary, null, createElement(PageComponent, mergedProps)));`,
 			`\t\twindow.__REACT_ROOT__ = root;`,
 			`\t\twindow.__HMR_CLIENT_ONLY_MODE__ = true;`,
 			`\t} catch (fallbackError) {`,
@@ -371,7 +421,7 @@ export const generateReactIndexFiles = async (
 			`\t// Mobile data envelopes and dirty HMR pages have no matching SSR markup.`,
 			`\tif (window.__SSR_DIRTY__ || shouldClientRender) {`,
 			`\t\troot = createRoot(container);`,
-			`\t\troot.render(${isDev ? `createElement(ErrorBoundary, null, createElement(PageComponent, mergedProps))` : `createElement(PageComponent, mergedProps)`});`,
+			`\t\troot.render(createElement(ErrorBoundary, null, createElement(PageComponent, mergedProps)));`,
 			`\t\twindow.__REACT_ROOT__ = root;`,
 			`\t} else {`,
 			`\tconst restoreTranslation = prepareBrowserTranslationHydration(container);`,
@@ -380,7 +430,7 @@ export const generateReactIndexFiles = async (
 			`\t\tconst startHydration = () => {`,
 			`\t\troot = hydrateRoot(`,
 			`\t\t\tcontainer,`,
-			`\t\t\t${isDev ? `createElement(ErrorBoundary, null, createElement(PageComponent, mergedProps))` : `createElement(PageComponent, mergedProps)`},`,
+			`\t\t\tcreateElement(ErrorBoundary, null, createElement(PageComponent, mergedProps)),`,
 			`\t\t\t{`,
 			`\t\t\t\tonRecoverableError: (error) => {`,
 			`\t\t\t\t\t// Check if this is a hydration error (isHydrationError filters out whitespace-only head mismatches)`,
