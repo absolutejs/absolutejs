@@ -833,14 +833,55 @@ that renders no island with the key: the island is destroyed and the
 disposer registry empties, because persisting everything always is the
 wrong implementation that would otherwise pass.
 
-**Still open**: a Vue or Angular page as the DESTINATION of a persisted
-island is untested, and those are exactly the two frameworks whose island
-mechanisms have not been read for the constraint that bit Svelte — a page
-render that re-creates the island's markup. The `persist` attribute flows
-through the shared marker, so the island itself may be any framework's;
-what is unverified is whether a Vue or Angular page's hydration leaves a
-moved island where it is. Layout-route conventions emitting `persist`
-automatically (step 5) are also still open.
+### A Vue page cannot be the destination yet (measured, 0.20.0-beta.254)
+
+A **Vue page as the destination** of a persisted island does not work, and
+the mechanism is not the one Svelte had. The timeline, taken in the
+browser with the live element held in a variable across the navigation:
+
+```
+t+50:   connected=true   vue=undefined  mounts=1   <- moved correctly
+t+150:  connected=false  vue=true       mounts=2   <- Vue hydrated
+```
+
+The layer does its job; Vue's hydration then undoes it. **Vue removes DOM
+children that its vnode does not have**, where Svelte leaves them, so
+whatever is in an island host when a Vue page hydrates is deleted, and
+Vue's island component fills the host again from its snapshot
+(`client/preserveIslandMarkup.ts`) — a new instance, the moved one gone
+with the element it was mounted into.
+
+Two things were tried and did not work, and both are recorded because they
+look like the obvious fixes:
+
+- **Rendering the host with no children** (the shape that fixed Svelte) and
+  filling it in `onMounted` only when empty. Vue deletes the server's
+  children first, so the host is always empty by then: the island is
+  rebuilt on every load instead of hydrated, and a moved island is still
+  lost. Vue's existing snapshot path exists precisely because of this.
+- **`data-allow-mismatch` on every island host.** Vue's own hosts carry
+  it, which made it the obvious suspect for why their markup survives;
+  adding it to the shared marker changed nothing.
+
+What is left is a design decision rather than a tweak, and it is the one
+4i's constraint 2 named: a persisted island on a Vue page has to live
+somewhere Vue's hydration does not own. Either the island host is rendered
+outside the Vue app's root and positioned into place, or Vue renders a
+placeholder and the host is attached to it after hydration (a Teleport
+target is the idiomatic version of the same idea). Both are bigger than
+this feature's first version, and both want measuring before being
+written.
+
+**Angular as a destination is unmeasured.** It needs the spawned-app
+harness of 4e, and the shape of its island host rendering has not been
+read for this constraint.
+
+What a Vue page does do correctly, and is now covered: it hydrates **its
+own** island exactly once, one disposer, nothing orphaned — the fault
+beta.252 fixed for Svelte pages does not exist there.
+
+Layout-route conventions emitting `persist` automatically (step 5) are
+also still open.
 
 ### Order of work for phase 5
 

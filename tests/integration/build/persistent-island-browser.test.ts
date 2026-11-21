@@ -9,6 +9,7 @@ import { setCurrentIslandManifest } from '../../../src/core/islandPageContext';
 import { loadIslandRegistry } from '../../../src/core/loadIslandRegistry';
 import { handleReactPageRequest } from '../../../src/react/pageHandler';
 import { handleSveltePageRequest } from '../../../src/svelte/pageHandler';
+import { handleVuePageRequest } from '../../../src/vue/pageHandler';
 import { openPage, type BrowserSession } from '../../helpers/browser';
 import { ensureDistBuild } from '../../helpers/ensureDistBuild';
 
@@ -103,6 +104,7 @@ export function PersistReact() {
 						props={{}}
 					/>
 					<a href="/svelte" id="to-svelte">svelte</a>
+					<a href="/vue" id="to-vue">vue</a>
 					<a href="/plain" id="to-plain">plain</a>
 				</div>
 			</body>
@@ -139,6 +141,36 @@ const SVELTE_PAGE = `<script lang="ts">
 	/>
 	<a href="/react" id="to-react">react</a>
 </div>
+`;
+
+/* A VUE page rendering the same persisted island. Vue has its own island
+ * preservation path (`src/client/preserveIslandMarkup.ts`, plus
+ * `data-allow-mismatch`), which is not the one Svelte needed, so whether a
+ * moved island survives a Vue page's hydration is a separate question from
+ * whether it survives Svelte's. */
+const VUE_PAGE = `<script setup lang="ts">
+import { onMounted } from 'vue';
+import { enableNavigation } from '@absolutejs/absolute/client/navigation';
+import { Island } from '@absolutejs/absolute/vue';
+
+onMounted(() => {
+	enableNavigation();
+	(window as unknown as Record<string, unknown>).__vueHydrated = true;
+});
+</script>
+
+<template>
+	<div id="vue-page" data-hydrated="true">
+		<Island
+			component="Shell"
+			framework="svelte"
+			hydrate="load"
+			persist="shell"
+			:props="{}"
+		/>
+		<a href="/react" id="to-react">react</a>
+	</div>
+</template>
 `;
 
 /* The control: a page that renders no island with that key. */
@@ -197,6 +229,13 @@ const createApp = (
 				props: {},
 				request
 			});
+		if (pathname === '/vue')
+			return handleVuePageRequest({
+				indexPath: manifest.PersistVueIndex ?? '',
+				pagePath: manifest.PersistVue ?? '',
+				props: {},
+				request
+			});
 		if (pathname === '/plain')
 			return handleSveltePageRequest({
 				indexPath: manifest.PersistPlainIndex ?? '',
@@ -237,6 +276,11 @@ beforeAll(async () => {
 		join(fixtureRoot, 'svelte', 'pages', 'PersistPlain.svelte'),
 		PLAIN_PAGE
 	);
+	await mkdir(join(fixtureRoot, 'vue', 'pages'), { recursive: true });
+	await writeFile(
+		join(fixtureRoot, 'vue', 'pages', 'PersistVue.vue'),
+		VUE_PAGE
+	);
 	const rel = (path: string) =>
 		relative(process.cwd(), join(fixtureRoot, path));
 	const result = await build({
@@ -245,7 +289,8 @@ beforeAll(async () => {
 		mode: 'production',
 		options: { throwOnError: true },
 		reactDirectory: rel('react'),
-		svelteDirectory: rel('svelte')
+		svelteDirectory: rel('svelte'),
+		vueDirectory: rel('vue')
 	});
 	const pageModule: unknown = await import(
 		join(fixtureRoot, 'react', 'pages', 'PersistReact.tsx')
@@ -455,6 +500,46 @@ describe('a page that renders no island with that key', () => {
 				})
 			).toBeLessThanOrEqual(0);
 			expect(seen.documentLoads).toEqual([]);
+			expect(seen.errors).toEqual([]);
+		});
+	}, 300_000);
+});
+
+/* A Vue page as the DESTINATION of a persisted island does not work yet,
+ * and deliberately has no test here: a test for broken behaviour would
+ * lock it in. Vue removes DOM children its vnode does not have, so its
+ * hydration deletes the moved island and its own `onMounted` fills the
+ * host again — the instance is replaced at t+150ms, having been correctly
+ * moved at t+50ms. The evidence and the two ways out are in
+ * docs/CROSS_FRAMEWORK_NAVIGATION_PLAN.md (4i). What a Vue page DOES do
+ * correctly is hydrate its own island exactly once, which is worth
+ * holding on to. */
+describe('a Vue page entered cold', () => {
+	test('entered cold, hydrates its own island exactly once', async () => {
+		/* The Svelte equivalent of this read 2 mounts and 2 disposers before
+		 * beta.252 — an orphaned instance on every load. Whether Vue's
+		 * preservation path has the same fault is its own measurement. */
+		await openAt('/vue', async (page, seen) => {
+			await page.waitForFunction(
+				() => Reflect.get(window, '__vueHydrated') === true,
+				undefined,
+				{ timeout: 20_000 }
+			);
+			await page.waitForTimeout(1500);
+
+			expect(await mounts(page)).toBe(1);
+			expect(await page.locator('[data-island]').count()).toBe(1);
+			expect(
+				await page.evaluate(() => {
+					const store = Reflect.get(
+						globalThis,
+						Symbol.for('absolute.islandDisposers')
+					);
+
+					return store instanceof Set ? store.size : -1;
+				})
+			).toBe(1);
+			expect(await destroyed(page)).toBeUndefined();
 			expect(seen.errors).toEqual([]);
 		});
 	}, 300_000);
