@@ -54,6 +54,10 @@ import {
 	findBootstrapOutputPath,
 	writeDefaultIslandBootstrap
 } from '../build/islandBootstrap';
+import {
+	findIslandFrameworkDirectoryProblems,
+	islandFrameworkDirectoryMessage
+} from '../build/islandFrameworkDirectories';
 import { copyClientRuntimeChunks } from '../build/islandRuntimeChunks';
 import {
 	createClientProcessEnvPlugin,
@@ -1876,6 +1880,27 @@ const buildUnlocked = async ({
 	const shouldCompileIslandVue = vueDir && islandVueSources.length > 0;
 	const shouldCompileIslandAngular =
 		angularDir && islandAngularSources.length > 0;
+	/* Each of those gates needs the framework's PAGES directory, while
+	 * island sources come from the registry and need no such directory.
+	 * An island of a framework with no directory configured therefore
+	 * never compiles, and `islandEntries` falls back to emitting the
+	 * registry definition — whose component is null. The build succeeded
+	 * and the island was dead. Fail instead, naming the key to set; see
+	 * build/islandFrameworkDirectories.ts for why making it compile is a
+	 * follow-up rather than a line here. */
+	const islandDirectoryProblems = findIslandFrameworkDirectoryProblems({
+		configured: {
+			angular: Boolean(angularDir),
+			react: Boolean(reactDir),
+			svelte: Boolean(svelteDir),
+			vue: Boolean(vueDir)
+		},
+		sources: islandFrameworkSources
+	});
+	if (islandDirectoryProblems.length > 0)
+		throw new Error(
+			islandFrameworkDirectoryMessage(islandDirectoryProblems)
+		);
 
 	// Scan backend code for `handleAngularPageRequest({...})` calls and
 	// emit per-page providers files + a shared route-mounts map under

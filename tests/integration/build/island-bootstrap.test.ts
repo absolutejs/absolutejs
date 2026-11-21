@@ -37,6 +37,16 @@ const createFixture = async () => {
 	await mkdir(join(root, 'html', 'pages'), { recursive: true });
 	await mkdir(join(root, 'htmx', 'pages'), { recursive: true });
 	await mkdir(join(root, 'islands'), { recursive: true });
+	/* The island below is a React one, so `reactDirectory` has to be
+	 * configured for the build to compile it. Without it the build used
+	 * to succeed and emit an island definition with a null component — a
+	 * dead island — which is what this fixture was unknowingly building,
+	 * and what `findIslandFrameworkDirectoryProblems` now refuses. */
+	await mkdir(join(root, 'react', 'pages'), { recursive: true });
+	await writeFile(
+		join(root, 'react', 'pages', 'Placeholder.tsx'),
+		`export const Placeholder = () => <p>placeholder</p>;\n`
+	);
 	await writeFile(join(root, 'html', 'pages', 'prices.html'), page('html'));
 	await writeFile(join(root, 'htmx', 'pages', 'feed.html'), page('htmx'));
 	await writeFile(
@@ -71,6 +81,7 @@ const buildFixture = async (root: string, bootstrap?: string) => {
 		buildDirectory: rel('build'),
 		htmlDirectory: rel('html'),
 		htmxDirectory: rel('htmx'),
+		reactDirectory: rel('react'),
 		islands: {
 			bootstrap: bootstrap && rel(bootstrap),
 			registry: rel('islands/registry.ts')
