@@ -12,6 +12,11 @@ export {
 	AbsoluteLinkDirective,
 	type AbsoluteLinkPrefetchMode
 } from './link.directive';
+export {
+	absoluteRouterHandoff,
+	resolveRouterHandoff,
+	ROUTER_HANDOFF_KEY
+} from './router-handoff';
 export { ABSOLUTE_I18N, type AngularI18n } from './i18n.token';
 export { TPipe } from './t.pipe';
 export { StreamSlotComponent } from './stream-slot.component';
