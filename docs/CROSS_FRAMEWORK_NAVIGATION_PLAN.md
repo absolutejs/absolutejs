@@ -231,7 +231,7 @@ every navigation.
 | Phase | Scope | Exit criteria |
 | --- | --- | --- |
 | 1 (done) | Layer + React ↔ Svelte via `<Link>`, styles, island store, back/forward + scroll, history fallback, CSP | Playwright (prod build): React→Svelte→React with no document request; target hydrates and is interactive; stylesheets swapped, Svelte scoped CSS applied; store value carried both ways; back/forward and scroll restore; same with the Navigation API removed; zero CSP violations under `secureHeaders()`; opt-out link does a full load. Packed-tarball e2e in prod and dev. |
-| 2 | Teardown completeness | ~~Island dispose registry (islands unmounted with the old body)~~ **done, 0.20.0-beta.234**; ~~`__ABSOLUTE_PAGE_DISPOSE__` for HTML/HTMX pages (no-op) so they can participate~~ **done, 0.20.0-beta.235**; ~~prefetch cache on `globalThis` so a Svelte `<Link>` hover warms the React-installed layer~~ **done, 0.20.0-beta.236**; dev HMR follows the swapped page (`__HMR_FRAMEWORK__`, per-page manifest); a framework-supplied index boot function instead of `?absolute-nav=` re-imports. Exit: React ↔ Svelte ↔ HTML ↔ HTMX with islands, no leaked roots (heap snapshot), HMR edit after a soft navigation applies. |
+| 2 | Teardown completeness | ~~Island dispose registry (islands unmounted with the old body)~~ **done, 0.20.0-beta.234**; ~~`__ABSOLUTE_PAGE_DISPOSE__` for HTML/HTMX pages (no-op) so they can participate~~ **done, 0.20.0-beta.235**; ~~prefetch cache on `globalThis` so a Svelte `<Link>` hover warms the React-installed layer~~ **done, 0.20.0-beta.236**; ~~dev HMR follows the swapped page (`__HMR_FRAMEWORK__`, per-page manifest)~~ **verified, 0.20.0-beta.237 — it already did**; a framework-supplied index boot function instead of `?absolute-nav=` re-imports. Exit: React ↔ Svelte ↔ HTML ↔ HTMX with islands, no leaked roots (heap snapshot), HMR edit after a soft navigation applies. |
 | 3 | Vue + Angular | Vue `<Link>` / vue-router and Angular `routerLink` hand off unmatched URLs; Angular zone and platform teardown verified. Exit: the Phase 1 suite for every framework pair (5×5 matrix in Playwright, prod + dev). |
 | 4 | Navigation API interception | `navigate` event `intercept()` where supported (forms, `location.assign`, programmatic), click/popstate fallback elsewhere; `config.navigation: true` injects `enableNavigation()` into every hydration index. Exit: suite passes in Chromium (Navigation API) and WebKit/Firefox (fallback). |
 | 5 | Persistent layouts | `data-absolute-persist` (2.4) plus layout-route emission. Exit: a React navbar island keeps state (input value, open menu) across React → Svelte → Vue. |
@@ -346,11 +346,35 @@ prefetch, that consuming it empties the store for both, and that the
 in-flight budget is one budget. An import would have been deduplicated and
 tested nothing.
 
+## 4d. Dev HMR after a soft navigation (phase 2, verified)
+
+This one needed no change. `tests/integration/dev/soft-navigation-hmr-browser.test.ts`
+drives a React page, soft-navigates to a Svelte page and edits that page's
+source, and the update applies with zero document requests. Two things that
+were in doubt both hold:
+
+- `window.__HMR_FRAMEWORK__`, which the HMR client is keyed on, reads
+  `svelte` after the swap. The Svelte hydration index re-runs on swap-in
+  and sets it.
+- No second HMR client installs. The index delivers the client with
+  `import`, and the navigation layer skips module URLs it has already
+  evaluated. (Vue and Ember page handlers emit the client as an *inline*
+  `<script data-hmr-client>`, which a swap would re-execute, and there is
+  no double-install guard in the client. Not reached by this test; worth
+  covering when phase 3 adds those two frameworks.)
+
+**Why it was never verified before, and the trap to avoid.** The example
+app calls `enableNavigation()` nowhere, so no app in the repo did both
+soft navigation and HMR. Writing one is not quite free: `HARD_DENY_PATTERN`
+in `src/dev/pathUtils.ts` lists `.test-builds`, so the dev watcher ignores
+every change under the directory that every *build* integration test uses
+for its fixtures. A dev-HMR fixture there gets no rebuild, no WebSocket
+message and no log line — the test fails as a silent timeout. This
+fixture lives in `.hmr-temp/` instead, which is gitignored and not denied.
+
 ## 5. Known limitations (phase 1)
 
 - A revisited page's index module is downloaded again under a new query
   string (small; vendor chunks are not).
-- Dev mode: the HMR client keeps listening, but HMR after a soft
-  navigation is not verified (phase 2).
 - `history.state` gains an `__absoluteNavigation` key only in browsers
   without the Navigation API.
