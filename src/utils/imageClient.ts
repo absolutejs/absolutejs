@@ -60,7 +60,10 @@ export const generateSrcSet = (
 	src: string,
 	width: number | undefined,
 	sizes: string | undefined,
-	config?: Pick<ImageConfig, 'deviceSizes' | 'imageSizes' | 'path' | 'quality'>,
+	config?: Pick<
+		ImageConfig,
+		'deviceSizes' | 'imageSizes' | 'path' | 'quality'
+	>,
 	loader?: ImageLoader
 ) => {
 	const quality = config?.quality ?? DEFAULT_QUALITY;

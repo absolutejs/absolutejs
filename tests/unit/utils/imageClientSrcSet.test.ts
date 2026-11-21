@@ -1,13 +1,28 @@
 import { describe, expect, test } from 'bun:test';
 import { generateSrcSet } from '../../../src/utils/imageClient';
 
-const loader = ({ src, width, quality }: { quality: number; src: string; width: number }) =>
-	`${src}?w=${width}&q=${quality}`;
+const loader = ({
+	src,
+	width,
+	quality
+}: {
+	quality: number;
+	src: string;
+	width: number;
+}) => `${src}?w=${width}&q=${quality}`;
 
 describe('generateSrcSet', () => {
 	test('a custom loader builds every candidate, not just the src', () => {
-		const set = generateSrcSet('/private/picture', 320, undefined, undefined, loader);
-		expect(set).toBe('/private/picture?w=384&q=75 1x, /private/picture?w=640&q=75 2x');
+		const set = generateSrcSet(
+			'/private/picture',
+			320,
+			undefined,
+			undefined,
+			loader
+		);
+		expect(set).toBe(
+			'/private/picture?w=384&q=75 1x, /private/picture?w=640&q=75 2x'
+		);
 		expect(set).not.toContain('/_absolute/image');
 	});
 
@@ -23,7 +38,9 @@ describe('generateSrcSet', () => {
 	});
 
 	test("the image's quality reaches the set", () => {
-		expect(generateSrcSet('/a.jpg', 100, undefined, { quality: 40 })).toContain('&q=40');
+		expect(
+			generateSrcSet('/a.jpg', 100, undefined, { quality: 40 })
+		).toContain('&q=40');
 	});
 
 	test('called as Angular calls it, the loader is not taken for sizes', () => {
