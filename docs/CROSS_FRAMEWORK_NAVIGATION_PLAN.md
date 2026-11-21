@@ -480,9 +480,31 @@ should not be read as done:
   disposer registry empties and the island's interval stops — not with a
   heap snapshot.
 
-Phase 3 still needs, for a complete 5×5: Svelte ↔ Vue ↔ Angular ↔ HTMX
-pairs that do not go through React, and `routerLink` hand-off from a page
-that installs the Angular router.
+**The first non-React pair: Svelte ↔ Vue** (0.20.0-beta.246), and worth
+its own row rather than being assumed from the React ones. Each
+framework's client pass bundles its own copy of
+`@absolutejs/absolute/client`, so the copy that installs the layer and
+the copy that hydrated the page being torn down can be different
+modules — which is exactly where this area's bugs have been: the
+prefetch cache was one store per copy (beta.236), and the island
+disposer registry had to move to a `Symbol.for` key for a React page's
+layer to see a Svelte island's disposer (beta.234). Driven from BOTH
+entry points, because `enableNavigation()` is idempotent and the first
+caller wins, so which copy owns the layer depends on where the session
+started — and the teardown path differs per framework, so one direction
+says nothing about the other. No framework change was needed.
+
+A note for whoever writes the next one of these: `window` survives a
+soft navigation by design, so a `__hydrated` flag set by the first visit
+is still true when the second starts, and waiting on it returns
+immediately. The first draft of that test did exactly that and asserted
+the URL before the navigation had finished — it showed up as the wrong
+pathname rather than as a timeout. Clear the flag, click, then wait.
+
+Phase 3 still needs, for a complete 5×5: the Angular pairs — which need
+the spawned-app harness of 4e rather than an in-process server — and the
+HTMX pairs, plus `routerLink` hand-off from a page that installs the
+Angular router.
 
 ## 4g. `navigation: true` (phase 4, partly shipped)
 
