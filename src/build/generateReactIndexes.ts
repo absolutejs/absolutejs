@@ -4,6 +4,7 @@ import { basename, join, relative, resolve, sep } from 'path';
 import { Glob } from 'bun';
 import { toPascal } from '../utils/stringModifiers';
 import { REACT_PAGE_ROOT_EVENT } from '../core/islandManifest';
+import { withNavigationAutoEnable } from './navigationAutoEnable';
 
 const indexContentCache = new Map<string, string>();
 
@@ -219,7 +220,7 @@ export const generateReactIndexFiles = async (
 				]
 			: [];
 
-		const content = [
+		const indexSource = [
 			...hmrPreamble,
 			...reactImports,
 			`import * as PageModule from '${importPath}';\n`,
@@ -474,6 +475,11 @@ export const generateReactIndexFiles = async (
 					]
 				: [])
 		].join('\n');
+		/* `navigation: true` installs the cross-framework layer from here
+		 * rather than from every page component. Appended last so the
+		 * import hoists and the call runs after this index registered its
+		 * teardown hook — see build/navigationAutoEnable.ts. */
+		const content = withNavigationAutoEnable(indexSource);
 
 		const indexPath = join(reactIndexesDirectory, `${componentName}.tsx`);
 		const hasher = new Bun.CryptoHasher('md5');

@@ -565,6 +565,22 @@ export type BaseBuildConfig = {
 	mobile?: MobileConfig;
 	/** Generate and bootstrap one framework-agnostic installable web app. */
 	pwa?: PwaConfig;
+	/** Install the cross-framework navigation layer from every hydration
+	 *  index, so a link between two pages of any framework swaps in place
+	 *  without each page component calling `enableNavigation()` itself.
+	 *
+	 *  The layer stays opt-in per page without this — that is right for a
+	 *  page that wants to stay out of it — but repeating the call in every
+	 *  page's effect/`onMount`/`ngOnInit` is a papercut, and forgetting it
+	 *  on one page silently turns every link out of that page into a full
+	 *  document load.
+	 *
+	 *  A static HTML or HTMX page that is the ENTRY point is not covered:
+	 *  it has no hydration index to inject into, so it still imports
+	 *  `@absolutejs/absolute/client/navigation` and calls
+	 *  `enableNavigation()` itself. One swapped in by another page needs
+	 *  nothing. */
+	navigation?: boolean;
 	/** What the build enforces at the server/client boundary.
 	 *
 	 *  A module that must never reach a browser bundle says so with

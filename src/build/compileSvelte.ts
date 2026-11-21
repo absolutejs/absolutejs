@@ -1,6 +1,7 @@
 import { BASE_36_RADIX } from '../constants';
 import { existsSync } from 'node:fs';
 import { mkdir, stat } from 'node:fs/promises';
+import { withNavigationAutoEnable } from './navigationAutoEnable';
 import {
 	dirname,
 	isAbsolute,
@@ -796,7 +797,9 @@ if (typeof window !== "undefined") {
 
 			await mkdir(dirname(indexPath), { recursive: true });
 
-			return write(indexPath, bootstrap);
+			// `navigation: true` installs the layer from here rather than
+			// from every page component (build/navigationAutoEnable.ts).
+			return write(indexPath, withNavigationAutoEnable(bootstrap));
 		})
 	);
 

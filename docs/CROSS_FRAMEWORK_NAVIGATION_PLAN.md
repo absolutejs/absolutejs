@@ -233,7 +233,7 @@ every navigation.
 | 1 (done) | Layer + React ↔ Svelte via `<Link>`, styles, island store, back/forward + scroll, history fallback, CSP | Playwright (prod build): React→Svelte→React with no document request; target hydrates and is interactive; stylesheets swapped, Svelte scoped CSS applied; store value carried both ways; back/forward and scroll restore; same with the Navigation API removed; zero CSP violations under `secureHeaders()`; opt-out link does a full load. Packed-tarball e2e in prod and dev. |
 | 2 | Teardown completeness | ~~Island dispose registry (islands unmounted with the old body)~~ **done, 0.20.0-beta.234**; ~~`__ABSOLUTE_PAGE_DISPOSE__` for HTML/HTMX pages (no-op) so they can participate~~ **done, 0.20.0-beta.235**; ~~prefetch cache on `globalThis` so a Svelte `<Link>` hover warms the React-installed layer~~ **done, 0.20.0-beta.236**; ~~dev HMR follows the swapped page (`__HMR_FRAMEWORK__`, per-page manifest)~~ **verified, 0.20.0-beta.237 — it already did**; a framework-supplied index boot function instead of `?absolute-nav=` re-imports. Exit: React ↔ Svelte ↔ HTML ↔ HTMX with islands **(rows done, 0.20.0-beta.240 — see 4f for what of "with islands" and "heap snapshot" is not)**, no leaked roots (heap snapshot), HMR edit after a soft navigation applies **(done)**. |
 | 3 | Vue + Angular | ~~Vue `<Link>` / vue-router hands off unmatched URLs~~ **verified, 0.20.0-beta.238 — it already did**; Angular `routerLink` hands off unmatched URLs; ~~Angular zone and platform teardown verified~~ **verified, 0.20.0-beta.239**. Exit: the Phase 1 suite for every framework pair (5×5 matrix in Playwright, prod + dev). |
-| 4 | Navigation API interception | `navigate` event `intercept()` where supported (forms, `location.assign`, programmatic), click/popstate fallback elsewhere; `config.navigation: true` injects `enableNavigation()` into every hydration index. Exit: suite passes in Chromium (Navigation API) and WebKit/Firefox (fallback). |
+| 4 | Navigation API interception | `navigate` event `intercept()` where supported (forms, `location.assign`, programmatic), click/popstate fallback elsewhere; ~~`config.navigation: true` injects `enableNavigation()` into every hydration index~~ **done, 0.20.0-beta.245**. Exit: suite passes in Chromium (Navigation API) and WebKit/Firefox (fallback). |
 | 5 | Persistent layouts | `data-absolute-persist` (2.4) plus layout-route emission. Exit: a React navbar island keeps state (input value, open menu) across React → Svelte → Vue. |
 
 ## 4a. Island teardown (phase 2, shipped)
@@ -483,6 +483,47 @@ should not be read as done:
 Phase 3 still needs, for a complete 5×5: Svelte ↔ Vue ↔ Angular ↔ HTMX
 pairs that do not go through React, and `routerLink` hand-off from a page
 that installs the Angular router.
+
+## 4g. `navigation: true` (phase 4, partly shipped)
+
+`navigation: true` in absolute.config.ts installs the layer from every
+hydration index, so an app does not repeat `enableNavigation()` in each
+page component. The layer stays opt-in per page without it — right for a
+page that wants to stay out — but repeating the call in every
+effect/`onMount`/`ngOnInit` is a papercut, and forgetting it on one page
+silently turns every link out of that page into a full document load,
+which looks like nothing at all until someone watches the network.
+
+Implemented with a build-wide setter (`build/navigationAutoEnable.ts`)
+rather than threaded through `generateReactIndexFiles`, `compileSvelte`,
+`compileVue` and `compileAngular`, which all take positional optionals
+already; `build()` sets it on every run from its own config, so a dev
+rebuild or the next test in the same process overwrites it. Same shape as
+`setSvelteVendorPaths`. For Angular it is applied **before** the index
+hash that decides whether bundling can be skipped — hashing the
+unwrapped source would let a stale index survive the flag being turned
+on.
+
+The snippet is appended last and its import hoists, so the call runs
+after the index has registered its teardown hook. That ordering matters:
+`enableNavigation()` marks a page with no hook as having nothing to tear
+down, so running it first would mark a framework page as tear-down-free.
+
+Verified by building two apps from identical sources, one with the flag
+and one without, whose pages import nothing from
+`@absolutejs/absolute/client/navigation` and never call
+`enableNavigation()`. With the flag the navigation is a swap with zero
+document requests and the target is interactive; without it the same
+pages do a full document load. The second case is what makes the first
+mean anything.
+
+**Not covered.** A static HTML or HTMX page that is the ENTRY point has
+no hydration index to inject into, so it still imports the client module
+and calls `enableNavigation()` itself; one swapped in by another page
+needs nothing (4b). And the rest of phase 4 is untouched: the layer
+still works by click listener and traversal tracking, and uses no
+`navigate`-event `intercept()` at all, so forms, `location.assign` and
+programmatic navigation are not intercepted anywhere.
 
 ## 5. Known limitations (phase 1)
 
