@@ -797,7 +797,7 @@ emptiness is expressed as a block — an `{#if}`, and by extension an
 `{#each}` or a component boundary — Svelte owns the range and clears it.
 That is the constraint any phase 5 persisted region has to live inside.
 
-### Shipped: `persist` on an island (0.20.0-beta.253)
+### Shipped: `persist` on an island (0.20.0-beta.254)
 
 Steps 1 to 3 below are done, and step 4 turned out not to be needed in the
 shape it was written. **The unit of persistence is an island, not an
@@ -846,8 +846,8 @@ automatically (step 5) are also still open.
 
 1. ~~One preserved-node mechanism, and the Svelte island slot stops
    re-creating a hydrated island~~ **done, 0.20.0-beta.252.**
-2. ~~`disposeIslandsIn(root, keep)`~~ **done, 0.20.0-beta.253.**
-3. ~~The layer's move~~ **done, 0.20.0-beta.253.**
+2. ~~`disposeIslandsIn(root, keep)`~~ **done, 0.20.0-beta.254.**
+3. ~~The layer's move~~ **done, 0.20.0-beta.254.**
 4. ~~A persisted region outside the page framework's root~~ **not needed:
    an island is the region (see above).** What remains of this step is
    verification rather than design — a Vue page and an Angular page as the
