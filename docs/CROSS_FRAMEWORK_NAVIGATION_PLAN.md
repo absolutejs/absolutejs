@@ -232,7 +232,7 @@ every navigation.
 | --- | --- | --- |
 | 1 (done) | Layer + React ↔ Svelte via `<Link>`, styles, island store, back/forward + scroll, history fallback, CSP | Playwright (prod build): React→Svelte→React with no document request; target hydrates and is interactive; stylesheets swapped, Svelte scoped CSS applied; store value carried both ways; back/forward and scroll restore; same with the Navigation API removed; zero CSP violations under `secureHeaders()`; opt-out link does a full load. Packed-tarball e2e in prod and dev. |
 | 2 | Teardown completeness | ~~Island dispose registry (islands unmounted with the old body)~~ **done, 0.20.0-beta.234**; ~~`__ABSOLUTE_PAGE_DISPOSE__` for HTML/HTMX pages (no-op) so they can participate~~ **done, 0.20.0-beta.235**; ~~prefetch cache on `globalThis` so a Svelte `<Link>` hover warms the React-installed layer~~ **done, 0.20.0-beta.236**; ~~dev HMR follows the swapped page (`__HMR_FRAMEWORK__`, per-page manifest)~~ **verified, 0.20.0-beta.237 — it already did**; a framework-supplied index boot function instead of `?absolute-nav=` re-imports. Exit: React ↔ Svelte ↔ HTML ↔ HTMX with islands, no leaked roots (heap snapshot), HMR edit after a soft navigation applies. |
-| 3 | Vue + Angular | ~~Vue `<Link>` / vue-router hands off unmatched URLs~~ **verified, 0.20.0-beta.238 — it already did**; Angular `routerLink` hands off unmatched URLs; Angular zone and platform teardown verified. Exit: the Phase 1 suite for every framework pair (5×5 matrix in Playwright, prod + dev). |
+| 3 | Vue + Angular | ~~Vue `<Link>` / vue-router hands off unmatched URLs~~ **verified, 0.20.0-beta.238 — it already did**; Angular `routerLink` hands off unmatched URLs; ~~Angular zone and platform teardown verified~~ **verified, 0.20.0-beta.239**. Exit: the Phase 1 suite for every framework pair (5×5 matrix in Playwright, prod + dev). |
 | 4 | Navigation API interception | `navigate` event `intercept()` where supported (forms, `location.assign`, programmatic), click/popstate fallback elsewhere; `config.navigation: true` injects `enableNavigation()` into every hydration index. Exit: suite passes in Chromium (Navigation API) and WebKit/Firefox (fallback). |
 | 5 | Persistent layouts | `data-absolute-persist` (2.4) plus layout-route emission. Exit: a React navbar island keeps state (input value, open menu) across React → Svelte → Vue. |
 
@@ -386,36 +386,40 @@ increments, so this is hydration rather than server markup pasted in),
 `<Link href="/react">` hands back to the layer, and back/forward traverse
 both ways — all with zero document requests.
 
-**Angular: blocked on the test harness, not on the framework.** An attempt
-at the same shape fails before it reaches any navigation code: every
-Angular SSR render throws `NG0203` (`inject()` called outside an injection
-context) from inside Angular's own `createRootViewInjector`, while a
-signal is lazily hydrated in the server vendor chunk. Ruled out, each by
-its own run:
+**Angular: verified, and its teardown with it.**
+`tests/integration/ssr/angular-navigation-browser.test.ts` soft-navigates
+React → Angular → React. The Angular page is interactive before leaving
+(its counter increments, so it is a hydrated application rather than
+server markup pasted in), `__ANGULAR_APP__` is live on arrival and falsy
+after leaving, and no document is requested. The teardown assertion is
+the Angular-specific one: `compileAngular` registers an *async* dispose
+hook that awaits the page-ready promise and then destroys the
+application, so if the layer did not await it a zone, a change-detection
+loop and the whole injector tree would keep running against a body that
+is gone. It is asserted in both directions — truthy on arrival, falsy
+after — because "destroyed" alone would also pass if the global were
+never set.
 
-- the client navigation layer — moving `enableNavigation` from a
-  module-scope import to a lazy `import()` inside `ngOnInit` changed
-  nothing;
-- the missing `injectorPatch` side effect that `src/index.ts` carries and
-  CLAUDE.md flags as load-bearing — importing it, including as the very
-  first import in the file so it runs before `@angular/core`, changed
-  nothing.
+**Do not simplify that test's harness.** It writes its fixture to a temp
+directory, symlinks this checkout's `node_modules` in with
+`@absolutejs/absolute` pointing at the repo, and starts the app through
+`dist/cli/index.js` — the same shape as the `@defer` hydration test next
+door. An earlier attempt built it like the `tests/integration/build`
+fixtures, calling `handleAngularPageRequest` in-process, and every Angular
+SSR render failed with `NG0203` (`inject()` outside an injection context)
+from inside Angular's own `createRootViewInjector`, before reaching any
+navigation code. Importing `src/angular/injectorPatch`, including as the
+very first import in the file so it ran before `@angular/core`, did not
+help; neither did moving the page's `enableNavigation` import to a lazy
+`import()`. Why the in-process path breaks Angular's injector is still
+not known — only that going through the package entry in a real app does
+not.
 
-What differs from the one Angular SSR browser test that does work
-(`tests/integration/ssr/angular-defer-hydration-browser.test.ts`) is the
-harness, not the page: it spawns a separate app with `node_modules`
-linked into the fixture and imports through
-`@absolutejs/absolute/angular`, rather than calling
-`handleAngularPageRequest` in-process from the test the way the
-`tests/integration/build` fixtures do. The Angular row should be rebuilt
-on that precedent. No test was committed for it: a skipped one would read
-as a pass.
-
-Also still open and needed for a complete Angular row: `absLink`, the
-prefetching link directive (parity item 2.8), does not exist, so an
-Angular page has only a plain anchor — and `routerLink` hand-off, which is
-what the phase's wording is really about, needs a fixture page that
-installs the Angular router with `provideRouter`.
+Still open for a complete Angular row: `absLink`, the prefetching link
+directive (parity item 2.8), does not exist, so an Angular page has only
+a plain anchor — and `routerLink` hand-off, which is what the phase's
+wording is really about, needs a fixture page that installs the Angular
+router with `provideRouter`.
 
 ## 5. Known limitations (phase 1)
 
