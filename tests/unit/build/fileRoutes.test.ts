@@ -41,27 +41,103 @@ afterEach(async () => {
 
 describe('fileRoutePath', () => {
 	test('maps index, static and [param] segments to Elysia paths', () => {
-		expect(fileRoutePath('react', 'index.tsx')).toEqual({ path: '/' });
-		expect(fileRoutePath('react', 'about.tsx')).toEqual({ path: '/about' });
+		expect(fileRoutePath('react', 'index.tsx')).toEqual({
+			paths: ['/'],
+			typePath: '/'
+		});
+		expect(fileRoutePath('react', 'about.tsx')).toEqual({
+			paths: ['/about'],
+			typePath: '/about'
+		});
 		expect(fileRoutePath('react', 'blog/index.tsx')).toEqual({
-			path: '/blog'
+			paths: ['/blog'],
+			typePath: '/blog'
 		});
 		expect(fileRoutePath('react', 'blog/[slug].tsx')).toEqual({
-			path: '/blog/:slug'
+			paths: ['/blog/:slug'],
+			typePath: '/blog/:slug'
 		});
 		expect(fileRoutePath('svelte', '[org]/[repo]/issues.svelte')).toEqual({
-			path: '/:org/:repo/issues'
+			paths: ['/:org/:repo/issues'],
+			typePath: '/:org/:repo/issues'
 		});
 	});
 
-	test('reports segments Phase 1 does not support', () => {
-		for (const file of [
-			'docs/[...rest].tsx',
-			'[[lang]]/index.tsx',
-			'(marketing)/pricing.tsx',
-			'[bad-name].tsx',
-			'a b.tsx'
-		]) {
+	/* A catch-all registers Elysia's `*` but types as the name the file
+	 * gave it, because `params.rest` is what `docs/[...rest].tsx` led its
+	 * `load` to expect. The two paths differing is the point. */
+	test('maps a [...catchAll] to `*`, typed under its own name', () => {
+		expect(fileRoutePath('react', 'docs/[...rest].tsx')).toEqual({
+			catchAll: 'rest',
+			paths: ['/docs/*'],
+			typePath: '/docs/:rest'
+		});
+		expect(fileRoutePath('react', '[...all].tsx')).toEqual({
+			catchAll: 'all',
+			paths: ['/*'],
+			typePath: '/:all'
+		});
+	});
+
+	/* An optional segment is the only kind that makes one file serve more
+	 * than one path, and the longer path comes first so the specific route
+	 * is registered before the one it shadows. */
+	test('expands [[optional]] segments into every path they serve', () => {
+		expect(fileRoutePath('react', '[[lang]]/about.tsx')).toEqual({
+			paths: ['/:lang/about', '/about'],
+			typePath: '/:lang?/about'
+		});
+		expect(fileRoutePath('react', '[[lang]]/index.tsx')).toEqual({
+			paths: ['/:lang', '/'],
+			typePath: '/:lang?'
+		});
+		// Two of them multiply, rather than one of the four being dropped.
+		expect(fileRoutePath('react', '[[a]]/[[b]]/x.tsx')).toEqual({
+			paths: ['/:a/:b/x', '/:a/x', '/:b/x', '/x'],
+			typePath: '/:a?/:b?/x'
+		});
+	});
+
+	test('leaves a (group) out of the path', () => {
+		expect(fileRoutePath('react', '(marketing)/pricing.tsx')).toEqual({
+			paths: ['/pricing'],
+			typePath: '/pricing'
+		});
+		expect(fileRoutePath('react', '(marketing)/index.tsx')).toEqual({
+			paths: ['/'],
+			typePath: '/'
+		});
+		// A group contributes nothing, so it cannot be nested into a param.
+		expect(
+			fileRoutePath('react', '(shop)/[category]/[item].tsx')
+		).toEqual({
+			paths: ['/:category/:item'],
+			typePath: '/:category/:item'
+		});
+	});
+
+	test('reports segments it cannot map, and says what is wrong', () => {
+		const errorFor = (file: string) => {
+			const result = fileRoutePath('react', file);
+
+			return 'error' in result ? result.error : undefined;
+		};
+
+		// A catch-all matches the rest of the path, so nothing can follow it.
+		expect(errorFor('docs/[...rest]/edit.tsx')).toContain(
+			'has to be the last one'
+		);
+		// Named rather than reported as stray characters.
+		expect(errorFor('[[...rest]]/index.tsx')).toContain(
+			'optional catch-all'
+		);
+		// A group names a folder; as a file it would serve its parent's path.
+		expect(errorFor('(marketing).tsx')).toContain('contributes no path');
+		// Two params of one name would overwrite each other.
+		expect(errorFor('[id]/x/[id].tsx')).toContain('both named "id"');
+		expect(errorFor('[id]/[[id]]/x.tsx')).toContain('both named "id"');
+
+		for (const file of ['[bad-name].tsx', 'a b.tsx', '[].tsx', '().tsx']) {
 			expect(fileRoutePath('react', file)).toHaveProperty('error');
 		}
 	});
@@ -147,7 +223,7 @@ describe('scanFileRoutes', () => {
 	test('reports two files that serve one path and unsupported segments', async () => {
 		const root = await makeProject({
 			'react/routes/about.tsx': '',
-			'react/routes/docs/[...rest].tsx': '',
+			'react/routes/docs/[...rest]/edit.tsx': '',
 			'svelte/routes/about/index.svelte': ''
 		});
 		const cwd = process.cwd();
@@ -162,7 +238,52 @@ describe('scanFileRoutes', () => {
 			expect(routes.map((route) => route.path)).toEqual(['/about']);
 			expect(problems).toHaveLength(2);
 			expect(problems.join('\n')).toContain('both serve /about');
-			expect(problems.join('\n')).toContain('[...rest]');
+			expect(problems.join('\n')).toContain('has to be the last one');
+		} finally {
+			process.chdir(cwd);
+		}
+	});
+
+	/* The scan's side of the segments: a catch-all and a group are single
+	 * routes, an optional segment is two sharing one page name — the page
+	 * is built once and registered twice. */
+	test('scans catch-all, optional and group segments', async () => {
+		const root = await makeProject({
+			'react/routes/(marketing)/pricing.tsx': '',
+			'react/routes/[[lang]]/about.tsx': '',
+			'react/routes/docs/[...rest].tsx': ''
+		});
+		const cwd = process.cwd();
+		process.chdir(root);
+		try {
+			const { problems, routes } = scanFileRoutes({
+				fileRoutes: true,
+				reactDirectory: 'react'
+			});
+
+			expect(problems).toEqual([]);
+			expect(routes.map((route) => route.path).sort()).toEqual([
+				'/:lang/about',
+				'/about',
+				'/docs/*',
+				'/pricing'
+			]);
+			const optional = routes.filter((route) =>
+				route.source.includes('[[lang]]')
+			);
+			expect(optional).toHaveLength(2);
+			expect(new Set(optional.map((route) => route.name)).size).toBe(1);
+			expect(optional.map((route) => route.typePath)).toEqual([
+				'/:lang?/about',
+				'/:lang?/about'
+			]);
+			expect(
+				routes.find((route) => route.path === '/docs/*')?.catchAll
+			).toBe('rest');
+			// Nothing but the catch-all route carries the field.
+			expect(
+				routes.filter((route) => route.catchAll !== undefined)
+			).toHaveLength(1);
 		} finally {
 			process.chdir(cwd);
 		}

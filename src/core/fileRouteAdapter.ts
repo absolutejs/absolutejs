@@ -13,10 +13,16 @@ import type {
  * that the module's `load` takes this route's params and returns the page's
  * props; at run time the request's params are checked against the path. */
 
-const PARAM_NAME_RE = /:([A-Za-z_$][\w$]*)/g;
+const PARAM_NAME_RE = /:([A-Za-z_$][\w$]*)(\?)?/g;
 
-const paramNamesOf = (path: string) =>
-	[...path.matchAll(PARAM_NAME_RE)]
+/* The params a request must carry for the route's `load` to be given a
+ * context of the type it was written against. An `[[optional]]` segment is
+ * typed `:name?` and is exactly the param that may be missing — the route
+ * is registered under the path without it too — so requiring it here would
+ * skip `load` on half of that route's own paths. */
+const requiredParamNamesOf = (typePath: string) =>
+	[...typePath.matchAll(PARAM_NAME_RE)]
+		.filter((match) => match[2] === undefined)
 		.map((match) => match[1])
 		.filter((name): name is string => name !== undefined);
 
@@ -26,17 +32,20 @@ const hasRouteParams = <Path extends string>(
 ): context is FileRouteContext & { params: FileRouteParams<Path> } =>
 	names.every((name) => typeof context.params[name] === 'string');
 
+/* `Path` is inferred from the server module alone. It used to come from a
+ * `path` field as well, which stopped working once the registered path and
+ * the typed path became different strings for a catch-all or optional
+ * route: inference saw `string` there and `Path` collapsed. */
 type ServerHooks<Path extends string> = {
-	path: Path;
 	server?: () => Promise<FileRouteServerModule<Path, unknown> | undefined>;
 };
 
-export const serverHooksOf = <Path extends string>({
-	path,
-	server
-}: ServerHooks<Path>) => {
+export const serverHooksOf = <Path extends string>(
+	{ server }: ServerHooks<Path>,
+	typePath: string
+) => {
 	if (!server) return {};
-	const names = paramNamesOf(path);
+	const names = requiredParamNamesOf(typePath);
 	const withParams = async <Result>(
 		context: FileRouteContext,
 		run: (
@@ -61,15 +70,28 @@ export const serverHooksOf = <Path extends string>({
 	return hooks;
 };
 
-export type FileRouteAdapterInput<Path extends string> = {
+/* `path` is the string Elysia registers, which is not always the path the
+ * route's params are typed against: `/docs/[...rest]` types against
+ * `/docs/:rest` and registers `/docs/*`. The type path reaches the adapters
+ * as their explicit `Path` argument, through the `server` module's type, so
+ * `path` here is a plain string. */
+export type FileRouteAdapterInput = {
 	name: string;
-	path: Path;
+	path: string;
 	source: string;
+	/** The name the file gave its catch-all segment, for the runtime to
+	 *  copy Elysia's `*` param onto. */
+	catchAll?: string;
+	/** The path the route's types were written against, when it is not
+	 *  `path`: `/docs/:rest` for a route registered as `/docs/*`. The
+	 *  run-time params check reads its names, so it must be the typed one
+	 *  — `*` is not a param name any `load` asks for. */
+	typePath?: string;
 };
 
 export const defineFileRouteWith = <Path extends string>(
 	framework: FileRouteFramework,
-	route: FileRouteAdapterInput<Path> & {
+	route: FileRouteAdapterInput & {
 		server?: () => Promise<
 			FileRouteServerModule<Path, unknown> | undefined
 		>;
@@ -82,7 +104,8 @@ export const defineFileRouteWith = <Path extends string>(
 		path: route.path,
 		render,
 		source: route.source,
-		...serverHooksOf(route)
+		...(route.catchAll === undefined ? {} : { catchAll: route.catchAll }),
+		...serverHooksOf(route, route.typePath ?? route.path)
 	};
 
 	return definition;

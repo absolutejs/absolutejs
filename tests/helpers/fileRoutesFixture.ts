@@ -53,6 +53,38 @@ export const Shell = ({ children }: { children: ReactNode }) => (
 	<main id="shell">{children}</main>
 );
 `,
+	/* The three Phase 2 segment kinds. A catch-all reads its param under
+	 * the name the file gave it, not Elysia's `*`; an optional segment
+	 * serves two paths from this one file, and its `load` runs on both; a
+	 * group contributes no path segment at all. */
+	'react/routes/(marketing)/pricing.tsx': `export default function Pricing() {
+	return (
+		${reactDocument('Pricing', '<p>FILE_PRICING</p>')}
+	);
+}
+`,
+	'react/routes/[[lang]]/guide.server.ts': `import type { FileRouteContext } from '@absolutejs/absolute';
+
+export const load = ({ params }: FileRouteContext<'/:lang?/guide'>) => ({
+	lang: params.lang ?? 'none'
+});
+`,
+	/* The language goes in its own element rather than beside static text:
+	 * React SSR separates an interpolated value from the text around it
+	 * with a `<!-- -->` comment, so `FILE_GUIDE_{lang}` renders as
+	 * `FILE_GUIDE_<!-- -->none` and a `toContain` over the pair fails for a
+	 * reason that has nothing to do with routing. */
+	'react/routes/[[lang]]/guide.tsx': `type GuideProps = { lang: string; url?: string };
+
+export default function Guide({ lang }: GuideProps) {
+	return (
+		${reactDocument(
+			'Guide',
+			'<p id="guide">FILE_GUIDE</p>\n\t\t\t\t<p id="lang">{lang}</p>'
+		)}
+	);
+}
+`,
 	'react/routes/about.tsx': `export default function About() {
 	return (
 		${reactDocument('About', '<p>FILE_ABOUT</p>')}
@@ -119,6 +151,18 @@ export default function Post({ title, view }: PostProps) {
 </script>
 
 <span class="badge">{label}</span>
+`,
+	'svelte/routes/docs/[...rest].server.ts': `import type { FileRouteContext } from '@absolutejs/absolute';
+
+export const load = ({ params }: FileRouteContext<'/docs/:rest'>) => ({
+	rest: params.rest
+});
+`,
+	'svelte/routes/docs/[...rest].svelte': `<script lang="ts">
+	let { rest }: { rest: string; url?: string } = $props();
+</script>
+
+<h1 id="rest">CATCH_{rest}</h1>
 `,
 	'svelte/routes/docs/[topic].server.ts': `import type { FileRouteContext } from '@absolutejs/absolute';
 
