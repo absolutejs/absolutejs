@@ -116,7 +116,18 @@ export const createAssetCachePlugin = (hashed?: FingerprintedAssets) =>
  *  to the regular static handler. */
 export const createPrecompressedPlugin = async (
 	buildDir: string,
-	ignorePatterns: readonly (string | RegExp)[] = []
+	ignorePatterns: readonly (string | RegExp)[] = [],
+	/* The build's hashed paths, for the same reason the static handler gets
+	 *  them. Omitting them is not a smaller version of the policy, it is the
+	 *  wrong one: this plugin answers from `onRequest`, which short-circuits
+	 *  the handler lifecycle, so `createAssetCachePlugin`'s `onAfterHandle`
+	 *  never runs over this response and cannot correct it. Without the set,
+	 *  only the name heuristics apply, and Bun's `[hash]` is base36 — so
+	 *  `vue-example.wvc7v0t6.css` served `max-age=0, must-revalidate` while
+	 *  the very same file served `immutable` to a client that accepted no
+	 *  encoding. Every real browser accepts gzip, so in practice every
+	 *  hashed asset revalidated on every page load. */
+	hashed?: FingerprintedAssets
 ) => {
 	const root = resolve(buildDir);
 	const copies = new Map<string, Set<Encoding>>();
@@ -163,7 +174,7 @@ export const createPrecompressedPlugin = async (
 				Bun.file(`${join(root, decodedPathname)}${chosen.suffix}`),
 				{
 					headers: {
-						'cache-control': assetCacheControl(pathname),
+						'cache-control': assetCacheControl(pathname, hashed),
 						'content-encoding': chosen.encoding,
 						'content-type': original.type,
 						vary: 'Accept-Encoding'

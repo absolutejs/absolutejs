@@ -109,6 +109,50 @@ describe('precompressed assets', () => {
 		expect(plain.headers.get('content-encoding')).toBeNull();
 		expect(await plain.text()).toBe('uncompressed');
 	});
+
+	/* The hashed asset above is recognised from its name — 8 hex characters.
+	 * Bun's `[hash]` is base36, so most real build outputs are NOT, and the
+	 * build passes its hashed paths instead. This plugin was not given them,
+	 * so a compressed `vue-example.wvc7v0t6.css` served
+	 * `max-age=0, must-revalidate` while the identical uncompressed file
+	 * served `immutable`: the policy depended on the request's
+	 * Accept-Encoding, and every real browser takes the compressed half. It
+	 * cannot be corrected downstream either, because this plugin answers
+	 * from `onRequest` and short-circuits the `onAfterHandle` that applies
+	 * the policy to ordinary static responses. */
+	test('a base36-hashed build output is immutable compressed too', async () => {
+		const root = await buildDir();
+		await writeFile(join(root, 'vue-example.wvc7v0t6.css'), SCRIPT);
+		await writeFile(join(root, 'icon-512x512.css'), SCRIPT);
+		await writePrecompressedAssets(root);
+		const app = new Elysia().use(
+			await createPrecompressedPlugin(
+				root,
+				[],
+				new Set(['/vue-example.wvc7v0t6.css'])
+			)
+		);
+		const request = (path: string) =>
+			app.handle(
+				new Request(`http://localhost${path}`, {
+					headers: { 'accept-encoding': 'gzip' }
+				})
+			);
+
+		const hashed = await request('/vue-example.wvc7v0t6.css');
+		expect(hashed.headers.get('content-encoding')).toBe('gzip');
+		expect(hashed.headers.get('cache-control')).toBe(
+			'public, max-age=31536000, immutable'
+		);
+
+		/* And the set is still what decides: a name that merely looks hashed
+		 * and is not a build output keeps revalidating, compressed or not. */
+		const lookalike = await request('/icon-512x512.css');
+		expect(lookalike.headers.get('content-encoding')).toBe('gzip');
+		expect(lookalike.headers.get('cache-control')).toBe(
+			'public, max-age=0, must-revalidate'
+		);
+	});
 });
 
 // Exercise the HTTP boundary: malformed scanner requests must not become 500s,
