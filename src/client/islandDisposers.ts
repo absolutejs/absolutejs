@@ -115,6 +115,28 @@ export const registerIslandDisposer = (
 	element: Element,
 	dispose: () => unknown
 ) => {
+	/* Hydrated into nothing: the element left the document while its
+	 * island was mounting.
+	 *
+	 * An Angular page removes the server's markup AFTER rendering its own,
+	 * so the islands runtime's scan legitimately finds both copies and
+	 * starts hydrating the server's one a moment before it is detached —
+	 * the check at the top of `hydrateIsland` passes, and by the time the
+	 * hydrator gets here the nodes are gone. Registering that instance
+	 * would keep its effects, timers and subscriptions running against
+	 * nodes nobody can see until the next navigation pruned them, which is
+	 * the leak this registry exists to prevent. Unmounting it now is the
+	 * same answer one navigation later, taken immediately. */
+	if (isDetached(element)) {
+		void Promise.resolve(dispose()).catch((error: unknown) => {
+			console.error(
+				'[islands] Failed to unmount an island that was hydrated into detached markup',
+				error
+			);
+		});
+
+		return;
+	}
 	const disposers = store();
 	for (const entry of disposers)
 		if (entry.element === element) disposers.delete(entry);

@@ -449,3 +449,53 @@ describe('an island on an Angular page', () => {
 		}
 	}, 300_000);
 });
+
+describe('an Angular page entered cold', () => {
+	test('hydrates its island once, with one disposer and no orphan', async () => {
+		/* An Angular page removes the server's markup AFTER rendering its
+		 * own, so the islands runtime's scan finds both copies and starts
+		 * hydrating the server's one a moment before it is detached. That
+		 * instance used to be registered and kept running on nodes nobody
+		 * could see — two disposers for one element, on every load.
+		 *
+		 * Both numbers are asserted, as in the Svelte version of this test:
+		 * a mount count of 1 alone would pass if the second instance
+		 * replaced the registry entry rather than adding to it, and a
+		 * disposer count of 1 alone would pass if the island never hydrated
+		 * at all. */
+		const session = await openPage(`${baseUrl()}/angular`, {
+			waitUntil: 'load'
+		});
+		try {
+			const { page } = session;
+			await page.waitForFunction(
+				() => Reflect.get(window, '__angularHydrated') === true,
+				undefined,
+				{ timeout: 30_000 }
+			);
+			await page.waitForSelector('#shell-island', { timeout: 30_000 });
+			// Angular writes its island container in `ngAfterViewInit`, after
+			// the page reports itself hydrated, so settle before counting.
+			await page.waitForTimeout(2000);
+
+			expect(await mounts(page)).toBe(1);
+			expect(await page.locator('[data-island]').count()).toBe(1);
+			expect(
+				await page.evaluate(() => {
+					const store = Reflect.get(
+						globalThis,
+						Symbol.for('absolute.islandDisposers')
+					);
+
+					return store instanceof Set ? store.size : -1;
+				})
+			).toBe(1);
+			// The surviving island is the live one: typing reaches it.
+			await page.fill('#draft', 'typed on angular');
+
+			expect(await draftValue(page)).toBe('typed on angular');
+		} finally {
+			await session.close();
+		}
+	}, 300_000);
+});
