@@ -4,12 +4,15 @@ declare global {
 	var __absoluteBackendHmr: boolean | undefined;
 	var __absoluteHot: import('../src/dev/hot/runtime').AbsoluteHot | undefined;
 	var __absoluteHotResources:
-		import('../src/dev/hotResources').HotResourceState | undefined;
+		| import('../src/dev/hotResources').HotResourceState
+		| undefined;
 	var __absoluteLiveApp: object | undefined;
 	var __absoluteHotRecords:
-		Map<string, import('../src/dev/hot/runtime').ModuleRecord> | undefined;
+		| Map<string, import('../src/dev/hot/runtime').ModuleRecord>
+		| undefined;
 	var __absoluteHotPlugin:
-		import('../src/dev/hot/plugin').HotPluginState | undefined;
+		| import('../src/dev/hot/plugin').HotPluginState
+		| undefined;
 	var __absoluteHotApplyChain: Promise<unknown> | undefined;
 	/** Server modules whose last update failed; retried after the next
 	 *  update that applies (src/dev/hot/reload.ts). */
@@ -18,7 +21,8 @@ declare global {
 		| WeakMap<object, import('../src/dev/hot/appLifecycle').Hook[]>
 		| undefined;
 	var __absoluteReloadEntry:
-		((cause: string) => Promise<boolean>) | undefined;
+		| ((cause: string) => Promise<boolean>)
+		| undefined;
 	/** Bumped by the dev rebuild after an island component changes; the
 	 *  island server renderers drop their compiled/resolved copies when it
 	 *  moves (src/core/islandServerGeneration.ts). */
@@ -38,7 +42,8 @@ declare global {
 	 *  written to by the dev bootstrap — three separate bundles, so it lives
 	 *  here rather than in module state. Stays unset unless the flag is on. */
 	var __absoluteImportCost:
-		import('../src/dev/importCost/recorder').ImportCostRecorder | undefined;
+		| import('../src/dev/importCost/recorder').ImportCostRecorder
+		| undefined;
 	var __absoluteImportCostEnter: ((moduleIndex: number) => void) | undefined;
 	var __absoluteImportCostExit: ((moduleIndex: number) => void) | undefined;
 	var __absoluteImportCostReport: (() => Promise<void>) | undefined;
@@ -59,7 +64,8 @@ declare global {
 	 *  file. On globalThis so every instance of moduleServer.ts reaches them,
 	 *  including one re-evaluated by a `bun --hot` reload that failed. */
 	var __absoluteModuleServer:
-		import('../src/dev/moduleServer').ModuleServerHandler | undefined;
+		| import('../src/dev/moduleServer').ModuleServerHandler
+		| undefined;
 	var __absoluteTransformErrors:
 		| Map<string, import('../src/dev/moduleServer').TransformError>
 		| undefined;
@@ -85,12 +91,14 @@ declare global {
 	/** Angular change detection mode for this process, set by the build
 	 *  and by `installAngularZoneRuntime` (src/angular/zoneRuntime.ts). */
 	var __absoluteAngularChangeDetection:
-		import('./build').AngularChangeDetection | undefined;
+		| import('./build').AngularChangeDetection
+		| undefined;
 	/** "Building…" placeholder bound by the dev bootstrap before the entry
 	 *  is imported; released by `networking` right before the real listen.
 	 *  See `src/dev/earlyListener.ts`. */
 	var __absoluteEarlyListener:
-		import('../src/dev/earlyListener').EarlyListener | undefined;
+		| import('../src/dev/earlyListener').EarlyListener
+		| undefined;
 	var __absoluteEarlyListenerServeGuard: boolean | undefined;
 	/** Parent-owned hand-off (see `src/dev/earlyListener.ts`): the CLI holds
 	 *  the "Building…" placeholder, so this child skips its own, binds the
@@ -106,7 +114,8 @@ declare global {
 	 *  three separate bundles with no shared module state. */
 	var __absoluteBootOrigin: number | undefined;
 	var __absoluteBootMarks:
-		Array<import('../src/utils/bootTimeline').BootMark> | undefined;
+		| Array<import('../src/utils/bootTimeline').BootMark>
+		| undefined;
 	var __absoluteBootMarksAdopted: boolean | undefined;
 	/** In-flight `prepare()` started by the dev bootstrap before the user's
 	 *  server entry finished importing (`startDevPrebuild`). The user's own
@@ -129,7 +138,8 @@ declare global {
 		| undefined;
 	/** Boot work deferred until the server is serving real traffic. */
 	var __absoluteDeferredBootTasks:
-		Array<() => void | Promise<void>> | undefined;
+		| Array<() => void | Promise<void>>
+		| undefined;
 	var __absoluteDeferredBootTasksRan: boolean | undefined;
 
 	/** Dev-only request inspector ring buffer, filled by the global
@@ -140,6 +150,9 @@ declare global {
 
 	/* Client-side globals (Window extensions for HMR) */
 	interface Window {
+		/** The URL prefix the page is served under, when the server has a base
+		 *  path (`ABSOLUTE_BASE_PATH`). */
+		__ABSOLUTE_BASE_PATH__?: string;
 		$RefreshReg$?: (type: unknown, id: string) => void;
 		$RefreshRuntime$?: {
 			createSignatureFunctionForTransform: () => (

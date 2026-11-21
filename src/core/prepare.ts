@@ -174,8 +174,9 @@ const loadMobileAssociationPlugin = async (
 	if (!mobile) {
 		return new Elysia({ name: 'absolutejs-mobile-associations-disabled' });
 	}
-	const { createAbsoluteMobileAssociationPlugin } =
-		await import('../mobile/associationFiles');
+	const { createAbsoluteMobileAssociationPlugin } = await import(
+		'../mobile/associationFiles'
+	);
 
 	return createAbsoluteMobileAssociationPlugin(mobile, process.cwd(), {
 		requireAll: true
@@ -370,8 +371,9 @@ const prepareDev = async (
 
 	let stepStartedAt = performance.now();
 	setBootPhase('patch route registration');
-	const { patchElysiaRouteRegistrationCallsites } =
-		await import('./devRouteRegistrationCallsite');
+	const { patchElysiaRouteRegistrationCallsites } = await import(
+		'./devRouteRegistrationCallsite'
+	);
 	patchElysiaRouteRegistrationCallsites();
 	recordStep('patch route registration', stepStartedAt);
 
@@ -407,8 +409,9 @@ const prepareDev = async (
 	};
 
 	const { setGlobalModuleServer } = await import('../dev/moduleServer');
-	const { createStyleTransformConfig } =
-		await import('../build/stylePreprocessor');
+	const { createStyleTransformConfig } = await import(
+		'../build/stylePreprocessor'
+	);
 	const moduleHandler = createModuleServer({
 		frameworkDirs: {
 			angular: config.angularDirectory,
@@ -758,6 +761,10 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 			: null;
 	const config = built ?? (await loadConfig(configOrPath));
 	recordStep(built ? 'load built config' : 'load config', stepStartedAt);
+	// The base path the browser reaches the app under: the environment's,
+	// else the config's (read everywhere through getBasePath()).
+	if (process.env.ABSOLUTE_BASE_PATH === undefined && config.basePath)
+		process.env.ABSOLUTE_BASE_PATH = config.basePath;
 	// Angular zone.js mode must patch the process before the app listens.
 	if (config.angular?.changeDetection === 'zone')
 		await installAngularZoneRuntime();
@@ -899,8 +906,9 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 		// Partial prerendering renders a shell's dynamic holes through the
 		// app itself (partialPrerenderServe.ts), captured once it starts.
 		const { readPartialHoles } = await import('./partialPrerender');
-		const { servePartialPrerender } =
-			await import('./partialPrerenderServe');
+		const { servePartialPrerender } = await import(
+			'./partialPrerenderServe'
+		);
 		let appHandle: ((request: Request) => Promise<Response>) | undefined;
 
 		const prerenderPlugin = new Elysia({

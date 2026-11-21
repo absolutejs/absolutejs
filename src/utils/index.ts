@@ -1,5 +1,6 @@
 export * from './defineConfig';
 export * from './defineConvention';
+export { getBasePath, withBasePath } from './basePath';
 export * from './generateHeadElement';
 export { fontAssets } from './fontAssets';
 export * from './iconVersion';

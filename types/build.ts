@@ -521,6 +521,15 @@ export type ServiceShutdownConfig =
 export type ServiceVisibility = 'public' | 'internal';
 
 export type BaseBuildConfig = {
+	/**
+	 * The URL prefix the app is served under, behind a proxy that strips it
+	 * before the request reaches the app (`/studio/projects/abc`). Every URL
+	 * the framework hands the browser carries it, and an import map moves
+	 * root-absolute module specifiers under it. `ABSOLUTE_BASE_PATH` sets
+	 * it per process and wins over this. See `withBasePath()` for URLs the
+	 * app renders itself (a stylesheet `<link>`).
+	 */
+	basePath?: string;
 	buildDirectory?: string;
 	assetsDirectory?: string;
 	publicDirectory?: string;

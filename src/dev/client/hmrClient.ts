@@ -1,3 +1,4 @@
+import { withClientBasePath } from './basePath';
 /* AbsoluteJS HMR Client - Entry point
    Initializes WebSocket connection, dispatches messages to framework handlers */
 
@@ -446,7 +447,8 @@ const connectHmrSocket = () => {
 	const wsPort =
 		location.port || (location.protocol === 'https:' ? '443' : '80');
 	const wsProtocol = location.protocol === 'https:' ? 'wss' : 'ws';
-	const wsUrl = `${wsProtocol}://${wsHost}:${wsPort}/hmr`;
+	// Under a base path the socket is reached through it too.
+	const wsUrl = `${wsProtocol}://${wsHost}:${wsPort}${withClientBasePath('/hmr')}`;
 
 	const wsc = new WebSocket(wsUrl);
 	window.__HMR_WS__ = wsc;

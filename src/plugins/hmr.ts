@@ -1,3 +1,4 @@
+import { withBasePath } from '../utils/basePath';
 import Elysia from 'elysia';
 import { websocket } from 'elysia/websocket';
 import {
@@ -134,7 +135,8 @@ const resolveDevAssetResponse = async (
 		return new Response(null, {
 			headers: {
 				'Cache-Control': 'no-store',
-				Location: aliasedTarget
+				// The browser is outside the base's proxy otherwise.
+				Location: withBasePath(aliasedTarget)
 			},
 			status: 302
 		});
@@ -252,8 +254,9 @@ export const hmr = (
 				if (!id) {
 					return new Response('Missing ?c=<id>', { status: 400 });
 				}
-				const { getApplyMetadataModule } =
-					await import('../dev/angular/hmrCompiler');
+				const { getApplyMetadataModule } = await import(
+					'../dev/angular/hmrCompiler'
+				);
 				const module = await getApplyMetadataModule(id);
 				if (module === null) {
 					return new Response(
@@ -280,8 +283,9 @@ export const hmr = (
 				//     globalThis for cross-plugin access)
 				const { getDevVendorPaths, getAngularVendorPaths } =
 					await import('../core/devVendorPaths');
-				const { rewriteImportsInContent } =
-					await import('../build/rewriteImportsPlugin');
+				const { rewriteImportsInContent } = await import(
+					'../build/rewriteImportsPlugin'
+				);
 				const depVendorPaths = globalThis.__depVendorPaths ?? {};
 				const vendorPaths: Record<string, string> = {
 					...(getDevVendorPaths() ?? {}),
