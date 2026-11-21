@@ -127,13 +127,6 @@ const readSetupAppHook = (value: unknown) => {
 	return isVueSetupApp(setupApp) ? setupApp : null;
 };
 
-// A page that exports `routes = defineRoutes([...])` is a SPA shell: the client
-// boots it with `createApp` (fresh mount), which DISCARDS any server-rendered
-// markup and re-renders from scratch — so SSR-ing its body wastes a render AND
-// double-fires every CSS entrance animation (server paint, then client mount).
-const readHasSpaRoutes = (value: unknown) =>
-	isRecord(value) && Array.isArray(value['routes']);
-
 const readDefaultExport = (value: unknown) =>
 	isRecord(value) ? value.default : undefined;
 
@@ -294,7 +287,6 @@ export const handleVuePageRequest = async <Component extends VueComponent>(
 					return {
 						component: passedPageComponent,
 						hasIslands: readHasIslands(passedPageComponent),
-						hasSpaRoutes: false,
 						setupApp
 					};
 				}
@@ -315,7 +307,6 @@ export const handleVuePageRequest = async <Component extends VueComponent>(
 				return {
 					component: importedPageComponent,
 					hasIslands: readHasIslands(importedPageModule),
-					hasSpaRoutes: readHasSpaRoutes(importedPageModule),
 					setupApp: readSetupAppHook(importedPageModule)
 				};
 			};
@@ -417,17 +408,27 @@ export const handleVuePageRequest = async <Component extends VueComponent>(
 						)}</script>${serializeServerDataScript(serverData)}<script${nonceAttr()} type="module" src="${resolvedIndexPath}"></script></body></html>`;
 			};
 
-			// SPA-shell page with a client bundle: ship an EMPTY #root. The client
-			// boots with createApp and renders from scratch, so any SSR body here
-			// is discarded AND its CSS entrance animations fire twice (server paint
-			// + client mount). Server-side setupApp already ran above (redirects);
-			// we just skip the throwaway render. Non-SPA pages keep SSR + hydrate.
-			if (resolvedPage.hasSpaRoutes && clientMode === 'auto') {
-				return new Response(`${head}${buildTail()}`, {
-					headers: { 'Content-Type': HTML_CONTENT_TYPE }
-				});
-			}
-
+			/* A page exporting `routes` used to ship an EMPTY #root here.
+			 * The reason given was that the client boots it with
+			 * `createApp` and renders from scratch, so the SSR body would
+			 * be discarded and its CSS entrance animations would fire
+			 * twice — server paint, then client mount. True, but it
+			 * described the client's behaviour rather than a property of
+			 * routed pages: `compileVue`'s generated index now hydrates
+			 * one instead of re-mounting it, so the markup is reused, the
+			 * animation fires once and the render is not thrown away.
+			 *
+			 * Nothing else was missing. The auto-synthesised `setupApp`
+			 * (build/vueAutoRouterTransform.ts) already builds the router
+			 * with a memory history on the server, pushes `ctx.url` and
+			 * awaits `router.isReady()` before this point — it had to, for
+			 * redirects and `setNotFound` to work — so the matched route
+			 * was always ready to render and was simply not rendered.
+			 *
+			 * This was the largest single gap against Nuxt in the parity
+			 * plan (item 3.8): a routed Vue page had no server HTML at
+			 * all, so no content for a crawler, no first paint before
+			 * JavaScript, and nothing for a soft navigation to swap in. */
 			// Ordinary Vue pages are rendered atomically so an async component or
 			// setup failure is caught by the surrounding error boundary before a
 			// 200 response is committed. Explicit streaming-slot pages keep the
