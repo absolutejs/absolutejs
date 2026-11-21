@@ -809,11 +809,16 @@ const copyVueDevIndexes = (
 	devIndexDir: string
 ) => {
 	const vueIndexDir = join(getFrameworkGeneratedDir('vue'), 'indexes');
-	const vuePageEntries = vueEntries.filter((file) =>
-		resolve(file).startsWith(resolve(vuePagesPath))
+	/* Route files are entries too, and they live outside `pages/` — without
+	 * them a Vue route served the boot-time index in dev rather than the
+	 * module-server one, so an edit to it never hot-updated. */
+	const vuePageEntries = vueEntries.filter(
+		(file) =>
+			resolve(file).startsWith(resolve(vuePagesPath)) ||
+			fileRouteFor(file) !== undefined
 	);
 	for (const entry of vuePageEntries) {
-		const name = basename(entry, '.vue');
+		const name = fileRouteFor(entry)?.name ?? basename(entry, '.vue');
 		const indexFile = join(vueIndexDir, `${name}.js`);
 		if (!existsSync(indexFile)) continue;
 		let content = readFileSync(indexFile, 'utf-8');
@@ -1166,7 +1171,12 @@ const buildUnlocked = async ({
 	// File routes: rescan the route folders and refresh the route module.
 	await tracePhase('file-routes/scan', async () =>
 		reportFileRouteProblems(
-			syncFileRoutes({ fileRoutes, reactDirectory, svelteDirectory }),
+			syncFileRoutes({
+				fileRoutes,
+				reactDirectory,
+				svelteDirectory,
+				vueDirectory
+			}),
 			isDev
 		)
 	);
@@ -1551,7 +1561,10 @@ const buildUnlocked = async ({
 		...svelteConventionResult.pageFiles,
 		...fileRoutesOf('svelte').map((route) => route.source)
 	];
-	const allVueEntries = vueConventionResult.pageFiles;
+	const allVueEntries = [
+		...vueConventionResult.pageFiles,
+		...fileRoutesOf('vue').map((route) => route.source)
+	];
 	const allAngularEntries = angularConventionResult.pageFiles;
 	const allEmberEntries = emberConventionResult.pageFiles;
 

@@ -66,11 +66,13 @@ const HASH_LENGTH = 6;
 const HASH_RADIX = 36;
 const PAGE_GLOBS: Record<FileRouteFramework, string> = {
 	react: '**/*.{tsx,jsx}',
-	svelte: '**/*.svelte'
+	svelte: '**/*.svelte',
+	vue: '**/*.vue'
 };
 const PAGE_EXTENSIONS: Record<FileRouteFramework, readonly string[]> = {
 	react: ['.tsx', '.jsx'],
-	svelte: ['.svelte']
+	svelte: ['.svelte'],
+	vue: ['.vue']
 };
 const SERVER_EXTENSIONS = ['.server.ts', '.server.js'];
 const CONVENTION_RE = /^(?:.+\.)?(?:error|loading|not-found)\.[^.]+$/;
@@ -137,6 +139,11 @@ export const resolveFileRoutes = (
 		roots.push({
 			dir: resolve(root, config.svelteDirectory, directory),
 			framework: 'svelte'
+		});
+	if (config.vueDirectory)
+		roots.push({
+			dir: resolve(root, config.vueDirectory, directory),
+			framework: 'vue'
 		});
 	const resolved: ResolvedFileRoutes = {
 		output: resolve(root, options.output ?? DEFAULT_OUTPUT),
@@ -476,7 +483,9 @@ const quote = (value: string) =>
 
 const importSpecifier = (outputDir: string, target: string) => {
 	const extension = extname(target);
-	const keepsExtension = extension === '.svelte';
+	// An SFC's extension is part of its module specifier; a `.tsx`/`.jsx`
+	// route is imported without one.
+	const keepsExtension = extension === '.svelte' || extension === '.vue';
 	const withoutExtension = keepsExtension
 		? target
 		: target.slice(0, target.length - extension.length);
@@ -496,6 +505,10 @@ const ADAPTERS: Record<
 	svelte: {
 		name: 'svelteFileRoute',
 		specifier: '@absolutejs/absolute/svelte/server'
+	},
+	vue: {
+		name: 'vueFileRoute',
+		specifier: '@absolutejs/absolute/vue/server'
 	}
 };
 

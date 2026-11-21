@@ -110,6 +110,20 @@ const expectRoutes = async (port: number) => {
 	// The static sibling still wins over it.
 	expect(topic.body).toContain('<h1 id="topic">TOPIC_routing</h1>');
 
+	/* A Vue route: its `load` props render, and the private sibling it
+	 * imports compiles with it — which is the part that would break if a
+	 * Vue route were flattened out of the mirrored generated tree. */
+	const item = await get(port, '/shop/widget');
+	expect(item.status).toBe(200);
+	expect(item.body).toContain('ITEM_widget');
+	expect(item.body).toContain('VUE_CHILD');
+	expect(item.body).toMatch(/RouteShopItem[0-9a-z]{6}/);
+	/* The private sibling has no route of its own: `/shop/_Tag` is served
+	 * by the `[item]` route with `_Tag` as the param, which is also why
+	 * this cannot be asserted as a 404 the way `/_parts/Shell` is — there
+	 * is a param route at that depth to catch it. */
+	expect((await get(port, '/shop/_Tag')).body).toContain('ITEM__Tag');
+
 	// Explicit routes win, registered before or after fileRoutes().
 	expect((await get(port, '/about')).body).toBe('EXPLICIT_ABOUT');
 	expect((await get(port, '/explicit-first')).body).toBe('EXPLICIT_FIRST');

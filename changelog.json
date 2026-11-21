@@ -5,6 +5,21 @@
 		{
 			"changes": [
 				{
+					"detail": "A `vueDirectory` app can put pages in `<vueDirectory>/routes/` and serve them through the generated route module, with the same `[param]`, `[...catchAll]`, `[[optional]]` and `(group)` segments and the same co-located `<route>.server.ts` for `load` and `beforeHandle` that React and Svelte routes have. Vue needed a different mapping from the other two: Svelte flattens a route into `pages/<name>`, but Vue`s generated tree mirrors the source layout, so a route`s compiled module keeps its folder and takes only the route`s flat page name as its file name. That keeps a route`s own sibling imports (`./_Tag.vue`) resolving while giving every manifest key derivation a page name to read instead of `[item]`, which two routes in different folders would otherwise share.",
+					"kind": "added",
+					"summary": "Vue pages can be file routes",
+					"symbols": [
+						"FileRouteFramework",
+						"vueFileRoute"
+					]
+				}
+			],
+			"date": "2026-11-21",
+			"version": "0.20.0-beta.271"
+		},
+		{
+			"changes": [
+				{
 					"detail": "A file route may now use `[...catchAll]`, `[[optional]]` and `(group)` segments, which the scanner previously refused. `docs/[...rest].tsx` serves `/docs/*` and reads the match as `params.rest`, the name the file gave it, rather than as Elysia`s `*`; it has to be the last segment, since anything after it is unreachable. `[[lang]]/about.tsx` serves both `/about` and `/:lang/about` from one page, with `params.lang` typed `string | undefined` and `load` running on both. `(marketing)/pricing.tsx` serves `/pricing`. An optional catch-all, a group used as a file name, a catch-all that is not last and two segments sharing a name are each refused by name instead of as unmappable characters. Two defects found on the way: a route whose path has no params gave `load` no `params` object at all, so reading one threw, and the check that guards `load` required every param in the path, which would have skipped it on the shorter path of an optional route.",
 					"kind": "added",
 					"summary": "File routes understand catch-all, optional and group segments",
