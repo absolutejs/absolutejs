@@ -833,52 +833,59 @@ that renders no island with the key: the island is destroyed and the
 disposer registry empties, because persisting everything always is the
 wrong implementation that would otherwise pass.
 
-### A Vue page cannot be the destination yet (measured, 0.20.0-beta.254)
+### A Vue page as the destination works (0.20.0-beta.255) — and a correction
 
-A **Vue page as the destination** of a persisted island does not work, and
-the mechanism is not the one Svelte had. The timeline, taken in the
-browser with the live element held in a variable across the navigation:
+**It works.** A persisted island arriving on a Vue page keeps its
+instance: one mount, nothing destroyed, the typed value and the running
+interval intact, same as a React or Svelte destination.
+
+The previous revision of this section said it could not work, and gave a
+mechanism: *"Vue removes DOM children that its vnode does not have, so its
+hydration deletes the moved island."* **That was wrong**, and the way it
+was wrong is worth keeping.
+
+The real cause was one line of plumbing: Vue's `<Island>` did not declare
+a `persist` prop, and Vue drops undeclared props. So a Vue page's island
+markup carried no `data-absolute-persist`, the layer found no twin to
+match, and the island was never moved at all — it went out with the old
+body like any unpersisted island. Declaring the prop fixes it; nothing
+about Vue's hydration needed changing.
+
+The wrong mechanism came from misreading a timeline I had measured myself:
 
 ```
-t+50:   connected=true   vue=undefined  mounts=1   <- moved correctly
-t+150:  connected=false  vue=true       mounts=2   <- Vue hydrated
+t+50:   connected=true   vue=undefined  mounts=1
+t+150:  connected=false  vue=true       mounts=2
 ```
 
-The layer does its job; Vue's hydration then undoes it. **Vue removes DOM
-children that its vnode does not have**, where Svelte leaves them, so
-whatever is in an island host when a Vue page hydrates is deleted, and
-Vue's island component fills the host again from its snapshot
-(`client/preserveIslandMarkup.ts`) — a new instance, the moved one gone
-with the element it was mounted into.
+I read that as "the island was moved, then Vue's hydration removed it".
+But those timestamps are relative to the CLICK, and the swap takes longer
+than 50ms: at t+50 the old page was still live, which is why the element
+was still connected. The element never moved. `vue=true` appearing in the
+same row as `connected=false` made hydration look like the cause, when
+both were simply the state after a swap that had not persisted anything.
 
-Two things were tried and did not work, and both are recorded because they
-look like the obvious fixes:
+Two attempts were built on that wrong mechanism and are reverted:
+rendering the Vue island host with no children and filling it in
+`onMounted` (the shape that fixed Svelte), and `data-allow-mismatch` on
+every island host. A third was written and also removed: a reclaim pass
+that watched for a moved island leaving the document and put it back.
+It passed its test for the wrong reason — the test it was written against
+started passing because of the prop fix, and dropping the whole watch
+changed nothing.
 
-- **Rendering the host with no children** (the shape that fixed Svelte) and
-  filling it in `onMounted` only when empty. Vue deletes the server's
-  children first, so the host is always empty by then: the island is
-  rebuilt on every load instead of hydrated, and a moved island is still
-  lost. Vue's existing snapshot path exists precisely because of this.
-- **`data-allow-mismatch` on every island host.** Vue's own hosts carry
-  it, which made it the obvious suspect for why their markup survives;
-  adding it to the shared marker changed nothing.
+**The lesson for the rest of this phase**: a measurement answers the
+question it was pointed at, not the one being asked. "Is the island in the
+document?" sampled on a timer answers nothing about *why* it is not, and
+an elapsed-time label is not an event. Holding a reference across the
+navigation and asserting on identity — `live === document.querySelector(…)`
+— is what finally said "this element was never moved", in one line.
 
-What is left is a design decision rather than a tweak, and it is the one
-4i's constraint 2 named: a persisted island on a Vue page has to live
-somewhere Vue's hydration does not own. Either the island host is rendered
-outside the Vue app's root and positioned into place, or Vue renders a
-placeholder and the host is attached to it after hydration (a Teleport
-target is the idiomatic version of the same idea). Both are bigger than
-this feature's first version, and both want measuring before being
-written.
-
-**Angular as a destination is unmeasured.** It needs the spawned-app
-harness of 4e, and the shape of its island host rendering has not been
-read for this constraint.
-
-What a Vue page does do correctly, and is now covered: it hydrates **its
-own** island exactly once, one disposer, nothing orphaned — the fault
-beta.252 fixed for Svelte pages does not exist there.
+**Angular as a destination is still unverified end to end**, but the same
+plumbing gap it had is closed: `lowerServerIslands` reads `persist` off
+`<absolute-island>` and the component declares the input, with a unit test
+on the lowering. Whether an Angular page's hydration leaves a moved island
+alone needs the spawned-app harness of 4e.
 
 Layout-route conventions emitting `persist` automatically (step 5) are
 also still open.

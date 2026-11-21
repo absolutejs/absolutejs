@@ -71,6 +71,12 @@ const parseAngularIslandProps = (
 	const component = attributes.get('component');
 	const framework = attributes.get('framework');
 	const hydrate = attributes.get('hydrate') ?? 'load';
+	/* The `persist` key the navigation layer matches a live island against.
+	 * Read here as well as declared on the component: this lowering builds
+	 * the island's markup from the tag's attributes, so a key it does not
+	 * read never reaches the marker, and `persist` would silently do
+	 * nothing on an Angular page. */
+	const persist = attributes.get('persist');
 	const serializedProps = attributes.get('data-abs-props') ?? '{}';
 
 	if (!component || !framework) {
@@ -93,6 +99,7 @@ const parseAngularIslandProps = (
 		component,
 		framework,
 		hydrate,
+		...(persist === undefined ? {} : { persist }),
 		props: parsedProps
 	};
 };
