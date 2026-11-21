@@ -111,7 +111,13 @@ export const Image = defineComponent({
 		const srcSet = computed(() =>
 			props.unoptimized
 				? undefined
-				: generateSrcSet(props.src, props.width, props.sizes)
+				: generateSrcSet(
+						props.src,
+						props.width,
+						props.sizes,
+						{ quality: props.quality ?? DEFAULT_QUALITY },
+						props.loader
+					)
 		);
 
 		const resolvedSizes = computed(

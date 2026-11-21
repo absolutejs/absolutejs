@@ -76,7 +76,9 @@ export const Image = ({
 	);
 
 	// ── srcSet ──────────────────────────────────────────────────
-	const srcSet = unoptimized ? undefined : generateSrcSet(src, width, sizes);
+	const srcSet = unoptimized
+		? undefined
+		: generateSrcSet(src, width, sizes, { quality }, loader);
 
 	// ── Sizes ───────────────────────────────────────────────────
 	const resolvedSizes = sizes ?? (fill ? '100vw' : undefined);

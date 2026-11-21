@@ -5,10 +5,12 @@
 		{
 			"changes": [
 				{
-					"detail": "The Angular router hand-off shipped in 0.20.0-beta.247 wired the handler into a page's injected `provideRouter(...)` by importing `@absolutejs/absolute/angular/components` from the page's compiled server output. That output is loaded unbundled, from the generated directory, so the specifier had to resolve at runtime — and it does not when a page is compiled somewhere that cannot reach the package or its built output, which is how the framework's own colocated-routes SSR test compiles a page into a temp directory. The injected call now reads the handler from a well-known global (`ROUTER_HANDOFF_KEY`, also exported) that the page's hydration index publishes, and the index is bundled at build time where the specifier resolves once. Behaviour is unchanged in an app; on the server the global is unset, which is right — a hand-off is a browser concept, and a failed server-side navigation is reported exactly as Angular always has.",
-					"kind": "internal",
-					"summary": "The Angular router hand-off no longer resolves a package specifier at runtime",
+					"detail": "On an Angular page that exports `routes`, a `routerLink` pointing at a URL the route table does not match did nothing at all: Angular's router failed the navigation with NG04002, the address bar never changed, and the only trace was a console error that a production build strips to the offending segment. That is the right answer for an Angular application on its own, where a URL outside the route table is a mistake — but in an app whose next page is React or Svelte it usually is not, and `routerLink` is how every other link on the page is written. The build now wires an Angular navigation-error handler into the `provideRouter(...)` it injects for such a page, and a no-match hands the URL to cross-framework document navigation: a soft swap when the layer is installed and the page can be torn down, a normal page load otherwise. Only NG04002 is touched — a failed guard, a resolver that threw and a lazy chunk that would not load are reported by Angular exactly as before, and a page whose own URL is the unmatched one is never handed off, since that would ask the layer to navigate where it already is. The URL handed off is the one the router would have shown, so it carries `APP_BASE_HREF`: `routerLink=\"/pricing\"` on a page mounted at `/portal/*` means `/portal/pricing`. To leave the mount entirely, `absLink` (or a plain `href`) is still the way. The handler reaches the injected call through `ROUTER_HANDOFF_KEY`, a global the page's bundled hydration index publishes, rather than being imported by the page's server output, which is loaded unbundled and cannot count on resolving a package specifier; on the server the global is unset, which is right, since a hand-off is a browser concept. `absoluteRouterHandoff` is exported from `@absolutejs/absolute/angular/components` for an app that writes its own `provideRouter` call.",
+					"kind": "fixed",
+					"summary": "An Angular routerLink to another framework’s page navigates instead of dying",
 					"symbols": [
+						"absoluteRouterHandoff",
+						"resolveRouterHandoff",
 						"ROUTER_HANDOFF_KEY"
 					]
 				}
@@ -19,13 +21,21 @@
 		{
 			"changes": [
 				{
-					"detail": "On an Angular page that exports `routes`, a `routerLink` pointing at a URL the route table does not match did nothing at all: Angular's router failed the navigation with NG04002, the address bar never changed, and the only trace was a console error that a production build strips to the offending segment. That is the right answer for an Angular application on its own, where a URL outside the route table is a mistake — but in an app whose next page is React or Svelte it usually is not, and `routerLink` is how every other link on the page is written. The build now wires an Angular navigation-error handler into the `provideRouter(...)` it injects for such a page, and a no-match hands the URL to cross-framework document navigation: a soft swap when the layer is installed and the page can be torn down, a normal page load otherwise. Only NG04002 is touched — a failed guard, a resolver that threw and a lazy chunk that would not load are reported by Angular exactly as before, and a page whose own URL is the unmatched one is never handed off, since that would ask the layer to navigate where it already is. The URL handed off is the one the router would have shown, so it carries `APP_BASE_HREF`: `routerLink=\"/pricing\"` on a page mounted at `/portal/*` means `/portal/pricing`. To leave the mount entirely, `absLink` (or a plain `href`) is still the way. `absoluteRouterHandoff` is exported from `@absolutejs/absolute/angular/components` for an app that writes its own `provideRouter` call.",
-					"kind": "fixed",
-					"summary": "An Angular routerLink to another framework’s page navigates instead of dying",
+					"detail": "The client `generateSrcSet` from `@absolutejs/absolute/image` now takes the same arguments as the server's: `(src, width, sizes, config, loader)`. Its fourth and fifth arguments were the `deviceSizes` and `imageSizes` arrays; they move into `config`, beside `path` and `quality`, and the fifth is the image's loader. Angular's browser build already called it this way, which is how its loader came to be read as `imageSizes`.",
+					"kind": "breaking",
+					"migration": {
+						"instruction": "Call generateSrcSet(src, width, sizes, { deviceSizes, imageSizes }) instead of generateSrcSet(src, width, sizes, deviceSizes, imageSizes); pass a loader as the fifth argument.",
+						"manual": true
+					},
+					"summary": "`generateSrcSet` takes a config object and a loader, like the server’s",
 					"symbols": [
-						"absoluteRouterHandoff",
-						"resolveRouterHandoff"
+						"generateSrcSet"
 					]
+				},
+				{
+					"detail": "An `<Image>` with a custom `loader` used it for its `src` only: the React, Vue and Svelte components built every `srcset` candidate against the `/_absolute/image` endpoint instead, so a browser that picked from the set (a high-density screen, or any `sizes`) asked the endpoint for an image it may not be able to read — a private route, an external CDN — and showed it broken. The set's candidates now go through the loader too, and the image's `quality` reaches them (it was always the default before). Angular passed its loader, but its browser build calls the client `generateSrcSet`, which read that argument as `imageSizes`, so an Angular image with a loader failed when building its set.",
+					"kind": "fixed",
+					"summary": "Image's loader builds its whole srcset, with the image's quality"
 				}
 			],
 			"date": "2026-11-21",
