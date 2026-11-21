@@ -935,7 +935,7 @@ container's HTML. So the second write replaced a live island with a fresh
 copy. It now returns early when the container already holds an island,
 whoever put it there.
 
-### Closed: the Angular cold-entry double hydration (0.20.0-beta.258)
+### Closed: the Angular cold-entry double hydration (0.20.0-beta.259)
 
 One guard, in `registerIslandDisposer`: an island whose element has left
 the document by the time its hydrator registers a disposer is **unmounted

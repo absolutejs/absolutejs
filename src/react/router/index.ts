@@ -1,3 +1,5 @@
+export { lazyRoute } from './lazyRoute';
+export type { LazyRoute, LazyRouteOptions } from './lazyRoute';
 export { Link } from './Link';
 export type { LinkProps } from './Link';
 export { UniversalRouter } from './UniversalRouter';
