@@ -152,7 +152,7 @@ code, and the CSP problem has a precise answer (2.5).
   `style-src-attr` can't block it) announces `document.title`, falling
   back to the first `<h1>` and then the path.
 
-### 2.4 Persistent layouts (phase 5, design only)
+### 2.4 Persistent layouts (phase 5, design only — see 4i)
 
 Mark a subtree `data-absolute-persist="<id>"` on both pages. During the
 head/body swap, a persisted element present in both bodies is moved (not
@@ -165,6 +165,14 @@ as an island placeholder with `suppressHydrationWarning` and identical
 markup), and the islands runtime must not re-hydrate a moved island
 (`data-hydrated` already prevents it). Layout routes (`layout.tsx`
 conventions) would emit the marker automatically.
+
+**A prototype has since been built and measured — 4i supersedes the
+paragraph above wherever they disagree.** Two of the assumptions here do
+not survive a browser: `data-hydrated` does not protect a moved island on
+a Svelte page, because the page's island slot re-creates the markup rather
+than re-hydrating it, and the disposer registry unmounts a persisted
+subtree for being briefly detached. 4i also records the live double-mount
+defect that has to be fixed first.
 
 ### 2.5 Fallbacks
 
@@ -238,7 +246,7 @@ every navigation.
 | 2 | Teardown completeness | ~~Island dispose registry (islands unmounted with the old body)~~ **done, 0.20.0-beta.234**; ~~`__ABSOLUTE_PAGE_DISPOSE__` for HTML/HTMX pages (no-op) so they can participate~~ **done, 0.20.0-beta.235**; ~~prefetch cache on `globalThis` so a Svelte `<Link>` hover warms the React-installed layer~~ **done, 0.20.0-beta.236**; ~~dev HMR follows the swapped page (`__HMR_FRAMEWORK__`, per-page manifest)~~ **verified, 0.20.0-beta.237 — it already did**; a framework-supplied index boot function instead of `?absolute-nav=` re-imports. Exit: React ↔ Svelte ↔ HTML ↔ HTMX with islands **(rows done, 0.20.0-beta.240 — see 4f for what of "with islands" and "heap snapshot" is not)**, no leaked roots (heap snapshot), HMR edit after a soft navigation applies **(done)**. |
 | 3 | Vue + Angular | ~~Vue `<Link>` / vue-router hands off unmatched URLs~~ **verified, 0.20.0-beta.238 — it already did**; ~~Angular `routerLink` hands off unmatched URLs~~ **done, 0.20.0-beta.247 — it did not; it was a dead link, see 4e**; ~~Angular zone and platform teardown verified~~ **verified, 0.20.0-beta.239**. Exit: the Phase 1 suite for every framework pair (5×5 matrix in Playwright, prod + dev). |
 | 4 | Navigation API interception | ~~`navigate` event `intercept()` where supported (forms, `location.assign`, programmatic), click/popstate fallback elsewhere~~ **done, 0.20.0-beta.249 — see 4h**; ~~`config.navigation: true` injects `enableNavigation()` into every hydration index~~ **done, 0.20.0-beta.245**. Exit: suite passes in Chromium (Navigation API) and WebKit/Firefox (fallback) — Chromium both ways (the API removed in-browser); no WebKit/Firefox runner in CI yet. |
-| 5 | Persistent layouts | `data-absolute-persist` (2.4) plus layout-route emission. Exit: a React navbar island keeps state (input value, open menu) across React → Svelte → Vue. |
+| 5 | Persistent layouts | `data-absolute-persist` (2.4) plus layout-route emission. **Designed against a prototype, not yet implemented — see 4i**, which has the mechanism, the two constraints that block it and the live double-mount defect to fix first. Exit: a React navbar island keeps state (input value, open menu) across React → Svelte → Vue. |
 
 ## 4a. Island teardown (phase 2, shipped)
 
@@ -677,6 +685,121 @@ what the swap already does, in the wrong order.
 loads a document. That is the documented floor, and the suite asserts
 both halves of it with the API removed: the form loads a document, and a
 LINK still swaps — the half that could regress silently.
+
+## 4i. Persistent layouts: what a prototype found (phase 5, design)
+
+Phase 5's exit criterion is the payoff for everything phases 1 to 4 built:
+a React navbar island keeps an open menu and a typed-in value across
+React → Svelte → Vue. Nothing mainstream does that, because nothing else
+has to.
+
+This section is the result of building it as a throwaway prototype first,
+rather than writing the plan from the code. **The mechanism works. Two
+things in its way do not, and one of them is a live defect that has
+nothing to do with phase 5.**
+
+### The mechanism, and it is small
+
+A subtree marked `data-absolute-persist="<key>"` on both the current page
+and the incoming one is moved rather than re-created: in the swap, after
+the head is swapped and before `document.body.replaceWith`, each live
+subtree replaces its twin inside the *incoming* body, which the next line
+makes the live body. The subtree therefore goes straight from one body to
+the other and is never detached in between.
+
+Proven in a browser: a Svelte island hydrated on a React page survived the
+trip into a Svelte page with the value typed into it, mounted exactly
+once, never destroyed, its interval still counting. A key only one page
+declares is not persisted — a layout the next page never asked for has to
+be torn down, or this feature is beta.234's island leak with a nicer name,
+and that case is asserted too.
+
+### Constraint 1: the disposer registry unmounts anything detached
+
+`disposeIslandsIn` unmounts every island inside the root it is given **and
+prunes any whose element has left the document**. That pruning exists to
+stop a leak (beta.234), and it is exactly wrong here: a persisted subtree
+is, for an instant, in neither document. The pass needs to know what the
+navigation intends to keep — a `keep` predicate the layer supplies from
+the matched pairs. Cheap, and it has to come first; without it the
+navigation unmounts the very island it was asked to preserve.
+
+### Constraint 2: an incoming framework hydrates over the moved nodes
+
+This is the real design problem, and the prototype hit it the moment both
+pages rendered the layout rather than one page declaring an empty marker.
+
+A persisted subtree is placed where the incoming page's markup says it
+goes — and then the incoming page hydrates. React tolerates this already:
+`<Island>` renders a marker div with `suppressHydrationWarning` and no
+children, which is why islands survive React hydration today. Svelte does
+not: its island slots lower to an `{@html}` expression that re-inserts the
+slot's markup on hydration, which replaces the moved nodes with fresh
+ones. The mount count read 3 instead of 1.
+
+So a persisted subtree cannot simply sit inside the incoming page's
+component tree. Two ways out:
+
+1. **A region the page framework does not own.** Svelte, Vue and Angular
+   mount into a root element, so a `<body>`-level sibling of that root is
+   outside all three. React owns the document, so it must render the host
+   itself — with the `<Island>` trick, which is known to work. The layer
+   moves the host; pages declare where it goes rather than what is in it.
+2. **Hydrate, then replace.** Let the incoming page hydrate its own copy,
+   then swap the live subtree in and dispose the copy. Framework-agnostic
+   and robust, at the cost of mounting an island that is thrown away one
+   frame later — which for a video player or a map is not a detail.
+
+(1) is the better shape and the more work; (2) is a fallback worth keeping
+for a subtree a page insists on rendering inline. Neither can be chosen
+without constraint 3 being fixed first.
+
+### Constraint 3: a live defect, found by measuring the prototype
+
+On a Svelte page with an island, entered cold, the island mounts **twice**
+and leaves the first instance running on detached nodes:
+
+| Page entered cold | `__islandMounts` | `[data-island]` in DOM | disposers registered |
+| --- | --- | --- | --- |
+| React | 1 | 1 | 1 |
+| Svelte | **2** | 1 | **2** |
+
+Two disposers for one element is a zombie: an island instance with its
+effects, timers and subscriptions alive, attached to nodes no longer in
+the document, held by the registry until the next navigation prunes it.
+Every Svelte page with an island pays this on every load, and it is
+unrelated to persistence — it is the same `{@html}` re-insertion as
+constraint 2, hitting the island the page itself rendered.
+
+It is also the follow-up noted on beta.250's pull request, now measured
+rather than suspected. **It should be fixed before phase 5 is
+implemented**, and not only for tidiness: the fix is the mechanism phase 5
+needs. Both want the same thing — "this subtree is already live, write
+around it" — so the honest move is one preserved-node mechanism that the
+Svelte island lowering and the navigation layer both use, rather than a
+cheap patch that stops the leak (disposing the orphan when a replacement
+hydrates) and leaves the double work and the phase 5 blocker in place.
+
+### Order of work for phase 5
+
+1. One preserved-node mechanism, and the Svelte island slot stops
+   re-creating a hydrated island (constraint 3, with the table above as
+   its test — mounts and disposers both 1 on every framework).
+2. `disposeIslandsIn(root, keep)` (constraint 1).
+3. The layer's move, which is the part already proven.
+4. Design (1) of constraint 2: a persisted region outside the page
+   framework's root, with React rendering its host the way `<Island>`
+   does.
+5. Layout-route conventions emitting the marker automatically, which is
+   what makes this ergonomic rather than a manual attribute.
+
+The prototype is not in the repository. It was ~70 lines in
+`src/client/navigation.ts` plus the `keep` predicate, and the browser test
+that drove it is worth rebuilding rather than reviving: it asserted the
+kind of state a store cannot carry (a typed value, a running interval, a
+mount count), because `createIslandStore` state already survives a
+navigation and a test that checked a store value would have passed with
+none of this built.
 
 ## 5. Known limitations (phase 1)
 
