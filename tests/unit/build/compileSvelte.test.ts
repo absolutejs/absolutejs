@@ -9,7 +9,7 @@ const writeTempFile = async (path: string, content: string) => {
 };
 
 describe('compileSvelte', () => {
-	test('disables hydration only for pages that stream an {#await}', async () => {
+	test('hydrates a page that streams an {#await}, like any other', async () => {
 		const root = await mkdtemp(join(tmpdir(), 'absolutejs-compile-svelte-'));
 		const awaitPage = join(root, 'AwaitStreamingPage.svelte');
 		const awaitChild = join(root, 'AwaitChild.svelte');
@@ -70,11 +70,19 @@ describe('compileSvelte', () => {
 				? await Bun.file(plainIndexPath).text()
 				: '';
 
+			/* A streamed `{#await}` used to disable hydration for the whole
+			 * page — including through a CHILD component, which is what
+			 * this fixture has: the page itself contains no await block.
+			 * The page went inert, and the streamed branch was the stated
+			 * reason. It is not one: the swap runtime holds a streamed
+			 * payload until the index releases it after hydration. */
 			expect(awaitIndex).toContain(
-				'var shouldHydrate = typeof window === "undefined" || isClientRender ? false : false;'
+				'var shouldHydrate = typeof window === "undefined" || isClientRender ? false : true;'
 			);
 			expect(awaitIndex).toContain('} else if (isClientRender) {');
-			expect(awaitIndex).toContain('} else if (!shouldHydrate) {');
+			expect(awaitIndex).toContain(
+				'window.__ABSOLUTE_PAGE_DISPOSE__ = function()'
+			);
 			expect(plainIndex).toContain(
 				'var shouldHydrate = typeof window === "undefined" || isClientRender ? false : true;'
 			);

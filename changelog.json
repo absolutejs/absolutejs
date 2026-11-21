@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "A Svelte page that streams an `{#await}` block now hydrates like any other. It did not before: the build set `shouldHydrate = false` for any page containing a streamed slot — including one reached through a child component — so the page was never hydrated at all. No `onMount`, no event handlers, no reactivity: the page rendered and then did nothing, which is the worst failure shape there is because it looks finished. The reason given was that the streamed HTML is not Svelte's to claim, and it does not have to cost the page its hydration: the swap runtime already holds a streamed payload while `__ABS_SLOT_HYDRATION_PENDING__` is set and applies it once the page's index releases it after hydrating, which is the machinery the Vue and Angular streaming slots have always relied on. Hydration rewrites the slot with its pending fallback and the held payload is re-applied immediately afterwards, so the resolved content is what stays on the page. The flag that disabled hydration is gone entirely.",
+					"kind": "fixed",
+					"summary": "A Svelte page that streams an `{#await}` block hydrates instead of going inert"
+				}
+			],
+			"date": "2026-11-21",
+			"version": "0.20.0-beta.261"
+		},
+		{
+			"changes": [
+				{
 					"detail": "Adding an `error` convention turned streaming off for React pages. The handler buffered the whole document whenever an error convention existed for the page or anywhere in the app, so a page that streamed its shell in milliseconds began arriving only once its slowest Suspense boundary had resolved — measured at 603ms to first byte against 11ms for the same page without the convention. Nothing announced it: adding `error.tsx` looks unrelated to streaming, and the only symptom is a page that got slower. The buffering existed so the handler could answer a failed render with the convention's error page instead of half a document, and it was not needed for that: the only error that can be answered with an error page is one in the shell, and `renderToReadableStream` rejects for those before a byte is written, so the handler's catch still gets it. An error after the shell is React's to report through a boundary either way, since the status and the opening markup are already committed. React pages now stream whether or not an error convention exists, and a shell error still answers with the convention's page.",
 					"kind": "fixed",
 					"summary": "An `error` convention no longer turns off streaming for React pages"
