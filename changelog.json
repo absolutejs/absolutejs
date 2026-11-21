@@ -5,6 +5,22 @@
 		{
 			"changes": [
 				{
+					"detail": "An island rendered with `persist=\"<key>\"` keeps running across a cross-framework soft navigation when the page being swapped in renders an island with the same key: the live element is moved into the new document instead of being re-created, so the instance is never unmounted and never hydrated again and its DOM state comes with it — what was typed into it, an open menu, a playing video, a scrolled list. `createIslandStore` state already survived a navigation; this is the state a store cannot carry. A navbar island therefore keeps its state across React to Svelte, which is navigation plan phase 5's exit criterion. An island is the unit rather than an arbitrary subtree because an island is already the one thing every framework's hydration leaves alone, while page-owned markup is not: the page app is unmounted on every navigation, so persisting markup it owns would keep nodes whose component is gone. A page that renders no island with the key tears it down like any other, so a layout the next page never asked for does not outlive it. Verified both directions between React and Svelte pages; a Vue or Angular page as the destination of a persisted island is not yet verified.",
+					"kind": "added",
+					"summary": "Islands can persist across a navigation with a `persist` key",
+					"symbols": [
+						"RuntimeIslandRenderProps",
+						"TypedIslandRenderProps",
+						"renderIslandResult"
+					]
+				}
+			],
+			"date": "2026-11-21",
+			"version": "0.20.0-beta.253"
+		},
+		{
+			"changes": [
+				{
 					"detail": "Every Svelte page with an island hydrated that island twice and left the first instance running on nodes no longer in the document — two island instances and two disposers for one element, on every load, with the orphan's effects, timers and subscriptions alive until the next navigation pruned it. A React page with the same island read one and one. The cause was the island slot's client markup: the islands runtime hydrates an island from its own bootstrap, independently of the page, so by the time a Svelte page hydrated, the island in its slot was already a live instance — and the slot's `{@html}` wrote that markup again, which replaced those nodes, after which the runtime hydrated the new copy too. The slot now renders no children on the client and fills itself through an action only when no island is there, so a hydrating page leaves a live island exactly where it is while a client render, a page whose server markup was discarded and an HMR remount still produce theirs. `absoluteIslandSlot` is exported from `@absolutejs/absolute/svelte` for the generated code that uses it.",
 					"kind": "fixed",
 					"summary": "A Svelte page hydrates its islands once instead of twice, leaving no orphaned instance",
