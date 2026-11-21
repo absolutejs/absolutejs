@@ -1,4 +1,5 @@
 import { isTestFile } from '../testFiles';
+import { readServerSource } from '../serverSource';
 import { mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { extname, join, relative, resolve, sep } from 'node:path';
 import type { Loader } from 'bun';
@@ -173,7 +174,7 @@ export const analyzeSource = async (canonicalPath: string, source: string) => {
 };
 
 const loadImplementation = async (canonicalPath: string, filePath: string) => {
-	const source = readFileSync(filePath, 'utf-8');
+	const source = readServerSource(filePath);
 	const analysis = await analyzeSource(canonicalPath, source);
 	if (!analysis.ok) return { contents: source, loader: loaderFor(filePath) };
 	setAnalysis(canonicalPath, analysis, source);
@@ -182,7 +183,7 @@ const loadImplementation = async (canonicalPath: string, filePath: string) => {
 };
 
 const loadFacade = async (path: string) => {
-	const source = readFileSync(path, 'utf-8');
+	const source = readServerSource(path);
 	const analysis = await analyzeSource(path, source);
 	if (!analysis.ok) return { contents: source, loader: loaderFor(path) };
 
@@ -245,7 +246,7 @@ export const installHotModulePlugin = async (options: HotPluginOptions) => {
 					(query && !HOT_QUERY.test(query))
 				)
 					return {
-						contents: readFileSync(filePath, 'utf-8'),
+						contents: readServerSource(filePath),
 						loader: loaderFor(filePath)
 					};
 				const canonical = realPath(filePath);

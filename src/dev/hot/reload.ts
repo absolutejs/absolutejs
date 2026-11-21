@@ -1,4 +1,5 @@
-import { readFileSync, realpathSync } from 'node:fs';
+import { realpathSync } from 'node:fs';
+import { readServerSource } from '../serverSource';
 import { relative } from 'node:path';
 import { importersOf } from '../backendGraph';
 import type { HotModuleAnalysis } from './analyze';
@@ -301,7 +302,7 @@ const applyOnce = async (
 		return { status: 'unmanaged' };
 	let source: string;
 	try {
-		source = readFileSync(path, 'utf-8');
+		source = readServerSource(path);
 	} catch (error) {
 		// Atomic saves, deletes and moves can remove a watched module before
 		// its queued event runs. Nothing has advanced yet; retain the serving
@@ -482,7 +483,7 @@ export const applyServerChange = (path: string, entryPath: string) =>
 
 const readSource = (path: string) => {
 	try {
-		return readFileSync(path, 'utf-8');
+		return readServerSource(path);
 	} catch {
 		return undefined;
 	}

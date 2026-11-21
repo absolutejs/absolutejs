@@ -1,4 +1,5 @@
 import { BASE_36_RADIX, UNFOUND_INDEX } from '../constants';
+import { splitRoutePages } from '../build/splitRoutePages';
 import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { basename, dirname, extname, join, resolve, relative } from 'node:path';
 import { decodeSrcPath, encodeSrcPath } from './srcPath';
@@ -695,7 +696,12 @@ const transformReactFile = (
 	projectRoot: string,
 	rewriter: ReturnType<typeof buildImportRewriter>
 ) => {
-	const raw = readFileSync(filePath, 'utf-8');
+	// The router's pages load when first shown, as in every build
+	// (build/splitRoutePages.ts).
+	const original = readFileSync(filePath, 'utf-8');
+	const raw = filePath.includes('node_modules')
+		? original
+		: (splitRoutePages(original, filePath) ?? original);
 	const valueExports = tsxTranspiler.scan(raw).exports;
 	let transpiled = reactTranspiler.transformSync(raw);
 	transpiled = preserveTypeExports(raw, transpiled, valueExports);

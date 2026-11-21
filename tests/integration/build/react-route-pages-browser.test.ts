@@ -2,27 +2,28 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { extname, join, relative, resolve } from 'node:path';
+import { splitRoutePages } from '../../../src/build/splitRoutePages';
 import { build } from '../../../src/core/build';
 import { handleReactPageRequest } from '../../../src/react/pageHandler';
 import { openPage } from '../../helpers/browser';
 import { ensureDistBuild } from '../../helpers/ensureDistBuild';
 
-/* A React SPA whose pages are lazyRoute()s, built for production and run
- * in a browser. The app's entry must not carry the pages; while a page's
- * chunk is still on its way the layout is already interactive and the
- * server's HTML for the page stays on screen; the page hydrates when its
- * code arrives; and a page loaded once is not fetched again. */
+/* A React SPA written the plain way, pages imported and put in <Route>s,
+ * built for production and run in a browser. With nothing in the app
+ * asking for it, the entry must not carry the pages; while a page's chunk
+ * is still on its way the layout is already interactive and the server's
+ * HTML for the page stays on screen; the page hydrates when its code
+ * arrives; and a page loaded once is not fetched again. */
 
 const repoRoot = resolve(import.meta.dir, '..', '..', '..');
 const fixtureRoot = join(repoRoot, '.test-builds', `react-lazy-${process.pid}`);
 const CHUNK_DELAY_MS = 1_500;
 
-const SHELL = `import { Link, UniversalRouter, lazyRoute } from '@absolutejs/absolute/react/router';
+const SHELL = `import { Link, UniversalRouter } from '@absolutejs/absolute/react/router';
 import { useState } from 'react';
 import { Route, Routes } from 'react-router';
-
-const Billing = lazyRoute(() => import('../components/Billing'), 'Billing');
-const Account = lazyRoute(() => import('../components/Account'), 'Account');
+import { Account } from '../components/Account';
+import { Billing } from '../components/Billing';
 
 const Nav = () => {
 	const [clicks, setClicks] = useState(0);
@@ -102,7 +103,13 @@ beforeAll(async () => {
 	});
 	const manifest = result?.manifest ?? {};
 	entryPath = manifest.LazyShellIndex ?? '';
-	const pageModule: unknown = await import(join(fixtureRoot, 'react', 'pages', 'LazyShell.tsx'));
+	// The server renders what `absolute start` bundles: the same source with
+	// its route pages split (build/routePagesPlugin.ts), so it emits the
+	// boundaries the browser bundle hydrates. bun test runs no framework
+	// plugin, so the test applies the transform itself.
+	const serverCopy = join(fixtureRoot, 'react', 'pages', 'LazyShell.server.tsx');
+	await writeFile(serverCopy, splitRoutePages(SHELL, serverCopy) ?? SHELL);
+	const pageModule: unknown = await import(serverCopy);
 	const Page: unknown =
 		typeof pageModule === 'object' && pageModule !== null
 			? Reflect.get(pageModule, 'LazyShell')
@@ -139,7 +146,7 @@ afterAll(async () => {
 	await rm(fixtureRoot, { force: true, recursive: true });
 });
 
-describe('React lazy routes', () => {
+describe('React router pages load when first shown, with nothing to write', () => {
 	test('the entry carries no page; each page is a chunk of its own', async () => {
 		const entry = await readFile(join(fixtureRoot, 'build', entryPath), 'utf-8');
 
