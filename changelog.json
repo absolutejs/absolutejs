@@ -5,6 +5,27 @@
 		{
 			"changes": [
 				{
+					"detail": "An island whose component did not resolve returned silently — no throw, no log, no `data-error` attribute. The element kept its server markup and simply never came alive, which is indistinguishable from the island runtime never having run, and it left every island problem undiagnosable: two separate production defects in static-page islands hid behind it for eight debugging rounds. All four framework branches now throw instead, which routes the failure through the same path as any other hydration error, so `hydrateIsland` writes the message to `data-error` on the element and logs it with the framework and component name. The message names what was resolved instead of a component and points at the three things that cause it: the component missing from the island registry, its island bundle failing to load, and its framework directory not being configured so the build never compiled it.",
+					"kind": "changed",
+					"summary": "An island that cannot resolve its component now says so"
+				},
+				{
+					"detail": "An island on a static HTML or HTMX page never hydrated in a production build. `@absolutejs/absolute/client` is itself a split bundle: its per-framework island hydrators live in chunk files loaded through a generated module map, so the call is `import(map[i])` with a computed argument. Bun cannot statically follow that, so when the islands pass bundled a bootstrap importing the runtime those chunk files were never pulled in, and the literal specifiers inside the map resolved against the bootstrap's own URL — `/islands/chunks/index-<hash>.js`, which nothing emitted and nothing served. The only symptom was one 404 and an island that silently kept its server markup. The build now copies the runtime's chunks into the island output and sends them through the same rewrite pass as the app's own client output, because they carry bare framework specifiers a browser cannot resolve. A hydrator chunk for a framework the app does not configure is skipped: there is no vendor path to rewrite it to, the build's own un-vendored-import guard fails on exactly that, and nothing can reach it anyway. Bundling the runtime flat instead is not an option — it is split so a React-only consumer does not need Svelte installed to compile. Never caught before because the one test for static-page islands asserts the bootstrap script tag is in the HTML without loading the page in a browser, and no example app has an island on a static page.",
+					"kind": "fixed",
+					"summary": "An island on a static page now hydrates in a production build"
+				},
+				{
+					"detail": "A static page carrying islands could be soft-navigated to but not from: the link out did a full document load. Marking a page as having nothing to tear down was keyed on the incoming document having no module script, and an island bootstrap is a module script, so such a page read as a framework page whose hydration index might still register a teardown hook — and the conservative full load is right for that case. It is now keyed on `__ABSOLUTE_PAGE_READY__`, which every hydration index sets as its module evaluates and an island bootstrap never sets: neither that nor a dispose hook present means there is no framework app at all. The mark also moved before `waitForPageReady`, which spends its whole poll deadline establishing that no hook is coming; marked after it, a static page stayed unswappable for seconds, long enough for a visitor's click to force the full load even once the signal was right. A page whose inline bootstrap imports its index asynchronously is marked too, which is safe because the mark never replaces a real hook and the index overwrites it on evaluation.",
+					"kind": "fixed",
+					"summary": "A static page with islands can be navigated away from in place"
+				}
+			],
+			"date": "2026-11-21",
+			"version": "0.20.0-beta.242"
+		},
+		{
+			"changes": [
+				{
 					"detail": "Angular was the one framework with no prefetching link, which the roadmap had already specified as `<a absLink href=\"/about\">About</a>` with `prefetch` taking `hover`, `viewport` or `none`. The directive matches that, plus an optional `prerender` for a speculation rule, and its prefetch kinds match what `usePrefetch` gives the other frameworks: a deliberate signal — hover, focus, pointerdown — asks for `route`, the document plus the payload naming the modules and CSS to warm with it, while scrolling into view asks for `document` and fetches the HTML alone. It never calls `preventDefault`: `routerLink` is Angular's way to navigate inside an Angular router and a directive competing for clicks would fight it, so this one warms the cache and lets the click go to the navigation layer or the browser. It reaches the prefetch runtime through a new import-free indirection, `utils/prefetchRef`, which the client prefetch module registers itself with as it loads — a component in `src/angular/components` cannot import that module directly, because the partial compile copies that directory alone into a flat workspace and an import climbing out of it makes the step emit nothing, publishing every Angular component empty while the build still reports success. Without the runtime on the page every call is a no-op and the link still works, since prefetching is an optimisation; `enableNavigation()` brings the runtime in.",
 					"kind": "added",
 					"summary": "absLink, the prefetching link directive for Angular",

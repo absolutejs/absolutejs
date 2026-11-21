@@ -165,6 +165,26 @@ const hydratePreservingBrowserTranslation = async (
 // React-only project loading `@absolutejs/absolute/client` would resolve
 // every framework's peer deps — including `@angular/core` — and fail at
 // module load if any of them weren't installed.
+/* An island whose component does not resolve used to return silently —
+ * no throw, no log, no `data-error`. The element kept its server markup
+ * and simply never came alive, which is indistinguishable from "the
+ * runtime never ran" and left every island problem undiagnosable; it cost
+ * eight blind runs to bisect a static-page island that turned out to be
+ * several separate faults.
+ *
+ * Thrown rather than logged here, so it goes through the same path as any
+ * other hydration failure: `hydrateIsland` catches it, writes the message
+ * to `data-error` on the element and logs it with the framework and
+ * component name. */
+const unresolvedIslandError = (resolved: unknown) =>
+	new Error(
+		`its component did not resolve (${
+			resolved === undefined || resolved === null
+				? String(resolved)
+				: `got ${typeof resolved}`
+		}). Check that it is in the island registry, that its island bundle loaded, and that its framework directory is configured so the build compiles it.`
+	);
+
 const hydrateByFramework = async (
 	registry: RuntimeIslandRegistry,
 	framework: IslandFramework,
@@ -181,10 +201,18 @@ const hydrateByFramework = async (
 	if (framework === 'react') {
 		const { hydrateReactIsland, isReactComponent } =
 			await import('./hydrators/react');
-		const resolvedComponent =
+		/* `getIslandComponent` unwraps an island component DEFINITION —
+		 * what `defineIslandComponent` produces, `{ component, source }`.
+		 * It has to run on the resolver's result too, not only on the
+		 * registry lookup: a resolved island entry whose default export is
+		 * a definition is an object, every `is…Component` guard rejects an
+		 * object, and the island then failed to hydrate. */
+		const resolvedComponent = getIslandComponent(
 			(await resolveComponent?.(framework, componentName)) ??
-			getIslandComponent(registry.react?.[componentName]);
-		if (!isReactComponent(resolvedComponent)) return;
+				registry.react?.[componentName]
+		);
+		if (!isReactComponent(resolvedComponent))
+			throw unresolvedIslandError(resolvedComponent);
 
 		hydrateReactIsland(resolvedComponent, element, propsRecord);
 		element.dataset.hydrated = 'true';
@@ -195,10 +223,18 @@ const hydrateByFramework = async (
 	if (framework === 'svelte') {
 		const { hydrateSvelteIsland, isSvelteComponent } =
 			await import('./hydrators/svelte');
-		const resolvedComponent =
+		/* `getIslandComponent` unwraps an island component DEFINITION —
+		 * what `defineIslandComponent` produces, `{ component, source }`.
+		 * It has to run on the resolver's result too, not only on the
+		 * registry lookup: a resolved island entry whose default export is
+		 * a definition is an object, every `is…Component` guard rejects an
+		 * object, and the island then failed to hydrate. */
+		const resolvedComponent = getIslandComponent(
 			(await resolveComponent?.(framework, componentName)) ??
-			getIslandComponent(registry.svelte?.[componentName]);
-		if (!isSvelteComponent(resolvedComponent)) return;
+				registry.svelte?.[componentName]
+		);
+		if (!isSvelteComponent(resolvedComponent))
+			throw unresolvedIslandError(resolvedComponent);
 
 		await hydratePreservingBrowserTranslation(element, () =>
 			hydrateSvelteIsland(resolvedComponent, element, propsRecord)
@@ -211,10 +247,18 @@ const hydrateByFramework = async (
 	if (framework === 'vue') {
 		const { hydrateVueIsland, isVueComponent } =
 			await import('./hydrators/vue');
-		const resolvedComponent =
+		/* `getIslandComponent` unwraps an island component DEFINITION —
+		 * what `defineIslandComponent` produces, `{ component, source }`.
+		 * It has to run on the resolver's result too, not only on the
+		 * registry lookup: a resolved island entry whose default export is
+		 * a definition is an object, every `is…Component` guard rejects an
+		 * object, and the island then failed to hydrate. */
+		const resolvedComponent = getIslandComponent(
 			(await resolveComponent?.(framework, componentName)) ??
-			getIslandComponent(registry.vue?.[componentName]);
-		if (!isVueComponent(resolvedComponent)) return;
+				registry.vue?.[componentName]
+		);
+		if (!isVueComponent(resolvedComponent))
+			throw unresolvedIslandError(resolvedComponent);
 
 		await hydratePreservingBrowserTranslation(element, () =>
 			hydrateVueIsland(resolvedComponent, element, propsRecord)
@@ -227,11 +271,19 @@ const hydrateByFramework = async (
 	if (framework === 'angular') {
 		const { mountAngularIsland, isAngularComponent } =
 			await import('../angular/islands');
-		const resolvedComponent =
+		/* `getIslandComponent` unwraps an island component DEFINITION —
+		 * what `defineIslandComponent` produces, `{ component, source }`.
+		 * It has to run on the resolver's result too, not only on the
+		 * registry lookup: a resolved island entry whose default export is
+		 * a definition is an object, every `is…Component` guard rejects an
+		 * object, and the island then failed to hydrate. */
+		const resolvedComponent = getIslandComponent(
 			(await resolveComponent?.(framework, componentName)) ??
-			getIslandComponent(registry.angular?.[componentName]);
+				registry.angular?.[componentName]
+		);
 		const { islandId } = element.dataset;
-		if (!isAngularComponent(resolvedComponent) || !islandId) return;
+		if (!isAngularComponent(resolvedComponent) || !islandId)
+			throw unresolvedIslandError(resolvedComponent);
 
 		await hydratePreservingBrowserTranslation(element, () =>
 			mountAngularIsland(
