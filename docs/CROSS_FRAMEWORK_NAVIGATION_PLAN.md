@@ -908,23 +908,55 @@ island the bootstrap already hydrated, is discarded. There is nothing to
 fire, because the container is always empty by then. A guard for it was
 written, found to be dead code, and removed.
 
-So the fix is a design question, not a tweak, and it is the one worth
-asking next:
+**Resolved for `persist`, 0.20.0-beta.257: the container adopts.** The
+projection route is not available — the server replaces the whole
+`<absolute-island>` element with the island's markup, so there is no host
+element for Angular to hydrate at that position, which is why
+`ngSkipHydration` is there at all. The container therefore stays
+client-rendered, and the component now looks for the live island before
+writing markup: by `data-island-id` (which the server gives every island,
+and which `preserveIslandMarkup` carries into the component's own
+attributes, so two islands of one component with identical props cannot be
+mistaken for each other), else by `persist` key. It looks in the document
+first and in the disposer registry second — by the time a navigation
+brings a persisted island in, the element is detached and the registry is
+the only thing still holding it. That is what `registeredIslandElements`
+exists for.
 
-- Can the container hydrate instead of being client-rendered — the island
-  markup rendered server-side inside it and projected (`<ng-content>`)
-  rather than written? That would make Angular behave like Svelte, where
-  hydration leaves foreign children alone.
-- Or does the island host need to be adopted rather than re-created: the
-  component looking for a live island with its own signature or `persist`
-  key and moving it into the container instead of writing markup? That
-  needs the layer to park persisted islands somewhere discoverable, which
-  is the mechanism this phase keeps circling back to.
+A persisted island arriving on an Angular page is therefore the same
+instance that crossed, asserted on identity (`live ===
+document.querySelector('[data-island]')`), with its typed value intact.
 
-`persist`'s plumbing is in place on both Angular surfaces — the server
-lowering reads it off `<absolute-island>` (unit-tested) and the browser
-component declares the input — so whichever fix is chosen, the key is
-already where it needs to be.
+**The component also used to write its markup twice.** `applyMarkup` runs
+from both `ngOnChanges` and `ngAfterViewInit`, and its
+`innerHTML === markup` guard does not stop the second call: by then the
+islands runtime has hydrated what the first call wrote, which changes the
+container's HTML. So the second write replaced a live island with a fresh
+copy. It now returns early when the container already holds an island,
+whoever put it there.
+
+### Still open: an Angular page entered cold hydrates its island twice
+
+Two disposers for one element in the document, which means a **second,
+detached element exists**. Four explanations are ruled out by measurement:
+
+| Explanation | Ruled out by |
+| --- | --- |
+| The component writes twice | Fixed; logging shows one write, count unchanged |
+| A detached element is hydrated | A skip-if-detached guard changed nothing |
+| Two copies of the islands runtime race on one element | A `data-hydrating` DOM claim, shared by all copies, changed nothing |
+| Vue-style re-creation of the host | Angular's container is empty when written; nothing to re-create |
+
+The last two were written, measured, and reverted rather than shipped —
+a check that cannot be shown to fire is the speculative machinery this
+phase has already produced twice.
+
+What is known: at the time the component writes, the document holds **no**
+islands at all (`allIslands=0`) and the registry is empty, so the second
+element appears after that. Where it comes from is the next thing to find,
+and the honest next step is to log every `registerIslandDisposer` call
+with its element's identity and parent chain, rather than to guess a fifth
+mechanism.
 
 Layout-route conventions emitting `persist` automatically (step 5) are
 also still open.
