@@ -881,11 +881,50 @@ an elapsed-time label is not an event. Holding a reference across the
 navigation and asserting on identity — `live === document.querySelector(…)`
 — is what finally said "this element was never moved", in one line.
 
-**Angular as a destination is still unverified end to end**, but the same
-plumbing gap it had is closed: `lowerServerIslands` reads `persist` off
-`<absolute-island>` and the component declares the input, with a unit test
-on the lowering. Whether an Angular page's hydration leaves a moved island
-alone needs the spawned-app harness of 4e.
+### An Angular page: measured, and it has beta.252's defect (0.20.0-beta.256)
+
+Measured with the spawned-app harness. **An island on an Angular page
+works** — it hydrates, it is interactive, and it still is after a soft
+navigation into the page, which is a matrix row that had no test and now
+does. Two things do not work, and they are the same fault:
+
+| Angular page, entered cold | `__islandMounts` | `[data-island]` in DOM | disposers |
+| --- | --- | --- | --- |
+| today | **2** | 1 | **2** |
+
+That is beta.252's Svelte defect in a third framework: the island is
+hydrated from its own bootstrap, then hydrated again, and the first
+instance is left running on detached nodes. And it is why `persist` does
+not survive a navigation into an Angular page either — the live island
+that the layer moves in is inside the container Angular throws away.
+
+The cause is specific and different from the Svelte and Vue ones:
+`src/angular/Island.browser.ts` renders `<div #container ngSkipHydration>`
+and writes the island's markup into it. `ngSkipHydration` means Angular
+**client-renders** that subtree rather than hydrating it, so the container
+Angular ends up with is a fresh element — the server's container, with the
+island the bootstrap already hydrated, is discarded. There is nothing to
+"not overwrite": the rule that fixed Svelte (write only when empty) cannot
+fire, because the container is always empty by then. A guard for it was
+written, found to be dead code, and removed.
+
+So the fix is a design question, not a tweak, and it is the one worth
+asking next:
+
+- Can the container hydrate instead of being client-rendered — the island
+  markup rendered server-side inside it and projected (`<ng-content>`)
+  rather than written? That would make Angular behave like Svelte, where
+  hydration leaves foreign children alone.
+- Or does the island host need to be adopted rather than re-created: the
+  component looking for a live island with its own signature or `persist`
+  key and moving it into the container instead of writing markup? That
+  needs the layer to park persisted islands somewhere discoverable, which
+  is the mechanism this phase keeps circling back to.
+
+`persist`'s plumbing is in place on both Angular surfaces — the server
+lowering reads it off `<absolute-island>` (unit-tested) and the browser
+component declares the input — so whichever fix is chosen, the key is
+already where it needs to be.
 
 Layout-route conventions emitting `persist` automatically (step 5) are
 also still open.

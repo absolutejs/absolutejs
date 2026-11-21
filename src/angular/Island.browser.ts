@@ -21,6 +21,7 @@ export class Island implements AfterViewInit, OnChanges {
 	@Input() component = '';
 	@Input() framework: RuntimeIslandRenderProps['framework'] = 'react';
 	@Input() hydrate: RuntimeIslandRenderProps['hydrate'] = 'load';
+	@Input() persist: RuntimeIslandRenderProps['persist'] = undefined;
 	@Input() props: RuntimeIslandRenderProps['props'] = {};
 
 	declare static ɵfac: i0.ɵɵFactoryDeclaration<Island, never>;
@@ -32,6 +33,7 @@ export class Island implements AfterViewInit, OnChanges {
 			component: { alias: 'component'; required: false };
 			framework: { alias: 'framework'; required: false };
 			hydrate: { alias: 'hydrate'; required: false };
+			persist: { alias: 'persist'; required: false };
 			props: { alias: 'props'; required: false };
 		},
 		Record<string, string>,
@@ -51,6 +53,7 @@ export class Island implements AfterViewInit, OnChanges {
 			component: this.component,
 			framework: this.framework,
 			hydrate: this.hydrate,
+			persist: this.persist,
 			props: this.props
 		} satisfies RuntimeIslandRenderProps;
 		const { attributes, innerHTML } = preserveIslandMarkup(runtimeProps);
