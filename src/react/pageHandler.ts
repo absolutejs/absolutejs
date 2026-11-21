@@ -36,11 +36,7 @@ import {
 } from '../core/streamingSlotWarningScope';
 import { ssrErrorPage } from '../utils/ssrErrorPage';
 import { renderSpaNotFound } from '../utils/spaRouteManifest';
-import {
-	hasErrorConvention,
-	renderConventionError,
-	resolveErrorConventionPath
-} from '../utils/resolveConvention';
+import { renderConventionError } from '../utils/resolveConvention';
 import { BROWSER_TRANSLATION_BASELINE_SCRIPT } from '../core/browserTranslation';
 
 type ReactPageRenderOptions = StreamingSlotEnhancerOptions & {
@@ -218,16 +214,22 @@ export const handleReactPageRequest = async <
 				// modulepreload, or the browser ignores it.
 				basePathHeadTags(getBasePath(), readCspNonce())
 			);
-			if (
-				resolveErrorConventionPath('react', pageName) ||
-				hasErrorConvention('react')
-			) {
-				const html = await new Response(htmlStream).text();
-
-				return new Response(html, {
-					headers: { 'Content-Type': HTML_CONTENT_TYPE }
-				});
-			}
+			/* An error convention used to turn streaming off: the whole
+			 * document was buffered with `await new Response(stream).text()`
+			 * so the handler's `catch` could answer with the convention's
+			 * error page instead of half a document. It cost every page in
+			 * an app with an `error.tsx` its streaming, silently — adding
+			 * that file is an unrelated-looking act, and the only symptom is
+			 * a page that got slower.
+			 *
+			 * It also bought nothing. The only error that can be answered
+			 * with an error page is one in the SHELL, and
+			 * `renderToReadableStream` rejects for those before a byte is
+			 * written — above, inside this same `try`, so the catch gets it
+			 * either way. An error after the shell is React's to report
+			 * through a boundary: by then the status and the opening markup
+			 * are committed, and buffering changes nothing about that except
+			 * when the user sees the part that worked. */
 
 			return new Response(htmlStream, {
 				headers: streamingPageHeaders()
