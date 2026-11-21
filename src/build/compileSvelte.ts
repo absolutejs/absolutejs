@@ -77,7 +77,6 @@ const hmrClientPath = join(devClientDir, 'hmrClient.ts').replace(/\\/g, '/');
 type Built = {
 	ssr: string;
 	client: string;
-	hasAwaitSlot: boolean;
 	/** `.svelte.ts`/`.svelte.js` runes module (compileModule output) — has no
 	 *  component default export, so it must never get a hydration index. */
 	isModule: boolean;
@@ -405,9 +404,6 @@ export const compileSvelte = async (
 		const childBuilt = await Promise.all(
 			childSources.map((child) => build(child))
 		);
-		const hasAwaitSlotFromChildren = childBuilt.some(
-			(child) => child.hasAwaitSlot
-		);
 		// Build a map of original import specifiers to the correct path from the
 		// generated output file. Svelte child components may point to compiled
 		// siblings; plain TS/JS helpers should resolve back to their original
@@ -650,20 +646,6 @@ export const compileSvelte = async (
 		const built: Built = {
 			client: clientPath,
 			css: cssFile,
-			/* ONLY the await-slot lowering. `loweredServerSource` and
-			 * `loweredClientSource` are the ISLAND lowering, and counting
-			 * them here made every Svelte page that renders an `<Island>`
-			 * look like a page with a streamed `{#await}` — which the index
-			 * template answers by setting `shouldHydrate = false`, so the
-			 * page component was never mounted or hydrated at all. The
-			 * islands still worked (their own bootstrap hydrates them),
-			 * which is what made it survivable enough to ship: the page
-			 * rendered, and only its own `onMount`, event handlers and
-			 * reactivity were missing. */
-			hasAwaitSlot:
-				loweredAwaitServerSource.transformed ||
-				loweredAwaitClientSource.transformed ||
-				hasAwaitSlotFromChildren,
 			isModule,
 			ssr: ssrPath
 		};
@@ -683,7 +665,7 @@ export const compileSvelte = async (
 	const componentRoots = roots.filter((root) => !root.isModule);
 
 	await Promise.all(
-		componentRoots.map(async ({ client, hasAwaitSlot }) => {
+		componentRoots.map(async ({ client }) => {
 			const relClientDir = dirname(relative(clientDir, client));
 			const name = basename(client, extname(client));
 			const indexPath = join(indexDir, relClientDir, `${name}.js`);
@@ -705,9 +687,7 @@ var initialProps = (typeof window !== "undefined" && window.__INITIAL_PROPS__) ?
 var isHMR = typeof window !== "undefined" && window.__SVELTE_COMPONENT__ !== undefined;
 var isSsrDirty = typeof window !== "undefined" && window.__SSR_DIRTY__;
 var isClientRender = typeof window !== "undefined" && window.__ABSOLUTE_PAGE_RENDER_MODE__ === "client";
-var shouldHydrate = typeof window === "undefined" || isClientRender ? false : ${
-				hasAwaitSlot ? 'false' : 'true'
-			};
+var shouldHydrate = typeof window === "undefined" || isClientRender ? false : true;
 var component;
 var target = document.getElementById(${JSON.stringify(SVELTE_PAGE_ROOT_ID)}) || document.body;
 
@@ -720,8 +700,10 @@ var target = document.getElementById(${JSON.stringify(SVELTE_PAGE_ROOT_ID)}) || 
  * whole page: mount appends, so the server's markup stayed and a second
  * copy went in after it. Every selector then found the dead first copy --
  * a page that rendered twice and responded to nothing. That branch was
- * unreachable until the hasAwaitSlot flag stopped counting island
- * lowering, which is how two defects hid behind each other. */
+ * unreachable until the flag that disabled hydration stopped counting
+ * island lowering, which is how two defects hid behind each other. That
+ * flag is gone entirely now: a streamed await block no longer turns
+ * hydration off either. */
 if (typeof window !== "undefined") {
   var islandSlots = document.querySelectorAll("[data-absolute-island-slot]");
   var islandHtml = {};
