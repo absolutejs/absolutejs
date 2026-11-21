@@ -754,7 +754,7 @@ component tree. Two ways out:
 for a subtree a page insists on rendering inline. Neither can be chosen
 without constraint 3 being fixed first.
 
-### Constraint 3: a live defect, found by measuring the prototype
+### Constraint 3: a live defect, found by measuring the prototype — fixed, 0.20.0-beta.252
 
 On a Svelte page with an island, entered cold, the island mounts **twice**
 and leaves the first instance running on detached nodes:
@@ -772,13 +772,30 @@ unrelated to persistence — it is the same `{@html}` re-insertion as
 constraint 2, hitting the island the page itself rendered.
 
 It is also the follow-up noted on beta.250's pull request, now measured
-rather than suspected. **It should be fixed before phase 5 is
-implemented**, and not only for tidiness: the fix is the mechanism phase 5
-needs. Both want the same thing — "this subtree is already live, write
-around it" — so the honest move is one preserved-node mechanism that the
-Svelte island lowering and the navigation layer both use, rather than a
-cheap patch that stops the leak (disposing the orphan when a replacement
-hydrates) and leaves the double work and the phase 5 blocker in place.
+rather than suspected.
+
+**Fixed in 0.20.0-beta.252**, and the rule it ended up following is the
+one phase 5 needs: *fill the slot only when it is empty*. The client
+lowering emits no children for an island slot and a `use:` action that
+writes the markup only when no island is there, so a hydrating page leaves
+a live island exactly where it is and a mounting one (client render,
+discarded server markup, HMR remount) still gets its markup.
+
+Three forms were tried in a browser, and the order of findings is the
+useful part:
+
+| Client slot | Hydrating page | Mounting page |
+| --- | --- | --- |
+| `{@html await resolve()}` (before) | island re-created, hydrated twice, first instance orphaned | works |
+| `{@html resolve()}`, synchronous | **still** re-created — `{@html}` writes on hydrate either way, so the `await` was not the cause | works |
+| `{#if needsMarkup()}{@html …}{/if}` | island **removed**: the block's hydration anchors make Svelte delete the nodes between them | works |
+| empty element + `use:` action (shipped) | untouched, one instance, one disposer | action fills the empty slot |
+
+The thing worth remembering: an element whose client template has no
+children keeps the DOM children it already has, and the moment that
+emptiness is expressed as a block — an `{#if}`, and by extension an
+`{#each}` or a component boundary — Svelte owns the range and clears it.
+That is the constraint any phase 5 persisted region has to live inside.
 
 ### Order of work for phase 5
 
