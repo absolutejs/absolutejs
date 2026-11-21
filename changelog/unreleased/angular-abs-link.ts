@@ -1,8 +1,0 @@
-import type { Change } from '@absolutejs/changelog';
-
-export const change: Change = {
-	detail: 'Angular was the one framework with no prefetching link, which the roadmap had already specified as `<a absLink href="/about">About</a>` with `prefetch` taking `hover`, `viewport` or `none`. The directive matches that, plus an optional `prerender` for a speculation rule, and its prefetch kinds match what `usePrefetch` gives the other frameworks: a deliberate signal — hover, focus, pointerdown — asks for `route`, the document plus the payload naming the modules and CSS to warm with it, while scrolling into view asks for `document` and fetches the HTML alone. It never calls `preventDefault`: `routerLink` is Angular\'s way to navigate inside an Angular router and a directive competing for clicks would fight it, so this one warms the cache and lets the click go to the navigation layer or the browser. It reaches the prefetch runtime through a new import-free indirection, `utils/prefetchRef`, which the client prefetch module registers itself with as it loads — a component in `src/angular/components` cannot import that module directly, because the partial compile copies that directory alone into a flat workspace and an import climbing out of it makes the step emit nothing, publishing every Angular component empty while the build still reports success. Without the runtime on the page every call is a no-op and the link still works, since prefetching is an optimisation; `enableNavigation()` brings the runtime in.',
-	kind: 'added',
-	summary: 'absLink, the prefetching link directive for Angular',
-	symbols: ['AbsoluteLinkDirective']
-};

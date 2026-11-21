@@ -5,6 +5,20 @@
 		{
 			"changes": [
 				{
+					"detail": "Angular was the one framework with no prefetching link, which the roadmap had already specified as `<a absLink href=\"/about\">About</a>` with `prefetch` taking `hover`, `viewport` or `none`. The directive matches that, plus an optional `prerender` for a speculation rule, and its prefetch kinds match what `usePrefetch` gives the other frameworks: a deliberate signal — hover, focus, pointerdown — asks for `route`, the document plus the payload naming the modules and CSS to warm with it, while scrolling into view asks for `document` and fetches the HTML alone. It never calls `preventDefault`: `routerLink` is Angular's way to navigate inside an Angular router and a directive competing for clicks would fight it, so this one warms the cache and lets the click go to the navigation layer or the browser. It reaches the prefetch runtime through a new import-free indirection, `utils/prefetchRef`, which the client prefetch module registers itself with as it loads — a component in `src/angular/components` cannot import that module directly, because the partial compile copies that directory alone into a flat workspace and an import climbing out of it makes the step emit nothing, publishing every Angular component empty while the build still reports success. Without the runtime on the page every call is a no-op and the link still works, since prefetching is an optimisation; `enableNavigation()` brings the runtime in.",
+					"kind": "added",
+					"summary": "absLink, the prefetching link directive for Angular",
+					"symbols": [
+						"AbsoluteLinkDirective"
+					]
+				}
+			],
+			"date": "2026-11-21",
+			"version": "0.20.0-beta.241"
+		},
+		{
+			"changes": [
+				{
 					"detail": "The HTMX row of the cross-framework navigation matrix. Whether the swap works was already settled — an HTMX page is a static page — so what this covers is whether htmx still binds a body the navigation layer inserted. It does: the page's htmx `<script src>` is a classic script, so re-inserting it re-executes it and htmx initialises against the new document, which is why the layer never needs to call `htmx.process` the way the dev HMR handler does. Asserted by clicking a button whose only behaviour is `hx-get`, so an unbound page produces nothing. The test carries a control that enters the page directly, which is what caught the first draft shipping no htmx vendor copy — an app provides its own, globbed out of its htmx directory by the build — rather than letting a fixture gap read as a navigation defect. With the Vue, Angular, HTML and island rows, every framework now has a verified row. Two parts of navigation phase 2's exit wording are still not literally met and are recorded as such: \"with islands\" is verified only on the React to Svelte leg, and \"no leaked roots\" is verified behaviourally rather than with a heap snapshot.",
 					"kind": "internal",
 					"summary": "HTMX is a verified row in the cross-framework navigation matrix"
