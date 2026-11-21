@@ -484,6 +484,19 @@ makes. Four decisions in it worth keeping:
   `navigateByUrl` promise the dead link already produced. Staying put is
   also honest — the document is on its way out either way.
 
+The handler reaches the injected `provideRouter(...)` through a global
+(`ROUTER_HANDOFF_KEY`) that the page's hydration index publishes, not by
+being imported there. CI found the reason: the compiled page module is
+loaded by the server **unbundled**, from the generated directory, so a
+`@absolutejs/absolute/...` specifier in it has to resolve at runtime —
+and the unit job runs `test:unit` before `bun run build`, so
+`tests/unit/angular/colocatedRoutesPage`, which compiles a page into a
+temp directory and renders it, had no `dist/` to resolve against and
+every render returned the SSR error page. It passed locally only because
+a built `dist/` was sitting there. The index is bundled at build time,
+where the specifier resolves once; and on the server the global is unset,
+which is the right answer anyway, since a hand-off is a browser concept.
+
 Not covered by `withNavigationErrorHandler`: it is a single provider, so
 an app that both uses colocated `routes` and supplies its own handler
 through its own `provideRouter` call would have two routers to begin with.

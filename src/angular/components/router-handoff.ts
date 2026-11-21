@@ -52,6 +52,28 @@ const isNoMatchError = (error: unknown) => {
 };
 
 /**
+ * Where a page's hydration index publishes `absoluteRouterHandoff` for the
+ * `provideRouter(...)` call the build injects into the page module.
+ *
+ * The injected call reads the handler from this key instead of importing
+ * this module, and that indirection is load-bearing twice over:
+ *
+ *   - The page module is loaded by the server straight from the generated
+ *     directory, unbundled. A `@absolutejs/absolute/...` specifier in it
+ *     has to resolve at runtime from wherever that directory happens to
+ *     be, which is not always inside an app (compiling a page into a temp
+ *     directory and rendering it is how `tests/unit/angular/
+ *     colocatedRoutesPage` works, and the import failed there). The index
+ *     is bundled at build time, where the specifier resolves once.
+ *   - Hand-off is a browser concept. On the server the key is unset, the
+ *     injected handler returns `undefined`, and Angular reports a failed
+ *     navigation exactly as it always has.
+ */
+export const ROUTER_HANDOFF_KEY = Symbol.for(
+	'absolutejs.angular.routerHandoff'
+);
+
+/**
  * Whether a failed Angular navigation should become a document
  * navigation, and to where. Separated from the DI glue below so it can be
  * tested without a router.
@@ -97,13 +119,16 @@ const handOff = (href: string) => {
 
 /**
  * Angular navigation-error handler that hands a URL no route matched to
- * cross-framework document navigation. The build wires it into the
- * `provideRouter(...)` call it injects for a page that exports `routes`;
- * an app that writes its own `provideRouter` can pass it the same way:
+ * cross-framework document navigation. An app that writes its own
+ * `provideRouter` call can pass it directly:
  *
  * ```ts
  * provideRouter(routes, withNavigationErrorHandler(absoluteRouterHandoff))
  * ```
+ *
+ * For a page with colocated `routes`, the build wires it in for you — by
+ * the global below rather than by naming this module, see
+ * `ROUTER_HANDOFF_KEY`.
  */
 export const absoluteRouterHandoff = (event: NavigationError) => {
 	if (typeof window === 'undefined') return undefined;

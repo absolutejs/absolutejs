@@ -2448,12 +2448,18 @@ export const compileAngular = async (
 				 * pages of other frameworks it is more likely a link out
 				 * than a mistake, so the handler hands that URL to
 				 * cross-framework document navigation. Only NG04002 — see
-				 * src/angular/components/router-handoff.ts. */
-				importLines.push(
-					`import { absoluteRouterHandoff as __abs_absoluteRouterHandoff } from "@absolutejs/absolute/angular/components";`
-				);
+				 * src/angular/components/router-handoff.ts.
+				 *
+				 * Read off a global the page's hydration index sets,
+				 * rather than imported here: this file is loaded by the
+				 * server unbundled, from wherever the generated directory
+				 * is, so a `@absolutejs/absolute/...` specifier in it has
+				 * to resolve at runtime — and does not when a page is
+				 * compiled into a temp directory and rendered (CI caught
+				 * exactly that). Unset on the server, where a hand-off
+				 * would mean nothing anyway. */
 				fragments.push(
-					'__abs_provideRouter(routes, __abs_withComponentInputBinding(), __abs_withViewTransitions(), __abs_withNavigationErrorHandler(__abs_absoluteRouterHandoff))'
+					`__abs_provideRouter(routes, __abs_withComponentInputBinding(), __abs_withViewTransitions(), __abs_withNavigationErrorHandler((event) => { const handler = Reflect.get(globalThis, Symbol.for("absolutejs.angular.routerHandoff")); return typeof handler === "function" ? handler(event) : undefined; }))`
 				);
 			}
 			if (pageInjection.basePath !== null) {
@@ -2737,12 +2743,38 @@ window.__ABSOLUTE_PAGE_DISPOSE__ = async function() {
     }
 };
 `.trim();
+		/* The index is where `absoluteRouterHandoff` is resolved, because
+		 * the index is bundled: the specifier is resolved once at build
+		 * time, while the page module it serves is loaded unbundled by the
+		 * server and cannot count on resolving anything. It publishes the
+		 * handler on the global the injected `provideRouter(...)` reads.
+		 * Only for a page with colocated routes — a page with no router
+		 * has no navigation to fail.
+		 *
+		 * Appended rather than prepended, the way the navigation
+		 * auto-enable snippet is: in zone mode the index opens with
+		 * `import 'zone.js'`, which has to patch the browser before
+		 * anything touches `@angular/core`. Import declarations evaluate in
+		 * source order, so an import added at the top would evaluate the
+		 * Angular components barrel first. The registration statement then
+		 * runs after `bootstrapApplication`, which is soon enough: it is
+		 * read when a navigation fails, not when one starts. */
+		const pageInjectionForIndex =
+			providersInjection?.pagesByFile.get(resolvedEntry);
+		const routerHandoffSource = pageInjectionForIndex?.hasRoutes
+			? `
+import { absoluteRouterHandoff as __abs_routerHandoff, ROUTER_HANDOFF_KEY as __abs_routerHandoffKey } from '@absolutejs/absolute/angular/components';
+Reflect.set(globalThis, __abs_routerHandoffKey, __abs_routerHandoff);
+`
+			: '';
 		/* `navigation: true` installs the cross-framework layer from the
 		 * index rather than from every page's ngOnInit. Wrapped BEFORE the
 		 * hash below, which decides whether bundling can be skipped — a
 		 * hash of the unwrapped source would let a stale index survive the
 		 * config being switched on. See build/navigationAutoEnable.ts. */
-		const hydration = withNavigationAutoEnable(hydrationSource);
+		const hydration = withNavigationAutoEnable(
+			`${hydrationSource}${routerHandoffSource}`
+		);
 
 		// Angular HMR Optimization — Hash index content to detect if bundling
 		// can be skipped (index content is deterministic for a given import path).
