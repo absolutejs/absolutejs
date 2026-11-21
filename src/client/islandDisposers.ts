@@ -97,6 +97,17 @@ export const disposeIslandsIn = async (
  *  the heap assertions in the navigation suite. */
 export const registeredIslandCount = () => store().size;
 
+/** The elements of every hydrated island the registry knows about,
+ *  including ones no longer in the document.
+ *
+ *  A host framework that re-creates its island container rather than
+ *  hydrating it — Angular, whose container carries `ngSkipHydration` —
+ *  needs to find the live island it is about to replace. The registry is
+ *  the only thing that still holds it once the container is gone, and
+ *  adopting it is what keeps one instance instead of two. */
+export const registeredIslandElements = () =>
+	Array.from(store(), (entry) => entry.element);
+
 /** Registers how to tear down the island hydrated into `element`,
  *  replacing any disposer already registered for it (a dev HMR remount
  *  creates a new root for the same element). */

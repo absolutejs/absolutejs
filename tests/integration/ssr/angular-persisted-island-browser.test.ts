@@ -311,17 +311,90 @@ const draftValue = (page: Page) =>
 			(document.getElementById('draft') as HTMLInputElement | null)?.value
 	);
 
-/* What holds today, and what does not.
- *
- * An island on an Angular page WORKS: it hydrates and it is interactive,
- * before and after a soft navigation into the page. That row of the matrix
- * had no test and now does.
- *
- * `persist` does NOT survive a navigation into an Angular page, and an
- * Angular page with an island hydrates it twice. Both have the same cause
- * and are measured in docs/CROSS_FRAMEWORK_NAVIGATION_PLAN.md (4i) rather
- * than asserted here: a test that pinned today's numbers would lock in a
- * defect, and one that asserted the fix would fail until it is written. */
+const mounts = (page: Page) =>
+	page.evaluate(() => Reflect.get(window, '__islandMounts'));
+
+const destroyed = (page: Page) =>
+	page.evaluate(() => Reflect.get(window, '__islandDestroyed'));
+
+const isLiveIslandStillThere = (page: Page) =>
+	page.evaluate(() => {
+		const live = Reflect.get(window, '__liveIsland');
+
+		return (
+			live instanceof Element &&
+			live.isConnected &&
+			live === document.querySelector('[data-island]')
+		);
+	});
+
+/* An Angular page entered cold still hydrates its island TWICE, and that
+ * is deliberately not asserted either way here: pinning 2 would lock in a
+ * defect, and asserting 1 would fail until it is found. What is known is
+ * in the plan doc (4i), including the four explanations ruled out — the
+ * component writing twice (fixed, it writes once now), a detached element
+ * being hydrated, two copies of the islands runtime racing on the same
+ * element, and Vue-style re-creation. Two disposers for one element in the
+ * document means a SECOND element exists somewhere; finding where it comes
+ * from is the next step. */
+describe('a persisted island arriving on an Angular page', () => {
+	test('is the same instance that crossed, not a copy', async () => {
+		const documentLoads: string[] = [];
+		const session = await openPage(`${baseUrl()}/react`, {
+			waitUntil: 'load'
+		});
+		try {
+			const { page } = session;
+			page.on('request', (request) => {
+				if (request.resourceType() === 'document')
+					documentLoads.push(request.url());
+			});
+			await page.waitForSelector('#shell-island', { timeout: 30_000 });
+			await page.waitForFunction(
+				() => {
+					const value = Reflect.get(window, '__islandMounts');
+
+					return typeof value === 'number' && value >= 1;
+				},
+				undefined,
+				{ timeout: 30_000 }
+			);
+			await page.evaluate(() =>
+				Reflect.set(window, '__sameDocument', true)
+			);
+			await page.fill('#draft', 'into angular');
+			// Held across the swap: the assertion is identity, not
+			// appearance. A fresh island with the same markup passes every
+			// other check.
+			await page.evaluate(() =>
+				Reflect.set(
+					window,
+					'__liveIsland',
+					document.querySelector('[data-island]')
+				)
+			);
+
+			await page.click('#to-angular');
+			await page.waitForFunction(
+				() => Reflect.get(window, '__angularHydrated') === true,
+				undefined,
+				{ timeout: 30_000 }
+			);
+			await page.waitForTimeout(2000);
+
+			expect(pathnameOf(page)).toBe('/angular');
+			expect(await sameDocument(page)).toBe(true);
+			expect(await isLiveIslandStillThere(page)).toBe(true);
+			expect(await mounts(page)).toBe(1);
+			expect(await destroyed(page)).toBeUndefined();
+			expect(await draftValue(page)).toBe('into angular');
+			expect(documentLoads).toEqual([]);
+		} finally {
+			await session.close();
+		}
+	}, 300_000);
+});
+
 describe('an island on an Angular page', () => {
 	test('is interactive, and still is after navigating into the page', async () => {
 		const documentLoads: string[] = [];
