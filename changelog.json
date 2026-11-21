@@ -5,6 +5,22 @@
 		{
 			"changes": [
 				{
+					"detail": "A React SPA can load each page's code the first time the page is shown, instead of shipping every page with the app's entry: `const Billing = lazyRoute(() => import('./BillingView'), 'BillingView')` and `<Route element={<Billing />} path=\"/billing\" />`. The build puts the page in its own chunk. The server renders the page in full (its module starts loading when the route is defined, so a request never waits on it). In the browser the page sits in its own Suspense boundary: while its chunk is still loading during hydration, React keeps the server's HTML for it and makes the rest of the page (the layout, its navigation) interactive right away, then hydrates the page when its code arrives, with no blank and no mismatch. A page loaded once renders at once afterwards, and `preload()` starts a page's load ahead of time. The Svelte router's lazy routes already worked this way; this is the React counterpart, from `@absolutejs/absolute/react/router`.",
+					"kind": "added",
+					"summary": "React SPA pages load their code when first shown (lazyRoute)",
+					"symbols": [
+						"lazyRoute",
+						"LazyRoute",
+						"LazyRouteOptions"
+					]
+				}
+			],
+			"date": "2026-11-21",
+			"version": "0.20.0-beta.258"
+		},
+		{
+			"changes": [
+				{
 					"detail": "A persisted island (`persist`) now keeps its instance across a navigation into an Angular page, which completes that destination for every framework the layer supports. Angular's island component client-renders its container — the server replaces the whole `<absolute-island>` element with the island's markup, so there is no host element left for Angular to hydrate — and it used to fill that container with a fresh copy of the markup, discarding the live island the navigation layer had moved in. It now looks for the live island first, by the island id the server stamps on every island or by the `persist` key, in the document and then in the disposer registry, which is the only thing still holding the element once the container it arrived in is gone. The same component also wrote its markup twice, once from `ngOnChanges` and again from `ngAfterViewInit`: the second write replaced an island the islands runtime had just hydrated, orphaning the first instance on detached nodes. It now leaves a container that already holds an island alone. An Angular page entered cold still hydrates its island twice, which is unrelated to persistence and recorded in the cross-framework navigation plan with the explanations ruled out so far.",
 					"kind": "fixed",
 					"summary": "A persisted island survives a navigation into an Angular page, and Angular writes its island once"
