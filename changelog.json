@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "Under a base path, a React page whose <head> renders its own inline <script> (a theme script, say) hydrated with a mismatch on every load: React pairs a page's first inline script with the first <script> it finds in <head>, whatever its type, and that was the framework's import map. The import map and the base-path script now remove themselves once they have run. The browser keeps an import map it has registered, so the module specifiers still resolve under the prefix, and React hydrates <head> as it was rendered.",
+					"kind": "fixed",
+					"summary": "A React page under a base path hydrates without a head mismatch"
+				}
+			],
+			"date": "2026-11-21",
+			"version": "0.20.0-beta.253"
+		},
+		{
+			"changes": [
+				{
 					"detail": "Every Svelte page with an island hydrated that island twice and left the first instance running on nodes no longer in the document — two island instances and two disposers for one element, on every load, with the orphan's effects, timers and subscriptions alive until the next navigation pruned it. A React page with the same island read one and one. The cause was the island slot's client markup: the islands runtime hydrates an island from its own bootstrap, independently of the page, so by the time a Svelte page hydrated, the island in its slot was already a live instance — and the slot's `{@html}` wrote that markup again, which replaced those nodes, after which the runtime hydrated the new copy too. The slot now renders no children on the client and fills itself through an action only when no island is there, so a hydrating page leaves a live island exactly where it is while a client render, a page whose server markup was discarded and an HMR remount still produce theirs. `absoluteIslandSlot` is exported from `@absolutejs/absolute/svelte` for the generated code that uses it.",
 					"kind": "fixed",
 					"summary": "A Svelte page hydrates its islands once instead of twice, leaving no orphaned instance",

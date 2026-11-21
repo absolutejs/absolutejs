@@ -60,7 +60,7 @@ describe('base path', () => {
 	test('head tags map every module prefix and expose the base', () => {
 		const html = basePathHeadTags('/s/p', 'n0nce');
 		const map = JSON.parse(
-			/<script type="importmap" nonce="n0nce">(.*?)<\/script>/.exec(
+			/<script type="importmap" data-absolute-base-path nonce="n0nce">(.*?)<\/script>/.exec(
 				html
 			)?.[1] ?? '{}'
 		);

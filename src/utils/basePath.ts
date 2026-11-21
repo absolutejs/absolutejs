@@ -61,7 +61,12 @@ export const basePathHeadTags = (base = getBasePath(), nonce?: string) => {
 	const json = (value: unknown) =>
 		JSON.stringify(value).replace(/</g, '\\u003c');
 
-	return `<script type="importmap"${nonceAttribute(nonce)}>${json({ imports })}</script><script${nonceAttribute(nonce)}>window.__ABSOLUTE_BASE_PATH__=${json(base)};</script>`;
+	// Both elements remove themselves once they have run. The browser keeps
+	// an import map it has registered, and React never sees them when it
+	// hydrates <head>: it pairs a page's own first inline <script> with the
+	// first <script> it finds there, even one of another type, and the page
+	// hydrates with a mismatch (React's own `importMap` option does the same).
+	return `<script type="importmap" data-absolute-base-path${nonceAttribute(nonce)}>${json({ imports })}</script><script${nonceAttribute(nonce)}>window.__ABSOLUTE_BASE_PATH__=${json(base)};document.querySelector('script[data-absolute-base-path]')?.remove();document.currentScript?.remove();</script>`;
 };
 
 const HEAD_OPEN = /<head(\s[^>]*)?>/i;
