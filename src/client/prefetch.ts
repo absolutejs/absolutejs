@@ -27,6 +27,7 @@
  * entry point in this module (useful for analytics-sensitive pages).
  */
 import { applyPageNonce } from '../dev/client/cspNonce';
+import { registerPrefetchRuntime } from '../utils/prefetchRef';
 import type {
 	HoverPrefetchHandle,
 	HoverPrefetchOptions,
@@ -652,3 +653,16 @@ export const resetPrefetchState = () => {
 	viewportObserver?.disconnect();
 	viewportObserver = null;
 };
+
+/* Published through the import-free indirection in utils/prefetchRef.ts,
+ * for callers that cannot import this module: an Angular component is
+ * partial-compiled in a workspace holding only its own directory. Any
+ * page that loads this module — which `enableNavigation()` does, since it
+ * consumes prefetched documents — makes `absLink` and friends live. */
+registerPrefetchRuntime({
+	canPrefetch,
+	isPrefetchableHref,
+	prefetch,
+	resolveDefaultPrefetchMode,
+	speculate
+});

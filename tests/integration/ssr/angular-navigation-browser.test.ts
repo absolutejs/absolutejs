@@ -30,10 +30,9 @@ import { getAvailablePort } from '../../helpers/ports';
  * entry in a real app does — the same harness the `@defer` hydration test
  * uses next door.
  *
- * `absLink` (the prefetching link directive, parity item 2.8) does not
- * exist yet, and `routerLink` only appears on a page that installs the
- * Angular router, so a plain anchor is what an Angular page has today and
- * what this covers. */
+ * Two links are covered: a plain anchor, and one carrying `absLink` — the
+ * prefetching link directive (parity item 2.8). `routerLink` hand-off
+ * from a page that installs the Angular router is still open. */
 
 const repoRoot = resolve(import.meta.dir, '..', '..', '..');
 const CLI_ENTRY = join(repoRoot, 'dist', 'cli', 'index.js');
@@ -48,8 +47,10 @@ export default defineConfig({
 });
 `,
 	'angular/pages/ng-nav-page.ts': `import { Component } from '@angular/core';
+import { AbsoluteLinkDirective } from '@absolutejs/absolute/angular/components';
 
 @Component({
+	imports: [AbsoluteLinkDirective],
 	selector: 'ng-nav-page',
 	standalone: true,
 	template: \`
@@ -58,6 +59,9 @@ export default defineConfig({
 				count {{ count }}
 			</button>
 			<a href="/react" id="to-react">react</a>
+			<a absLink prefetch="hover" href="/react" id="to-react-prefetched">
+				react, warmed
+			</a>
 		</div>
 	\`
 })
@@ -320,6 +324,78 @@ describe('React to Angular and back, in place', () => {
 			).toBeFalsy();
 			expect(documentLoads).toEqual([]);
 			expect(errors).toEqual([]);
+		} finally {
+			await session.close();
+		}
+	}, 300_000);
+
+	test('absLink warms the target on hover, so the click is served from cache', async () => {
+		/* The prefetching link for Angular. The directive reaches the
+		 * prefetch runtime through the import-free indirection in
+		 * utils/prefetchRef.ts — it cannot import src/client/prefetch,
+		 * because an Angular component is partial-compiled in a workspace
+		 * holding only its own directory.
+		 *
+		 * The assertion is request COUNT: hovering warms `/react`, and the
+		 * navigation then consumes that response instead of fetching the
+		 * document again. One request for two reasons to want it. */
+		const reactRequests: string[] = [];
+		const session = await openPage(`${baseUrl()}/angular`, {
+			waitUntil: 'load'
+		});
+		try {
+			const { page } = session;
+			await page.waitForFunction(
+				() => Reflect.get(window, '__angularHydrated') === true,
+				undefined,
+				{ timeout: 30_000 }
+			);
+			// Counted after hydration so the page's own asset requests are
+			// not in the tally.
+			page.on('request', (request) => {
+				if (new URL(request.url()).pathname === '/react')
+					reactRequests.push(request.resourceType());
+			});
+
+			await page.hover('#to-react-prefetched');
+			// The directive debounces hover by 250ms, and `kind: 'route'`
+			// asks for two things — the document and the route-data payload
+			// naming the modules and CSS to warm with it — so the count is
+			// not asserted as a literal, only that warming happened.
+			await page.waitForFunction(
+				() => {
+					const store = Reflect.get(
+						globalThis,
+						Symbol.for('absolutejs.prefetch')
+					);
+
+					return store instanceof Set
+						? false
+						: Boolean(store) &&
+								Reflect.get(store ?? {}, 'cache') !== undefined;
+				},
+				undefined,
+				{ timeout: 10_000 }
+			);
+			await page.waitForTimeout(1500);
+			const warmedWith = reactRequests.length;
+
+			expect(warmedWith).toBeGreaterThan(0);
+
+			await page.click('#to-react-prefetched');
+			await page.waitForSelector('#react-page[data-hydrated="true"]', {
+				timeout: 30_000
+			});
+
+			expect(new URL(page.url()).pathname).toBe('/react');
+			/* Unchanged across the click: the navigation consumed the
+			 * warmed response instead of fetching the document again. That
+			 * is the whole claim — counting requests before and after,
+			 * rather than asserting a literal, which also survives the
+			 * `route` kind issuing two. */
+			expect(reactRequests.length).toBe(warmedWith);
+			// And no document load: it was a swap, not a page load.
+			expect(reactRequests).not.toContain('document');
 		} finally {
 			await session.close();
 		}
