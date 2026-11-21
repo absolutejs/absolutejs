@@ -231,7 +231,7 @@ every navigation.
 | Phase | Scope | Exit criteria |
 | --- | --- | --- |
 | 1 (done) | Layer + React ↔ Svelte via `<Link>`, styles, island store, back/forward + scroll, history fallback, CSP | Playwright (prod build): React→Svelte→React with no document request; target hydrates and is interactive; stylesheets swapped, Svelte scoped CSS applied; store value carried both ways; back/forward and scroll restore; same with the Navigation API removed; zero CSP violations under `secureHeaders()`; opt-out link does a full load. Packed-tarball e2e in prod and dev. |
-| 2 | Teardown completeness | ~~Island dispose registry (islands unmounted with the old body)~~ **done, 0.20.0-beta.234**; ~~`__ABSOLUTE_PAGE_DISPOSE__` for HTML/HTMX pages (no-op) so they can participate~~ **done, 0.20.0-beta.235**; ~~prefetch cache on `globalThis` so a Svelte `<Link>` hover warms the React-installed layer~~ **done, 0.20.0-beta.236**; ~~dev HMR follows the swapped page (`__HMR_FRAMEWORK__`, per-page manifest)~~ **verified, 0.20.0-beta.237 — it already did**; a framework-supplied index boot function instead of `?absolute-nav=` re-imports. Exit: React ↔ Svelte ↔ HTML ↔ HTMX with islands, no leaked roots (heap snapshot), HMR edit after a soft navigation applies. |
+| 2 | Teardown completeness | ~~Island dispose registry (islands unmounted with the old body)~~ **done, 0.20.0-beta.234**; ~~`__ABSOLUTE_PAGE_DISPOSE__` for HTML/HTMX pages (no-op) so they can participate~~ **done, 0.20.0-beta.235**; ~~prefetch cache on `globalThis` so a Svelte `<Link>` hover warms the React-installed layer~~ **done, 0.20.0-beta.236**; ~~dev HMR follows the swapped page (`__HMR_FRAMEWORK__`, per-page manifest)~~ **verified, 0.20.0-beta.237 — it already did**; a framework-supplied index boot function instead of `?absolute-nav=` re-imports. Exit: React ↔ Svelte ↔ HTML ↔ HTMX with islands **(rows done, 0.20.0-beta.240 — see 4f for what of "with islands" and "heap snapshot" is not)**, no leaked roots (heap snapshot), HMR edit after a soft navigation applies **(done)**. |
 | 3 | Vue + Angular | ~~Vue `<Link>` / vue-router hands off unmatched URLs~~ **verified, 0.20.0-beta.238 — it already did**; Angular `routerLink` hands off unmatched URLs; ~~Angular zone and platform teardown verified~~ **verified, 0.20.0-beta.239**. Exit: the Phase 1 suite for every framework pair (5×5 matrix in Playwright, prod + dev). |
 | 4 | Navigation API interception | `navigate` event `intercept()` where supported (forms, `location.assign`, programmatic), click/popstate fallback elsewhere; `config.navigation: true` injects `enableNavigation()` into every hydration index. Exit: suite passes in Chromium (Navigation API) and WebKit/Firefox (fallback). |
 | 5 | Persistent layouts | `data-absolute-persist` (2.4) plus layout-route emission. Exit: a React navbar island keeps state (input value, open menu) across React → Svelte → Vue. |
@@ -420,6 +420,44 @@ directive (parity item 2.8), does not exist, so an Angular page has only
 a plain anchor — and `routerLink` hand-off, which is what the phase's
 wording is really about, needs a fixture page that installs the Angular
 router with `provideRouter`.
+
+## 4f. Where the matrix actually stands
+
+Verified, each with its own browser test against a real production build,
+asserting zero document requests:
+
+| Row | Test | Note |
+| --- | --- | --- |
+| React ↔ Svelte | `cross-framework-navigation-browser` | Phase 1 |
+| React ↔ Svelte, with a Svelte island on the React page | `island-teardown-browser` | Island unmounted on the way out |
+| React ↔ HTML, both entered cold and swapped in | `static-page-navigation-browser` | |
+| React ↔ Vue | `vue-navigation-browser` | Vue page interactive before leaving |
+| React ↔ Angular | `angular-navigation-browser` | Application destroyed on the way out |
+| React ↔ HTMX | `htmx-navigation-browser` | `hx-get` still works on the swapped-in page |
+
+The HTMX row's real question was not the swap — an HTMX page is a static
+page — but whether htmx still binds a body the layer inserted. It does:
+the page's `<script src=".../htmx.min.js">` is a classic script, so
+re-inserting it re-executes it and htmx initialises against the new
+document. The layer never calls `htmx.process`, unlike the dev HMR
+handler (`src/dev/client/handlers/htmx.ts`), and does not need to. That
+test carries a control that enters the page directly, so a failure
+separates "htmx is broken here" from "the fixture is wrong" — which is
+how the missing vendor copy in the first draft was caught rather than
+mistaken for a navigation defect.
+
+**Two things in phase 2's exit wording are still not literally met**, and
+should not be read as done:
+
+- *"with islands"* is verified only on the React ↔ Svelte leg. Islands on
+  an HTML or HTMX page across a navigation are not covered.
+- *"no leaked roots (heap snapshot)"* is verified behaviourally — the
+  disposer registry empties and the island's interval stops — not with a
+  heap snapshot.
+
+Phase 3 still needs, for a complete 5×5: Svelte ↔ Vue ↔ Angular ↔ HTMX
+pairs that do not go through React, `absLink` (parity item 2.8), and
+`routerLink` hand-off from a page that installs the Angular router.
 
 ## 5. Known limitations (phase 1)
 

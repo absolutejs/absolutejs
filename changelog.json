@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "The HTMX row of the cross-framework navigation matrix. Whether the swap works was already settled — an HTMX page is a static page — so what this covers is whether htmx still binds a body the navigation layer inserted. It does: the page's htmx `<script src>` is a classic script, so re-inserting it re-executes it and htmx initialises against the new document, which is why the layer never needs to call `htmx.process` the way the dev HMR handler does. Asserted by clicking a button whose only behaviour is `hx-get`, so an unbound page produces nothing. The test carries a control that enters the page directly, which is what caught the first draft shipping no htmx vendor copy — an app provides its own, globbed out of its htmx directory by the build — rather than letting a fixture gap read as a navigation defect. With the Vue, Angular, HTML and island rows, every framework now has a verified row. Two parts of navigation phase 2's exit wording are still not literally met and are recorded as such: \"with islands\" is verified only on the React to Svelte leg, and \"no leaked roots\" is verified behaviourally rather than with a heap snapshot.",
+					"kind": "internal",
+					"summary": "HTMX is a verified row in the cross-framework navigation matrix"
+				}
+			],
+			"date": "2026-11-21",
+			"version": "0.20.0-beta.240"
+		},
+		{
+			"changes": [
+				{
 					"detail": "Soft navigation into an Angular page and back out of it is now covered, including the teardown that is specific to Angular: `compileAngular` registers an async dispose hook that awaits the page-ready promise and then destroys the application, so without the layer awaiting it a zone, a change-detection loop and the whole injector tree would keep running against a body that is gone. The test asserts `__ANGULAR_APP__` is live on arrival and gone after leaving — both directions, because \"destroyed\" alone would also pass if the global were never set — that the page is interactive before leaving rather than just swapped in, and that no document is requested either way. Nothing needed changing in the framework. The test is driven as a real installed app, with the fixture in a temp directory, this checkout's node_modules symlinked in and the app started through dist/cli/index.js: an earlier attempt that called the Angular page handler in-process failed every SSR render with NG0203 before reaching any navigation code, and importing the injector patch first did not help. Why the in-process path breaks Angular's injector is still unknown, which is recorded in the plan so the harness is not simplified back into the broken shape.",
 					"kind": "internal",
 					"summary": "Angular is a verified row in the cross-framework navigation matrix"
