@@ -326,12 +326,11 @@ describe('dev: editing a Vue page’s defineRoutes', () => {
 			)
 		);
 
-		// A SPA shell ships an empty #root (the client renders the route), so
-		// the server's answer is the status: 404 while the route is unknown.
-		// The server still runs the page's router (`setupApp` pushes the
-		// request URL): the route table must not admit the path before that
-		// router knows it, or the server renders the pre-edit router —
-		// `[Vue Router warn]: No match found` and the 404 page.
+		// The server runs the page's router itself (`setupApp` pushes the
+		// request URL) and renders the route it matches, so the route table
+		// must not admit the path before that router knows it — otherwise the
+		// server renders the pre-edit router: `[Vue Router warn]: No match
+		// found` and the 404 page.
 		const three = await waitFor(
 			() => fetchStatus(url('/app/three')),
 			(result) => result.status === 200
@@ -341,9 +340,17 @@ describe('dev: editing a Vue page’s defineRoutes', () => {
 			/routes update \/\S*RoutedShell\.vue \+\/app\/three/
 		);
 		expect(logText()).not.toContain('No match found');
-		// The same shell any known route of the page gets, as after a restart.
-		expect(three.body).toBe((await fetchStatus(url('/app/one'))).body);
-		expect(three.body).toContain('<div id="root"></div>');
+		/* The answer carries the NEW route's own rendered content. This
+		 * replaces a byte-equality check against `/app/one`'s body, which
+		 * held only while every route of a SPA shell rendered the same empty
+		 * `#root` — it would pass just as well on a server whose router
+		 * matched nothing at all. */
+		expect(three.body).toContain('class="route-three"');
+		expect(three.body).toContain('ROUTE_THREE');
+		// And an already-known route still renders its own route, not this one.
+		const one = await fetchStatus(url('/app/one'));
+		expect(one.body).toContain('ROUTE_ONE');
+		expect(one.body).not.toContain('ROUTE_THREE');
 
 		// The live router picks up the new table: navigate client-side.
 		await page.waitForFunction(routerResolves, '/app/three', {
@@ -407,7 +414,9 @@ describe('dev: editing a Vue page’s defineRoutes', () => {
 			/routes update \/\S*SetupShell\.vue \+\/alt\/three/
 		);
 		expect(logText()).not.toContain('No match found');
-		expect(three.body).toBe((await fetchStatus(url('/alt/one'))).body);
+		// Its own content, inside this shell's own markup.
+		expect(three.body).toContain('ROUTE_THREE');
+		expect(three.body).toContain('SETUP_SHELL');
 
 		const fresh = await openPage(url('/alt/three'));
 		try {
