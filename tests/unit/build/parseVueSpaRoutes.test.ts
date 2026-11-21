@@ -40,3 +40,21 @@ describe('parseVueSpaRoutes', () => {
 		]);
 	});
 });
+
+test('lazy routes under a layout route are found, with their full path', () => {
+	const routes = parseVueSpaRoutes(`
+export const routes = defineRoutes([
+	{ component: Layout, path: '/app', children: [
+		{ component: () => import('./Home.vue'), path: '' },
+		{ component: () => import('./About.vue'), path: 'about' },
+		{ component: () => import('./Help.vue'), path: '/help' }
+	] }
+]);
+`);
+
+	expect(routes).toEqual([
+		{ importPath: './Home.vue', path: '/app' },
+		{ importPath: './About.vue', path: '/app/about' },
+		{ importPath: './Help.vue', path: '/help' }
+	]);
+});

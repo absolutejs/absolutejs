@@ -1,4 +1,5 @@
 import { BASE_36_RADIX } from '../constants';
+import { lowerSvelteRoutePages } from '../svelte/lowerRoutePages';
 import { existsSync } from 'node:fs';
 import { mkdir, stat } from 'node:fs/promises';
 import { withNavigationAutoEnable } from './navigationAutoEnable';
@@ -257,7 +258,7 @@ export const compileSvelte = async (
 	stylePreprocessors?: StylePreprocessorConfig,
 	options: CompileSvelteOptions = {}
 ) => {
-	const { compile, compileModule, preprocess } =
+	const { compile, compileModule, parse, preprocess } =
 		await import('svelte/compiler');
 	const externalCss = options.externalCss === true;
 	const cssMode = externalCss ? 'external' : 'injected';
@@ -312,12 +313,17 @@ export const compileSvelte = async (
 		sourceHashCache.set(src, contentHash);
 		const isModule =
 			src.endsWith('.svelte.ts') || src.endsWith('.svelte.js');
+		// The router's pages load when first shown (svelte/lowerRoutePages.ts),
+		// the same for the server module and the browser one.
+		const routed = isModule
+			? raw
+			: (lowerSvelteRoutePages(raw, parse) ?? raw);
 		const loweredAwaitServerSource = isModule
 			? { code: raw, transformed: false }
-			: lowerSvelteAwaitSlotSyntax(raw, src);
+			: lowerSvelteAwaitSlotSyntax(routed, src);
 		const loweredAwaitClientSource = isModule
 			? loweredAwaitServerSource
-			: lowerSvelteAwaitSlotSyntax(raw, src);
+			: lowerSvelteAwaitSlotSyntax(routed, src);
 		const loweredServerSource = isModule
 			? loweredAwaitServerSource
 			: lowerSvelteIslandSyntax(loweredAwaitServerSource.code, 'server');

@@ -56,6 +56,9 @@ const CLI_ENTRY = join(repoRoot, 'dist', 'cli', 'index.js');
 const ROUTED_PAGE = `import { Component } from '@angular/core';
 import { RouterLink, RouterOutlet, type Routes } from '@angular/router';
 import { AbsoluteLinkDirective } from '@absolutejs/absolute/angular/components';
+// A page in a file of its own, imported the plain way: the build makes it
+// load when its route is first shown.
+import { RoutedInnerComponent } from '../components/routed-inner';
 
 @Component({
 	selector: 'routed-home',
@@ -63,13 +66,6 @@ import { AbsoluteLinkDirective } from '@absolutejs/absolute/angular/components';
 	template: '<p id="routed-home">HOME</p>'
 })
 export class RoutedHomeComponent {}
-
-@Component({
-	selector: 'routed-inner',
-	standalone: true,
-	template: '<p id="routed-inner">INNER</p>'
-})
-export class RoutedInnerComponent {}
 
 export const routes: Routes = [
 	{ component: RoutedHomeComponent, path: '' },
@@ -115,6 +111,15 @@ export default defineConfig({
 	buildDirectory: './build',
 	reactDirectory: './react'
 });
+`,
+	'angular/components/routed-inner.ts': `import { Component } from '@angular/core';
+
+@Component({
+	selector: 'routed-inner',
+	standalone: true,
+	template: '<p id="routed-inner">INNER</p>'
+})
+export class RoutedInnerComponent {}
 `,
 	'angular/pages/ng-routed-page.ts': ROUTED_PAGE,
 	'package.json': `{ "name": "angular-router-page-navigation-app", "private": true, "type": "module" }
@@ -326,6 +331,28 @@ const watch = (page: Page) => {
 };
 
 describe('a page that installs the Angular router', () => {
+	test('a lazily loaded route page, loaded directly, is server-rendered and hydrates in place', async () => {
+		// Its own file, imported plainly: the build split it into a chunk.
+		const html = await (await fetch(`${baseUrl()}/ng/inner`)).text();
+		expect(html).toContain('id="routed-inner"');
+
+		const session = await openPage(`${baseUrl()}/ng/inner`, {
+			waitUntil: 'load'
+		});
+		try {
+			const { page } = session;
+			const seen = watch(page);
+			await hydratedAngular(page);
+			await page.waitForSelector('#routed-inner', { timeout: 15_000 });
+
+			expect(await page.locator('#routed-inner').count()).toBe(1);
+			expect(await angularLive(page)).toBe(true);
+			expect(seen.errors).toEqual([]);
+		} finally {
+			await session.close();
+		}
+	}, 300_000);
+
 	test('a routerLink stays the router’s: the outlet changes, the document does not', async () => {
 		const session = await openPage(`${baseUrl()}/ng/`, {
 			waitUntil: 'load'
