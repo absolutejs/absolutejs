@@ -913,9 +913,14 @@ export const compileVue = async (
 			} catch {
 				continue;
 			}
-			const { descriptor } = compiler.parse(source, {
-				filename: entryPath
-			});
+			// The source as compiled: its router pages are lazy imports by
+			// now (vue/splitRoutePages.ts), and those are its children.
+			const { descriptor } = compiler.parse(
+				addAutoRouterSetupApp(source),
+				{
+					filename: entryPath
+				}
+			);
 			const routes = parseVueSpaRoutes(descriptor.script?.content ?? '');
 			for (const { importPath } of routes) {
 				const childPath = resolve(dirname(entryPath), importPath);

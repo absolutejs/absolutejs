@@ -51,7 +51,52 @@ const parseRoute = (node: TS.Expression): ParsedVueSpaRoute | null => {
 			importPath = findVueImport(property.initializer);
 	}
 
-	return path && importPath ? { importPath, path } : null;
+	// An empty path is a layout's default child, a real route.
+	return path !== null && importPath ? { importPath, path } : null;
+};
+
+/* A child route's path under its parent's: absolute paths stand as they
+ * are, relative ones join the parent's. */
+const joinRoutePath = (parent: string, path: string) => {
+	if (path.startsWith('/') || parent === '') return path;
+	if (path === '') return parent;
+
+	return `${parent.replace(/\/$/, '')}/${path}`;
+};
+
+/* Routes at every depth: a lazy page under a layout route needs its own
+ * compile entry and CSS like a top-level one. */
+const collectRoutes = (
+	routes: TS.ArrayLiteralExpression,
+	parentPath: string,
+	entries: ParsedVueSpaRoute[]
+) => {
+	for (const element of routes.elements) {
+		if (!ts.isObjectLiteralExpression(element)) continue;
+		const route = parseRoute(element);
+		const ownPath = element.properties.find(
+			(property): property is TS.PropertyAssignment =>
+				ts.isPropertyAssignment(property) &&
+				propertyName(property.name) === 'path'
+		);
+		const pathText = ownPath ? stringValue(ownPath.initializer) : null;
+		const fullPath =
+			pathText === null
+				? parentPath
+				: joinRoutePath(parentPath, pathText);
+		if (route)
+			entries.push({
+				...route,
+				path: joinRoutePath(parentPath, route.path)
+			});
+		const children = element.properties.find(
+			(property): property is TS.PropertyAssignment =>
+				ts.isPropertyAssignment(property) &&
+				propertyName(property.name) === 'children'
+		);
+		if (children && ts.isArrayLiteralExpression(children.initializer))
+			collectRoutes(children.initializer, fullPath, entries);
+	}
 };
 
 export const parseVueSpaRoutes = (source: string): ParsedVueSpaRoute[] => {
@@ -71,12 +116,8 @@ export const parseVueSpaRoutes = (source: string): ParsedVueSpaRoute[] => {
 			node.expression.text === 'defineRoutes'
 		) {
 			const [routes] = node.arguments;
-			if (routes && ts.isArrayLiteralExpression(routes)) {
-				for (const element of routes.elements) {
-					const route = parseRoute(element);
-					if (route) entries.push(route);
-				}
-			}
+			if (routes && ts.isArrayLiteralExpression(routes))
+				collectRoutes(routes, '', entries);
 		}
 		ts.forEachChild(node, visit);
 	};

@@ -605,8 +605,13 @@ export const start = async (
 		islandRegistryInfo?.definitions.some(
 			(definition) => definition.framework === 'react'
 		) ?? false;
+	// Vue the same way: a page module imports `vue` from node_modules and
+	// installs its router on that copy, so a second copy inlined here
+	// rendered every routed page's <RouterView> as nothing (the router it
+	// looked up was on the other copy).
 	const sharedPageRuntimes = [
 		...(buildConfig.svelteDirectory ? ['svelte', 'svelte/*'] : []),
+		...(buildConfig.vueDirectory ? ['vue', 'vue/*', '@vue/*'] : []),
 		...(buildConfig.reactDirectory && hasReactIslands
 			? ['react', 'react/*', 'react-dom', 'react-dom/*']
 			: [])

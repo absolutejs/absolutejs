@@ -44,6 +44,8 @@ const ROUTER_PAGE = `<script lang="ts">
 	import Router from '${routerDir}/Router.svelte';
 	import Route from '${routerDir}/Route.svelte';
 	import Link from '${routerDir}/Link.svelte';
+	// Written as an ordinary route page: the build makes it load lazily.
+	import LazyPanel from '../components/LazyPanel.svelte';
 	import { beforeNavigate, goto, redirect } from '@absolutejs/absolute/svelte/router';
 
 	let { url }: { url?: string } = $props();
@@ -86,7 +88,8 @@ const ROUTER_PAGE = `<script lang="ts">
 				{/each}
 			{/snippet}
 		</Route>
-		<Route path="/app/lazy" loader={() => import('../components/LazyPanel.svelte')}>
+		<Route path="/app/lazy">
+			{#snippet content()}<LazyPanel />{/snippet}
 			{#snippet pending()}<p id="lazy-pending">Loading…</p>{/snippet}
 		</Route>
 		<Route
