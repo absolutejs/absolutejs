@@ -1,5 +1,6 @@
 import { dedupeCssBlocks } from './dedupeCssBlocks';
 import { withNavigationAutoEnable } from './navigationAutoEnable';
+import { fileRouteFor } from './fileRoutes';
 import { vueModuleOutputPath } from './vueModuleOutputPath';
 import { BASE_36_RADIX } from '../constants';
 import { existsSync } from 'node:fs';
@@ -180,6 +181,29 @@ export const generateVueHmrId = (sourceFilePath: string, vueRootDir: string) =>
 	relative(vueRootDir, sourceFilePath)
 		.replace(/\\/g, '/')
 		.replace(/\.vue$/, '');
+
+/* A file route's compiled module keeps its place in the mirrored source
+ * tree but takes the route's flat page name as its FILE name, so every
+ * manifest key derivation — which reads the basename — sees a page name
+ * instead of `[slug]`. Two routes called `[slug]` in different folders
+ * would otherwise claim one key.
+ *
+ * Only the name changes, not the directory, which is what makes this safe:
+ * the module's own relative imports (`./_parts/Card.vue`) resolve from the
+ * same folder as before, and nothing imports a route page — it is an entry
+ * point. Svelte flattens its routes into `pages/<name>` instead; Vue's
+ * generated tree mirrors the source layout, so moving a route out of it
+ * would break exactly those sibling imports. */
+export const vueRouteAwareOutputPath = (
+	outputDir: string,
+	sourceFilePath: string
+) => {
+	const mirrored = vueModuleOutputPath(outputDir, sourceFilePath);
+	const route = fileRouteFor(sourceFilePath);
+	if (!route) return mirrored;
+
+	return join(dirname(mirrored), `${route.name}.js`);
+};
 
 const importScanner = new Bun.Transpiler({ loader: 'ts' });
 
@@ -709,7 +733,7 @@ const compileVueFileUncached = async (
 			stylePreprocessors
 		),
 		isEntryPoint,
-		relativeWithoutExtension: vueModuleOutputPath(
+		relativeWithoutExtension: vueRouteAwareOutputPath(
 			'',
 			sourceFilePath
 		).replace(/\.js$/, '')
@@ -749,11 +773,11 @@ const compileVueFileUncached = async (
 		}
 	}
 
-	const clientOutputPath = vueModuleOutputPath(
+	const clientOutputPath = vueRouteAwareOutputPath(
 		outputDirs.client,
 		sourceFilePath
 	);
-	const serverOutputPath = vueModuleOutputPath(
+	const serverOutputPath = vueRouteAwareOutputPath(
 		outputDirs.server,
 		sourceFilePath
 	);
@@ -977,7 +1001,11 @@ export const compileVue = async (
 				};
 			}
 
-			const entryBaseName = basename(entryPath, '.vue');
+			/* The index's name becomes the `<name>Index` manifest key, so a
+			 * route's index is named after the route, like its page. */
+			const entryBaseName =
+				fileRouteFor(resolvedEntryPath)?.name ??
+				basename(entryPath, '.vue');
 			const indexOutputFile = join(indexOutputDir, `${entryBaseName}.js`);
 			const clientOutputFile = result.clientPath;
 

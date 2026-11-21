@@ -340,6 +340,42 @@ describe('route module', () => {
 		}
 	});
 
+	/* Vue routes render from the manifest like Svelte's, so the module
+	 * imports the `.vue` source for its TYPE only — importing an SFC on the
+	 * server is what the compiled module exists to avoid. */
+	test('writes Vue routes against the Vue adapter', async () => {
+		const root = await makeProject({
+			'vue/routes/[[lang]]/profile.server.ts': '',
+			'vue/routes/[[lang]]/profile.vue': ''
+		});
+		const cwd = process.cwd();
+		process.chdir(root);
+		try {
+			syncFileRoutes({
+				fileRoutes: { output: 'routes.gen.ts' },
+				vueDirectory: 'vue'
+			});
+			const source = await readFile(join(root, 'routes.gen.ts'), 'utf-8');
+
+			expect(source).toContain(
+				"import { vueFileRoute } from '@absolutejs/absolute/vue/server';"
+			);
+			// The extension stays: it is part of an SFC's specifier.
+			expect(source).toContain(
+				"typeof import('./vue/routes/[[lang]]/profile.vue'),"
+			);
+			expect(source).not.toContain(
+				"page: () => import('./vue/routes/[[lang]]/profile.vue')"
+			);
+			// Both paths of the optional segment, typed as one.
+			expect(source).toContain("path: '/:lang/profile',");
+			expect(source).toContain("path: '/profile',");
+			expect(source).toContain("typePath: '/:lang?/profile'");
+		} finally {
+			process.chdir(cwd);
+		}
+	});
+
 	test('an app with no routes still exports an empty tree', () => {
 		expect(renderFileRouteModule([], '/app/routes.gen.ts')).toContain(
 			'export const routeTree: readonly FileRouteDefinition[] = [];'

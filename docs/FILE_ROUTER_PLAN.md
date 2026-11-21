@@ -208,7 +208,7 @@ reactFileRoute<'/blog/:slug', typeof import('./react/routes/blog/[slug]'),
 | --- | --- | --- | --- |
 | React | `<reactDirectory>/routes/**/*.{tsx,jsx}` | `reactFileRoute` → `handleReactPageRequest` | 1 |
 | Svelte | `<svelteDirectory>/routes/**/*.svelte` | `svelteFileRoute` → `handleSveltePageRequest` | 1 |
-| Vue | `<vueDirectory>/routes/**/*.vue` | `vueFileRoute` → `handleVuePageRequest` (compileVue gets the same flat-name mapping as compileSvelte; `headTag` from an optional `head` export of the server module) | 2 |
+| Vue | `<vueDirectory>/routes/**/*.vue` | `vueFileRoute` → `handleVuePageRequest` (built; see the note below — NOT compileSvelte's flat-name mapping. `headTag` from a `head` export is still open) | 2 |
 | HTML / HTMX | `<htmlDirectory>/routes/**/*.html` | `handleHTMLPageRequest` / `handleHTMXPageRequest`; static segments only (a static file has no props); `<abs-include>` works the same because only `pages/` and `routes/` files are pages and partials stay in other folders | 2 |
 | Angular | `<angularDirectory>/routes/**/*.ts` | `angularFileRoute` → `handleAngularPageRequest`; Angular pages already allow nesting, so mostly the naming and the route module | 3 |
 

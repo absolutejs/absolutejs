@@ -1,7 +1,7 @@
 import { mkdir, readdir, symlink, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 
-/* A small app that opts into file routes (React + Svelte). Written from
+/* A small app that opts into file routes (React + Svelte + Vue). Written from
  * strings so the repo typecheck never sees its `@absolutejs/absolute`
  * imports, which resolve to an older published package from the repo root. */
 
@@ -13,7 +13,8 @@ export default defineConfig({
 	buildDirectory: './build',
 	fileRoutes: { output: './routes.gen.ts' },
 	reactDirectory: './react',
-	svelteDirectory: './svelte'
+	svelteDirectory: './svelte',
+	vueDirectory: './vue'
 });
 `;
 
@@ -201,7 +202,38 @@ export const load = ({ params }: FileRouteContext<'/docs/:topic'>) => ({
 		},
 		null,
 		'\t'
-	)
+	),
+	/* A Vue route, with a private sibling it imports. The sibling is what
+	 * makes this worth serving: a Vue route's compiled module keeps its
+	 * place in the mirrored generated tree and only takes the route's name,
+	 * so `./_Tag.vue` still resolves — flattening it the way Svelte does
+	 * would break exactly this import. */
+	'vue/routes/shop/_Tag.vue': `<script setup lang="ts">
+const { label } = defineProps<{ label: string }>();
+</script>
+
+<template><span class="tag">{{ label }}</span></template>
+`,
+	'vue/routes/shop/[item].server.ts': `import type { FileRouteContext } from '@absolutejs/absolute';
+
+export const load = ({ params }: FileRouteContext<'/shop/:item'>) => ({
+	item: \`ITEM_\${params.item}\`
+});
+`,
+	'vue/routes/shop/[item].vue': `<script setup lang="ts">
+import { ref } from 'vue';
+import Tag from './_Tag.vue';
+
+const { item } = defineProps<{ item: string; url?: string }>();
+const clicks = ref(0);
+</script>
+
+<template>
+	<h1 id="item">{{ item }}</h1>
+	<Tag label="VUE_CHILD" />
+	<button id="vue-clicks" @click="clicks += 1">clicks {{ clicks }}</button>
+</template>
+`
 };
 export const linkNodeModules = async (projectRoot: string) => {
 	const source = join(repoRoot, 'node_modules');
