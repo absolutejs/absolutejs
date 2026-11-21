@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "Navigation phase 3 asks for Vue's `<Link>` to hand off the URLs its own router does not match, and it already did: with no vue-router on the page, or an unmatched `href`, `onClick` returns without calling `preventDefault`, so the click reaches the layer's bubble-phase window listener, and `compileVue`'s index already registers the teardown hook that lets a Vue page be left as well as entered. A browser test now holds the whole round trip — React to Vue swaps in place, the Vue page is interactive rather than just swapped in, `<Link>` hands back, and back/forward traverse both ways, with zero document requests. The Angular row is not included: the same test shape fails before reaching any navigation code, with every Angular SSR render throwing NG0203 from inside Angular's own root-view injector. The client navigation layer and the missing injectorPatch side effect were both ruled out by their own runs; what differs from the one working Angular SSR browser test is that it spawns a separate app with node_modules linked rather than calling the page handler in-process, and the Angular row needs rebuilding on that precedent. The plan records all of it; no skipped test was committed, since a skip reads as a pass.",
+					"kind": "internal",
+					"summary": "Vue is a verified row in the cross-framework navigation matrix"
+				}
+			],
+			"date": "2026-11-21",
+			"version": "0.20.0-beta.238"
+		},
+		{
+			"changes": [
+				{
 					"detail": "Navigation phase 2 listed HMR after a soft navigation as not verified, and it turns out to work: a test now drives a React page, soft-navigates to a Svelte page and edits that page's source, and the update applies with zero document requests. `window.__HMR_FRAMEWORK__`, which the HMR client is keyed on, reads `svelte` after the swap because the Svelte hydration index re-runs on swap-in, and no second client installs because the index delivers it with `import` and the navigation layer skips module URLs it has already evaluated. Nothing needed changing. It had never been checked because the example app calls `enableNavigation()` nowhere, so no app in the repo did both soft navigation and HMR, and writing one is not free: the dev watcher's hard-deny list includes `.test-builds`, the directory every build integration test puts its fixtures in, so a dev-HMR fixture there gets no rebuild, no WebSocket message and no log line — the test fails as a silent timeout. This one lives in `.hmr-temp/`, and the plan now says why. Vue and Ember emit the HMR client as an inline script a swap would re-execute, with no double-install guard; that is noted for phase 3, which is when those frameworks join.",
 					"kind": "internal",
 					"summary": "An HMR edit after a soft navigation is verified to apply"
