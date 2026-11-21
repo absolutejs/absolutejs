@@ -5,5 +5,5 @@ export { formAction } from './formAction';
 export { createTypedIsland } from './createIsland';
 export { useIslandStore } from './islandStore';
 export { renderIsland } from './renderIsland';
-export { resolveIslandHtml } from './resolveIslandHtml';
+export { absoluteIslandSlot, resolveIslandHtml } from './resolveIslandHtml';
 export { renderToReadableStream } from './renderToReadableStream';

@@ -38,7 +38,29 @@ const fixtureRoot = join(
 );
 
 const ISLAND = `<script lang="ts">
+	import { onDestroy, onMount } from 'svelte';
+
 	let count = $state(0);
+
+	const scope = () => (typeof window === 'undefined' ? undefined : window);
+
+	onMount(() => {
+		const target = scope();
+		if (!target) return;
+		const mounts = Reflect.get(target, '__islandMounts');
+		Reflect.set(
+			target,
+			'__islandMounts',
+			(typeof mounts === 'number' ? mounts : 0) + 1
+		);
+	});
+
+	// Svelte runs onDestroy on the server too, as the SSR render closes, so
+	// this cannot touch window unguarded.
+	onDestroy(() => {
+		const target = scope();
+		if (target) Reflect.set(target, '__islandDestroyed', true);
+	});
 </script>
 
 <button id="island-button" onclick={() => (count += 1)}>island {count}</button>
@@ -222,6 +244,66 @@ describe('a Svelte page that renders an island', () => {
 			// markup has two of everything.
 			expect(await page.locator('#island-button').count()).toBe(1);
 			expect(await page.locator('#page-button').count()).toBe(1);
+		});
+	}, 300_000);
+});
+
+describe('the island on that page', () => {
+	test('is hydrated once, and leaves one disposer behind', async () => {
+		/* The second defect this page had, measured rather than inferred.
+		 * The island was hydrated by its own bootstrap, and then the page's
+		 * client render RE-CREATED the island markup, so the runtime
+		 * hydrated the new copy too: two instances, the first one left
+		 * running on detached nodes with its effects, timers and
+		 * subscriptions, held by the disposer registry until the next
+		 * navigation pruned it. Every Svelte page with an island paid that
+		 * on every load.
+		 *
+		 * Two disposers for one element is the shape of it, and why both
+		 * numbers are asserted: a mount count of 1 alone would also pass if
+		 * the second instance replaced the registry entry rather than
+		 * adding to it, and a disposer count of 1 alone would pass if the
+		 * island never hydrated at all. A React page reads 1 and 1, which
+		 * is what this page should read too. */
+		await open('/island', async (page) => {
+			/* Wait for ANY mount, then settle, then assert the count. A wait
+			 * for exactly 1 would be a race with the defect it is checking
+			 * for: the count went 1 then 2 within a frame, so polling could
+			 * miss the 1 and time out — which is a failure, but for the
+			 * wrong reason and with a useless message. */
+			await page.waitForFunction(
+				() => {
+					const mounts = Reflect.get(window, '__islandMounts');
+
+					return typeof mounts === 'number' && mounts >= 1;
+				},
+				undefined,
+				{ timeout: 20_000 }
+			);
+			// A second hydration arrives on a MutationObserver callback, so
+			// "1 for now" is not the same as "1".
+			await page.waitForTimeout(1500);
+
+			expect(
+				await page.evaluate(() => Reflect.get(window, '__islandMounts'))
+			).toBe(1);
+			expect(await page.locator('[data-island]').count()).toBe(1);
+			expect(
+				await page.evaluate(() => {
+					const store = Reflect.get(
+						globalThis,
+						Symbol.for('absolute.islandDisposers')
+					);
+
+					return store instanceof Set ? store.size : -1;
+				})
+			).toBe(1);
+			// Nothing was thrown away, so nothing was destroyed.
+			expect(
+				await page.evaluate(() =>
+					Reflect.get(window, '__islandDestroyed')
+				)
+			).toBeUndefined();
 		});
 	}, 300_000);
 });

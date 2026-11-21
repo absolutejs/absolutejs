@@ -44,9 +44,23 @@ const extractIslandAttribute = (attributeString: string, name: string) => {
 	return { expression, found: true };
 };
 
+/* `await` on the server, nothing on the client — which is the difference
+ * between an island that hydrates once and one that hydrates twice.
+ *
+ * The server resolver renders the island (`renderIslandMarkup`) and is
+ * async; the browser resolver reads the markup snapshot the page index
+ * captured and is synchronous. Awaiting it anyway made the `{@html}` block
+ * resolve AFTER hydration, so Svelte wrote the slot's markup afresh over
+ * an island the islands runtime had already hydrated: the runtime then
+ * hydrated the new copy as well, and the first instance was left running
+ * on detached nodes — two island instances, two disposers, one element.
+ *
+ * Synchronous on the client, the block has its content while hydrating, so
+ * Svelte hydrates the markup that is already there instead of replacing
+ * it. */
 export const lowerSvelteIslandSyntax = (
 	source: string,
-	_mode: 'server' | 'client' = 'server'
+	mode: 'server' | 'client' = 'server'
 ) => {
 	if (!source.includes('<Island')) {
 		return { code: source, transformed: false };
@@ -73,18 +87,33 @@ export const lowerSvelteIslandSyntax = (
 			const slotId = `absolute-svelte-island-${islandIndex.toString(BASE_36_RADIX)}`;
 			islandIndex += 1;
 
-			const resolveExpression = `await __absoluteResolveIslandHtml(${JSON.stringify(
+			const call = `__absoluteResolveIslandHtml(${JSON.stringify(
 				slotId
 			)}, { component: ${component.expression}, framework: ${framework.expression}, hydrate: ${
 				hydrate.found ? hydrate.expression : JSON.stringify('load')
 			}, props: ${props.found ? props.expression : '{}'} })`;
+			const resolveExpression =
+				mode === 'server' ? `await ${call}` : call;
 
-			return `<div data-absolute-island-slot="${slotId}" style="display: contents">{@html ${resolveExpression}}</div>`;
+			if (mode === 'server') {
+				return `<div data-absolute-island-slot="${slotId}" style="display: contents">{@html ${resolveExpression}}</div>`;
+			}
+
+			/* No children in the client template, so Svelte hydration
+			 * leaves the markup already in the slot exactly where it is.
+			 * The action fills the slot only when it is empty, which is
+			 * every mounting render.
+			 *
+			 * An `{#if}` around the `{@html}` was tried instead and is
+			 * worse than either: the block's hydration anchors make Svelte
+			 * remove the nodes between them, so the island disappears from
+			 * a hydrating page altogether. */
+			return `<div data-absolute-island-slot="${slotId}" style="display: contents" use:__absoluteIslandSlot={() => ${resolveExpression}}></div>`;
 		}
 	);
 
 	const importLine =
-		'import { resolveIslandHtml as __absoluteResolveIslandHtml } from "@absolutejs/absolute/svelte";';
+		'import { resolveIslandHtml as __absoluteResolveIslandHtml, absoluteIslandSlot as __absoluteIslandSlot } from "@absolutejs/absolute/svelte";';
 
 	if (transformedMarkup.includes('<script')) {
 		return {
