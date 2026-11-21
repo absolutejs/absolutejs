@@ -650,11 +650,19 @@ export const compileSvelte = async (
 		const built: Built = {
 			client: clientPath,
 			css: cssFile,
+			/* ONLY the await-slot lowering. `loweredServerSource` and
+			 * `loweredClientSource` are the ISLAND lowering, and counting
+			 * them here made every Svelte page that renders an `<Island>`
+			 * look like a page with a streamed `{#await}` — which the index
+			 * template answers by setting `shouldHydrate = false`, so the
+			 * page component was never mounted or hydrated at all. The
+			 * islands still worked (their own bootstrap hydrates them),
+			 * which is what made it survivable enough to ship: the page
+			 * rendered, and only its own `onMount`, event handlers and
+			 * reactivity were missing. */
 			hasAwaitSlot:
 				loweredAwaitServerSource.transformed ||
 				loweredAwaitClientSource.transformed ||
-				loweredServerSource.transformed ||
-				loweredClientSource.transformed ||
 				hasAwaitSlotFromChildren,
 			isModule,
 			ssr: ssrPath
@@ -697,13 +705,23 @@ var initialProps = (typeof window !== "undefined" && window.__INITIAL_PROPS__) ?
 var isHMR = typeof window !== "undefined" && window.__SVELTE_COMPONENT__ !== undefined;
 var isSsrDirty = typeof window !== "undefined" && window.__SSR_DIRTY__;
 var isClientRender = typeof window !== "undefined" && window.__ABSOLUTE_PAGE_RENDER_MODE__ === "client";
-var hasIslandHtml = false;
 var shouldHydrate = typeof window === "undefined" || isClientRender ? false : ${
 				hasAwaitSlot ? 'false' : 'true'
 			};
 var component;
 var target = document.getElementById(${JSON.stringify(SVELTE_PAGE_ROOT_ID)}) || document.body;
 
+/* The island markup the server rendered, kept for the client render of
+ * the same page: each island slot lowers to an {@html} expression reading
+ * this snapshot (svelte/resolveIslandHtml.browser.ts), so hydration finds
+ * the markup the server wrote inside the slot instead of an empty one.
+ *
+ * It used to ALSO switch the page to mount() below, which duplicated the
+ * whole page: mount appends, so the server's markup stayed and a second
+ * copy went in after it. Every selector then found the dead first copy --
+ * a page that rendered twice and responded to nothing. That branch was
+ * unreachable until the hasAwaitSlot flag stopped counting island
+ * lowering, which is how two defects hid behind each other. */
 if (typeof window !== "undefined") {
   var islandSlots = document.querySelectorAll("[data-absolute-island-slot]");
   var islandHtml = {};
@@ -714,7 +732,6 @@ if (typeof window !== "undefined") {
     islandHtml[slotId] = slot.innerHTML;
   }
   window.__ABS_SVELTE_ISLAND_HTML__ = islandHtml;
-  hasIslandHtml = Object.keys(islandHtml).length > 0;
 }
 
 // Lazy <Route>s the server rendered: load their modules before hydrating,
@@ -748,7 +765,7 @@ if (isHMR) {
   component = mount(Component, { target, props: initialProps });
 } else if (!shouldHydrate) {
   component = undefined;
-} else if (isSsrDirty || hasIslandHtml) {
+} else if (isSsrDirty) {
   component = mount(Component, { target, props: initialProps });
 } else {
   var restoreTranslation = prepareBrowserTranslationHydration(target);
