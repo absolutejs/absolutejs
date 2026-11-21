@@ -37,7 +37,19 @@ export const buildProviders = (
 	userProviders: ReadonlyArray<Provider | EnvironmentProviders> = []
 ) => [
 	deps.provideServerRendering(),
+	/* `withEventReplay` on both sides, because a click before hydration is
+	 * otherwise lost. `provideClientHydration()` with no features gives DOM
+	 * hydration and the transfer cache and nothing else, so a page that
+	 * took a moment to hydrate dropped every tap made in that moment —
+	 * silently, and worst on the slow devices where the window is widest.
+	 * Angular's own SSR scaffold enables this, so the default here was
+	 * behind the framework's own.
+	 *
+	 * The server's half is what makes it work: with this provider the SSR
+	 * render stamps the `jsaction` attributes the replay reads, and the
+	 * client half is in the page index that `compileAngular` generates. */
 	deps.provideClientHydration(
+		deps.withEventReplay(),
 		deps.withHttpTransferCacheOptions(
 			buildAbsoluteHttpTransferCacheOptions()
 		)

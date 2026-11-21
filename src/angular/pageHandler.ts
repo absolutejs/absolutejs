@@ -43,6 +43,7 @@ import {
 } from '../mobile/pageProtocol';
 import { getSsrSanitizer, resetSsrSanitizer } from './ssrSanitizer';
 import { withPageCacheHeaders } from '../core/pageResponseCache';
+import { eventDispatchContractScript } from './eventDispatchContract';
 import {
 	type StreamingSlotEnhancerOptions,
 	withRegisteredStreamingSlots
@@ -538,7 +539,10 @@ export const handleAngularPageRequest = async <Page = unknown>(
 
 				// `lang` and `dir` from the request's locale, as Svelte's
 				// and Vue's renderers do.
-				const htmlString = `<!DOCTYPE html><html${htmlLangAttributes()}>${resolvedHeadTag}<body><${selector}></${selector}></body></html>`;
+				/* The event-replay contract script goes in the shell, first
+				 * in <body>: Angular looks for it by id while rendering and
+				 * removes the replay machinery when it is missing. */
+				const htmlString = `<!DOCTYPE html><html${htmlLangAttributes()}>${resolvedHeadTag}<body>${eventDispatchContractScript()}<${selector}></${selector}></body></html>`;
 
 				resetSsrSanitizer();
 				const sanitizer = getSsrSanitizer(deps);

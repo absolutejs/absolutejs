@@ -91,6 +91,7 @@ const loadAngularDeps = async () => {
 		RESPONSE_INIT: core.RESPONSE_INIT,
 		Sanitizer: core.Sanitizer,
 		SecurityContext: core.SecurityContext,
+		withEventReplay: platformBrowser.withEventReplay,
 		withHttpTransferCacheOptions:
 			platformBrowser.withHttpTransferCacheOptions
 	};
