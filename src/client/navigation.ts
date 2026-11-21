@@ -115,6 +115,10 @@ type LoadedDocument = {
 type NavigationRequest = {
 	/** Document the destination entry belongs to (traversals). */
 	documentId?: string;
+	/** The Navigation API already committed the entry for this navigation
+	 *  (`intercept()`), so the swap stamps the entry it is on instead of
+	 *  pushing another one. */
+	managedHistory?: boolean;
 	replace: boolean;
 	/** Scroll position saved for the destination entry (traversals). */
 	scroll?: ScrollPosition;
@@ -124,7 +128,15 @@ type NavigationRequest = {
 
 type Runtime = {
 	controller: AbortController | undefined;
+	/** A navigation the click listener looked at and left to the browser,
+	 *  so the `navigate` listener does not take it back. See `declineUrl`. */
+	declined: { at: number; href: string } | undefined;
 	documentId: string;
+	/** The layer is handing a navigation to the browser on purpose
+	 *  (`reload`), which it does with `location.assign` — itself a
+	 *  navigation the `navigate` listener would otherwise intercept, and
+	 *  retrying what just failed is a loop. */
+	handingOff: boolean;
 	entryOwners: Map<string, string>;
 	evaluatedModules: Set<string>;
 	moduleRun: number;
@@ -864,12 +876,31 @@ const dispatch = (
 
 const outcome = (value: DocumentNavigationOutcome) => value;
 
-const reload = (request: NavigationRequest, committed: boolean) => {
+const reload = (
+	nav: Runtime,
+	request: NavigationRequest,
+	committed: boolean
+) => {
+	/* Every branch below is a navigation the `navigate` listener would see
+	 * and intercept, which would hand the failure straight back to the
+	 * code that just failed. */
+	nav.handingOff = true;
 	if (committed || request.type === 'traverse') window.location.reload();
 	else if (request.replace) window.location.replace(request.url.href);
 	else window.location.assign(request.url.href);
 
 	return outcome('reloaded');
+};
+
+/** Save the scroll position of the entry being left, so a later back
+ *  restores it. Separate from `commitHistory` because a Navigation API
+ *  interception commits its entry the moment `intercept()` is called:
+ *  by the time the swap runs, the current entry is already the
+ *  destination, and the position would be filed under the wrong key. */
+const rememberScroll = (nav: Runtime) => {
+	const key = currentEntryKey(nav);
+	if (key === undefined) return;
+	nav.scroll.set(key, { left: window.scrollX, top: window.scrollY });
 };
 
 const commitHistory = (nav: Runtime, request: NavigationRequest, url: URL) => {
@@ -879,11 +910,18 @@ const commitHistory = (nav: Runtime, request: NavigationRequest, url: URL) => {
 
 		return;
 	}
-	const key = currentEntryKey(nav);
-	if (key !== undefined) {
-		nav.scroll.set(key, { left: window.scrollX, top: window.scrollY });
-	}
 	const state = stampState(null, nav.documentId, createId());
+	/* The Navigation API pushed the entry already, so this stamps the one
+	 * we are on rather than adding a second. `replaceState` with the
+	 * loaded URL also settles a redirect: the entry carries the URL asked
+	 * for, and this is where the URL arrived at goes. */
+	if (request.managedHistory) {
+		window.history.replaceState(state, '', url.href);
+		recordCurrentEntry(nav);
+
+		return;
+	}
+	rememberScroll(nav);
 	if (request.replace) window.history.replaceState(state, '', url.href);
 	else window.history.pushState(state, '', url.href);
 	recordCurrentEntry(nav);
@@ -1006,13 +1044,13 @@ const performNavigation = async (nav: Runtime, request: NavigationRequest) => {
 		request.type !== 'traverse'
 	);
 	if (!proceed) return outcome('cancelled');
-	if (!canTearDown()) return reload(request, false);
+	if (!canTearDown()) return reload(nav, request, false);
 
 	const committedBefore = nav.documentId;
 	try {
 		const loaded = await loadDocument(nav, request.url, controller.signal);
 		if (!isCurrent(nav, token)) return outcome('superseded');
-		if (!loaded) return reload(request, false);
+		if (!loaded) return reload(nav, request, false);
 		nav.navigating = true;
 		const swapped = await swapDocument(
 			nav,
@@ -1028,7 +1066,7 @@ const performNavigation = async (nav: Runtime, request: NavigationRequest) => {
 		if (!isCurrent(nav, token)) return outcome('superseded');
 		console.error('[absolute] navigation failed, loading the page:', error);
 
-		return reload(request, nav.documentId !== committedBefore);
+		return reload(nav, request, nav.documentId !== committedBefore);
 	} finally {
 		if (isCurrent(nav, token)) nav.navigating = false;
 	}
@@ -1072,14 +1110,49 @@ const interceptableUrl = (nav: Runtime, anchor: HTMLAnchorElement) => {
 	return url;
 };
 
+/* How long a decline stands. The `navigate` event for a click fires as
+ * part of the click's default action, so the two are a few microtasks
+ * apart; the window only has to be longer than that and shorter than a
+ * person clicking twice. */
+const DECLINE_WINDOW_MS = 250;
+
+/** Remember that the click listener looked at this URL and chose to leave
+ *  it to the browser — an opted-out link, a `download`, a `target`, a
+ *  `shouldIntercept` that said no.
+ *
+ *  Without this the `navigate` listener below would take the navigation
+ *  the click listener deliberately let go: `data-absolute-navigation="off"`
+ *  would stop meaning anything in a browser with the Navigation API. The
+ *  listener does also check the event's `sourceElement`, which answers
+ *  the same question more directly — but that property is newer than the
+ *  API itself, so it cannot be the only answer. */
+const declineUrl = (nav: Runtime, url: URL) => {
+	nav.declined = { at: Date.now(), href: url.href };
+};
+
+const wasDeclined = (nav: Runtime, url: URL) =>
+	nav.declined !== undefined &&
+	nav.declined.href === url.href &&
+	Date.now() - nav.declined.at < DECLINE_WINDOW_MS;
+
 /* Bubble phase on window: runs after every framework router's handler, so
  * a click a router handled (`preventDefault`) never reaches this. */
 const listenForClicks = (nav: Runtime) => {
 	const onClick = (event: MouseEvent) => {
 		if (!isPlainClick(event)) return;
 		const anchor = findAnchor(event);
-		const url = anchor ? interceptableUrl(nav, anchor) : undefined;
-		if (!url || !canTearDown()) return;
+		if (!anchor) return;
+		const url = interceptableUrl(nav, anchor);
+		if (!url) {
+			declineUrl(nav, new URL(anchor.href, window.location.href));
+
+			return;
+		}
+		if (!canTearDown()) {
+			declineUrl(nav, url);
+
+			return;
+		}
 		event.preventDefault();
 		void performNavigation(nav, { replace: false, type: 'link', url });
 	};
@@ -1107,6 +1180,145 @@ const listenForTraversals = (nav: Runtime) => {
 	nav.teardown.push(() =>
 		window.removeEventListener('popstate', onPopState, { capture: true })
 	);
+};
+
+/* ------------------------------------------------------------------ */
+/* Interception: navigations that are not clicks                       */
+/* ------------------------------------------------------------------ */
+
+/* A form submission and a `location.assign()` never reach a click
+ * listener, so without this they reload the document — and an app that
+ * submits a search form pays for a fresh document, and loses its island
+ * state, on a navigation that could have been a swap. The Navigation
+ * API's `navigate` event sees both, and `intercept()` is how a page takes
+ * one over.
+ *
+ * Only there: Safari and Firefox have no Navigation API yet, where the
+ * click and popstate listeners above are the whole story and a form still
+ * loads a document. That is the documented floor, not a regression —
+ * nothing a link does depends on this.
+ *
+ * A click is NOT handled here. The click listener runs first and either
+ * prevents the default (so no `navigate` event ever fires) or records a
+ * decline, which this skips. Keeping clicks there keeps `download`,
+ * `target`, `rel="external"` and `data-absolute-navigation="off"` read
+ * off the anchor, where they live. */
+
+type NavigateIntent = {
+	intercept: (options: unknown) => void;
+	replace: boolean;
+	source: Element | undefined;
+	url: URL;
+};
+
+/** The destination URL, and only for a navigation that would LOAD a
+ *  document (`sameDocument === false`).
+ *
+ *  That one property is what makes this listener safe, and it took a
+ *  browser to find out: `history.pushState` and `history.replaceState`
+ *  fire `navigate` events too. Without the check, the layer's own
+ *  `commitHistory` push was a navigate event the layer then intercepted,
+ *  which swapped, which pushed — a loop Chromium ends with "Throttling
+ *  navigation to prevent the browser from hanging". Worse, every
+ *  framework router changes routes by calling `pushState`, so an app's
+ *  in-router navigation would have been taken over and answered with a
+ *  full document swap.
+ *
+ *  A link click is a same-document event by the time it gets here too,
+ *  for a different reason: the click listener prevented the browser's
+ *  cross-document navigation, and what remains is the layer's own push. */
+const readDestinationUrl = (event: Event) => {
+	const destination: unknown = Reflect.get(event, 'destination');
+	if (typeof destination !== 'object' || destination === null)
+		return undefined;
+	if (Reflect.get(destination, 'sameDocument') !== false) return undefined;
+	const href: unknown = Reflect.get(destination, 'url');
+	if (typeof href !== 'string') return undefined;
+	try {
+		return new URL(href);
+	} catch {
+		return undefined;
+	}
+};
+
+/** What the layer can act on, or `undefined` for a navigation it must
+ *  leave alone. Each rejection is its own kind of navigation:
+ *
+ *  - `canIntercept` false: cross-origin, or a document the API will not
+ *    hand over. Not ours to take.
+ *  - `hashChange`: same document already.
+ *  - `downloadRequest`: a file, not a page.
+ *  - `formData` present: a POST. The swap fetches the target with GET, so
+ *    taking this over would turn a submission into a read of the action
+ *    URL — a different request, usually a 404 or a form the user already
+ *    filled in. Form actions (`useFormAction`, `absAction`) are how a
+ *    POST stays on the page.
+ *  - `traverse` / `reload`: back, forward and reloads belong to the
+ *    popstate listener and the browser respectively. */
+const readNavigateIntent = (event: Event) => {
+	if (Reflect.get(event, 'canIntercept') !== true) return undefined;
+	if (Reflect.get(event, 'hashChange') === true) return undefined;
+	const download: unknown = Reflect.get(event, 'downloadRequest');
+	if (typeof download === 'string') return undefined;
+	const formData: unknown = Reflect.get(event, 'formData');
+	if (formData !== null && formData !== undefined) return undefined;
+	const navigationType: unknown = Reflect.get(event, 'navigationType');
+	if (navigationType !== 'push' && navigationType !== 'replace')
+		return undefined;
+	const intercept: unknown = Reflect.get(event, 'intercept');
+	const url = readDestinationUrl(event);
+	if (typeof intercept !== 'function' || !url) return undefined;
+	const source: unknown = Reflect.get(event, 'sourceElement');
+	const intent: NavigateIntent = {
+		replace: navigationType === 'replace',
+		source: source instanceof Element ? source : undefined,
+		url,
+		intercept: (options: unknown) =>
+			Reflect.apply(intercept, event, [options])
+	};
+
+	return intent;
+};
+
+/** Whether the element that started this navigation opted out of the
+ *  layer — the submit button of a form carrying
+ *  `data-absolute-navigation="off"`, say, since `sourceElement` for a form
+ *  submission is the button rather than the form. */
+const sourceOptedOut = (source: Element | undefined) =>
+	source !== undefined && source.closest(OPT_OUT_SELECTOR) !== null;
+
+const listenForNavigations = (nav: Runtime, api: NavigationLike) => {
+	const onNavigate = (event: Event) => {
+		if (nav.handingOff) return;
+		const intent = readNavigateIntent(event);
+		if (!intent) return;
+		const { intercept, replace, source, url } = intent;
+		if (wasDeclined(nav, url) || sourceOptedOut(source)) return;
+		if (isSamePageFragment(url)) return;
+		if (nav.options.shouldIntercept?.(url) === false) return;
+		if (!canTearDown()) return;
+		/* Before `intercept()`, which commits the destination entry
+		 * immediately: after it, the entry being left is no longer the
+		 * current one and its scroll position has nowhere to go. */
+		rememberScroll(nav);
+		intercept({
+			/* The swap resets focus and handles scroll itself, including
+			 * restoring a saved position on a traversal. Left to the API
+			 * both would happen twice, in the wrong order. */
+			focusReset: 'manual',
+			scroll: 'manual',
+			handler: async () => {
+				await performNavigation(nav, {
+					managedHistory: true,
+					replace,
+					type: 'navigate',
+					url
+				});
+			}
+		});
+	};
+	api.addEventListener('navigate', onNavigate);
+	nav.teardown.push(() => api.removeEventListener('navigate', onNavigate));
 };
 
 /* ------------------------------------------------------------------ */
@@ -1156,9 +1368,11 @@ export const enableNavigation = (options: EnableNavigationOptions = {}) => {
 	const navigationApi = readNavigationApi();
 	const nav: Runtime = {
 		controller: undefined,
+		declined: undefined,
 		documentId: createId(),
 		entryOwners: new Map(),
 		evaluatedModules: new Set(),
+		handingOff: false,
 		moduleRun: 0,
 		navigating: false,
 		navigationApi,
@@ -1177,6 +1391,9 @@ export const enableNavigation = (options: EnableNavigationOptions = {}) => {
 	trackScroll(nav);
 	listenForClicks(nav);
 	listenForTraversals(nav);
+	// Forms and `location.assign()`, where the browser has the event for
+	// them. Installed after the click listener, which still owns clicks.
+	if (navigationApi) listenForNavigations(nav, navigationApi);
 	const publicRuntime: PublicRuntime = {
 		navigate: navigateWith(nav),
 		disable: () => teardownRuntime(nav)

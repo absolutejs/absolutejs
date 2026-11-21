@@ -59,6 +59,10 @@ One global layer, `src/client/navigation.ts`, installed by
     `matches(url)` for this. Without the layer, behaviour is unchanged.
   - Vue `<Link>` / vue-router and Angular `routerLink`: phase 3 (same
     rule: hand off when the router has no matching route).
+- **Forms, `location.assign()` and programmatic navigation**: a
+  `navigate`-event listener where the Navigation API exists, added in
+  0.20.0-beta.249 — see 4h for what it takes and, more importantly, what
+  it must not take (a router's own `pushState` fires the same event).
 - **Skipped** (browser handles it): modifier/middle clicks, `target`
   other than `_self`, `download`, `rel~=external`, cross-origin, a
   same-page `#hash`, `data-absolute-navigation="off"` on the link or an
@@ -233,7 +237,7 @@ every navigation.
 | 1 (done) | Layer + React ↔ Svelte via `<Link>`, styles, island store, back/forward + scroll, history fallback, CSP | Playwright (prod build): React→Svelte→React with no document request; target hydrates and is interactive; stylesheets swapped, Svelte scoped CSS applied; store value carried both ways; back/forward and scroll restore; same with the Navigation API removed; zero CSP violations under `secureHeaders()`; opt-out link does a full load. Packed-tarball e2e in prod and dev. |
 | 2 | Teardown completeness | ~~Island dispose registry (islands unmounted with the old body)~~ **done, 0.20.0-beta.234**; ~~`__ABSOLUTE_PAGE_DISPOSE__` for HTML/HTMX pages (no-op) so they can participate~~ **done, 0.20.0-beta.235**; ~~prefetch cache on `globalThis` so a Svelte `<Link>` hover warms the React-installed layer~~ **done, 0.20.0-beta.236**; ~~dev HMR follows the swapped page (`__HMR_FRAMEWORK__`, per-page manifest)~~ **verified, 0.20.0-beta.237 — it already did**; a framework-supplied index boot function instead of `?absolute-nav=` re-imports. Exit: React ↔ Svelte ↔ HTML ↔ HTMX with islands **(rows done, 0.20.0-beta.240 — see 4f for what of "with islands" and "heap snapshot" is not)**, no leaked roots (heap snapshot), HMR edit after a soft navigation applies **(done)**. |
 | 3 | Vue + Angular | ~~Vue `<Link>` / vue-router hands off unmatched URLs~~ **verified, 0.20.0-beta.238 — it already did**; ~~Angular `routerLink` hands off unmatched URLs~~ **done, 0.20.0-beta.247 — it did not; it was a dead link, see 4e**; ~~Angular zone and platform teardown verified~~ **verified, 0.20.0-beta.239**. Exit: the Phase 1 suite for every framework pair (5×5 matrix in Playwright, prod + dev). |
-| 4 | Navigation API interception | `navigate` event `intercept()` where supported (forms, `location.assign`, programmatic), click/popstate fallback elsewhere; ~~`config.navigation: true` injects `enableNavigation()` into every hydration index~~ **done, 0.20.0-beta.245**. Exit: suite passes in Chromium (Navigation API) and WebKit/Firefox (fallback). |
+| 4 | Navigation API interception | ~~`navigate` event `intercept()` where supported (forms, `location.assign`, programmatic), click/popstate fallback elsewhere~~ **done, 0.20.0-beta.249 — see 4h**; ~~`config.navigation: true` injects `enableNavigation()` into every hydration index~~ **done, 0.20.0-beta.245**. Exit: suite passes in Chromium (Navigation API) and WebKit/Firefox (fallback) — Chromium both ways (the API removed in-browser); no WebKit/Firefox runner in CI yet. |
 | 5 | Persistent layouts | `data-absolute-persist` (2.4) plus layout-route emission. Exit: a React navbar island keeps state (input value, open menu) across React → Svelte → Vue. |
 
 ## 4a. Island teardown (phase 2, shipped)
@@ -609,10 +613,70 @@ mean anything.
 **Not covered.** A static HTML or HTMX page that is the ENTRY point has
 no hydration index to inject into, so it still imports the client module
 and calls `enableNavigation()` itself; one swapped in by another page
-needs nothing (4b). And the rest of phase 4 is untouched: the layer
-still works by click listener and traversal tracking, and uses no
-`navigate`-event `intercept()` at all, so forms, `location.assign` and
-programmatic navigation are not intercepted anywhere.
+needs nothing (4b).
+
+## 4h. `navigate`-event interception (phase 4, shipped)
+
+A form submission and a `location.assign()` never reach a click listener,
+so until 0.20.0-beta.249 they reloaded the document: an app that submits
+a search form paid for a fresh document, and lost its island state, on a
+navigation that could have been a swap. Where the Navigation API exists,
+its `navigate` event sees both, and `intercept()` is how a page takes one
+over (`listenForNavigations` in `src/client/navigation.ts`).
+
+**Clicks stay with the click listener.** It runs first and either prevents
+the default — in which case no `navigate` event is ever fired — or records
+a decline. Keeping clicks there keeps `download`, `target`,
+`rel="external"` and `data-absolute-navigation="off"` read off the anchor,
+where they live.
+
+**The one property that makes this safe is `destination.sameDocument`**,
+and it took a browser to find out why. `history.pushState` and
+`history.replaceState` fire `navigate` events too (type `push`/`replace`,
+`sameDocument: true`). The first version of this listener did not check
+it, and:
+
+- the layer's own `commitHistory` push was a navigate event the layer
+  then intercepted, which swapped, which pushed — a loop that ends with
+  Chromium's *"Throttling navigation to prevent the browser from
+  hanging"*, the URL frozen one navigation behind the DOM;
+- worse than the loop, **every framework router changes route by calling
+  `pushState`**, so an app's in-router navigation would have been
+  answered with a full cross-framework document swap.
+
+Both come from the same mistaken assumption, which is why the browser
+test asserts a page's own `pushState` is left alone — on a URL that *is*
+a real page, so an interception would look like success.
+
+**Deliberately not intercepted:**
+
+| Kind | Why |
+| --- | --- |
+| `pushState` / `replaceState` | Same-document. The app (or a router) is handling it. |
+| A POST form (`formData` present) | The swap fetches the target with GET, so taking this over would turn a submission into a read of the action URL. Form actions (`useFormAction`, `absAction`) are how a POST stays on the page. |
+| `traverse` / `reload` | Back and forward belong to the popstate listener; a reload belongs to the browser. |
+| `downloadRequest` | A file, not a page. |
+| An opted-out element | Checked twice: the event's `sourceElement` climbs to `[data-absolute-navigation="off"]` (for a form submission that element is the submit BUTTON, so the check has to climb), and the click listener's own decline is recorded for a short window, since `sourceElement` is newer than the API and cannot be the only answer. |
+| Anything while the layer is handing off | `reload()` hands a failed navigation to the browser with `location.assign`, which is itself an interceptable navigation — retrying what just failed is a loop. |
+
+Two mechanical details the swap depends on:
+
+- **Scroll is remembered before `intercept()`**, not inside the handler.
+  The API commits the destination entry the moment `intercept()` is
+  called, so by the time the swap runs the entry being left is no longer
+  the current one and its position would be filed under the wrong key.
+- **`managedHistory`** tells the swap not to push: the entry exists
+  already. It stamps the entry it is on with `replaceState`, which also
+  settles a redirect — the entry carries the URL asked for, and the URL
+  arrived at goes there.
+
+`focusReset: 'manual'` and `scroll: 'manual'` keep the API from doing
+what the swap already does, in the wrong order.
+
+**Safari and Firefox have no Navigation API**, so a form there still
+loads a document. That is the documented floor, and the suite asserts
+both halves of it with the API removed: the form loads a document, and a
+LINK still swaps — the half that could regress silently.
 
 ## 5. Known limitations (phase 1)
 
