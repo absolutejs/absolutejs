@@ -16,6 +16,7 @@
 		component,
 		framework,
 		hydrate = 'load',
+		persist,
 		props
 	}: RuntimeIslandRenderProps = $props();
 
@@ -30,6 +31,12 @@
 
 	const buildFallbackMarkup = (runtimeProps: RuntimeIslandRenderProps) => {
 		const attributes: [string, string][] = [
+			...(runtimeProps.persist === undefined
+				? []
+				: ([['data-absolute-persist', runtimeProps.persist]] as [
+						string,
+						string
+					][])),
 			['data-component', runtimeProps.component],
 			['data-framework', runtimeProps.framework],
 			['data-hydrate', runtimeProps.hydrate ?? 'load'],

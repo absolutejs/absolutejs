@@ -67,11 +67,23 @@ const runDisposer = async (entry: IslandDisposer, store_: DisposerStore) => {
 
 /** Unmounts every island inside `root`, and prunes any whose element has
  *  since left the document. Resolves once each disposer has run; one that
- *  throws is logged and does not stop the rest. Returns how many ran. */
-export const disposeIslandsIn = async (root: Node) => {
+ *  throws is logged and does not stop the rest. Returns how many ran.
+ *
+ *  `keep` spares an island from both halves of that: it is not unmounted
+ *  for being inside `root`, and not pruned for being out of the document.
+ *  A persisted island (navigation plan phase 5) is both at once — the
+ *  navigation moves it through the incoming document on its way into the
+ *  new body, so for an instant it belongs to neither — and the pruning
+ *  that exists to stop a leak would otherwise unmount exactly the island
+ *  the page asked to keep. */
+export const disposeIslandsIn = async (
+	root: Node,
+	keep?: (element: Element) => boolean
+) => {
 	const disposers = store();
 	const pending: Promise<void>[] = [];
 	for (const entry of Array.from(disposers)) {
+		if (keep?.(entry.element) === true) continue;
 		const inside = root === entry.element || root.contains(entry.element);
 		if (inside || isDetached(entry.element))
 			pending.push(runDisposer(entry, disposers));

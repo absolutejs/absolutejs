@@ -151,6 +151,14 @@ export type RuntimeIslandRenderProps = {
 	component: string;
 	framework: IslandFramework;
 	hydrate?: IslandHydrate;
+	/** Keep this island across a cross-framework soft navigation: a page
+	 *  that renders an island with the same key gets the live one, with its
+	 *  DOM and its state, instead of a fresh copy. The island keeps
+	 *  running — it is never unmounted and never hydrated twice — so a
+	 *  navbar keeps its open menu, a player keeps playing and a form keeps
+	 *  what was typed into it. A page that renders no island with the key
+	 *  tears it down like any other. */
+	persist?: string;
 	props: Record<string, unknown>;
 };
 
@@ -160,6 +168,8 @@ export type TypedIslandRenderProps<T extends IslandRegistryInput> = {
 			component: Component;
 			framework: Framework;
 			hydrate?: IslandHydrate;
+			/** See `RuntimeIslandRenderProps['persist']`. */
+			persist?: string;
 			props: IslandRegistryProps<T, Framework, Component>;
 		};
 	}[IslandRegistryComponent<T, Framework>];
