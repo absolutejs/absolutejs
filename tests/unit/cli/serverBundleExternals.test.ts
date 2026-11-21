@@ -28,7 +28,7 @@ describe('server bundle externals', () => {
 		).toContain('optional-native-addon');
 	});
 
-	test('bundles configured framework runtimes and externalizes absent ones', () => {
+	test('bundles React, the only runtime the server renders with', () => {
 		const externals = resolveServerBundleExternals(
 			config({ reactDirectory: 'src/react' })
 		);
@@ -37,6 +37,34 @@ describe('server bundle externals', () => {
 		expect(externals).not.toContain('react-dom');
 		expect(externals).toContain('vue');
 		expect(externals).toContain('svelte');
+	});
+
+	/* A Vue, Svelte or Angular page is compiled to its own SSR asset that the
+	 * page handler loads at request time, and those assets keep the runtime's
+	 * bare specifier so every page shares one instance. Inlining the same
+	 * runtime here gives the server a SECOND copy whose module state the page
+	 * never sees — a routed Vue page then resolved `<RouterView />` to nothing
+	 * and answered an empty `#root`, with no warning. React is the exception:
+	 * its pages reach the server through the server entry's own import graph.
+	 *
+	 * Asserted per framework rather than by listing the whole array, so the
+	 * check is about the rule and not about the order of FRAMEWORK_EXTERNALS. */
+	test('keeps a configured framework external when its pages load as assets', () => {
+		for (const [directory, specifiers] of [
+			['vueDirectory', ['vue', 'vue/*', '@vue/server-renderer']],
+			['svelteDirectory', ['svelte', 'svelte/*']],
+			['angularDirectory', ['@angular/core', '@angular/platform-server']]
+		] as const) {
+			const externals = resolveServerBundleExternals(
+				config({ [directory]: 'src/frontend' })
+			);
+			for (const specifier of specifiers) {
+				expect({ directory, externals }).toEqual({
+					directory,
+					externals: expect.arrayContaining([specifier])
+				});
+			}
+		}
 	});
 });
 

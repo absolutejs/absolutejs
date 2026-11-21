@@ -1,4 +1,10 @@
-import { cpSync, existsSync, mkdirSync, readdirSync } from 'node:fs';
+import {
+	cpSync,
+	existsSync,
+	mkdirSync,
+	readdirSync,
+	readFileSync
+} from 'node:fs';
 import { dirname, join } from 'node:path';
 import { resolvePackageImport } from './resolvePackageImport';
 
@@ -31,22 +37,56 @@ import { resolvePackageImport } from './resolvePackageImport';
 
 const CHUNKS_DIRECTORY = 'chunks';
 
-/* Chunk families named after a framework hold that framework's island
- * hydrator and import its runtime by bare specifier (`from "svelte"`).
- * Those only resolve in the browser once `rewriteClientOutputs` has
- * rewritten them to the app's vendor path, and there IS no vendor path
- * for a framework the app does not configure — the build's own
- * `verifyBrowserImportsVendored` guard fails the build on exactly that.
- * So a hydrator for an unconfigured framework is skipped: nothing can
+/* A chunk holding one framework's island hydrator imports that
+ * framework's runtime by specifier (`from "svelte"`, `await
+ * import("@angular/core")`). Those resolve in the browser only after
+ * `rewriteClientOutputs` has turned them into the app's vendor path, and
+ * there IS no vendor path for a framework the app does not configure. So
+ * such a chunk is skipped for an unconfigured framework: nothing can
  * reach it anyway, because the only thing that imports it is an island of
- * that framework. Every other family (`index`, `islands`,
- * `islandDisposers`) is framework-agnostic and always copied. */
-const FRAMEWORK_CHUNK_FAMILIES = ['angular', 'react', 'svelte', 'vue'];
+ * that framework.
+ *
+ * Classified by what a chunk IMPORTS rather than by its file name. The
+ * name is the module's basename, and `src/angular/islands.ts` is named
+ * `islands` — so a name-based rule ("skip `angular-*`") copied Angular's
+ * hydrator into every app, bare `@angular/core` imports and all, and the
+ * nightly's `missing-client-frameworks` suite caught it on a React-only
+ * project. The names of the other three happen to match their frameworks;
+ * that was luck, not a contract. */
+const FRAMEWORK_PACKAGES: Record<string, readonly string[]> = {
+	angular: ['@angular'],
+	react: ['react', 'react-dom'],
+	svelte: ['svelte'],
+	vue: ['vue', '@vue']
+};
 
-const familyOf = (fileName: string) =>
-	FRAMEWORK_CHUNK_FAMILIES.find((family) =>
-		fileName.startsWith(`${family}-`)
+const SPECIFIER_RE = /["']((?:@[\w.-]+\/)?[\w.-]+)(?:\/[^"']*)?["']/g;
+
+/* `@angular/core` belongs to `@angular`, and `svelte/internal/client` to
+ * `svelte`: the comparison is on the package ROOT, not on the whole
+ * specifier. An equality check reads `@angular/core` as belonging to no
+ * framework at all, which makes the chunk look framework-agnostic and
+ * copies it everywhere — the bug this filter exists to prevent. */
+const ownsSpecifier = (packages: readonly string[], specifier: string) =>
+	packages.some(
+		(name) => specifier === name || specifier.startsWith(`${name}/`)
 	);
+
+const frameworkOwnersOf = (source: string) => {
+	const specifiers = new Set<string>();
+	for (const match of source.matchAll(SPECIFIER_RE)) {
+		const specifier = match[1];
+		if (specifier !== undefined) specifiers.add(specifier);
+	}
+	const owners = new Set<string>();
+	for (const [framework, packages] of Object.entries(FRAMEWORK_PACKAGES)) {
+		for (const specifier of specifiers) {
+			if (ownsSpecifier(packages, specifier)) owners.add(framework);
+		}
+	}
+
+	return owners;
+};
 
 /** Where the installed `@absolutejs/absolute/client` keeps its chunks, or
  *  `null` when the package resolves without them (a consumer that bundled
@@ -78,8 +118,15 @@ export const copyClientRuntimeChunks = (
 	const copied: string[] = [];
 	for (const name of readdirSync(source)) {
 		if (!name.endsWith('.js')) continue;
-		const family = familyOf(name);
-		if (family !== undefined && !configured.has(family)) continue;
+		const owners = frameworkOwnersOf(
+			readFileSync(join(source, name), 'utf8')
+		);
+		/* Skipped only when every framework it needs is unconfigured: a
+		 * framework-agnostic chunk (no owners) is always copied, and one
+		 * that somehow needed two frameworks is copied if either is
+		 * configured rather than being dropped on a guess. */
+		if (owners.size > 0 && ![...owners].some((f) => configured.has(f)))
+			continue;
 		const target = join(destination, name);
 		cpSync(join(source, name), target, { force: true });
 		copied.push(target);

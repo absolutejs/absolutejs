@@ -126,29 +126,38 @@ export const createOptionalPeerPlugin = (
 	}
 });
 
-export const resolveServerBundleExternals = (buildConfig: BuildConfig) => [
-	...FRAMEWORK_EXTERNALS.filter((specifier) => {
-		if (
-			buildConfig.reactDirectory &&
-			(specifier === 'react' ||
-				specifier.startsWith('react/') ||
-				specifier.startsWith('react-dom'))
-		)
-			return false;
-		if (
-			buildConfig.vueDirectory &&
-			(specifier === 'vue' ||
-				specifier.startsWith('vue/') ||
-				specifier === '@vue/server-renderer')
-		)
-			return false;
-		if (
-			buildConfig.svelteDirectory &&
-			(specifier === 'svelte' || specifier.startsWith('svelte/'))
-		)
-			return false;
+/** Only React's runtime may be inlined into the production server bundle.
+ *
+ *  React page components reach the server through the server entry's own
+ *  import graph, so inlining `react` gives the bundle the single copy it
+ *  renders with. Vue, Svelte and Angular pages do not: each one is compiled
+ *  to its own SSR asset which the page handler loads at request time with
+ *  `await import(generatedPagePath)`, and those assets keep `vue` / `svelte`
+ *  / `@angular/*` as bare specifiers so every page shares one instance.
+ *  Inlining the same runtime into the server bundle therefore creates a
+ *  SECOND copy: the handler's `createSSRApp` comes from the bundled Vue
+ *  while the page's compiled render calls the asset's Vue. Nothing errors —
+ *  the two copies have the same shape — but the module state they each keep
+ *  is separate, so the page renders against a Vue that never had a rendering
+ *  instance set. A routed page's `<RouterView />` then resolves to nothing
+ *  and the page body is `<!---->`, silently, because a production Vue build
+ *  has no "failed to resolve component" warning. Dev never showed it: the
+ *  dev server serves unbundled modules, so there is only ever one copy.
+ *
+ *  So the runtime of a framework whose pages load as separate assets stays
+ *  external, whether or not the app uses that framework. */
+const isInlinableFrameworkRuntime = (
+	specifier: string,
+	buildConfig: BuildConfig
+) =>
+	Boolean(buildConfig.reactDirectory) &&
+	(specifier === 'react' ||
+		specifier.startsWith('react/') ||
+		specifier.startsWith('react-dom'));
 
-		return true;
-	}),
+export const resolveServerBundleExternals = (buildConfig: BuildConfig) => [
+	...FRAMEWORK_EXTERNALS.filter(
+		(specifier) => !isInlinableFrameworkRuntime(specifier, buildConfig)
+	),
 	...collectUserServerExternals(buildConfig)
 ];
