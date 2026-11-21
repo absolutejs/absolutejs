@@ -1,4 +1,5 @@
 import { BASE_36_RADIX, UNFOUND_INDEX } from '../constants';
+import { lowerSvelteRoutePages } from '../svelte/lowerRoutePages';
 import { splitRoutePages } from '../build/splitRoutePages';
 import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { basename, dirname, extname, join, resolve, relative } from 'node:path';
@@ -1053,9 +1054,14 @@ const transformSvelteFile = async (
 
 	const isModule =
 		filePath.endsWith('.svelte.ts') || filePath.endsWith('.svelte.js');
+	// The router's pages load when first shown, as in the build
+	// (svelte/lowerRoutePages.ts).
+	const routed = isModule
+		? raw
+		: (lowerSvelteRoutePages(raw, svelteCompiler.parse) ?? raw);
 	const loweredAwaitSource = isModule
 		? { code: raw, transformed: false }
-		: lowerSvelteAwaitSlotSyntax(raw, filePath);
+		: lowerSvelteAwaitSlotSyntax(routed, filePath);
 	const loweredSource = isModule
 		? loweredAwaitSource
 		: lowerSvelteIslandSyntax(loweredAwaitSource.code, 'client');
@@ -1073,7 +1079,7 @@ const transformSvelteFile = async (
 	const code = isModule
 		? compileSvelteModule(source, filePath)
 		: compileSvelteComponent(source, filePath, projectRoot, enableAsync) +
-			svelteLazyRegistrations(raw, filePath, projectRoot);
+			svelteLazyRegistrations(routed, filePath, projectRoot);
 
 	return rewriteImports(code, filePath, projectRoot, rewriter);
 };

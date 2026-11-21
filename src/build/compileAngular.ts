@@ -1,4 +1,5 @@
 import { existsSync, readFileSync, promises as fs } from 'fs';
+import { splitAngularRoutePages } from '../angular/splitRoutePages';
 import { join, basename, sep, dirname, resolve, relative } from 'path';
 import type { CompilerOptions } from '@angular/compiler-cli';
 import { Glob } from 'bun';
@@ -588,6 +589,11 @@ const precomputeAotResourceTransforms = async (
 			transformedSource = transformed.source;
 			await writeResourceCacheFile(cachePath, transformedSource);
 		}
+		// The router's pages load when first shown (angular/splitRoutePages.ts).
+		// After the resource cache, which is keyed by the source as written.
+		transformedSource =
+			splitAngularRoutePages(transformedSource, resolvedPath) ??
+			transformedSource;
 		if (transformedSource !== source) {
 			stats.transformedFiles += 1;
 			transformedSources.set(resolvedPath, transformedSource);
@@ -1833,6 +1839,10 @@ export const compileAngularFileJIT = async (
 			inlined.source,
 			dirname(actualPath)
 		).source;
+		// The router's pages load when first shown, as in the AOT build
+		// (angular/splitRoutePages.ts).
+		sourceCode =
+			splitAngularRoutePages(sourceCode, actualPath) ?? sourceCode;
 
 		// Compute output path preserving directory structure. `toOutputPath`
 		// is the single source of truth — it handles the in-place branch
@@ -2440,7 +2450,7 @@ export const compileAngular = async (
 			}
 			if (pageInjection.hasRoutes) {
 				importLines.push(
-					`import { provideRouter as __abs_provideRouter, withComponentInputBinding as __abs_withComponentInputBinding, withNavigationErrorHandler as __abs_withNavigationErrorHandler, withViewTransitions as __abs_withViewTransitions } from "@angular/router";`
+					`import { provideRouter as __abs_provideRouter, withComponentInputBinding as __abs_withComponentInputBinding, withEnabledBlockingInitialNavigation as __abs_withEnabledBlockingInitialNavigation, withNavigationErrorHandler as __abs_withNavigationErrorHandler, withViewTransitions as __abs_withViewTransitions } from "@angular/router";`
 				);
 				/* A `routerLink` to a URL this table does not match is a
 				 * dead link in Angular (NG04002: no navigation, no URL
@@ -2459,7 +2469,7 @@ export const compileAngular = async (
 				 * exactly that). Unset on the server, where a hand-off
 				 * would mean nothing anyway. */
 				fragments.push(
-					`__abs_provideRouter(routes, __abs_withComponentInputBinding(), __abs_withViewTransitions(), __abs_withNavigationErrorHandler((event) => { const handler = Reflect.get(globalThis, Symbol.for("absolutejs.angular.routerHandoff")); return typeof handler === "function" ? handler(event) : undefined; }))`
+					`__abs_provideRouter(routes, __abs_withComponentInputBinding(), __abs_withViewTransitions(), __abs_withEnabledBlockingInitialNavigation(), __abs_withNavigationErrorHandler((event) => { const handler = Reflect.get(globalThis, Symbol.for("absolutejs.angular.routerHandoff")); return typeof handler === "function" ? handler(event) : undefined; }))`
 				);
 			}
 			if (pageInjection.basePath !== null) {
