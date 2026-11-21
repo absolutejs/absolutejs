@@ -231,7 +231,7 @@ every navigation.
 | Phase | Scope | Exit criteria |
 | --- | --- | --- |
 | 1 (done) | Layer + React ↔ Svelte via `<Link>`, styles, island store, back/forward + scroll, history fallback, CSP | Playwright (prod build): React→Svelte→React with no document request; target hydrates and is interactive; stylesheets swapped, Svelte scoped CSS applied; store value carried both ways; back/forward and scroll restore; same with the Navigation API removed; zero CSP violations under `secureHeaders()`; opt-out link does a full load. Packed-tarball e2e in prod and dev. |
-| 2 | Teardown completeness | ~~Island dispose registry (islands unmounted with the old body)~~ **done, 0.20.0-beta.234**; ~~`__ABSOLUTE_PAGE_DISPOSE__` for HTML/HTMX pages (no-op) so they can participate~~ **done, 0.20.0-beta.235**; prefetch cache on `globalThis` so a Svelte `<Link>` hover warms the React-installed layer; dev HMR follows the swapped page (`__HMR_FRAMEWORK__`, per-page manifest); a framework-supplied index boot function instead of `?absolute-nav=` re-imports. Exit: React ↔ Svelte ↔ HTML ↔ HTMX with islands, no leaked roots (heap snapshot), HMR edit after a soft navigation applies. |
+| 2 | Teardown completeness | ~~Island dispose registry (islands unmounted with the old body)~~ **done, 0.20.0-beta.234**; ~~`__ABSOLUTE_PAGE_DISPOSE__` for HTML/HTMX pages (no-op) so they can participate~~ **done, 0.20.0-beta.235**; ~~prefetch cache on `globalThis` so a Svelte `<Link>` hover warms the React-installed layer~~ **done, 0.20.0-beta.236**; dev HMR follows the swapped page (`__HMR_FRAMEWORK__`, per-page manifest); a framework-supplied index boot function instead of `?absolute-nav=` re-imports. Exit: React ↔ Svelte ↔ HTML ↔ HTMX with islands, no leaked roots (heap snapshot), HMR edit after a soft navigation applies. |
 | 3 | Vue + Angular | Vue `<Link>` / vue-router and Angular `routerLink` hand off unmatched URLs; Angular zone and platform teardown verified. Exit: the Phase 1 suite for every framework pair (5×5 matrix in Playwright, prod + dev). |
 | 4 | Navigation API interception | `navigate` event `intercept()` where supported (forms, `location.assign`, programmatic), click/popstate fallback elsewhere; `config.navigation: true` injects `enableNavigation()` into every hydration index. Exit: suite passes in Chromium (Navigation API) and WebKit/Firefox (fallback). |
 | 5 | Persistent layouts | `data-absolute-persist` (2.4) plus layout-route emission. Exit: a React navbar island keeps state (input value, open menu) across React → Svelte → Vue. |
@@ -313,11 +313,41 @@ Verified in `tests/integration/build/static-page-navigation-browser.test.ts`
 for both routes, asserting zero document requests across the round trip —
 a reload would pass a "did we arrive" check and lose the entire point.
 
+## 4c. One prefetch store per document (phase 2, shipped)
+
+`src/client/prefetch.ts` keeps its state on a `Symbol.for` key rather than
+in module scope. Each framework's client pass bundles its own copy of
+`@absolutejs/absolute/client`, so module-level state is one set per copy,
+and the cache was therefore useless across frameworks: a Svelte `<Link>`
+hover warmed the Svelte copy, while the layer doing the swap — whichever
+copy called `enableNavigation()` first, which on a React-entry session is
+React's — looked in its own and missed. The document was fetched twice.
+
+Everything a document can only sensibly have one of moved with it, not
+just the cache:
+
+- **The in-flight budget.** `MAX_IN_FLIGHT` was enforced per copy, so two
+  copies could run four prefetches at once on a page already fetching its
+  own assets.
+- **The `<link>` and speculation-rule bookkeeping**
+  (`preloadedModules`, `prefetchedStyles`, `liveSpeculationRules`), which
+  could otherwise inject the same hint twice and exceed
+  `MAX_LIVE_SPECULATION_RULES`.
+
+The call sites did not change: the shared Maps, Sets and array are
+destructured once at module init, so each copy holds a reference to the
+same objects under the same names. Only the in-flight count needed a box,
+since a number cannot be shared by reference.
+
+`tests/unit/client/prefetch.test.ts` bundles the module and evaluates it
+twice — two independent module instances sharing one global, which is what
+two bundle copies are — and asserts that one copy sees the other's
+prefetch, that consuming it empties the store for both, and that the
+in-flight budget is one budget. An import would have been deduplicated and
+tested nothing.
+
 ## 5. Known limitations (phase 1)
 
-- Only the layer's own bundle copy sees `<Link>` prefetches from its
-  framework; a document prefetched by another framework's `<Link>` is
-  still in the HTTP cache, so the fetch revalidates.
 - A revisited page's index module is downloaded again under a new query
   string (small; vendor chunks are not).
 - Dev mode: the HMR client keeps listening, but HMR after a soft
