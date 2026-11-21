@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "`streaming: true` on a Vue page handler sends the page's shell before its slowest async boundary resolves — 11ms to first byte against 616ms for the same page rendered atomically, on a page with a 600ms boundary. It is opt-in per page rather than the default, and the reason is worth knowing before switching: a Vue render that fails ASYNCHRONOUSLY, an async component or a `setup` that throws deep in the page, can only be answered with a 500 error page while nothing has been committed. Streaming commits the status and the opening markup first, so the same failure truncates the response instead. A failure before the first chunk is answerable in either mode, because the streaming path primes the stream before committing a response. Pages that collect streaming slots keep streaming regardless, as they always have: their contract is patch delivery, which needs the response open.",
+					"kind": "added",
+					"summary": "Vue pages can stream with `streaming: true`"
+				}
+			],
+			"date": "2026-11-21",
+			"version": "0.20.0-beta.264"
+		},
+		{
+			"changes": [
+				{
 					"detail": "A React SPA's pages load their code the first time they are shown, with nothing to write. A component imported from the app's own code and placed as the element of a leaf `<Route>` (react-router) becomes its own chunk: the app's entry no longer carries every page, the layout and its navigation are interactive while a page's code is still on its way (React keeps the server's HTML for the page meanwhile), the page hydrates when its code arrives, and a page loaded once opens at once after. Every build applies it the same way (the dev module server, the dev server with backend HMR on or off, the browser build, and `absolute start` / `compile`), so the server always renders the boundaries the browser hydrates. A layout route (one with child routes) stays in the entry, and so does a component the file also uses anywhere else. Pages imported from a package stay eager. `lazyRoute` remains exported: it is what the build writes, and it serves a lazy component outside a route.",
 					"kind": "changed",
 					"summary": "React router pages load when first shown, automatically"
