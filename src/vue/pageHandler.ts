@@ -62,6 +62,21 @@ import {
 
 type VuePageRenderOptions = StreamingSlotEnhancerOptions & {
 	collectStreamingSlots?: boolean;
+	/** Stream this page's HTML instead of rendering it atomically: the
+	 *  shell arrives before the page's slowest async boundary resolves
+	 *  (measured at 11ms to first byte against 616ms buffered, on a page
+	 *  with a 600ms boundary).
+	 *
+	 *  The default is atomic for a reason worth knowing before switching:
+	 *  a render that fails ASYNCHRONOUSLY — an async component or a
+	 *  `setup` that throws after the first chunk has gone out — can no
+	 *  longer be answered with an error page, because the 200 and the
+	 *  opening markup are already committed. Buffered, the same failure
+	 *  returns a 500. Streaming makes that trade on purpose, the way
+	 *  React's streaming renderer does; a failure BEFORE the first chunk
+	 *  is still answerable either way, because the stream is primed
+	 *  before the response is committed. */
+	streaming?: boolean;
 	/** Buffer this page's stream so it can carry a content-hash `ETag` and
 	 *  serve a `304` on repeat visits, at the cost of streaming's fast first
 	 *  byte. Only worth it on pages static enough that the 304 beats the
@@ -429,11 +444,25 @@ export const handleVuePageRequest = async <Component extends VueComponent>(
 			 * plan (item 3.8): a routed Vue page had no server HTML at
 			 * all, so no content for a crawler, no first paint before
 			 * JavaScript, and nothing for a soft navigation to swap in. */
-			// Ordinary Vue pages are rendered atomically so an async component or
-			// setup failure is caught by the surrounding error boundary before a
-			// 200 response is committed. Explicit streaming-slot pages keep the
-			// incremental path below because their contract requires patch delivery.
-			if (resolvedOptions?.collectStreamingSlots !== true) {
+			/* Atomic unless the page asks to stream.
+			 *
+			 * Buffering the whole document costs the page its first byte —
+			 * 616ms against 11ms on a page with a 600ms boundary — and buys
+			 * something streaming cannot give back: an async component or
+			 * `setup` that throws deep in the render is still answered with
+			 * a 500 error page, because nothing has been committed yet.
+			 * Streaming commits the status and the opening markup before
+			 * that failure happens, so the same page truncates instead.
+			 *
+			 * Which to prefer is the app's call rather than the
+			 * framework's, so `streaming: true` opts in per page and the
+			 * default keeps the guarantee. Pages collecting streaming slots
+			 * stream regardless: their contract is patch delivery, which
+			 * needs the response open. */
+			const streamThisPage =
+				resolvedOptions?.streaming === true ||
+				resolvedOptions?.collectStreamingSlots === true;
+			if (!streamThisPage) {
 				const body = await renderToString(app, ssrContext);
 				// The whole document is at hand: link exactly the islands
 				// it renders, and inject the manifest and bootstrap that
