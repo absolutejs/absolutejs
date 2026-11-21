@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "A Svelte page that rendered an `<Island>` never hydrated: its `onMount` did not run, its event handlers were never attached and its state was not reactive. The page looked correct, because the server had already rendered it, and the islands on it worked — they are hydrated by their own bootstrap, independently of the page — so the only symptom was a Svelte page that quietly stopped responding to clicks as soon as an island was added to it. Two faults, each hiding the other. The build's `hasAwaitSlot` flag was set by four lowering passes, two of which lower island syntax rather than streamed `{#await}` slots, so an island on the page put it in the branch that answers a streamed await by not hydrating at all. Fixing that reached a second branch, dead until then, which answered island markup with `mount()` instead of `hydrate()` — and `mount` appends, so the server's copy of the page stayed in the document with a live second copy after it: every selector, and every click, found the dead one. Island pages now hydrate, with the server's island markup restored into each slot as the snapshot was always meant to do.",
+					"kind": "fixed",
+					"summary": "A Svelte page that renders an island hydrates instead of going inert"
+				}
+			],
+			"date": "2026-11-21",
+			"version": "0.20.0-beta.250"
+		},
+		{
+			"changes": [
+				{
 					"detail": "A GET form submission and a `location.assign()` now soft-navigate like a link click, where the browser has a Navigation API to tell the layer about them (Chromium today; Safari and Firefox still load a document, which is what they did before). Until now the layer only saw clicks and history traversals, so an app that submitted a search form paid for a fresh document — and lost its island state, its scroll map and its prefetch cache — on a navigation that could have been a swap. Clicks still go through the click listener, so `download`, `target`, `rel=\"external\"` and `data-absolute-navigation=\"off\"` keep being read off the anchor; an opted-out form is honoured too, through the event's source element and the click listener's own record of what it declined. Deliberately left alone: a POST form, because the swap fetches the target with GET and taking a submission over would turn it into a read of the action URL (form actions are how a POST stays on the page); back, forward and reloads, which the traversal listener and the browser already own; a download; and — the one that matters most — a page's own `history.pushState` or `history.replaceState`, which fire the same event. Every framework router changes route by calling `pushState`, so an in-router navigation must never be answered with a cross-framework document swap.",
 					"kind": "added",
 					"summary": "Form submissions and location.assign() soft-navigate instead of loading a document"
