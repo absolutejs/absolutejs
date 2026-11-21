@@ -5,6 +5,29 @@
 		{
 			"changes": [
 				{
+					"detail": "The client `generateSrcSet` from `@absolutejs/absolute/image` now takes the same arguments as the server's: `(src, width, sizes, config, loader)`. Its fourth and fifth arguments were the `deviceSizes` and `imageSizes` arrays; they move into `config`, beside `path` and `quality`, and the fifth is the image's loader. Angular's browser build already called it this way, which is how its loader came to be read as `imageSizes`.",
+					"kind": "breaking",
+					"migration": {
+						"instruction": "Call generateSrcSet(src, width, sizes, { deviceSizes, imageSizes }) instead of generateSrcSet(src, width, sizes, deviceSizes, imageSizes); pass a loader as the fifth argument.",
+						"manual": true
+					},
+					"summary": "`generateSrcSet` takes a config object and a loader, like the server’s",
+					"symbols": [
+						"generateSrcSet"
+					]
+				},
+				{
+					"detail": "An `<Image>` with a custom `loader` used it for its `src` only: the React, Vue and Svelte components built every `srcset` candidate against the `/_absolute/image` endpoint instead, so a browser that picked from the set (a high-density screen, or any `sizes`) asked the endpoint for an image it may not be able to read — a private route, an external CDN — and showed it broken. The set's candidates now go through the loader too, and the image's `quality` reaches them (it was always the default before). Angular passed its loader, but its browser build calls the client `generateSrcSet`, which read that argument as `imageSizes`, so an Angular image with a loader failed when building its set.",
+					"kind": "fixed",
+					"summary": "Image's loader builds its whole srcset, with the image's quality"
+				}
+			],
+			"date": "2026-11-21",
+			"version": "0.20.0-beta.247"
+		},
+		{
+			"changes": [
+				{
 					"detail": "Svelte to Vue and back is now covered, the first verified pair in the cross-framework navigation matrix that does not involve React. It is worth its own test rather than being assumed from the React rows: each framework's client pass bundles its own copy of the client runtime, so the copy that installs the navigation layer and the copy that hydrated the page being torn down can be different modules, and that is where this area's real bugs have been — the prefetch cache was one store per bundle copy, and the island disposer registry had to move to a shared key for a React page's layer to see a Svelte island's disposer. The trip is driven from both entry points, because `enableNavigation()` is idempotent and the first caller wins, so which copy owns the layer depends on which page the session started at, and the teardown path differs per framework. No framework change was needed. The first draft of the test was wrong in a way worth recording: `window` survives a soft navigation by design, so a hydration flag set by the first visit is still true when the second starts and waiting on it returns immediately, which asserted the URL before the navigation had finished.",
 					"kind": "internal",
 					"summary": "Svelte to Vue is a verified pair in the navigation matrix"
