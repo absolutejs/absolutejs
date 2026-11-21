@@ -8,6 +8,9 @@ export type AngularDeps = {
 	InjectionToken: typeof import('@angular/core').InjectionToken;
 	NgComponentOutlet: typeof import('@angular/common').NgComponentOutlet;
 	provideClientHydration: typeof import('@angular/platform-browser').provideClientHydration;
+	/** Replays events a visitor fired before hydration finished. Passed to
+	 *  `provideClientHydration` on both the server and the client. */
+	withEventReplay: typeof import('@angular/platform-browser').withEventReplay;
 	provideServerRendering: typeof import('@angular/platform-server').provideServerRendering;
 	CSP_NONCE: typeof import('@angular/core').CSP_NONCE;
 	provideZoneChangeDetection: typeof import('@angular/core').provideZoneChangeDetection;

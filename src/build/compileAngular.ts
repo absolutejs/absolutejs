@@ -2516,7 +2516,7 @@ export const compileAngular = async (
 			? `${zoneImport}${hmrPreamble}
 import '@angular/compiler';
 import { bootstrapApplication } from '@angular/platform-browser';
-import { provideClientHydration } from '@angular/platform-browser';
+import { provideClientHydration, withEventReplay } from '@angular/platform-browser';
 import { withHttpTransferCacheOptions } from '@angular/platform-browser';
 import { ${changeDetectionImport}, CSP_NONCE, REQUEST_CONTEXT } from '@angular/core';
 import { APP_BASE_HREF as __abs_APP_BASE_HREF } from '@angular/common';
@@ -2601,7 +2601,7 @@ if (!document.querySelector(_sel)) {
 var providers = [${changeDetectionProvider}];
 var restoreTranslation = function() {};
 if (!isClientRender && !window.__HMR_SKIP_HYDRATION__ && !pageHasIslands) {
-    providers.push(provideClientHydration(withHttpTransferCacheOptions(absoluteHttpTransferCacheOptions)));
+    providers.push(provideClientHydration(withEventReplay(), withHttpTransferCacheOptions(absoluteHttpTransferCacheOptions)));
     restoreTranslation = prepareBrowserTranslationHydration(document.querySelector(_sel));
 }
 delete window.__HMR_SKIP_HYDRATION__;
@@ -2643,7 +2643,7 @@ window.__ABSOLUTE_PAGE_DISPOSE__ = async function() {
 			: `
 ${zoneImport}import '@angular/compiler';
 import { bootstrapApplication } from '@angular/platform-browser';
-import { provideClientHydration } from '@angular/platform-browser';
+import { provideClientHydration, withEventReplay } from '@angular/platform-browser';
 import { withHttpTransferCacheOptions } from '@angular/platform-browser';
 import { enableProdMode, ${changeDetectionImport}, CSP_NONCE, REQUEST_CONTEXT } from '@angular/core';
 import { APP_BASE_HREF as __abs_APP_BASE_HREF } from '@angular/common';
@@ -2707,7 +2707,7 @@ if (!document.querySelector(_sel)) {
 var providers = [${changeDetectionProvider}].concat(pageProviders).concat(contextProviders);
 var restoreTranslation = function() {};
 if (!isClientRender && !pageHasIslands) {
-    providers.unshift(provideClientHydration(withHttpTransferCacheOptions(absoluteHttpTransferCacheOptions)));
+    providers.unshift(provideClientHydration(withEventReplay(), withHttpTransferCacheOptions(absoluteHttpTransferCacheOptions)));
     restoreTranslation = prepareBrowserTranslationHydration(document.querySelector(_sel));
 }
 window.__ABS_SLOT_HYDRATION_PENDING__ = pageHasRawStreamingSlots;
