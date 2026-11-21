@@ -935,28 +935,49 @@ container's HTML. So the second write replaced a live island with a fresh
 copy. It now returns early when the container already holds an island,
 whoever put it there.
 
-### Still open: an Angular page entered cold hydrates its island twice
+### Closed: the Angular cold-entry double hydration (0.20.0-beta.258)
 
-Two disposers for one element in the document, which means a **second,
-detached element exists**. Four explanations are ruled out by measurement:
+One guard, in `registerIslandDisposer`: an island whose element has left
+the document by the time its hydrator registers a disposer is **unmounted
+immediately** instead of being registered.
 
-| Explanation | Ruled out by |
+An Angular page removes the server's markup *after* rendering its own, so
+the islands runtime's scan legitimately finds both copies and starts
+hydrating the server's one a moment before it is detached. That instance
+was then registered and left running on nodes nobody could see — two
+disposers for one element, on every load — until a navigation pruned it.
+Unmounting it at registration is the same answer one navigation later,
+taken immediately.
+
+It also removes the wasted work, which was a surprise worth recording:
+the mount count drops from 2 to **1**, not 2-with-cleanup. Svelte flushes
+`onMount` asynchronously, so unmounting the orphan in the same turn
+cancels its pending effects — the instance never finishes mounting.
+
+**Three fixes were measured against each other**, which is the only
+reason the shipped one is a single guard:
+
+| Attempt | Measured |
 | --- | --- |
-| The component writes twice | Fixed; logging shows one write, count unchanged |
-| A detached element is hydrated | A skip-if-detached guard changed nothing |
-| Two copies of the islands runtime race on one element | A `data-hydrating` DOM claim, shared by all copies, changed nothing |
-| Vue-style re-creation of the host | Angular's container is empty when written; nothing to re-create |
+| Islands wait for the page render (`__ABS_ISLAND_HOST__ = 'angular'`, mirroring React's wait) | Works, and unnecessary: removing it kept the count at 1 |
+| Skip hydrating an element that is already detached | Works, and unnecessary for the same reason |
+| Unmount an island hydrated into detached markup | **Sufficient on its own** |
 
-The last two were written, measured, and reverted rather than shipped —
-a check that cannot be shown to fire is the speculative machinery this
-phase has already produced twice.
+Each was disabled in turn and the count re-measured. The first two are
+reverted. The habit this phase has been short of is exactly that: asking
+of each piece "does the number change without it?" before shipping it.
 
-What is known: at the time the component writes, the document holds **no**
-islands at all (`allIslands=0`) and the registry is empty, so the second
-element appears after that. Where it comes from is the next thing to find,
-and the honest next step is to log every `registerIslandDisposer` call
-with its element's identity and parent chain, rather than to guess a fifth
-mechanism.
+How the cause was found, after four wrong guesses in the previous
+revision: logging every `registerIslandDisposer` call with its element's
+`isConnected` and its parent chain. The two registrations read
+
+```
+connected=true   chain= div[island] < div[skiphydration] < absolute-island < div#angular-page < ng-island-page < body < html
+connected=false  chain= div[island] < div#angular-page
+```
+
+A parent chain that stops before `<body>` is a detached tree, and that one
+line named both the orphan and the page that had discarded it.
 
 Layout-route conventions emitting `persist` automatically (step 5) are
 also still open.
