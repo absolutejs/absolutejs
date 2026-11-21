@@ -140,6 +140,9 @@ declare global {
 
 	/* Client-side globals (Window extensions for HMR) */
 	interface Window {
+		/** The URL prefix the page is served under, when the server has a base
+		 *  path (`ABSOLUTE_BASE_PATH`). */
+		__ABSOLUTE_BASE_PATH__?: string;
 		$RefreshReg$?: (type: unknown, id: string) => void;
 		$RefreshRuntime$?: {
 			createSignatureFunctionForTransform: () => (

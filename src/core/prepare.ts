@@ -758,6 +758,10 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 			: null;
 	const config = built ?? (await loadConfig(configOrPath));
 	recordStep(built ? 'load built config' : 'load config', stepStartedAt);
+	// The base path the browser reaches the app under: the environment's,
+	// else the config's (read everywhere through getBasePath()).
+	if (process.env.ABSOLUTE_BASE_PATH === undefined && config.basePath)
+		process.env.ABSOLUTE_BASE_PATH = config.basePath;
 	// Angular zone.js mode must patch the process before the app listens.
 	if (config.angular?.changeDetection === 'zone')
 		await installAngularZoneRuntime();

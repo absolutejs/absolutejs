@@ -5,6 +5,22 @@
 		{
 			"changes": [
 				{
+					"detail": "An app can now be served under a URL prefix, behind a proxy that strips the prefix before the request reaches it (`/studio/projects/abc` on another app's origin). Set `basePath` in the config, or `ABSOLUTE_BASE_PATH` per process. The app's routes, the dev module server and the HMR socket stay at the root of the app's own server; every URL the framework hands the browser carries the prefix: a React page's entry script and its route data, the HMR socket, CSS and static-asset HMR, and the dev server's hashless-asset redirect. An import map written first in the page's `<head>` moves the root-absolute module specifiers that bundles and dev modules use (`/@src/`, `/react/vendor/`, `/vendor/`, ...) under the prefix, so dev HMR works through such a proxy as it does at the root. `withBasePath(path)` prefixes a URL the app renders itself, such as a stylesheet `<link>`; `asset()` stays unprefixed. Without a base path nothing changes.",
+					"kind": "added",
+					"summary": "Serve an app, and its dev HMR, under a URL prefix",
+					"symbols": [
+						"BaseBuildConfig",
+						"getBasePath",
+						"withBasePath"
+					]
+				}
+			],
+			"date": "2026-11-21",
+			"version": "0.20.0-beta.251"
+		},
+		{
+			"changes": [
+				{
 					"detail": "A Svelte page that rendered an `<Island>` never hydrated: its `onMount` did not run, its event handlers were never attached and its state was not reactive. The page looked correct, because the server had already rendered it, and the islands on it worked — they are hydrated by their own bootstrap, independently of the page — so the only symptom was a Svelte page that quietly stopped responding to clicks as soon as an island was added to it. Two faults, each hiding the other. The build's `hasAwaitSlot` flag was set by four lowering passes, two of which lower island syntax rather than streamed `{#await}` slots, so an island on the page put it in the branch that answers a streamed await by not hydrating at all. Fixing that reached a second branch, dead until then, which answered island markup with `mount()` instead of `hydrate()` — and `mount` appends, so the server's copy of the page stayed in the document with a live second copy after it: every selector, and every click, found the dead one. Island pages now hydrate, with the server's island markup restored into each slot as the snapshot was always meant to do.",
 					"kind": "fixed",
 					"summary": "A Svelte page that renders an island hydrates instead of going inert"

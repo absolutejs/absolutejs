@@ -1,3 +1,4 @@
+import { withClientBasePath, withoutClientBasePath } from './basePath';
 /* CSS reload/preload utilities for HMR */
 
 import type {
@@ -304,7 +305,9 @@ const updateStylesheetLink = (
 	let newHref: string | null = null;
 	if (manifest) {
 		const baseName = getCSSBaseName(href);
-		newHref = findManifestHref(manifest, baseName);
+		const found = findManifestHref(manifest, baseName);
+		// The manifest is root-absolute; the page is served under its base.
+		newHref = found ? withClientBasePath(found) : null;
 	}
 	const currentUrl = new URL(href, window.location.href);
 	if (!newHref && currentUrl.origin !== window.location.origin) {
@@ -327,7 +330,7 @@ const updateStylesheetLink = (
 
 /** Static asset edits must invalidate mounted image and favicon URLs too. */
 export const refreshStaticAsset = (assetUrl: string) => {
-	const changed = new URL(assetUrl, window.location.href);
+	const changed = new URL(withClientBasePath(assetUrl), window.location.href);
 	if (changed.origin !== window.location.origin) return;
 	for (const element of document.querySelectorAll<
 		HTMLImageElement | HTMLLinkElement
@@ -366,7 +369,7 @@ export const reloadImportedStylesheets = async (
 				const url = new URL(source, window.location.href);
 				if (
 					url.origin !== window.location.origin ||
-					!url.pathname.startsWith('/@src/')
+					!withoutClientBasePath(url.pathname).startsWith('/@src/')
 				)
 					return false;
 				url.searchParams.set(

@@ -1,3 +1,4 @@
+import { withBasePath } from '../utils/basePath';
 import Elysia from 'elysia';
 import { websocket } from 'elysia/websocket';
 import {
@@ -134,7 +135,8 @@ const resolveDevAssetResponse = async (
 		return new Response(null, {
 			headers: {
 				'Cache-Control': 'no-store',
-				Location: aliasedTarget
+				// The browser is outside the base's proxy otherwise.
+				Location: withBasePath(aliasedTarget)
 			},
 			status: 302
 		});

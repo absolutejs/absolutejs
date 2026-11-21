@@ -1,3 +1,9 @@
+import {
+	basePathHeadTags,
+	getBasePath,
+	insertAfterHeadOpen,
+	withBasePath
+} from '../utils/basePath';
 import { HTML_CONTENT_TYPE } from '../constants';
 import { requestRenderUrl } from '../utils/requestRenderUrl';
 import { readCspNonce } from '../utils/cspNonceRef';
@@ -149,8 +155,10 @@ export const handleReactPageRequest = async <
 		// an on-demand dev build just resolved).
 		route: () => ({
 			assets: {
-				css: deferredAssets?.cssHrefs() ?? [],
-				index: resolvedIndex
+				css: (deferredAssets?.cssHrefs() ?? []).map((href) =>
+					withBasePath(href)
+				),
+				index: withBasePath(resolvedIndex)
 			}
 		})
 	});
@@ -189,7 +197,8 @@ export const handleReactPageRequest = async <
 			const refreshSetup = buildRefreshSetup();
 
 			const stream = await renderToReadableStream(element, {
-				bootstrapModules: [resolvedIndex],
+				// Under a base path the browser reaches the entry through it.
+				bootstrapModules: [withBasePath(resolvedIndex)],
 				bootstrapScriptContent:
 					BROWSER_TRANSLATION_BASELINE_SCRIPT +
 					propsScript +
@@ -201,9 +210,14 @@ export const handleReactPageRequest = async <
 					console.error('[SSR] React streaming error:', error);
 				}
 			});
-			const htmlStream = injectIslandPageContextStream(stream, {
-				host: 'react'
-			});
+			const htmlStream = insertAfterHeadOpen(
+				injectIslandPageContextStream(stream, {
+					host: 'react'
+				}),
+				// First in <head>: the import map must precede the entry's
+				// modulepreload, or the browser ignores it.
+				basePathHeadTags(getBasePath(), readCspNonce())
+			);
 			if (
 				resolveErrorConventionPath('react', pageName) ||
 				hasErrorConvention('react')
