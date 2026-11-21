@@ -232,7 +232,7 @@ every navigation.
 | --- | --- | --- |
 | 1 (done) | Layer + React ↔ Svelte via `<Link>`, styles, island store, back/forward + scroll, history fallback, CSP | Playwright (prod build): React→Svelte→React with no document request; target hydrates and is interactive; stylesheets swapped, Svelte scoped CSS applied; store value carried both ways; back/forward and scroll restore; same with the Navigation API removed; zero CSP violations under `secureHeaders()`; opt-out link does a full load. Packed-tarball e2e in prod and dev. |
 | 2 | Teardown completeness | ~~Island dispose registry (islands unmounted with the old body)~~ **done, 0.20.0-beta.234**; ~~`__ABSOLUTE_PAGE_DISPOSE__` for HTML/HTMX pages (no-op) so they can participate~~ **done, 0.20.0-beta.235**; ~~prefetch cache on `globalThis` so a Svelte `<Link>` hover warms the React-installed layer~~ **done, 0.20.0-beta.236**; ~~dev HMR follows the swapped page (`__HMR_FRAMEWORK__`, per-page manifest)~~ **verified, 0.20.0-beta.237 — it already did**; a framework-supplied index boot function instead of `?absolute-nav=` re-imports. Exit: React ↔ Svelte ↔ HTML ↔ HTMX with islands, no leaked roots (heap snapshot), HMR edit after a soft navigation applies. |
-| 3 | Vue + Angular | Vue `<Link>` / vue-router and Angular `routerLink` hand off unmatched URLs; Angular zone and platform teardown verified. Exit: the Phase 1 suite for every framework pair (5×5 matrix in Playwright, prod + dev). |
+| 3 | Vue + Angular | ~~Vue `<Link>` / vue-router hands off unmatched URLs~~ **verified, 0.20.0-beta.238 — it already did**; Angular `routerLink` hands off unmatched URLs; Angular zone and platform teardown verified. Exit: the Phase 1 suite for every framework pair (5×5 matrix in Playwright, prod + dev). |
 | 4 | Navigation API interception | `navigate` event `intercept()` where supported (forms, `location.assign`, programmatic), click/popstate fallback elsewhere; `config.navigation: true` injects `enableNavigation()` into every hydration index. Exit: suite passes in Chromium (Navigation API) and WebKit/Firefox (fallback). |
 | 5 | Persistent layouts | `data-absolute-persist` (2.4) plus layout-route emission. Exit: a React navbar island keeps state (input value, open menu) across React → Svelte → Vue. |
 
@@ -371,6 +371,51 @@ every change under the directory that every *build* integration test uses
 for its fixtures. A dev-HMR fixture there gets no rebuild, no WebSocket
 message and no log line — the test fails as a silent timeout. This
 fixture lives in `.hmr-temp/` instead, which is gitignored and not denied.
+
+## 4e. The matrix, framework by framework (phase 3, in progress)
+
+**Vue: verified, no change needed.** `src/vue/router/Link.ts` already has
+the hand-off the phase asks for — with no vue-router on the page, or an
+`href` its routes do not match, `onClick` returns without calling
+`preventDefault`, so the click reaches the layer's bubble-phase window
+listener. `compileVue`'s index already registers
+`__ABSOLUTE_PAGE_DISPOSE__`, so a Vue page can be left as well as entered.
+`tests/integration/build/vue-navigation-browser.test.ts` asserts the round
+trip: React → Vue swaps in place, the Vue page is interactive (its counter
+increments, so this is hydration rather than server markup pasted in),
+`<Link href="/react">` hands back to the layer, and back/forward traverse
+both ways — all with zero document requests.
+
+**Angular: blocked on the test harness, not on the framework.** An attempt
+at the same shape fails before it reaches any navigation code: every
+Angular SSR render throws `NG0203` (`inject()` called outside an injection
+context) from inside Angular's own `createRootViewInjector`, while a
+signal is lazily hydrated in the server vendor chunk. Ruled out, each by
+its own run:
+
+- the client navigation layer — moving `enableNavigation` from a
+  module-scope import to a lazy `import()` inside `ngOnInit` changed
+  nothing;
+- the missing `injectorPatch` side effect that `src/index.ts` carries and
+  CLAUDE.md flags as load-bearing — importing it, including as the very
+  first import in the file so it runs before `@angular/core`, changed
+  nothing.
+
+What differs from the one Angular SSR browser test that does work
+(`tests/integration/ssr/angular-defer-hydration-browser.test.ts`) is the
+harness, not the page: it spawns a separate app with `node_modules`
+linked into the fixture and imports through
+`@absolutejs/absolute/angular`, rather than calling
+`handleAngularPageRequest` in-process from the test the way the
+`tests/integration/build` fixtures do. The Angular row should be rebuilt
+on that precedent. No test was committed for it: a skipped one would read
+as a pass.
+
+Also still open and needed for a complete Angular row: `absLink`, the
+prefetching link directive (parity item 2.8), does not exist, so an
+Angular page has only a plain anchor — and `routerLink` hand-off, which is
+what the phase's wording is really about, needs a fixture page that
+installs the Angular router with `provideRouter`.
 
 ## 5. Known limitations (phase 1)
 
