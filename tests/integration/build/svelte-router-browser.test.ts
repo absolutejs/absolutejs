@@ -46,6 +46,7 @@ const ROUTER_PAGE = `<script lang="ts">
 	import Link from '${routerDir}/Link.svelte';
 	// Written as an ordinary route page: the build makes it load lazily.
 	import LazyPanel from '../components/LazyPanel.svelte';
+	import FramedPanel from '../components/FramedPanel.svelte';
 	import { beforeNavigate, goto, redirect } from '@absolutejs/absolute/svelte/router';
 
 	let { url }: { url?: string } = $props();
@@ -99,6 +100,11 @@ const ROUTER_PAGE = `<script lang="ts">
 		>
 			{#snippet pending()}<p id="slow-pending">Loading slowly…</p>{/snippet}
 		</Route>
+		<Route path="/app/framed">
+			{#snippet content()}
+				<section id="framed-frame"><h2>Framed</h2><FramedPanel /></section>
+			{/snippet}
+		</Route>
 		<Route path="/app/secret" guard={() => redirect('/app/login')}>
 			{#snippet content()}<h1 id="secret">Secret</h1>{/snippet}
 		</Route>
@@ -119,6 +125,13 @@ const LAZY_PANEL = `<script lang="ts">
 	<button id="lazy-count" onclick={() => count++}>count {count}</button>
 	<div style="height: 2500px">tall lazy</div>
 </section>
+`;
+
+const FRAMED_PANEL = `<script lang="ts">
+	let count = $state(0);
+</script>
+
+<div id="framed-panel"><button id="framed-count" onclick={() => count++}>count {count}</button></div>
 `;
 
 const SLOW_PANEL = `<section id="slow-panel"><h1>Slow panel</h1></section>
@@ -176,6 +189,7 @@ beforeAll(async () => {
 	await mkdir(componentsDir, { recursive: true });
 	await writeFile(join(componentsDir, 'LazyPanel.svelte'), LAZY_PANEL);
 	await writeFile(join(componentsDir, 'SlowPanel.svelte'), SLOW_PANEL);
+	await writeFile(join(componentsDir, 'FramedPanel.svelte'), FRAMED_PANEL);
 	lazyPanelSource = LAZY_MARKER;
 
 	const rel = (path: string) => relative(process.cwd(), join(fixtureRoot, path));
@@ -372,6 +386,53 @@ describe('svelte router lazy routes', () => {
 			expect(
 				await session.page.evaluate(() => Reflect.get(window, '__pendingSeen'))
 			).toEqual([]);
+			expect(warnings.filter((text) => /hydrat/i.test(text))).toEqual([]);
+		} finally {
+			await session.close();
+		}
+	}, 60_000);
+
+	test('a page inside a frame is split too: the server renders it whole and it hydrates in place', async () => {
+		const html = await (await fetch(`${baseUrl()}/app/framed`)).text();
+		expect(html).toContain('id="framed-frame"');
+		expect(html).toContain('id="framed-panel"');
+		expect(html).toContain('__ABS_SVELTE_LAZY_ROUTES__');
+
+		const session = await openPage(`${baseUrl()}/app/login`);
+		const warnings: string[] = [];
+		session.page.on('console', (message) => {
+			if (message.type() === 'warning' || message.type() === 'error')
+				warnings.push(message.text());
+		});
+		try {
+			await session.page.addInitScript(() => {
+				new MutationObserver(() => {
+					const panel = document.getElementById('framed-panel');
+					if (panel && !Reflect.get(window, '__ssrFramed'))
+						Reflect.set(window, '__ssrFramed', panel);
+				}).observe(document, { childList: true, subtree: true });
+			});
+			await session.page.goto(`${baseUrl()}/app/framed`);
+			await session.page.waitForFunction(
+				() => Reflect.get(window, '__hydrated') === true,
+				undefined,
+				{ timeout: 15_000 }
+			);
+			await session.page.click('#framed-count');
+			await session.page.waitForFunction(
+				() =>
+					document.getElementById('framed-count')?.textContent === 'count 1',
+				undefined,
+				{ timeout: 5_000 }
+			);
+
+			expect(
+				await session.page.evaluate(
+					() =>
+						Reflect.get(window, '__ssrFramed') ===
+						document.getElementById('framed-panel')
+				)
+			).toBe(true);
 			expect(warnings.filter((text) => /hydrat/i.test(text))).toEqual([]);
 		} finally {
 			await session.close();

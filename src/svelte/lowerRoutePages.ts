@@ -130,15 +130,16 @@ const attributeProperty = (
 type Split = {
 	edits: [number, number, string][];
 	local: string;
-	/** Where the content snippet was: the route's mentions of the page. */
-	snippet: { end: number; start: number };
+	/** The source this split replaces: where its mentions of the page are. */
+	region: { end: number; start: number };
+	/** Uses LazyPage (a page inside a wrapper), which needs its import. */
+	wrapped: boolean;
 };
 
-const splitRoute = (
-	route: Node,
-	source: string,
-	components: Map<string, Import>
-): Split | null => {
+const LAZY_PAGE = 'AbsoluteRoutePage';
+
+/* A route's `content` snippet, when the route can take a lazy page. */
+const contentSnippet = (route: Node, source: string) => {
 	const attributes = nodesOf(route.attributes);
 	if (
 		attributes.some(
@@ -147,12 +148,23 @@ const splitRoute = (
 		)
 	)
 		return null;
-	const children = meaningful(childNodes(route), source);
-	const snippet = children.find(
-		(node) =>
-			node.type === 'SnippetBlock' &&
-			Reflect.get(Object(node.expression), 'name') === 'content'
+
+	return (
+		meaningful(childNodes(route), source).find(
+			(node) =>
+				node.type === 'SnippetBlock' &&
+				Reflect.get(Object(node.expression), 'name') === 'content'
+		) ?? null
 	);
+};
+
+const splitRoute = (
+	route: Node,
+	source: string,
+	components: Map<string, Import>
+): Split | null => {
+	const attributes = nodesOf(route.attributes);
+	const snippet = contentSnippet(route, source);
 	if (!snippet) return null;
 	const parameters = nodesOf(snippet.parameters);
 	if (parameters.length > 1) return null;
@@ -191,7 +203,87 @@ const splitRoute = (
 			[snippet.start, snippet.end, '']
 		],
 		local,
-		snippet: { end: snippet.end, start: snippet.start }
+		region: { end: snippet.end, start: snippet.start },
+		wrapped: false
+	};
+};
+
+/* A route whose snippet wraps its page (a frame, a guard): each page in
+ * it, a local component wrapping no content of its own, becomes a
+ * LazyPage in place. The wrappers and the snippet stay as written, so a
+ * page's props may use the route params; the page's own route nested
+ * inside (a layout) is the outer walk's to handle. */
+const splitWrappedPages = (
+	route: Node,
+	source: string,
+	components: Map<string, Import>,
+	routeNames: Set<string>
+) => {
+	const snippet = contentSnippet(route, source);
+	if (!snippet) return [];
+	const pathAttribute = nodesOf(route.attributes).find(
+		(attribute) => attribute.name === 'path'
+	);
+	const routePath = pathAttribute
+		? source.slice(pathAttribute.start, pathAttribute.end)
+		: '';
+	const pages: Split[] = [];
+	const visitPages = (node: Node) => {
+		if (node.type === 'Component' && routeNames.has(String(node.name)))
+			return;
+		const page = wrappedPage(node, source, components);
+		if (page) {
+			const index = pages.length;
+			const id = `${routePath}|${page.specifier}|${index}`;
+			const props =
+				page.properties.length > 0
+					? ` props={{ ${page.properties.join(', ')} }}`
+					: '';
+			pages.push({
+				edits: [
+					[
+						node.start,
+						node.end,
+						`<${LAZY_PAGE} id={${JSON.stringify(id)}} loader={() => import(${JSON.stringify(page.specifier)})}${props} />`
+					]
+				],
+				local: page.local,
+				region: { end: node.end, start: node.start },
+				wrapped: true
+			});
+
+			return;
+		}
+		for (const child of childNodes(node)) visitPages(child);
+	};
+	for (const child of childNodes(snippet)) visitPages(child);
+
+	return pages;
+};
+
+/* A page component inside a wrapper: local, wrapping nothing, with plain
+ * attributes (any expression: it stays in the snippet's scope). */
+const wrappedPage = (
+	node: Node,
+	source: string,
+	components: Map<string, Import>
+) => {
+	if (node.type !== 'Component' || typeof node.name !== 'string') return null;
+	const imported = components.get(node.name);
+	if (!imported) return null;
+	if (meaningful(childNodes(node), source).length > 0) return null;
+	const properties = nodesOf(node.attributes).map((attribute) =>
+		attributeProperty(attribute, source, null)
+	);
+	if (properties.some((property) => typeof property !== 'string'))
+		return null;
+
+	return {
+		local: node.name,
+		properties: properties.filter(
+			(property): property is string => typeof property === 'string'
+		),
+		specifier: imported.specifier
 	};
 };
 
@@ -248,6 +340,10 @@ export const lowerSvelteRoutePages = (source: string, parse: ParseSvelte) => {
 			return;
 		const split = splitRoute(node, source, components);
 		if (split) splits.push(split);
+		else
+			splits.push(
+				...splitWrappedPages(node, source, components, routeNames)
+			);
 	});
 	if (splits.length === 0) return null;
 
@@ -264,7 +360,7 @@ export const lowerSvelteRoutePages = (source: string, parse: ParseSvelte) => {
 		const routeTags = splits
 			.filter((split) => split.local === local)
 			.reduce((count, split) => {
-				const { end, start } = split.snippet;
+				const { end, start } = split.region;
 
 				return (
 					count +
@@ -287,6 +383,16 @@ export const lowerSvelteRoutePages = (source: string, parse: ParseSvelte) => {
 				''
 			]);
 	}
+	// LazyPage comes from beside the Route this file imports.
+	const routeImport = imports.find((entry) =>
+		ROUTE_SOURCE.test(entry.specifier)
+	);
+	if (kept.some((split) => split.wrapped) && routeImport)
+		edits.push([
+			routeImport.declaration.end,
+			routeImport.declaration.end,
+			`\n\timport ${LAZY_PAGE} from ${JSON.stringify(routeImport.specifier.replace(/Route\.svelte$/, 'LazyPage.svelte'))};`
+		]);
 
 	// Apply from the end so earlier offsets stay valid.
 	return edits

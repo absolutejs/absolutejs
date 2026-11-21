@@ -98,6 +98,60 @@ export const AppRoutes = () => <Routes><R element={<Billing></Billing>} path="/b
 		expect(transpiles(out)).toBe(true);
 	});
 
+	test('a page inside a wrapper is split; the wrapper stays in the entry', () => {
+		const source = `import { Route, Routes } from 'react-router';
+import { AdminPage } from './AdminShell';
+import { RequireAuth } from './RequireAuth';
+import { TodayView } from './TodayView';
+import { Settings } from './Settings';
+export const AdminRoutes = ({ orders }) => (
+	<Routes>
+		<Route
+			element={
+				<AdminPage sub="What needs you" title="Today">
+					<TodayView orders={orders} />
+				</AdminPage>
+			}
+			path="/admin/overview"
+		/>
+		<Route element={<RequireAuth><Settings /></RequireAuth>} path="/settings" />
+	</Routes>
+);
+`;
+		const out = splitRoutePages(source, 'AdminRoutes.tsx') ?? '';
+
+		expect(out).toContain(
+			`const TodayView = __absoluteLazyRoute(() => import("./TodayView"), "TodayView");`
+		);
+		expect(out).toContain(
+			`const Settings = __absoluteLazyRoute(() => import("./Settings"), "Settings");`
+		);
+		expect(out).toContain(`import { AdminPage } from './AdminShell';`);
+		expect(out).toContain(`import { RequireAuth } from './RequireAuth';`);
+		expect(out).not.toContain('const AdminPage =');
+		expect(out).not.toContain('const RequireAuth =');
+		expect(transpiles(out)).toBe(true);
+	});
+
+	test('a frame every route wraps its page in stays, and each page is split', () => {
+		const source = `import { Route, Routes } from 'react-router';
+import { AdminPage } from './AdminShell';
+import { OrdersView } from './OrdersView';
+import { TodayView } from './TodayView';
+export const AdminRoutes = () => (
+	<Routes>
+		<Route element={<AdminPage title="Today"><TodayView /></AdminPage>} path="/today" />
+		<Route element={<AdminPage title="Orders"><OrdersView /></AdminPage>} path="/orders" />
+	</Routes>
+);
+`;
+		const out = splitRoutePages(source, 'AdminRoutes.tsx') ?? '';
+
+		expect(out).toContain('const TodayView = __absoluteLazyRoute(');
+		expect(out).toContain('const OrdersView = __absoluteLazyRoute(');
+		expect(out).toContain(`import { AdminPage } from './AdminShell';`);
+	});
+
 	test('a file with no router is left alone', () => {
 		expect(
 			splitRoutePages(`import { Billing } from './Billing';\nexport const X = () => <Billing />;`, 'X.tsx')

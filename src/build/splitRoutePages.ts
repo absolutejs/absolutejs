@@ -96,32 +96,57 @@ const isLeafRoute = (node: TS.Node) => {
 	);
 };
 
-/* The component a route renders, and every tag naming it (an element
- * written with a closing tag names it twice). */
-const elementComponent = (opening: TS.JsxOpeningLikeElement) => {
+/* The route's `element` expression, if it has one. */
+const elementExpression = (opening: TS.JsxOpeningLikeElement) => {
 	for (const attribute of opening.attributes.properties) {
 		if (!ts.isJsxAttribute(attribute)) continue;
 		if (!ts.isIdentifier(attribute.name)) continue;
 		if (attribute.name.text !== 'element') continue;
 		const value = attribute.initializer;
-		if (!value || !ts.isJsxExpression(value) || !value.expression)
-			return null;
-		const element = value.expression;
-		if (ts.isJsxSelfClosingElement(element))
-			return { opening: element, tags: [element.tagName] };
-		if (ts.isJsxElement(element))
-			return {
-				opening: element.openingElement,
-				tags: [
-					element.openingElement.tagName,
-					element.closingElement.tagName
-				]
-			};
 
-		return null;
+		return value && ts.isJsxExpression(value)
+			? (value.expression ?? null)
+			: null;
 	}
 
 	return null;
+};
+
+const hasContent = (element: TS.JsxElement) =>
+	element.children.some(
+		(child) => !(ts.isJsxText(child) && child.text.trim() === '')
+	);
+
+type RoutePage = { name: string; tags: TS.Node[] };
+
+/* The pages inside a route's element: every component in it that wraps no
+ * content of its own. A wrapper (an auth guard, an error boundary, a page
+ * frame like `<AdminPage title="Today">`) stays in the entry, so it renders
+ * at once; what it wraps is the page. `element={<Billing />}` is the case
+ * with no wrapper. */
+const elementPages = (expression: TS.Expression) => {
+	const pages: RoutePage[] = [];
+	const visit = (node: TS.Node) => {
+		if (ts.isJsxSelfClosingElement(node)) {
+			const name = tagName(node);
+			if (name !== null) pages.push({ name, tags: [node.tagName] });
+		}
+		if (ts.isJsxElement(node) && !hasContent(node)) {
+			const name = tagName(node.openingElement);
+			if (name !== null)
+				pages.push({
+					name,
+					tags: [
+						node.openingElement.tagName,
+						node.closingElement.tagName
+					]
+				});
+		}
+		ts.forEachChild(node, visit);
+	};
+	visit(expression);
+
+	return pages;
 };
 
 /* The tag-name identifiers of every route page element, and the names of
@@ -142,11 +167,10 @@ const findRoutePages = (file: TS.SourceFile, routeNames: Set<string>) => {
 			routeNames.has(name) &&
 			isLeafRoute(node)
 		) {
-			const page = elementComponent(opening);
-			const pageName = page && tagName(page.opening);
-			if (page && pageName !== null) {
+			const expression = elementExpression(opening);
+			for (const page of expression ? elementPages(expression) : []) {
 				for (const tag of page.tags) pageTags.add(tag);
-				pageNames.add(pageName);
+				pageNames.add(page.name);
 			}
 		}
 		ts.forEachChild(node, visit);
