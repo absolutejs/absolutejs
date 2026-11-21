@@ -133,7 +133,7 @@ export class ImageComponent {
 					this.src(),
 					this.width(),
 					this.sizes(),
-					undefined,
+					{ quality: this.quality() },
 					this.loader() ?? undefined
 				) ?? null)
 	);

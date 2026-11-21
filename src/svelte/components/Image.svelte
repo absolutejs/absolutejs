@@ -40,7 +40,9 @@
 	});
 
 	const srcSet = $derived(
-		unoptimized ? undefined : generateSrcSet(src, width, sizes)
+		unoptimized
+			? undefined
+			: generateSrcSet(src, width, sizes, { quality }, loader)
 	);
 
 	const resolvedSizes = $derived(sizes ?? (fill ? '100vw' : undefined));
