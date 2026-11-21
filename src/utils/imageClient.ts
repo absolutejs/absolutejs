@@ -9,6 +9,8 @@ import {
 	IMAGE_DEFAULT_QUALITY
 } from '../constants';
 
+import type { ImageConfig, ImageLoader } from '../../types/image';
+
 export type { ImageProps } from '../../types/image';
 
 export const DEFAULT_DEVICE_SIZES = IMAGE_DEFAULT_DEVICE_SIZES;
@@ -48,42 +50,49 @@ export const generateBlurSvg = (base64Thumbnail: string) => {
 
 	return `url("data:image/svg+xml,${encoded}")`;
 };
+/**
+ * The candidates of an image's srcset. Called as the server's own
+ * `generateSrcSet` is (`config`, then the image's `loader`), so a component
+ * gets the same answer from either: Angular's browser build is pointed here
+ * in place of the server module.
+ */
 export const generateSrcSet = (
 	src: string,
 	width: number | undefined,
 	sizes: string | undefined,
-	deviceSizes?: number[],
-	imageSizes?: number[]
+	config?: Pick<ImageConfig, 'deviceSizes' | 'imageSizes' | 'path' | 'quality'>,
+	loader?: ImageLoader
 ) => {
-	const quality = DEFAULT_QUALITY;
+	const quality = config?.quality ?? DEFAULT_QUALITY;
+	const basePath = config?.path ?? OPTIMIZATION_ENDPOINT;
+	/* Every candidate goes through the image's loader, as its src does, so
+	 * a custom source is never mixed with the endpoint's URLs. */
+	const urlFor = (sizeWidth: number) =>
+		loader
+			? loader({ quality, src, width: sizeWidth })
+			: buildOptimizedUrl(src, sizeWidth, quality, basePath);
 
 	if (sizes) {
-		const allSizes = getAllSizes(deviceSizes, imageSizes);
+		const allSizes = getAllSizes(config?.deviceSizes, config?.imageSizes);
 
 		return allSizes
-			.map(
-				(sizeWidth) =>
-					`${buildOptimizedUrl(src, sizeWidth, quality)} ${sizeWidth}w`
-			)
+			.map((sizeWidth) => `${urlFor(sizeWidth)} ${sizeWidth}w`)
 			.join(', ');
 	}
 
 	if (width) {
-		const allSizes = getAllSizes(deviceSizes, imageSizes);
+		const allSizes = getAllSizes(config?.deviceSizes, config?.imageSizes);
 
 		const w1x = snapToSize(width, allSizes);
 
 		const w2x = snapToSize(width * 2, allSizes);
 
-		return `${buildOptimizedUrl(src, w1x, quality)} 1x, ${buildOptimizedUrl(src, w2x, quality)} 2x`;
+		return `${urlFor(w1x)} 1x, ${urlFor(w2x)} 2x`;
 	}
 
-	const devSizes = deviceSizes ?? DEFAULT_DEVICE_SIZES;
+	const devSizes = config?.deviceSizes ?? DEFAULT_DEVICE_SIZES;
 
 	return devSizes
-		.map(
-			(sizeWidth) =>
-				`${buildOptimizedUrl(src, sizeWidth, quality)} ${sizeWidth}w`
-		)
+		.map((sizeWidth) => `${urlFor(sizeWidth)} ${sizeWidth}w`)
 		.join(', ');
 };
