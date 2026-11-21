@@ -485,3 +485,113 @@ describe('mode defaults', () => {
 		expect(isDevelopmentClient()).toBe(true);
 	});
 });
+
+/* Two bundle copies, which is what a real page has: each framework's
+ * client pass bundles its own copy of `@absolutejs/absolute/client`. The
+ * cache used to be module-level, so a Svelte `<Link>` hover warmed the
+ * Svelte copy and the navigation layer — whichever copy called
+ * `enableNavigation()` first — looked in its own and missed, fetching the
+ * document a second time. Navigation plan phase 2; the second limitation
+ * it listed for phase 1.
+ *
+ * Bundled and evaluated twice here rather than imported twice, because an
+ * import is deduplicated: two `new Function` evaluations of the same
+ * bundle are two independent module instances sharing one global, exactly
+ * like two bundle copies on a page. */
+describe('two bundle copies share one prefetch store', () => {
+	type PrefetchModule = {
+		consumePrefetch: typeof consumePrefetch;
+		hasPrefetched: typeof hasPrefetched;
+		prefetch: typeof prefetch;
+		resetPrefetchState: typeof resetPrefetchState;
+	};
+
+	const isPrefetchModule = (value: unknown): value is PrefetchModule =>
+		typeof value === 'object' &&
+		value !== null &&
+		typeof Reflect.get(value, 'prefetch') === 'function';
+
+	const loadCopy = async (code: string) => {
+		const module: { exports: unknown } = { exports: {} };
+		// `globalThis` is deliberately NOT shadowed: the shared store lives
+		// there, and that is the thing under test.
+		new Function('module', 'exports', code)(module, module.exports);
+		if (!isPrefetchModule(module.exports))
+			throw new Error('bundled prefetch copy exported nothing usable');
+
+		return module.exports;
+	};
+
+	let copies: PrefetchModule[] = [];
+
+	beforeEach(async () => {
+		const built = await Bun.build({
+			entrypoints: ['src/client/prefetch.ts'],
+			format: 'cjs',
+			target: 'browser',
+			throw: false
+		});
+
+		expect(built.success).toBe(true);
+
+		const code = (await built.outputs[0]?.text()) ?? '';
+		copies = [await loadCopy(code), await loadCopy(code)];
+	});
+
+	afterEach(() => {
+		for (const copy of copies) copy.resetPrefetchState();
+		copies = [];
+	});
+
+	test('one copy sees what the other prefetched', async () => {
+		const [warmed, navigating] = copies;
+		if (!warmed || !navigating) throw new Error('two copies expected');
+
+		warmed.prefetch('/svelte');
+		await flush();
+
+		expect(pending).toHaveLength(1);
+		expect(warmed.hasPrefetched('/svelte')).toBe(true);
+		// The assertion the defect failed: the copy that did not prefetch.
+		expect(navigating.hasPrefetched('/svelte')).toBe(true);
+	});
+
+	test('and takes the response out of the cache, so it is fetched once', async () => {
+		const [warmed, navigating] = copies;
+		if (!warmed || !navigating) throw new Error('two copies expected');
+
+		warmed.prefetch('/svelte');
+		await flush();
+		pending[0]?.resolve(new Response('<!doctype html>'));
+		const consumed = navigating.consumePrefetch('/svelte');
+
+		expect(consumed).toBeDefined();
+		expect(await (await consumed)?.text()).toBe('<!doctype html>');
+		// Consumed from the shared store, so neither copy still holds it and
+		// the navigation does not fetch the document again.
+		expect(warmed.hasPrefetched('/svelte')).toBe(false);
+		expect(navigating.hasPrefetched('/svelte')).toBe(false);
+		expect(pending).toHaveLength(1);
+	});
+
+	test('the in-flight budget is one budget, not one per copy', async () => {
+		/* `MAX_IN_FLIGHT` is 2. With a cache per copy it was also a budget
+		 * per copy, so two copies could have four requests in flight at
+		 * once — on a page that is already fetching its own assets. */
+		const [first, second] = copies;
+		if (!first || !second) throw new Error('two copies expected');
+
+		first.prefetch('/a');
+		first.prefetch('/b');
+		second.prefetch('/c');
+		second.prefetch('/d');
+		await flush();
+
+		expect(pending).toHaveLength(2);
+
+		pending[0]?.resolve(new Response(null, { status: 200 }));
+		await flush();
+
+		expect(pending).toHaveLength(3);
+	});
+});

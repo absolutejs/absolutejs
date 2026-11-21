@@ -58,13 +58,67 @@ type QueuedTask = {
 	start: () => void;
 };
 
-const cache = new Map<string, CacheEntry>();
-const queue: QueuedTask[] = [];
-let inFlight = 0;
+/* Shared by every bundle copy of this module.
+ *
+ * Each framework's client pass bundles its own copy of
+ * `@absolutejs/absolute/client`, so module-level state is one set per copy.
+ * That made the prefetch cache useless across frameworks: a Svelte
+ * `<Link>` hover warmed the Svelte copy's cache, and the navigation layer
+ * doing the swap — whichever copy called `enableNavigation()` first, which
+ * on a React-entry session is React's — looked in its own and missed, so
+ * the document was fetched a second time. Phase 2 of the navigation plan,
+ * and the second limitation it listed for phase 1.
+ *
+ * Everything the document can only have one of lives here, not just the
+ * cache: the in-flight budget was also per copy, so two copies could run
+ * `2 × MAX_IN_FLIGHT` requests at once, and the `<link>`/speculation-rule
+ * bookkeeping could inject the same hint twice. Same `Symbol.for` pattern
+ * as the island disposers, the island store snapshot and the
+ * streaming-slot registrar. */
+type PrefetchState = {
+	cache: Map<string, CacheEntry>;
+	liveSpeculationRules: Map<string, HTMLScriptElement>;
+	prefetchedStyles: Set<string>;
+	preloadedModules: Set<string>;
+	queue: QueuedTask[];
+	/** A box, because a number cannot be shared by reference. */
+	slots: { inFlight: number };
+};
 
-const preloadedModules = new Set<string>();
-const prefetchedStyles = new Set<string>();
-const liveSpeculationRules = new Map<string, HTMLScriptElement>();
+const STATE_KEY = Symbol.for('absolutejs.prefetch');
+
+const isPrefetchState = (value: unknown): value is PrefetchState =>
+	typeof value === 'object' &&
+	value !== null &&
+	Reflect.get(value, 'cache') instanceof Map;
+
+const sharedState = () => {
+	const existing: unknown = Reflect.get(globalThis, STATE_KEY);
+	if (isPrefetchState(existing)) return existing;
+	const created: PrefetchState = {
+		cache: new Map(),
+		liveSpeculationRules: new Map(),
+		prefetchedStyles: new Set(),
+		preloadedModules: new Set(),
+		queue: [],
+		slots: { inFlight: 0 }
+	};
+	Reflect.set(globalThis, STATE_KEY, created);
+
+	return created;
+};
+
+/* Destructured once at module init, so every call site below keeps
+ * referring to the same objects by the same names — these are the shared
+ * Maps, Sets and array themselves, never per-copy copies of them. */
+const {
+	cache,
+	liveSpeculationRules,
+	prefetchedStyles,
+	preloadedModules,
+	queue,
+	slots
+} = sharedState();
 
 const offlineResponse = () => new Response(null, { status: 0 });
 
@@ -184,7 +238,7 @@ export const resolveDefaultPrefetchMode = () =>
 /* ------------------------------------------------------------------ */
 
 const runQueue = () => {
-	while (inFlight < MAX_IN_FLIGHT) {
+	while (slots.inFlight < MAX_IN_FLIGHT) {
 		const next = queue.shift();
 		if (!next) return;
 		if (next.cancelled) continue;
@@ -193,7 +247,7 @@ const runQueue = () => {
 };
 
 const finishTask = () => {
-	inFlight = Math.max(0, inFlight - 1);
+	slots.inFlight = Math.max(0, slots.inFlight - 1);
 	runQueue();
 };
 
@@ -226,7 +280,7 @@ const enqueue = (task: (signal: AbortSignal) => Promise<Response>) => {
 		start: () => {
 			// Count the slot synchronously so `runQueue` can't overshoot the
 			// budget while the async runner is still waiting on the gate.
-			inFlight += 1;
+			slots.inFlight += 1;
 			release();
 		}
 	};
