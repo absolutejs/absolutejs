@@ -5,7 +5,10 @@ import type {
 	FileRouteDefinition,
 	FileRouteRenderInput
 } from '../../../types/fileRoutes';
-import { defineFileRouteWith } from '../../../src/core/fileRouteAdapter';
+import {
+	defineFileRouteWith,
+	type FileRouteAdapterInput
+} from '../../../src/core/fileRouteAdapter';
 import { fileRoutes } from '../../../src/core/fileRoutes';
 
 const renderJson = async ({ props }: FileRouteRenderInput) =>
@@ -191,6 +194,88 @@ describe('fileRoutes', () => {
 
 		expect(await (await request(app, '/blog/new')).text()).toBe('STATIC');
 		expect(await (await request(app, '/blog/other')).text()).toBe('PARAM');
+	});
+
+	/* `docs/[...rest].tsx` registers `/docs/*`, where Elysia names the param
+	 * `*`. The file named it `rest`, and `params.rest` is what the route's
+	 * types promise, so the runtime fills that in. `*` stays readable too. */
+	test('a catch-all route reads its param under the name the file gave it', async () => {
+		const docs = defineFileRouteWith(
+			'react',
+			{
+				catchAll: 'rest',
+				name: 'RouteDocsRest',
+				path: '/docs/*',
+				source: 'react/routes/docs/[...rest].tsx',
+				typePath: '/docs/:rest',
+				server: async () => ({
+					load: ({ params }: FileRouteContext<'/docs/:rest'>) => ({
+						rest: params.rest,
+						wildcard: Reflect.get(params, '*')
+					})
+				})
+			},
+			renderJson
+		);
+		const app = new Elysia().use(fileRoutes([docs], {}));
+
+		expect(await (await request(app, '/docs/a/b/c')).json()).toEqual({
+			rest: 'a/b/c',
+			wildcard: 'a/b/c'
+		});
+		/* `/docs/` matches with nothing after it. The param is typed
+		 * `string`, so it arrives as one — and `load` still runs, which it
+		 * would not if an empty match were treated as a missing param. */
+		expect(await (await request(app, '/docs/')).json()).toEqual({
+			rest: '',
+			wildcard: ''
+		});
+	});
+
+	/* An `[[optional]]` segment registers two paths for one page, and on the
+	 * shorter one the param is absent. The required-params check that stands
+	 * between a request and `load` has to know that, or `load` never runs on
+	 * half of the route's own paths and the page silently renders with no
+	 * props at all. */
+	test('an optional param route runs its load with and without the param', async () => {
+		const server = async () => ({
+			load: ({ params }: FileRouteContext<'/:lang?/about'>) => ({
+				lang: params.lang ?? 'default'
+			})
+		});
+		// Everything the two registrations share — one page, two paths.
+		const shared: Omit<FileRouteAdapterInput, 'path'> & {
+			server: typeof server;
+		} = {
+			name: 'RouteLangAbout',
+			server,
+			source: 'react/routes/[[lang]]/about.tsx',
+			typePath: '/:lang?/about'
+		};
+		const app = new Elysia().use(
+			fileRoutes(
+				[
+					defineFileRouteWith(
+						'react',
+						{ ...shared, path: '/:lang/about' },
+						renderJson
+					),
+					defineFileRouteWith(
+						'react',
+						{ ...shared, path: '/about' },
+						renderJson
+					)
+				],
+				{}
+			)
+		);
+
+		expect(await (await request(app, '/fr/about')).json()).toEqual({
+			lang: 'fr'
+		});
+		expect(await (await request(app, '/about')).json()).toEqual({
+			lang: 'default'
+		});
 	});
 
 	test('app-wide hooks registered before fileRoutes() guard file routes', async () => {

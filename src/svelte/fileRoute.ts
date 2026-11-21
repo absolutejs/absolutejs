@@ -20,7 +20,7 @@ export const svelteFileRoute = <
 	PageModule extends { default: unknown },
 	ServerModule extends FileRouteServerModuleFor<Path, PagePropsOf<PageModule>>
 >(
-	route: FileRouteAdapterInput<Path> & {
+	route: FileRouteAdapterInput & {
 		server?: () => Promise<ServerModule>;
 	}
 ) =>

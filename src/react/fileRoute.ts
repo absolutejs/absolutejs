@@ -15,11 +15,12 @@ type PagePropsOf<PageModule> = PageModule extends {
 
 type RenderableComponent = ComponentType<Record<string, unknown>>;
 
-type ReactFileRouteInput<
-	Path extends string,
-	PageModule,
-	ServerModule
-> = FileRouteAdapterInput<Path> & {
+/* No `Path` parameter: the route's typed path reaches the adapter through
+ * `ServerModule`, which `reactFileRoute` constrains against it. The
+ * registered `path` on `FileRouteAdapterInput` is a plain string, because a
+ * catch-all or optional route registers a different string than it types
+ * against. */
+type ReactFileRouteInput<PageModule, ServerModule> = FileRouteAdapterInput & {
 	page: () => Promise<PageModule>;
 	server?: () => Promise<ServerModule>;
 };
@@ -37,7 +38,7 @@ export const reactFileRoute = <
 	PageModule extends { default: unknown },
 	ServerModule extends FileRouteServerModuleFor<Path, PagePropsOf<PageModule>>
 >(
-	route: ReactFileRouteInput<Path, PageModule, ServerModule>
+	route: ReactFileRouteInput<PageModule, ServerModule>
 ) =>
 	defineFileRouteWith(
 		'react',

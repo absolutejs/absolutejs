@@ -111,6 +111,25 @@ export const server = new Elysia()
   in production and warnings in dev, listing every offending file.
 - Precedence between static and param routes at the same depth is Elysia's
   router's (static wins), the same as hand-written routes.
+- **Catch-all, optional and group (built).** A `[...rest]` segment has to be
+  the last one, because Elysia's `*` matches the rest of the path and
+  anything after it would never be reached. Elysia names that param `*`; the
+  file named it, so the route is *typed* against `/docs/:rest` while being
+  *registered* as `/docs/*`, and the runtime fills `params.rest` in from the
+  wildcard (`*` stays readable too). A path that matches with nothing after
+  it (`/docs/`) gives an empty string rather than `undefined`, since the type
+  says `string`.
+  An `[[optional]]` segment is the only kind that makes one file serve more
+  than one path: `[[lang]]/about.tsx` registers `/:lang/about` and `/about`,
+  longest first, both pointing at one page name — one build, one manifest
+  entry, two registrations. It is typed `/:lang?/about`, which
+  `FileRouteParams` reads as `lang: string | undefined`, and the run-time
+  params check treats optional names as optional, or `load` would be skipped
+  on the shorter path and the page would render with no props at all.
+  `[[...rest]]` (optional catch-all) is rejected by name rather than as
+  stray characters. A `(group)` contributes no segment, so a group as a
+  *file* name is rejected: it would serve its parent folder's path, which
+  `index` already means.
 - **Page names.** Each route page gets a flat page name,
   `Route<PascalPath><hash6>` (e.g. `RouteBlogSlugej2ms2`). The hash is of
   framework + file path, so names are stable as other routes come and go

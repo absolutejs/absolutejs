@@ -5,6 +5,23 @@
 		{
 			"changes": [
 				{
+					"detail": "A file route may now use `[...catchAll]`, `[[optional]]` and `(group)` segments, which the scanner previously refused. `docs/[...rest].tsx` serves `/docs/*` and reads the match as `params.rest`, the name the file gave it, rather than as Elysia`s `*`; it has to be the last segment, since anything after it is unreachable. `[[lang]]/about.tsx` serves both `/about` and `/:lang/about` from one page, with `params.lang` typed `string | undefined` and `load` running on both. `(marketing)/pricing.tsx` serves `/pricing`. An optional catch-all, a group used as a file name, a catch-all that is not last and two segments sharing a name are each refused by name instead of as unmappable characters. Two defects found on the way: a route whose path has no params gave `load` no `params` object at all, so reading one threw, and the check that guards `load` required every param in the path, which would have skipped it on the shorter path of an optional route.",
+					"kind": "added",
+					"summary": "File routes understand catch-all, optional and group segments",
+					"symbols": [
+						"FileRouteDefinition",
+						"FileRouteParams",
+						"reactFileRoute",
+						"svelteFileRoute"
+					]
+				}
+			],
+			"date": "2026-11-21",
+			"version": "0.20.0-beta.270"
+		},
+		{
+			"changes": [
+				{
 					"detail": "A route's page is split even when the route wraps it: an auth guard, an error boundary, or a page frame like `<Route element={<AdminPage title=\"Today\"><TodayView /></AdminPage>} />` (React Router's own documented `RequireAuth` shape). Inside a route's element, every component imported from the app that wraps no content of its own loads the first time the route is shown; the wrappers stay in the entry, so they render at once. In Svelte the same holds inside a route's `content` snippet: the page becomes a lazy page in place (the wrapper and any markup beside it stay), with its props still in the snippet's scope, so it may use the route params as it likes; the server still renders it in full and the browser loads it before hydrating. Vue and Angular routes name their component directly and need nothing new.",
 					"kind": "changed",
 					"summary": "A route's page is split even inside a wrapper (a guard, a page frame)",

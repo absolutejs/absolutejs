@@ -34,10 +34,43 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 /* The part of an Elysia handler context a file route reads. */
 type RouteRequestContext = Omit<FileRouteContext, 'redirect'>;
 
-const toFileRouteContext = (context: RouteRequestContext) => {
+/* Elysia names a wildcard param `*`, but the route file named it:
+ * `docs/[...rest].tsx` is why a `load` reads `params.rest`, and that is what
+ * the route's types promise. So the declared name is filled in from `*`,
+ * which is left in place as well — a route can still read `params['*']`.
+ *
+ * An absent `*` becomes an empty string rather than being left off, because
+ * `/docs/*` matches `/docs/` with nothing after it, and a param the types
+ * call `string` should not arrive as `undefined`. */
+/* Elysia leaves `params` off a context for a route whose path has none, so
+ * a `load` that reads `params.anything` throws rather than seeing
+ * `undefined`. An `[[optional]]` route makes that ordinary — one of the
+ * paths it registers has no params at all — so the object is always there. */
+const EMPTY_PARAMS: FileRouteContext['params'] = {};
+
+const paramsOf = (context: RouteRequestContext) =>
+	context.params ?? EMPTY_PARAMS;
+
+const withCatchAllParam = (
+	params: FileRouteContext['params'],
+	catchAll: string | undefined
+) => {
+	if (catchAll === undefined) return params;
+	const wildcard = Reflect.get(params, '*');
+
+	return {
+		...params,
+		[catchAll]: typeof wildcard === 'string' ? wildcard : ''
+	};
+};
+
+const toFileRouteContext = (
+	context: RouteRequestContext,
+	catchAll?: string
+) => {
 	const fileRouteContext: FileRouteContext = {
 		headers: context.headers,
-		params: context.params,
+		params: withCatchAllParam(paramsOf(context), catchAll),
 		path: context.path,
 		query: context.query,
 		redirect,
@@ -71,7 +104,7 @@ const loadProps = async (
 ) => {
 	if (!route.load) return {};
 
-	return route.load(toFileRouteContext(context));
+	return route.load(toFileRouteContext(context, route.catchAll));
 };
 
 const serveFileRoute = async (
@@ -136,7 +169,7 @@ const registerRoute = (
 		route.path,
 		{
 			beforeHandle: (context: RouteRequestContext) =>
-				beforeHandle(toFileRouteContext(context))
+				beforeHandle(toFileRouteContext(context, route.catchAll))
 		},
 		handle
 	);

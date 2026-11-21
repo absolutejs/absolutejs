@@ -27,11 +27,31 @@ type ParamNamesOf<Path extends string> =
 			? Param
 			: never;
 
-/** The params of an Elysia-style path: `'/blog/:slug'` → `{ slug: string }`.
+/* A `[[optional]]` segment is typed `:name?`, so its name arrives here with
+ * the `?` still attached: `/:lang?/about` names `lang?`. The `?` is dropped
+ * from the key and spent on the value instead — the route is registered
+ * under both `/about` and `/:lang/about`, and on the first of them the
+ * param is genuinely absent. */
+type ParamKeyOf<Name extends string> = Name extends `${infer Base}?`
+	? Base
+	: Name;
+
+/* One mapped type, deliberately, rather than a required half intersected
+ * with an optional half. An intersection of two mapped types over a
+ * deferred `ParamNamesOf<Path>` stops being assignable from
+ * `Record<string, string>`, which is what `FileRouteParams<string>` is —
+ * so the adapters, which pass their params through a `string`-pathed hook
+ * type, no longer type-check. */
+/** The params of an Elysia-style path: `'/blog/:slug'` →
+ *  `{ slug: string }`, `'/:lang?/about'` → `{ lang: string | undefined }`.
  *  An unknown path (`string`) has string params of any name. */
 export type FileRouteParams<Path extends string> = string extends Path
 	? Record<string, string>
-	: { [Name in ParamNamesOf<Path>]: string };
+	: {
+			[
+				Name in ParamNamesOf<Path> as ParamKeyOf<Name>
+			]: Name extends `${string}?` ? string | undefined : string;
+		};
 
 export type FileRouteRedirectStatus = 301 | 302 | 303 | 307 | 308;
 
@@ -98,6 +118,10 @@ export type FileRouteDefinition = {
 	path: string;
 	/** Route file, relative to the project root. */
 	source: string;
+	/** The name the route file gave its catch-all segment. Elysia calls the
+	 *  param `*`; the context exposes it under this name as well, which is
+	 *  the name `[...rest].tsx` led its `load` to expect. */
+	catchAll?: string;
 	beforeHandle?: (context: FileRouteContext) => unknown;
 	load?: (context: FileRouteContext) => Promise<unknown>;
 	render: (input: FileRouteRenderInput) => Promise<Response>;

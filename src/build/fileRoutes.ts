@@ -37,8 +37,16 @@ export type ScannedFileRoute = {
 	path: string;
 	/** Route file, absolute. */
 	source: string;
+	/** The name a `[...catchAll]` segment declared; the runtime copies
+	 *  Elysia's `*` param onto it. */
+	catchAll?: string;
 	/** Co-located `<route>.server.ts`, absolute, when present. */
 	server?: string;
+	/** The path the route's types are written against: a catch-all appears
+	 *  under its declared name and an optional segment is marked `?`, so
+	 *  `/docs/[...rest]` types as `/docs/:rest` while registering
+	 *  `/docs/*`. Defaults to `path` for a route with neither. */
+	typePath?: string;
 };
 
 export type FileRouteScan = {
@@ -68,6 +76,10 @@ const SERVER_EXTENSIONS = ['.server.ts', '.server.js'];
 const CONVENTION_RE = /^(?:.+\.)?(?:error|loading|not-found)\.[^.]+$/;
 const TEST_RE = /\.(?:test|spec)\.[^.]+$/;
 const PARAM_RE = /^\[([A-Za-z_$][\w$]*)\]$/;
+const CATCH_ALL_RE = /^\[\.\.\.([A-Za-z_$][\w$]*)\]$/;
+const OPTIONAL_RE = /^\[\[([A-Za-z_$][\w$]*)\]\]$/;
+const OPTIONAL_CATCH_ALL_RE = /^\[\[\.\.\.([A-Za-z_$][\w$]*)\]\]$/;
+const GROUP_RE = /^\(([A-Za-z0-9._~-]+)\)$/;
 const STATIC_SEGMENT_RE = /^[A-Za-z0-9._~-]+$/;
 
 const REGISTRY_KEY = Symbol.for('absolutejs.fileRoutes.registry');
@@ -155,12 +167,40 @@ const isRouteCandidate = (relativePath: string) => {
 	);
 };
 
-const segmentToPath = (segment: string) => {
+/* One path segment of a route file, classified.
+ *
+ * `group` carries no path of its own: `(marketing)/pricing.tsx` serves
+ * `/pricing`, which is the point of a group — folders that organise source
+ * without appearing in URLs. `optional` is the only kind that produces more
+ * than one route from one file. */
+type RouteSegment =
+	| { kind: 'catchAll'; name: string }
+	| { kind: 'group' }
+	| { kind: 'optional'; name: string }
+	| { kind: 'param'; name: string }
+	| { kind: 'static'; value: string };
+
+const segmentOf = (segment: string): RouteSegment | { error: string } => {
 	const param = PARAM_RE.exec(segment);
-	if (param) return { path: `:${param[1]}` };
+	if (param?.[1]) return { kind: 'param', name: param[1] };
+	const catchAll = CATCH_ALL_RE.exec(segment);
+	if (catchAll?.[1]) return { kind: 'catchAll', name: catchAll[1] };
+	/* Checked before the optional form, since `[[...rest]]` matches neither
+	 * the catch-all nor the optional pattern and would otherwise be reported
+	 * as "characters a path segment cannot hold", which says nothing about
+	 * what is wrong with it. */
+	if (OPTIONAL_CATCH_ALL_RE.test(segment)) {
+		return {
+			error: `"${segment}" is an optional catch-all, which is not supported. Use "${segment.slice(1, -1)}" and give the parent folder its own route file if the shorter path needs one.`
+		};
+	}
+	const optional = OPTIONAL_RE.exec(segment);
+	if (optional?.[1]) return { kind: 'optional', name: optional[1] };
+	const group = GROUP_RE.exec(segment);
+	if (group) return { kind: 'group' };
 	if (segment.startsWith('[') || segment.startsWith('(')) {
 		return {
-			error: `"${segment}" is not supported yet — only static segments and [param] segments are (catch-all, optional and group segments come later).`
+			error: `"${segment}" is not a segment this router understands. Use [param], [...catchAll], [[optional]] or (group).`
 		};
 	}
 	if (!STATIC_SEGMENT_RE.test(segment)) {
@@ -169,7 +209,33 @@ const segmentToPath = (segment: string) => {
 		};
 	}
 
-	return { path: segment };
+	return { kind: 'static', value: segment };
+};
+
+/* The Elysia path pieces an optional segment expands to: present, and
+ * absent. Several optional segments multiply, which is why this returns a
+ * list of paths rather than one. */
+const expandSegment = (segment: RouteSegment): (string | null)[] => {
+	if (segment.kind === 'group') return [null];
+	if (segment.kind === 'static') return [segment.value];
+	if (segment.kind === 'param') return [`:${segment.name}`];
+	if (segment.kind === 'catchAll') return ['*'];
+
+	return [`:${segment.name}`, null];
+};
+
+/* The path used for TYPING the route, which is not the path it is
+ * registered under. Elysia names a catch-all `*`, but the file declared a
+ * name for it (`[...rest]`) and `params.rest` is what the route's `load`
+ * reads — so the type carries `:rest` and the runtime maps `*` onto it. An
+ * optional segment is typed `:name?`, which `FileRouteParams` reads as an
+ * optional key. */
+const typeSegment = (segment: RouteSegment) => {
+	if (segment.kind === 'group') return null;
+	if (segment.kind === 'static') return segment.value;
+	if (segment.kind === 'optional') return `:${segment.name}?`;
+
+	return `:${segment.name}`;
 };
 
 const stripPageExtension = (
@@ -181,23 +247,101 @@ const stripPageExtension = (
 	return relativePath.slice(0, relativePath.length - extension.length);
 };
 
-/** The Elysia path for a route file's path inside its route folder:
- *  `index` → `/`, `blog/index` → `/blog`, `blog/[slug]` → `/blog/:slug`. */
+const joinPath = (parts: (string | null)[]) =>
+	`/${parts.filter((part): part is string => part !== null).join('/')}`;
+
+/* Every path the segments serve. One per combination of present and absent
+ * optional segments, longest first so the most specific path is registered
+ * before the shorter ones it shadows. */
+const expandPaths = (segments: RouteSegment[]) => {
+	const combinations = segments.reduce<(string | null)[][]>(
+		(paths, segment) =>
+			paths.flatMap((parts) =>
+				expandSegment(segment).map((part) => [...parts, part])
+			),
+		[[]]
+	);
+	const unique = [...new Set(combinations.map(joinPath))];
+
+	return unique.sort(
+		(left, right) => right.split('/').length - left.split('/').length
+	);
+};
+
+export type FileRoutePathResult = {
+	/** The name a `[...catchAll]` segment declared, when the route has one. */
+	catchAll?: string;
+	/** Elysia paths to register, most specific first. More than one only
+	 *  when the file has an `[[optional]]` segment. */
+	paths: string[];
+	/** The path the route's types are written against — see `typeSegment`. */
+	typePath: string;
+};
+
+/** The Elysia paths a route file serves, from its path inside the route
+ *  folder: `index` → `/`, `blog/index` → `/blog`, `blog/[slug]` →
+ *  `/blog/:slug`, `docs/[...rest]` → `/docs/*`, `(marketing)/pricing` →
+ *  `/pricing`, `[[lang]]/about` → `/:lang/about` and `/about`. */
 export const fileRoutePath = (
 	framework: FileRouteFramework,
 	relativePath: string
-) => {
+): FileRoutePathResult | { error: string } => {
 	const segments = stripPageExtension(framework, relativePath).split('/');
 	const last = segments[segments.length - 1];
 	const routeSegments = last === 'index' ? segments.slice(0, -1) : segments;
-	const parts: string[] = [];
+	const parsed: RouteSegment[] = [];
 	for (const segment of routeSegments) {
-		const result = segmentToPath(segment);
+		const result = segmentOf(segment);
 		if ('error' in result) return result;
-		parts.push(result.path);
+		parsed.push(result);
 	}
+	/* A catch-all is Elysia's `*`, which matches the rest of the path and so
+	 * can only be last. Anything after it would never be reached, and
+	 * silently serving a path the file does not describe is worse than
+	 * refusing to build it. */
+	const catchAllAt = parsed.findIndex(
+		(segment) => segment.kind === 'catchAll'
+	);
+	if (catchAllAt !== -1 && catchAllAt !== parsed.length - 1) {
+		return {
+			error: `a [...catchAll] segment matches the rest of the path, so it has to be the last one; "${routeSegments[catchAllAt]}" is followed by ${routeSegments
+				.slice(catchAllAt + 1)
+				.map((segment) => `"${segment}"`)
+				.join(', ')}.`
+		};
+	}
+	/* A group names no segment, so a group FILE would serve its parent
+	 * folder's path — the same path as that folder's `index`, reported later
+	 * as a conflict with a message about two files serving one path. Saying
+	 * what is actually wrong is more use than that. */
+	const lastParsed = parsed[parsed.length - 1];
+	if (lastParsed?.kind === 'group' && last !== 'index') {
+		return {
+			error: `"${last}" is a (group), which contributes no path segment — a group names a folder, not a route file. Rename it, or move it into the group folder as "index".`
+		};
+	}
+	const duplicate = parsed
+		.flatMap((segment) =>
+			segment.kind === 'group' || segment.kind === 'static'
+				? []
+				: [segment.name]
+		)
+		.find((name, index, names) => names.indexOf(name) !== index);
+	if (duplicate !== undefined) {
+		return {
+			error: `two segments are both named "${duplicate}"; one would overwrite the other in params.`
+		};
+	}
+	const catchAllSegment = parsed[catchAllAt];
+	const result: FileRoutePathResult = {
+		...(catchAllSegment?.kind === 'catchAll'
+			? { catchAll: catchAllSegment.name }
+			: {}),
+		paths: expandPaths(parsed),
+		typePath: joinPath(parsed.map(typeSegment))
+	};
 
-	return { path: `/${parts.join('/')}` };
+	return result;
 };
 
 const pascalSegment = (segment: string) => {
@@ -235,7 +379,10 @@ const findServerModule = (framework: FileRouteFramework, source: string) => {
 	);
 };
 
-const routeFromFile = (
+/* One route file, as the routes it serves. More than one only for an
+ * `[[optional]]` segment, and they share everything but the path: one page,
+ * one manifest entry, one server module, registered twice. */
+const routesFromFile = (
 	root: FileRouteRoot,
 	relativePath: string,
 	problems: string[]
@@ -246,18 +393,24 @@ const routeFromFile = (
 		problems.push(
 			`${toPosix(relative(process.cwd(), source))}: ${mapped.error}`
 		);
+		const none: ScannedFileRoute[] = [];
 
-		return undefined;
+		return none;
 	}
-	const route: ScannedFileRoute = {
+	const shared = {
 		framework: root.framework,
 		name: fileRoutePageName(root.framework, relativePath),
-		path: mapped.path,
 		server: findServerModule(root.framework, source),
-		source
+		source,
+		typePath: mapped.typePath,
+		...(mapped.catchAll === undefined ? {} : { catchAll: mapped.catchAll })
 	};
 
-	return route;
+	return mapped.paths.map((path) => {
+		const route: ScannedFileRoute = { ...shared, path };
+
+		return route;
+	});
 };
 
 const scanRoot = (root: FileRouteRoot, problems: string[]) => {
@@ -268,9 +421,7 @@ const scanRoot = (root: FileRouteRoot, problems: string[]) => {
 		.filter(isRouteCandidate)
 		.sort();
 
-	return files
-		.map((file) => routeFromFile(root, file, problems))
-		.filter((route): route is ScannedFileRoute => route !== undefined);
+	return files.flatMap((file) => routesFromFile(root, file, problems));
 };
 
 const conflictMessage = (route: ScannedFileRoute, existing: ScannedFileRoute) =>
@@ -355,12 +506,17 @@ const renderRoute = (route: ScannedFileRoute, outputDir: string) => {
 		: undefined;
 	const serverType = server ? `typeof import(${server})` : 'undefined';
 	const source = quote(toPosix(relative(process.cwd(), route.source)));
+	/* The type argument is the route's TYPE path, not the path it registers
+	 * under: `/docs/*` carries no name for its catch-all, so a `load` typed
+	 * against it could not read `params.rest`. They are the same string for
+	 * a route with no catch-all and no optional segment. */
 	const lines = [
 		`\t${ADAPTERS[route.framework].name}<`,
-		`\t\t${quote(route.path)},`,
+		`\t\t${quote(route.typePath ?? route.path)},`,
 		`\t\ttypeof import(${page}),`,
 		`\t\t${serverType}`,
 		`\t>({`,
+		...(route.catchAll ? [`\t\tcatchAll: ${quote(route.catchAll)},`] : []),
 		`\t\tname: ${quote(route.name)},`,
 		// Svelte pages render from their compiled module in the manifest;
 		// importing the `.svelte` source on the server is never needed.
@@ -369,7 +525,14 @@ const renderRoute = (route: ScannedFileRoute, outputDir: string) => {
 			: []),
 		`\t\tpath: ${quote(route.path)},`,
 		...(server ? [`\t\tserver: () => import(${server}),`] : []),
-		`\t\tsource: ${source}`,
+		// `typePath` sorts last and is only written when it differs, so the
+		// comma after `source` belongs to it.
+		...(route.typePath && route.typePath !== route.path
+			? [
+					`\t\tsource: ${source},`,
+					`\t\ttypePath: ${quote(route.typePath)}`
+				]
+			: [`\t\tsource: ${source}`]),
 		`\t})`
 	];
 
@@ -463,7 +626,11 @@ export const fileRouteFor = (source: string) => {
 	if (!pageExtensionOf(root.framework, relativePath)) return undefined;
 	if (!isRouteCandidate(relativePath)) return undefined;
 
-	return routeFromFile(root, relativePath, []);
+	/* The first of the file's routes. A file with an `[[optional]]` segment
+	 * serves several paths, but they share the page name, source and server
+	 * module, which is all a caller here asks for — the dev server wants to
+	 * know which page a changed file is. */
+	return routesFromFile(root, relativePath, [])[0];
 };
 export const fileRouteNamed = (name: string) =>
 	[...registry().bySource.values()].find((route) => route.name === name);

@@ -81,6 +81,35 @@ const expectRoutes = async (port: number) => {
 	expect(topic.body).toContain('<h1 id="topic">TOPIC_routing</h1>');
 	expect(topic.body).toContain('SVELTE_CHILD');
 	expect(topic.body).toMatch(/RouteDocsTopic[0-9a-z]{6}/);
+	/* A (group) folder names no path segment. */
+	expect((await get(port, '/pricing')).body).toContain('FILE_PRICING');
+	expect((await get(port, '/marketing/pricing')).status).toBe(404);
+
+	/* An [[optional]] segment serves both paths, and `load` runs on each —
+	 * the shorter path carries no params at all, which is where a
+	 * required-params check would have skipped it and rendered the page
+	 * with nothing. */
+	const guide = await get(port, '/guide');
+	const frGuide = await get(port, '/fr/guide');
+	expect(guide.status).toBe(200);
+	expect(guide.body).toContain('<p id="lang">none</p>');
+	expect(frGuide.status).toBe(200);
+	expect(frGuide.body).toContain('<p id="lang">fr</p>');
+	expect(frGuide.body).toContain('<p id="guide">FILE_GUIDE</p>');
+	// One page serving both: the same manifest entry, so the same index.
+	const indexOf = (body: string) =>
+		/RouteLangGuide[0-9a-z]{6}/.exec(body)?.[0];
+	expect(indexOf(guide.body)).toBeDefined();
+	expect(indexOf(frGuide.body)).toBe(indexOf(guide.body));
+
+	/* A [...catchAll] matches the rest of the path and reads it under the
+	 * name the file gave it, not Elysia's `*`. */
+	const deep = await get(port, '/docs/a/b/c');
+	expect(deep.status).toBe(200);
+	expect(deep.body).toContain('CATCH_a/b/c');
+	// The static sibling still wins over it.
+	expect(topic.body).toContain('<h1 id="topic">TOPIC_routing</h1>');
+
 	// Explicit routes win, registered before or after fileRoutes().
 	expect((await get(port, '/about')).body).toBe('EXPLICIT_ABOUT');
 	expect((await get(port, '/explicit-first')).body).toBe('EXPLICIT_FIRST');
