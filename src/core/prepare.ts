@@ -852,12 +852,6 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 
 		return file;
 	});
-	const precompressedFiles = await createPrecompressedPlugin(
-		buildDir,
-		ignorePatterns
-	);
-	recordStep('create static plugin', stepStartedAt);
-
 	// Cache policy for static assets. A path the build hashed — every value
 	// in `manifest.json`, plus the `/.absolutejs/*` hydration bundles and the
 	// bundler's own `chunk-<hash>.js` — is safe to cache forever, because its
@@ -867,6 +861,15 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 	const hashedAssetPaths = new Set(
 		Object.values(manifest).filter((value) => typeof value === 'string')
 	);
+	// Both static paths get the same set, or the policy depends on whether
+	// the client accepted an encoding.
+	const precompressedFiles = await createPrecompressedPlugin(
+		buildDir,
+		ignorePatterns,
+		hashedAssetPaths
+	);
+	recordStep('create static plugin', stepStartedAt);
+
 	const assetCachePlugin = createAssetCachePlugin(hashedAssetPaths);
 
 	// Check for pre-rendered pages (from SSG or compile)

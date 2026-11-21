@@ -115,24 +115,46 @@ describe('production bundle hardening', () => {
 			)
 		].map((m) => m[1]);
 		expect(hashedUrls.length).toBeGreaterThan(0);
+		/* Collected, then asserted as one object naming every URL with the
+		 * header it answered. Asserting the number inside the loop reported
+		 * `expected 0 to be >= 60` and nothing about WHICH asset served it,
+		 * so the failure said nothing about where to look. */
+		const served: Record<string, string> = {};
 		for (const url of hashedUrls) {
-			const res = await fetch(`${server.baseUrl}${url}`);
-			if (!res.ok) {
-				// Some hashed-looking URLs in the HTML might be from
-				// nested manifests we don't serve; skip 404s rather
-				// than fail.
-				continue;
+			/* Both encodings, because they are answered by different
+			 * plugins: a client that accepts gzip gets the precompressed
+			 * copy from `onRequest`, which short-circuits the lifecycle and
+			 * so never passes through the asset-cache `onAfterHandle`. That
+			 * half served `max-age=0` on every hashed asset while this test
+			 * passed — it only sent one request, and whichever half it hit
+			 * said nothing about the other. */
+			for (const encoding of ['gzip, br', 'identity']) {
+				const res = await fetch(`${server.baseUrl}${url}`, {
+					headers: { 'accept-encoding': encoding }
+				});
+				if (!res.ok) {
+					// Some hashed-looking URLs in the HTML might be from
+					// nested manifests we don't serve; skip 404s rather
+					// than fail.
+					continue;
+				}
+				served[`${url} (accept-encoding: ${encoding})`] =
+					res.headers.get('cache-control') ?? '(none)';
 			}
-			const cacheControl = res.headers.get('cache-control') ?? '';
-			// `staticPlugin` puts `max-age=<seconds>` on hashed
-			// assets. We require a non-zero max-age — anything < 60s
-			// would defeat content-hash caching.
-			const maxAgeMatch = /max-age=(\d+)/.exec(cacheControl);
-			expect(maxAgeMatch).not.toBeNull();
-			const maxAge = maxAgeMatch?.[1];
-			if (!maxAge) throw new Error('Cache-Control max-age was missing');
-			expect(Number(maxAge)).toBeGreaterThanOrEqual(60);
 		}
+		// `staticPlugin` puts `max-age=<seconds>` on hashed assets. We
+		// require a non-zero max-age — anything < 60s would defeat
+		// content-hash caching.
+		const cacheable = (header: string) => {
+			const maxAge = /max-age=(\d+)/.exec(header)?.[1];
+
+			return maxAge !== undefined && Number(maxAge) >= 60;
+		};
+		const offenders = Object.fromEntries(
+			Object.entries(served).filter(([, header]) => !cacheable(header))
+		);
+
+		expect(offenders).toEqual({});
 	});
 
 	test('prod bundle does not start an HMR WebSocket server', async () => {
