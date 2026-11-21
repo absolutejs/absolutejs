@@ -1,0 +1,8 @@
+import type { Change } from '@absolutejs/changelog';
+
+export const change: Change = {
+	detail: '`navigation: true` in absolute.config.ts installs the cross-framework navigation layer from every hydration index, so a link between two pages of any framework swaps in place without each page component calling `enableNavigation()` itself. The layer stays opt-in per page without the flag, which is right for a page that wants to stay out of it, but repeating the call in every effect, `onMount` or `ngOnInit` is a papercut — and forgetting it on one page silently turns every link out of that page into a full document load, which looks like nothing at all until someone watches the network panel. Every test fixture written for this feature had to make the call by hand, which is a fair signal. The snippet is appended to the end of each index and its import hoists, so the call runs after the index has registered its teardown hook; running it earlier would mark a framework page as having nothing to tear down. For Angular it is applied before the index hash that decides whether bundling can be skipped, so a stale index cannot survive the flag being switched on. Verified by building two apps from identical sources, one with the flag and one without: with it the navigation is a swap with zero document requests and the target page is interactive, without it the same pages do a full document load. A static HTML or HTMX page that is the entry point is not covered, having no hydration index to inject into — it still calls `enableNavigation()` itself, while one swapped in by another page needs nothing.',
+	kind: 'added',
+	summary: 'navigation: true installs the navigation layer on every page',
+	symbols: ['BaseBuildConfig']
+};

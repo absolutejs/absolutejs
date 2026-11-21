@@ -18,6 +18,7 @@ import {
 import { getFrameworkGeneratedDir } from '../utils/generatedDir';
 import { isAngularZoneMode } from '../angular/zoneRuntime';
 import { downlevelAsyncForZone } from './downlevelAsyncForZone';
+import { withNavigationAutoEnable } from './navigationAutoEnable';
 import type { StylePreprocessorConfig } from '../../types/build';
 
 type SyncReadFile = (fileName: string) => string | undefined;
@@ -2495,7 +2496,7 @@ export const compileAngular = async (
 		const changeDetectionProvider = zoneMode
 			? 'provideZoneChangeDetection({ eventCoalescing: true })'
 			: 'provideZonelessChangeDetection()';
-		const hydration = hmr
+		const hydrationSource = hmr
 			? `${zoneImport}${hmrPreamble}
 import '@angular/compiler';
 import { bootstrapApplication } from '@angular/platform-browser';
@@ -2726,6 +2727,12 @@ window.__ABSOLUTE_PAGE_DISPOSE__ = async function() {
     }
 };
 `.trim();
+		/* `navigation: true` installs the cross-framework layer from the
+		 * index rather than from every page's ngOnInit. Wrapped BEFORE the
+		 * hash below, which decides whether bundling can be skipped — a
+		 * hash of the unwrapped source would let a stale index survive the
+		 * config being switched on. See build/navigationAutoEnable.ts. */
+		const hydration = withNavigationAutoEnable(hydrationSource);
 
 		// Angular HMR Optimization — Hash index content to detect if bundling
 		// can be skipped (index content is deterministic for a given import path).
