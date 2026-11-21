@@ -211,6 +211,13 @@ if (!isHotReevaluation && isDevelopmentRuntime()) {
 	const { startBackendHmr } = await import('./hot/install');
 	await startBackendHmr(entryPath);
 	markBoot('backend hmr ready');
+	// Backend HMR loads (and splits) the app's modules; without it, React
+	// router pages still need splitting so SSR matches the browser.
+	if (globalThis.__absoluteBackendHmr !== true) {
+		const { installRoutePagesRuntimePlugin } =
+			await import('./routePagesRuntimePlugin');
+		installRoutePagesRuntimePlugin();
+	}
 }
 
 // Keep the user's original entry out of Bun's --hot module graph. Bun can

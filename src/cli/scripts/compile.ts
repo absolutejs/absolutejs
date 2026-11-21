@@ -5,6 +5,7 @@ import { maskLiterals } from '../../build/maskLiterals';
 import { loadIslandRegistryBuildInfo } from '../../build/islandEntries';
 import { resolveProductionServerDefine } from '../../build/resolveBuildMode';
 import { createIslandRegistryDefinitionPlugin } from '../../build/islandRegistryTransform';
+import { createRoutePagesPlugin } from '../../build/routePagesPlugin';
 import { createBunStringRawUnicodePlugin } from '../../build/bunStringRawUnicodePlugin';
 import { finalizeAbsoluteMobileCompatibilityBuild } from '../../mobile/buildPipeline';
 import { createAbsoluteMobileRouteMetadataPlugin } from '../../mobile/routeMetadataTransform';
@@ -1625,6 +1626,9 @@ export default server;
 		plugins: [
 			createOptionalPeerPlugin(),
 			...(islandRegistryPlugin ? [islandRegistryPlugin] : []),
+			// The same route-page splitting the browser build applies, so
+			// the server renders the boundaries the browser hydrates.
+			createRoutePagesPlugin(),
 			...(buildConfig.mobile
 				? [
 						createAbsoluteMobileRouteMetadataPlugin({
