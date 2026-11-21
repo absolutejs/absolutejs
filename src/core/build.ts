@@ -133,6 +133,7 @@ import { setAngularChangeDetection } from '../angular/zoneRuntime';
 import { createBunStringRawUnicodePlugin } from '../build/bunStringRawUnicodePlugin';
 import { createExternalAssetPlugin } from '../build/externalAssetPlugin';
 import { createIslandRegistryDefinitionPlugin } from '../build/islandRegistryTransform';
+import { createRoutePagesPlugin } from '../build/routePagesPlugin';
 import {
 	collectVueHmrOutputPaths,
 	injectVueComposableTracking,
@@ -2765,7 +2766,9 @@ const buildUnlocked = async ({
 							...clientBoundaryPlugins(clientDefine),
 							...missingReactRouterPlugins,
 							stylePreprocessorPlugin,
-							...islandRegistryPlugins
+							...islandRegistryPlugins,
+							// Last: the plugins above only read or resolve.
+							createRoutePagesPlugin()
 						],
 						root: clientRoot,
 						sourcemap: resolveClientSourcemap(sourcemaps, isDev),
