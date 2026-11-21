@@ -1,8 +1,0 @@
-import type { Change } from '@absolutejs/changelog';
-
-export const change: Change = {
-	detail: "An island registry may name a component of any framework, but the build only compiles a framework's island sources when that framework's pages directory is configured. Without it the island entry had no compiled client path, so `islandEntries` fell back to emitting the registry definition — whose component is null, because the real component was never bundled. The build succeeded and the island was dead on arrival, keeping its server markup forever. The build now fails instead, listing each framework, the component sources that cannot compile and the config key to set. What it checks is the config key, not where the island's files live: island components usually sit beside the registry rather than in a pages directory, and that stays supported. Found while testing islands on static pages, and it had been shipping unnoticed — the existing test for static-page islands declares a React island with no reactDirectory, so every build it ever ran produced a dead island, and it passed because it only asserts the bootstrap script tag is in the HTML. That fixture is corrected here. Making islands compile with no pages directory at all is the better answer and is deliberately not this change: it needs a compile root for sources outside any framework directory plus that framework's vendor bundle, which is gated on the same directory, and an island compiled without a vendor trips the build's un-vendored-import guard.",
-	kind: 'fixed',
-	summary:
-		'The build refuses an island whose framework directory is not configured'
-};
