@@ -83,15 +83,19 @@ export const lowerSvelteIslandSyntax = (
 			}
 
 			const hydrate = extractIslandAttribute(attributeString, 'hydrate');
+			const persist = extractIslandAttribute(attributeString, 'persist');
 			const props = extractIslandAttribute(attributeString, 'props');
 			const slotId = `absolute-svelte-island-${islandIndex.toString(BASE_36_RADIX)}`;
 			islandIndex += 1;
 
+			const persistField = persist.found
+				? `persist: ${persist.expression}, `
+				: '';
 			const call = `__absoluteResolveIslandHtml(${JSON.stringify(
 				slotId
 			)}, { component: ${component.expression}, framework: ${framework.expression}, hydrate: ${
 				hydrate.found ? hydrate.expression : JSON.stringify('load')
-			}, props: ${props.found ? props.expression : '{}'} })`;
+			}, ${persistField}props: ${props.found ? props.expression : '{}'} })`;
 			const resolveExpression =
 				mode === 'server' ? `await ${call}` : call;
 

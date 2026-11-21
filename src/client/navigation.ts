@@ -694,6 +694,74 @@ const swapBody = (nav: Runtime, loaded: LoadedDocument) => {
 	document.body.replaceWith(nextBody);
 };
 
+/* ------------------------------------------------------------------ */
+/* Persisted islands (phase 5)                                         */
+/* ------------------------------------------------------------------ */
+
+/* An island rendered with `persist="<key>"` keeps running across a
+ * navigation when the page being swapped in renders an island with the
+ * same key: the live element is moved into the incoming document in place
+ * of its twin, so the instance mounted into it — its React root, Svelte
+ * instance, Vue app or Angular component — is never unmounted and never
+ * hydrated again. Its DOM state comes with it: what was typed into it, an
+ * open menu, a playing video, a scrolled list.
+ *
+ * An island is the unit rather than an arbitrary subtree, which is what
+ * the phase's first design asked for, because an island is already the
+ * one thing every framework's hydration leaves alone: React renders its
+ * host with `suppressHydrationWarning` and no children, and a Svelte
+ * island slot writes only when it is empty (beta.252). A subtree of
+ * page-owned markup has no such protection — the page app is unmounted on
+ * every navigation, so persisting markup it owns would keep nodes whose
+ * component is gone.
+ *
+ * A key the incoming page does not render is NOT persisted: a layout the
+ * next page never asked for has to be torn down with the rest, or this is
+ * the island leak of beta.234 with a nicer name. */
+const PERSIST_ATTRIBUTE = 'data-absolute-persist';
+const PERSIST_SELECTOR = `[${PERSIST_ATTRIBUTE}][data-island="true"]`;
+
+type PersistedIsland = { incoming: Element; live: Element };
+
+const collectPersisted = (root: ParentNode) => {
+	const found = new Map<string, Element>();
+	for (const element of Array.from(root.querySelectorAll(PERSIST_SELECTOR))) {
+		const key = element.getAttribute(PERSIST_ATTRIBUTE) ?? '';
+		// First wins, so a repeated key is a no-op rather than a surprise
+		// about which of the two moved.
+		if (key !== '' && !found.has(key)) found.set(key, element);
+	}
+
+	return found;
+};
+
+const matchPersistedIslands = (loaded: LoadedDocument) => {
+	const incoming = collectPersisted(loaded.document.body);
+	if (incoming.size === 0) return [];
+	const pairs: PersistedIsland[] = [];
+	for (const [key, live] of collectPersisted(document.body)) {
+		const twin = incoming.get(key);
+		if (twin) pairs.push({ incoming: twin, live });
+	}
+
+	return pairs;
+};
+
+const isPersisted = (pairs: PersistedIsland[], element: Element) =>
+	pairs.some(({ live }) => live === element || live.contains(element));
+
+/* Into the incoming body, which the caller is about to make the live one:
+ * the island goes straight from one body to the other rather than sitting
+ * detached in between. */
+const movePersistedIslands = (
+	pairs: PersistedIsland[],
+	loaded: LoadedDocument
+) => {
+	for (const { incoming, live } of pairs) {
+		incoming.replaceWith(loaded.document.adoptNode(live));
+	}
+};
+
 const disposeCurrentPage = async () => {
 	const dispose: unknown = Reflect.get(window, DISPOSE_GLOBAL);
 	Reflect.set(window, DISPOSE_GLOBAL, undefined);
@@ -974,12 +1042,17 @@ const swapDocument = async (
 	// position of the entry being left when the new one is pushed, and inside
 	// the callback it reads 0, which it then restores on a later back.
 	commitHistory(nav, request, loaded.url);
+	/* Islands both pages render with the same `persist` key, matched before
+	 * anything is torn down. */
+	const persisted = matchPersistedIslands(loaded);
 	const swap = async () => {
 		// Islands first, then the page: a framework page root may own the
 		// markup an island is mounted into, so tearing the page down first
 		// detaches the island's host element and the island then unmounts
 		// against nodes that are already gone.
-		await disposeIslandsIn(document.body);
+		await disposeIslandsIn(document.body, (element) =>
+			isPersisted(persisted, element)
+		);
 		await disposeCurrentPage();
 		clearPageGlobals();
 		syncAttributes(
@@ -987,6 +1060,7 @@ const swapDocument = async (
 			loaded.document.documentElement
 		);
 		swapHead(nav, loaded, headNodes, preloaded);
+		movePersistedIslands(persisted, loaded);
 		swapBody(nav, loaded);
 		restoreMedia(media);
 		applyScroll(request, loaded.url);

@@ -797,18 +797,63 @@ emptiness is expressed as a block — an `{#if}`, and by extension an
 `{#each}` or a component boundary — Svelte owns the range and clears it.
 That is the constraint any phase 5 persisted region has to live inside.
 
+### Shipped: `persist` on an island (0.20.0-beta.254)
+
+Steps 1 to 3 below are done, and step 4 turned out not to be needed in the
+shape it was written. **The unit of persistence is an island, not an
+arbitrary subtree**, and that single change answers constraint 2 without
+a region outside the page framework's root:
+
+```tsx
+<Island component="Navbar" framework="react" persist="navbar" props={{}} />
+```
+
+An island is already the one thing every framework's hydration leaves
+alone. React renders its host with `suppressHydrationWarning` and no
+children; a Svelte island slot writes only when it is empty (beta.252,
+which had to be fixed first and is why that order mattered). A subtree of
+page-owned markup has no such protection, and never could — the page app
+is unmounted on every navigation, so persisting markup it owns would keep
+nodes whose component is gone.
+
+`persist` goes on the island's marker attributes
+(`core/islandMarkupAttributes.ts`), so it is in the markup the server and
+the client both write, for every framework's `<Island>`. The layer matches
+live islands against incoming ones by key, moves each live element into
+the incoming body in place of its twin just before that body becomes the
+live one, and tells `disposeIslandsIn` to spare them (constraint 1). A key
+the incoming page does not render is not persisted and is torn down with
+the rest of the page.
+
+Verified in a browser both ways — React → Svelte, Svelte → React and a
+round trip — on a Svelte island that both pages render: never mounted a
+second time, never destroyed, its interval still counting, still holding
+what was typed into it, with zero document requests. The control is a page
+that renders no island with the key: the island is destroyed and the
+disposer registry empties, because persisting everything always is the
+wrong implementation that would otherwise pass.
+
+**Still open**: a Vue or Angular page as the DESTINATION of a persisted
+island is untested, and those are exactly the two frameworks whose island
+mechanisms have not been read for the constraint that bit Svelte — a page
+render that re-creates the island's markup. The `persist` attribute flows
+through the shared marker, so the island itself may be any framework's;
+what is unverified is whether a Vue or Angular page's hydration leaves a
+moved island where it is. Layout-route conventions emitting `persist`
+automatically (step 5) are also still open.
+
 ### Order of work for phase 5
 
-1. One preserved-node mechanism, and the Svelte island slot stops
-   re-creating a hydrated island (constraint 3, with the table above as
-   its test — mounts and disposers both 1 on every framework).
-2. `disposeIslandsIn(root, keep)` (constraint 1).
-3. The layer's move, which is the part already proven.
-4. Design (1) of constraint 2: a persisted region outside the page
-   framework's root, with React rendering its host the way `<Island>`
-   does.
-5. Layout-route conventions emitting the marker automatically, which is
-   what makes this ergonomic rather than a manual attribute.
+1. ~~One preserved-node mechanism, and the Svelte island slot stops
+   re-creating a hydrated island~~ **done, 0.20.0-beta.252.**
+2. ~~`disposeIslandsIn(root, keep)`~~ **done, 0.20.0-beta.254.**
+3. ~~The layer's move~~ **done, 0.20.0-beta.254.**
+4. ~~A persisted region outside the page framework's root~~ **not needed:
+   an island is the region (see above).** What remains of this step is
+   verification rather than design — a Vue page and an Angular page as the
+   destination of a persisted island.
+5. Layout-route conventions emitting `persist` automatically, which is
+   what makes this ergonomic rather than a hand-written attribute.
 
 The prototype is not in the repository. It was ~70 lines in
 `src/client/navigation.ts` plus the `keep` predicate, and the browser test
