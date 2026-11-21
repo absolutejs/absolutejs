@@ -12,6 +12,7 @@ export class Island {
 	@Input() component = '';
 	@Input() framework: RuntimeIslandRenderProps['framework'] = 'react';
 	@Input() hydrate: RuntimeIslandRenderProps['hydrate'] = 'load';
+	@Input() persist: RuntimeIslandRenderProps['persist'] = undefined;
 	@Input() props: RuntimeIslandRenderProps['props'] = {};
 
 	declare static ɵfac: i0.ɵɵFactoryDeclaration<Island, never>;
@@ -23,6 +24,7 @@ export class Island {
 			component: { alias: 'component'; required: false };
 			framework: { alias: 'framework'; required: false };
 			hydrate: { alias: 'hydrate'; required: false };
+			persist: { alias: 'persist'; required: false };
 			props: { alias: 'props'; required: false };
 		},
 		Record<string, string>,

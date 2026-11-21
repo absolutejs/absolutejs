@@ -36,6 +36,15 @@ const defineRuntimeIslandComponent = (
 				required: false,
 				type: String
 			},
+			/* The `persist` key the navigation layer matches on. Declared
+			   here as well as in the shared marker attributes: an undeclared
+			   prop never reaches `setup`, so Vue's own island markup would
+			   drop the key and a persisted island arriving on a Vue page
+			   would have nothing to be matched against. */
+			persist: {
+				required: false,
+				type: String
+			},
 			props: {
 				required: true,
 				type: Object

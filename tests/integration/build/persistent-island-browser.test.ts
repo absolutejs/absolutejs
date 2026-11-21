@@ -505,15 +505,74 @@ describe('a page that renders no island with that key', () => {
 	}, 300_000);
 });
 
-/* A Vue page as the DESTINATION of a persisted island does not work yet,
- * and deliberately has no test here: a test for broken behaviour would
- * lock it in. Vue removes DOM children its vnode does not have, so its
- * hydration deletes the moved island and its own `onMounted` fills the
- * host again — the instance is replaced at t+150ms, having been correctly
- * moved at t+50ms. The evidence and the two ways out are in
- * docs/CROSS_FRAMEWORK_NAVIGATION_PLAN.md (4i). What a Vue page DOES do
- * correctly is hydrate its own island exactly once, which is worth
- * holding on to. */
+describe('a Vue page as the destination', () => {
+	test('keeps the persisted instance, through the reclaim pass', async () => {
+		/* Vue deletes DOM children its vnode does not have, so its
+		 * hydration takes the moved island and its island component refills
+		 * the host from its snapshot. The layer checks afterwards and puts
+		 * the live one back, unmounting the replacement.
+		 *
+		 * So the assertions here are not the React and Svelte ones. The
+		 * instance that survives is the ORIGINAL — the typed value and the
+		 * running interval prove that — but a second instance was mounted
+		 * and destroyed on the way, which is the documented cost of this
+		 * destination and is asserted rather than hidden: `mounts` reads 2
+		 * and `__islandDestroyed` is true. A test that demanded 1 and
+		 * undefined here would be asserting a design this framework cannot
+		 * give. */
+		await openAt('/react', async (page, seen) => {
+			await page.fill('#draft', 'into vue');
+			const before = await ticksNow(page);
+			await page.evaluate(() =>
+				Reflect.set(
+					window,
+					'__liveIsland',
+					document.querySelector('[data-island]')
+				)
+			);
+
+			await page.click('#to-vue');
+			await page.waitForFunction(
+				() => Reflect.get(window, '__vueHydrated') === true,
+				undefined,
+				{ timeout: 20_000 }
+			);
+
+			expect(new URL(page.url()).pathname).toBe('/vue');
+			expect(await sameDocument(page)).toBe(true);
+			/* The element in the document is the one that came across, not a
+			 * copy that looks like it. This is the assertion the whole
+			 * reclaim pass exists for. */
+			await page.waitForFunction(
+				() => {
+					const live = Reflect.get(window, '__liveIsland');
+
+					return live instanceof Element && live.isConnected;
+				},
+				undefined,
+				{ timeout: 10_000 }
+			);
+
+			expect(await draftValue(page)).toBe('into vue');
+			await keepsRunning(page, before);
+			expect(await page.locator('#shell-island').count()).toBe(1);
+			expect(await mounts(page)).toBe(1);
+			expect(await destroyed(page)).toBeUndefined();
+			expect(
+				await page.evaluate(() => {
+					const store = Reflect.get(
+						globalThis,
+						Symbol.for('absolute.islandDisposers')
+					);
+
+					return store instanceof Set ? store.size : -1;
+				})
+			).toBe(1);
+			expect(seen.documentLoads).toEqual([]);
+		});
+	}, 300_000);
+});
+
 describe('a Vue page entered cold', () => {
 	test('entered cold, hydrates its own island exactly once', async () => {
 		/* The Svelte equivalent of this read 2 mounts and 2 disposers before

@@ -21,6 +21,13 @@ export const Island = defineComponent({
 			required: false,
 			type: String
 		},
+		/* The `persist` key the navigation layer matches on. An undeclared
+		   prop never reaches `setup`, so without this Vue's own island
+		   markup drops the key. */
+		persist: {
+			required: false,
+			type: String
+		},
 		/* Accept either an object or a JSON-serialized string — see
 		   the SSR `Island.ts` for the rationale. */
 		props: {

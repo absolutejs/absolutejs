@@ -33,11 +33,14 @@ type RawIslandProps = {
 	component: string;
 	framework: string;
 	hydrate?: string | undefined;
+	/** `persist` key, carried through so it reaches the island's marker
+	 *  attributes — the navigation layer reads it off the element. */
+	persist?: string | undefined;
 	props: unknown;
 };
 
 export const normalizeRuntimeIslandRenderProps = (raw: RawIslandProps) => {
-	const { component, framework, hydrate, props } = raw;
+	const { component, framework, hydrate, persist, props } = raw;
 	if (!isIslandFramework(framework)) {
 		throw new Error(`Unknown island framework: "${framework}".`);
 	}
@@ -50,6 +53,7 @@ export const normalizeRuntimeIslandRenderProps = (raw: RawIslandProps) => {
 		component,
 		framework,
 		hydrate,
+		persist,
 		props: normalizeIslandProps(props)
 	};
 };
