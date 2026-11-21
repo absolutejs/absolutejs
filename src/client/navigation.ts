@@ -956,15 +956,32 @@ const swapDocument = async (
 	await runSwap(nav, swap);
 	resetFocus();
 	await runScripts(nav, scripts);
-	const hasModules = loadsModules(scripts);
-	await waitForPageReady(hasModules);
-	/* A document with no module script and no inline `import()` has no
-	 * hydration index coming, so nothing will register a teardown hook: it
-	 * is a static page, and the next navigation away from it should swap
-	 * rather than reload. A page that DOES load modules is left alone — if
-	 * its index never registered a hook, the full load is the safe
-	 * outcome. */
-	if (!hasModules) markPageWithoutTeardown();
+	/* Before waiting, not after: nothing on a page with no framework app
+	 * will ever register a teardown hook, and `waitForPageReady` spends
+	 * the whole poll deadline finding that out. Marked after it, a static
+	 * page stayed unswappable for seconds — long enough that a click in
+	 * that window did a full document load, which is what a visitor does.
+	 *
+	 * The test is `__ABSOLUTE_PAGE_READY__`, not "does it load modules".
+	 * Every framework hydration index sets READY as its module evaluates,
+	 * which has already happened in `runScripts` above, so READY without
+	 * DISPOSE means an index is booting or failed — and there the
+	 * conservative full load is right, because a half-mounted app must not
+	 * have its markup swapped out. Neither set means there is no framework
+	 * app at all.
+	 *
+	 * Module scripts were the first signal used here and they were wrong:
+	 * a static page carrying islands has one — the island bootstrap — so
+	 * it read as a framework page, never became swappable, and could be
+	 * navigated to but not from.
+	 *
+	 * A page whose inline bootstrap `import()`s its index asynchronously
+	 * has neither global set at this point, so it is marked too. That is
+	 * safe: `markPageWithoutTeardown` never replaces a real hook, and the
+	 * index overwrites the no-op with its own when it evaluates. */
+	if (Reflect.get(window, READY_GLOBAL) === undefined && !canTearDown())
+		markPageWithoutTeardown();
+	await waitForPageReady(loadsModules(scripts));
 	reapplyScroll(request, loaded.url);
 	announcePage();
 

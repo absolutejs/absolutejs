@@ -54,6 +54,7 @@ import {
 	findBootstrapOutputPath,
 	writeDefaultIslandBootstrap
 } from '../build/islandBootstrap';
+import { copyClientRuntimeChunks } from '../build/islandRuntimeChunks';
 import {
 	createClientProcessEnvPlugin,
 	createServerOnlyPlugin,
@@ -3165,9 +3166,31 @@ const buildUnlocked = async ({
 	);
 	const islandClientLogs = islandClientResult?.logs ?? [];
 	const islandClientOutputs = islandClientResult?.outputs ?? [];
-	const islandClientOutputPaths = islandClientOutputs.map(
-		(artifact) => artifact.path
-	);
+	/* The published client runtime is a split bundle whose per-framework
+	 * hydrators load through a computed `import(map[i])`, which Bun cannot
+	 * follow when it bundles a bootstrap that imports the runtime. Copy
+	 * those chunks in so the specifiers inside that map resolve, and let
+	 * them through the island rewrite below — they carry bare framework
+	 * specifiers a browser cannot resolve. See build/islandRuntimeChunks.ts;
+	 * without this an island on a static HTML or HTMX page never hydrates. */
+	const islandRuntimeChunkPaths =
+		islandClientResult?.success === true
+			? copyClientRuntimeChunks(
+					join(buildPath, 'islands'),
+					// Only the frameworks this app configures have a vendor
+					// path to rewrite a hydrator chunk's bare imports to.
+					[
+						...(angularDir ? ['angular'] : []),
+						...(reactDir ? ['react'] : []),
+						...(svelteDir ? ['svelte'] : []),
+						...(vueDir ? ['vue'] : [])
+					]
+				)
+			: [];
+	const islandClientOutputPaths = [
+		...islandClientOutputs.map((artifact) => artifact.path),
+		...islandRuntimeChunkPaths
+	];
 
 	if (
 		((nonReactClientResult && !nonReactClientResult.success) ||
