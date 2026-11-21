@@ -232,7 +232,7 @@ every navigation.
 | --- | --- | --- |
 | 1 (done) | Layer + React ↔ Svelte via `<Link>`, styles, island store, back/forward + scroll, history fallback, CSP | Playwright (prod build): React→Svelte→React with no document request; target hydrates and is interactive; stylesheets swapped, Svelte scoped CSS applied; store value carried both ways; back/forward and scroll restore; same with the Navigation API removed; zero CSP violations under `secureHeaders()`; opt-out link does a full load. Packed-tarball e2e in prod and dev. |
 | 2 | Teardown completeness | ~~Island dispose registry (islands unmounted with the old body)~~ **done, 0.20.0-beta.234**; ~~`__ABSOLUTE_PAGE_DISPOSE__` for HTML/HTMX pages (no-op) so they can participate~~ **done, 0.20.0-beta.235**; ~~prefetch cache on `globalThis` so a Svelte `<Link>` hover warms the React-installed layer~~ **done, 0.20.0-beta.236**; ~~dev HMR follows the swapped page (`__HMR_FRAMEWORK__`, per-page manifest)~~ **verified, 0.20.0-beta.237 — it already did**; a framework-supplied index boot function instead of `?absolute-nav=` re-imports. Exit: React ↔ Svelte ↔ HTML ↔ HTMX with islands **(rows done, 0.20.0-beta.240 — see 4f for what of "with islands" and "heap snapshot" is not)**, no leaked roots (heap snapshot), HMR edit after a soft navigation applies **(done)**. |
-| 3 | Vue + Angular | ~~Vue `<Link>` / vue-router hands off unmatched URLs~~ **verified, 0.20.0-beta.238 — it already did**; Angular `routerLink` hands off unmatched URLs; ~~Angular zone and platform teardown verified~~ **verified, 0.20.0-beta.239**. Exit: the Phase 1 suite for every framework pair (5×5 matrix in Playwright, prod + dev). |
+| 3 | Vue + Angular | ~~Vue `<Link>` / vue-router hands off unmatched URLs~~ **verified, 0.20.0-beta.238 — it already did**; ~~Angular `routerLink` hands off unmatched URLs~~ **done, 0.20.0-beta.247 — it did not; it was a dead link, see 4e**; ~~Angular zone and platform teardown verified~~ **verified, 0.20.0-beta.239**. Exit: the Phase 1 suite for every framework pair (5×5 matrix in Playwright, prod + dev). |
 | 4 | Navigation API interception | `navigate` event `intercept()` where supported (forms, `location.assign`, programmatic), click/popstate fallback elsewhere; ~~`config.navigation: true` injects `enableNavigation()` into every hydration index~~ **done, 0.20.0-beta.245**. Exit: suite passes in Chromium (Navigation API) and WebKit/Firefox (fallback). |
 | 5 | Persistent layouts | `data-absolute-persist` (2.4) plus layout-route emission. Exit: a React navbar island keeps state (input value, open menu) across React → Svelte → Vue. |
 
@@ -442,9 +442,62 @@ Angular component empty while the build reports success. The same
 treatment `csrfTokenRef` gets — rewrite, copy, and its own `Bun.build`
 entrypoint because the tsc pass skips subdirectory emits.
 
-Still open for a complete Angular row: `routerLink` hand-off, which is
-what the phase's wording is really about, needs a fixture page that
-installs the Angular router with `provideRouter`.
+**`routerLink` hand-off: shipped, 0.20.0-beta.247**, and it was a real
+dead link rather than a wording question. On a page that exports `routes`,
+`routerLink="/react"` did *nothing*: the router failed with NG04002, the
+address bar never changed, and the only trace was a console error that a
+production build strips to `'react'` — no route table, no URL, nothing to
+search for. Probed in the browser before anything was written, because
+"what does it do today" and "what should it do" are different questions
+and only the first one has an answer in the code:
+
+```
+URL AFTER CLICK: http://localhost:60358/ng/
+react-page: 0 angular-page: 1 routed-home: 1
+error: ERROR RuntimeError: NG04002: 'react'
+```
+
+The fix is an Angular navigation-error handler
+(`src/angular/components/router-handoff.ts`) wired into the
+`provideRouter(...)` that `compileAngular` injects for a colocated-routes
+page. A no-match goes to the navigation layer — a soft swap when one is
+installed, a page load otherwise, the same fallback `navigateDocument()`
+makes. Four decisions in it worth keeping:
+
+- **Only NG04002.** Every other navigation error returns `undefined` from
+  the handler, which is Angular's own reporting path. A failed guard or a
+  resolver that threw must stay an error; turning either into a page
+  navigation would hide it.
+- **The URL handed off carries the base href** —
+  `location.prepareExternalUrl(event.url)`. The router's URL space is
+  relative to `APP_BASE_HREF`, so `routerLink="/pricing"` on a page
+  mounted at `/portal/*` means `/portal/pricing`, and handing off
+  `/pricing` instead would make a link's target depend on whether the
+  route table matched it. Leaving the mount is `absLink`'s job.
+- **Never hand off the page's own URL.** When the unmatched URL is the one
+  the document is already on, the hand-off would ask the layer to navigate
+  where it is — an infinite reload on the page-load fallback. Angular
+  reports it instead.
+- **The handler returns a `RedirectCommand` to the current URL.** Not
+  decoration: returning nothing makes the router re-throw the error it
+  just handed over, which is the console error and the rejected
+  `navigateByUrl` promise the dead link already produced. Staying put is
+  also honest — the document is on its way out either way.
+
+Not covered by `withNavigationErrorHandler`: it is a single provider, so
+an app that both uses colocated `routes` and supplies its own handler
+through its own `provideRouter` call would have two routers to begin with.
+`absoluteRouterHandoff` is exported for apps that wire their own.
+
+`tests/integration/ssr/angular-router-page-navigation-browser.test.ts`
+covers the routed page end to end — a `routerLink` the table *does* match
+staying the router's (outlet changes, document does not, application not
+re-bootstrapped), the unmatched one handing off, `absLink` leaving the
+mount, and a soft navigation into `/ng/inner` from outside rendering the
+inner route rather than the index. `tests/unit/angular/routerHandoff.test.ts`
+covers the decision itself, including the production-shaped error whose
+message is only `'react'` — reading the message alone would make the
+feature work in dev and quietly do nothing in a build.
 
 ## 4f. Where the matrix actually stands
 
@@ -501,10 +554,11 @@ immediately. The first draft of that test did exactly that and asserted
 the URL before the navigation had finished — it showed up as the wrong
 pathname rather than as a timeout. Clear the flag, click, then wait.
 
-Phase 3 still needs, for a complete 5×5: the Angular pairs — which need
-the spawned-app harness of 4e rather than an in-process server — and the
-HTMX pairs, plus `routerLink` hand-off from a page that installs the
-Angular router.
+| Angular, routed page ↔ React | `angular-router-page-navigation-browser` | `routerLink` hand-off; a matched `routerLink` stays the router's |
+
+Phase 3 still needs, for a complete 5×5: the remaining Angular pairs —
+which need the spawned-app harness of 4e rather than an in-process
+server — and the HTMX pairs.
 
 ## 4g. `navigation: true` (phase 4, partly shipped)
 

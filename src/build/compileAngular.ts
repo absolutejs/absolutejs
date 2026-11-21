@@ -2440,10 +2440,20 @@ export const compileAngular = async (
 			}
 			if (pageInjection.hasRoutes) {
 				importLines.push(
-					`import { provideRouter as __abs_provideRouter, withComponentInputBinding as __abs_withComponentInputBinding, withViewTransitions as __abs_withViewTransitions } from "@angular/router";`
+					`import { provideRouter as __abs_provideRouter, withComponentInputBinding as __abs_withComponentInputBinding, withNavigationErrorHandler as __abs_withNavigationErrorHandler, withViewTransitions as __abs_withViewTransitions } from "@angular/router";`
+				);
+				/* A `routerLink` to a URL this table does not match is a
+				 * dead link in Angular (NG04002: no navigation, no URL
+				 * change, a console error). On a page that sits beside
+				 * pages of other frameworks it is more likely a link out
+				 * than a mistake, so the handler hands that URL to
+				 * cross-framework document navigation. Only NG04002 — see
+				 * src/angular/components/router-handoff.ts. */
+				importLines.push(
+					`import { absoluteRouterHandoff as __abs_absoluteRouterHandoff } from "@absolutejs/absolute/angular/components";`
 				);
 				fragments.push(
-					'__abs_provideRouter(routes, __abs_withComponentInputBinding(), __abs_withViewTransitions())'
+					'__abs_provideRouter(routes, __abs_withComponentInputBinding(), __abs_withViewTransitions(), __abs_withNavigationErrorHandler(__abs_absoluteRouterHandoff))'
 				);
 			}
 			if (pageInjection.basePath !== null) {
