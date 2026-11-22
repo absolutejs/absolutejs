@@ -125,6 +125,9 @@ const printUsage = (write: (line: string) => void) => {
 		'  links [--config path] Report literal <a href="/…"> links no route serves (exits 1 on findings)'
 	);
 	write(
+		'  upgrade [--to version] [--dry-run] Apply the migrations between the installed version and a newer one, and list the ones a person has to make'
+	);
+	write(
 		'  migrate       Report what moving this project to AbsoluteJS involves'
 	);
 	write(
@@ -393,6 +396,10 @@ if (command === 'dev') {
 	const configPath = parseNamedArg('--config');
 	const { typecheck } = await import('./scripts/typecheck');
 	await typecheck(configPath);
+} else if (command === 'upgrade') {
+	sendTelemetryEvent('cli:command', { command });
+	const { upgrade } = await import('./scripts/upgrade');
+	await upgrade(args);
 } else if (command === 'links') {
 	sendTelemetryEvent('cli:command', { command });
 	const { links } = await import('./scripts/links');
