@@ -5,6 +5,20 @@
 		{
 			"changes": [
 				{
+					"detail": "An app served under a base path can share module prefixes with the app at the origin's root: `basePathShared: ['/react/vendor/']` (or `ABSOLUTE_BASE_PATH_SHARED`, comma separated) leaves those out of the base path's import map, so the page loads them from the root app. Studio, under `/studio/projects/<id>`, shares `/react/vendor/` with the platform so its page runs on one React, which components from both apps can then share. Both apps must build the shared modules from the same versions, in the same mode; only prefixes the import map would otherwise move can be shared.",
+					"kind": "added",
+					"summary": "basePathShared: an app under a base path can load module prefixes (one React) from the root app",
+					"symbols": [
+						"BaseBuildConfig"
+					]
+				}
+			],
+			"date": "2026-11-22",
+			"version": "0.20.0-beta.300"
+		},
+		{
+			"changes": [
+				{
 					"detail": "A new `@absolutejs/absolute/testing` subpath exports `startProject`, `waitForServer`, `fetchPage`, `getAvailablePort` and a reversible file-mutation registry (`mutateFile`, `mutateFileInPlace`, `createFile`, `renameFile`, `restoreFile`, `restoreAllFiles`, `withFileMutation`). This repository had a harness for all of it, but it was wired to this repository: the project root came from the helper's own location, the entry and config defaulted to `example/`, and the child ran `src/cli/index.ts` from source. None of that exists in a project that installs the package, so there was no supported way to boot an app in a test — everyone rewrote the spawn, the readiness probe and the teardown, and the teardown is the part that goes wrong. `startProject` runs the `absolute` binary the project has installed, from the project directory, on a free port, and its `kill()` throws if anything is still listening afterwards, because a leaked server fails the next test rather than the one that caused it. Verified end to end from a project outside this repository in both modes. The package's own `tests/helpers` now re-export these, so there is one implementation. Browser helpers are excluded on purpose: they need Playwright, and a test harness should not make a browser a dependency of the framework.",
 					"kind": "added",
 					"summary": "a published test harness at `@absolutejs/absolute/testing`"

@@ -40,10 +40,15 @@ export const BASE_PATH_MODULE_PREFIXES = [
 	'/angular/vendor/',
 	'/ember/vendor/'
 ] as const;
-/** The module prefixes this app shares with the app at the origin's root:
- *  only ones the import map would otherwise move. */
+export const getBasePath = () =>
+	normalizeBasePath(process.env.ABSOLUTE_BASE_PATH);
 export const getBasePathShared = () =>
 	parseBasePathShared(process.env.ABSOLUTE_BASE_PATH_SHARED);
+export const normalizeBasePath = (raw: string | undefined) => {
+	const trimmed = (raw ?? '').trim().replace(/^\/+|\/+$/g, '');
+
+	return trimmed === '' ? '' : `/${trimmed}`;
+};
 export const parseBasePathShared = (raw: string | undefined) => {
 	const listed = new Set(
 		(raw ?? '')
@@ -53,13 +58,6 @@ export const parseBasePathShared = (raw: string | undefined) => {
 	);
 
 	return BASE_PATH_MODULE_PREFIXES.filter((prefix) => listed.has(prefix));
-};
-export const getBasePath = () =>
-	normalizeBasePath(process.env.ABSOLUTE_BASE_PATH);
-export const normalizeBasePath = (raw: string | undefined) => {
-	const trimmed = (raw ?? '').trim().replace(/^\/+|\/+$/g, '');
-
-	return trimmed === '' ? '' : `/${trimmed}`;
 };
 export const withBasePath = (path: string, base = getBasePath()) => {
 	if (base === '' || !path.startsWith('/') || path.startsWith('//'))
