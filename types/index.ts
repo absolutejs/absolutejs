@@ -1,6 +1,7 @@
 import './globals.d.ts';
 
 export * from './conventions';
+export * from './bench';
 export * from './build';
 export * from './cli';
 export * from './env';
