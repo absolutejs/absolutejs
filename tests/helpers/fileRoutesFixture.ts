@@ -313,6 +313,10 @@ export const load = ({ params, query }: FileRouteContext<'/blog/:slug'>) => ({
 	title: \`POST_\${params.slug.toUpperCase()}\`,
 	view: query.view ?? 'full'
 });
+
+/* The param sets a build can enumerate — the sitemap today. Typed
+   against the route, so a renamed [slug] fails here too. */
+export const entries = () => [{ slug: 'hello' }, { slug: 'world' }];
 `,
 	'react/routes/blog/[slug].tsx': `import { useState } from 'react';
 import { Shell } from '../_parts/Shell';
@@ -370,6 +374,9 @@ export default function Post({ title, view }: PostProps) {
 export const load = ({ params }: FileRouteContext<'/docs/:rest'>) => ({
 	rest: params.rest
 });
+
+// A catch-all's entry is a path, so its value keeps its slashes.
+export const entries = () => [{ rest: 'guide/routing' }];
 `,
 	'svelte/routes/docs/[...rest].svelte': `<script lang="ts">
 	let { rest }: { rest: string; url?: string } = $props();

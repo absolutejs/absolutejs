@@ -73,6 +73,7 @@ import {
 import { createMissingReactRouterPlugin } from '../build/missingReactRouter';
 import { ISLAND_BOOTSTRAP_MANIFEST_KEY } from './islandManifest';
 import { auditLinks, deadLinkWarning } from '../build/auditLinks';
+import { fileRouteSitemapPaths } from '../build/fileRouteSitemapPaths';
 import { scanRouteRegistrations } from '../build/scanRouteRegistrations';
 import { generateSitemap } from '../utils/generateSitemap';
 import type {
@@ -4054,8 +4055,24 @@ const buildUnlocked = async ({
 			}));
 			const sitemapBaseUrl =
 				sitemap?.baseUrl ?? `http://localhost:${DEFAULT_PORT}`;
+			/* File routes are invisible to the registration scan above —
+			 * `fileRoutes()` registers them at run time — so a project
+			 * whose pages are all file routes had an empty sitemap. */
+			const fileRoutePaths = await fileRouteSitemapPaths(
+				{
+					angularDirectory,
+					fileRoutes,
+					htmlDirectory,
+					htmxDirectory,
+					reactDirectory,
+					svelteDirectory,
+					vueDirectory
+				},
+				projectRoot
+			);
 			await generateSitemap(routes, sitemapBaseUrl, buildPath, sitemap, {
 				angularDirectory,
+				fileRoutePaths,
 				reactDirectory,
 				svelteDirectory,
 				vueDirectory

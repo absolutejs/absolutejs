@@ -32,6 +32,16 @@ type AppRoute = {
 };
 
 export type SitemapPipelineConfig = {
+	/* URLs the project's FILE routes serve, resolved by the caller
+	 * (build/fileRouteSitemapPaths.ts).
+	 *
+	 * Passed in rather than discovered here, because a file route is not
+	 * an Elysia registration in the project's source: `fileRoutes()`
+	 * registers it at run time from the generated module, so the static
+	 * scan this generator reads cannot see one. Keeping the resolution
+	 * outside also keeps `entries()` — which imports a server module and
+	 * may read a database — out of a function whose job is to write XML. */
+	fileRoutePaths?: readonly string[];
 	angularDirectory?: string;
 	reactDirectory?: string;
 	svelteDirectory?: string;
@@ -390,6 +400,16 @@ export const generateSitemap = async (
 
 	const seenPaths = new Set<string>();
 	const entries: ResolvedEntry[] = [];
+
+	/* File routes first, so a path served by both a file route and an
+	 * explicit registration is listed once. They carry no `sitemap: {…}`
+	 * metadata: that is read out of a handler's source, and a file route's
+	 * handler is the framework's. */
+	for (const path of pipelineConfig.fileRoutePaths ?? []) {
+		if (seenPaths.has(path) || isExcluded(path, exclude)) continue;
+		seenPaths.add(path);
+		entries.push({ override: undefined, path });
+	}
 
 	for (const page of discoveredPages) {
 		if (!page.emitTopLevel) continue;
