@@ -55,6 +55,7 @@ const COMMAND_FLAGS: Readonly<
 	start: { '--outdir': 'value', '--prebuilt': 'boolean' },
 	'tunnel-relay': {},
 	typecheck: {},
+	upgrade: { '--dry-run': 'boolean', '--to': 'value', '--yes': 'boolean' },
 	workspace: { '--no-tui': 'boolean' }
 };
 
