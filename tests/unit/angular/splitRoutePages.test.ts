@@ -56,6 +56,17 @@ describe('Angular router pages load lazily', () => {
 		);
 	});
 
+	test('the class name in a string or comment is not a use', () => {
+		const source = page(`[{ component: HomeComponent, path: '' }]`).replace(
+			"template: '<router-outlet />'",
+			"template: '<a>HomeComponent</a><router-outlet />' /* HomeComponent */"
+		);
+
+		expect(split(source)).toContain(
+			'loadComponent: () => import("../../components/home/home")'
+		);
+	});
+
 	test('a component also listed in @Component imports stays eager', () => {
 		const source = page(`[{ component: HomeComponent, path: '' }]`).replace(
 			'imports: [RouterOutlet]',

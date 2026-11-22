@@ -297,6 +297,39 @@ const walk = (node: Node, visit: (node: Node) => void) => {
 	}
 };
 
+/* References to `name` in a parsed component: its tags (`<Home />`) and
+ * identifiers in code and template expressions, outside import
+ * declarations. Text and comments are not nodes of either kind. */
+const svelteReferences = (ast: unknown, name: string) => {
+	let count = 0;
+	const seen = new WeakSet<object>();
+	const visit = (value: unknown) => {
+		if (typeof value !== 'object' || value === null || seen.has(value))
+			return;
+		seen.add(value);
+		if (Array.isArray(value)) {
+			for (const item of value) visit(item);
+
+			return;
+		}
+		const type = Reflect.get(value, 'type');
+		if (type === 'ImportDeclaration') return;
+		const nodeName = Reflect.get(value, 'name');
+		if (
+			(type === 'Component' || type === 'Identifier') &&
+			nodeName === name
+		)
+			count += 1;
+		for (const key of Object.keys(value)) {
+			if (key === 'metadata' || key === 'parent') continue;
+			visit(Reflect.get(value, key));
+		}
+	};
+	visit(ast);
+
+	return count;
+};
+
 /** The component with its router pages loading lazily, or null when
  *  nothing in it changes. */
 export const lowerSvelteRoutePages = (source: string, parse: ParseSvelte) => {
@@ -347,29 +380,14 @@ export const lowerSvelteRoutePages = (source: string, parse: ParseSvelte) => {
 	});
 	if (splits.length === 0) return null;
 
-	// A page the file also uses anywhere else stays eager: every mention
-	// outside its import must be one of the route tags being removed.
+	// A page the file also uses anywhere else stays eager: every reference
+	// to it (a tag, an identifier in code) must be one of the page tags
+	// being replaced. The word in text ("Home" as a link's label) or in a
+	// comment is not a reference.
 	const lazyLocals = new Set<string>();
 	for (const local of new Set(splits.map((split) => split.local))) {
-		const declaration = components.get(local)?.declaration;
-		const outsideImport = declaration
-			? source.slice(0, declaration.start) + source.slice(declaration.end)
-			: source;
-		const mentions =
-			outsideImport.match(new RegExp(`\\b${local}\\b`, 'g'))?.length ?? 0;
-		const routeTags = splits
-			.filter((split) => split.local === local)
-			.reduce((count, split) => {
-				const { end, start } = split.region;
-
-				return (
-					count +
-					(source
-						.slice(start, end)
-						.match(new RegExp(`\\b${local}\\b`, 'g'))?.length ?? 0)
-				);
-			}, 0);
-		if (mentions === routeTags) lazyLocals.add(local);
+		const pageTags = splits.filter((split) => split.local === local).length;
+		if (svelteReferences(ast, local) === pageTags) lazyLocals.add(local);
 	}
 	const kept = splits.filter((split) => lazyLocals.has(split.local));
 	if (kept.length === 0) return null;

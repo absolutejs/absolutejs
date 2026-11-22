@@ -2558,7 +2558,7 @@ export const compileAngular = async (
 			}
 			if (pageInjection.hasRoutes) {
 				importLines.push(
-					`import { provideRouter as __abs_provideRouter, withComponentInputBinding as __abs_withComponentInputBinding, withEnabledBlockingInitialNavigation as __abs_withEnabledBlockingInitialNavigation, withNavigationErrorHandler as __abs_withNavigationErrorHandler, withViewTransitions as __abs_withViewTransitions } from "@angular/router";`
+					`import { provideRouter as __abs_provideRouter, withComponentInputBinding as __abs_withComponentInputBinding, withNavigationErrorHandler as __abs_withNavigationErrorHandler, withViewTransitions as __abs_withViewTransitions } from "@angular/router";`
 				);
 				/* A `routerLink` to a URL this table does not match is a
 				 * dead link in Angular (NG04002: no navigation, no URL
@@ -2577,7 +2577,7 @@ export const compileAngular = async (
 				 * exactly that). Unset on the server, where a hand-off
 				 * would mean nothing anyway. */
 				fragments.push(
-					`__abs_provideRouter(routes, __abs_withComponentInputBinding(), __abs_withViewTransitions(), __abs_withEnabledBlockingInitialNavigation(), __abs_withNavigationErrorHandler((event) => { const handler = Reflect.get(globalThis, Symbol.for("absolutejs.angular.routerHandoff")); return typeof handler === "function" ? handler(event) : undefined; }))`
+					`__abs_provideRouter(routes, __abs_withComponentInputBinding(), __abs_withViewTransitions(), __abs_withNavigationErrorHandler((event) => { const handler = Reflect.get(globalThis, Symbol.for("absolutejs.angular.routerHandoff")); return typeof handler === "function" ? handler(event) : undefined; }))`
 				);
 			}
 			if (pageInjection.basePath !== null) {

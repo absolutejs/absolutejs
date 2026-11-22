@@ -1,4 +1,8 @@
 import type TS from 'typescript';
+import {
+	identifierReferences,
+	identifierReferencesIn
+} from '../build/identifierReferences';
 import { ts } from '../utils/lazyTypescript';
 
 /* Pages placed in a Vue SPA's router load their code the first time they
@@ -111,6 +115,31 @@ const routeArrays = (file: TS.SourceFile) => {
 	return arrays;
 };
 
+const SETUP_SCRIPT = /<script\b[^>]*\bsetup\b[^>]*>([\s\S]*?)<\/script>/;
+const TEMPLATE = /<template\b[^>]*>([\s\S]*)<\/template>/;
+
+const setupScript = (sfc: string) => SETUP_SCRIPT.exec(sfc)?.[1] ?? '';
+
+const kebab = (name: string) =>
+	name.replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase();
+
+/* Whether the template uses a component: as a tag (`<Home>` or `<home>`),
+ * or by name in a bound expression (`:is="Home"`, `{{ Home }}`). Text
+ * between tags is not a use. */
+const templateUses = (sfc: string, name: string) => {
+	const template = TEMPLATE.exec(sfc)?.[1] ?? '';
+	if (template === '') return false;
+	const tag = new RegExp(`<(?:${name}|${kebab(name)})(?=[\\s/>])`);
+	if (tag.test(template)) return true;
+	const word = new RegExp(`\\b${name}\\b`);
+	const bound = [
+		...template.matchAll(/\{\{([\s\S]*?)\}\}/g),
+		...template.matchAll(/\s(?::|@|#|v-)[\w:.\-[\]]*="([^"]*)"/g)
+	];
+
+	return bound.some((match) => word.test(match[1] ?? ''));
+};
+
 /**
  * The module script with its route pages loading lazily, or null when
  * nothing changes. `wholeFile` is the full SFC, so a component the
@@ -134,19 +163,18 @@ export const splitVueRoutePages = (script: string, wholeFile: string) => {
 
 	const lazy = new Set<string>();
 	for (const name of new Set(uses.map((identifier) => identifier.text))) {
-		const candidate = candidates.get(name);
-		if (!candidate) continue;
-		const importText = script.slice(
-			candidate.declaration.getStart(),
-			candidate.declaration.end
-		);
-		const pattern = new RegExp(`\\b${name}\\b`, 'g');
-		const everywhere = wholeFile.match(pattern)?.length ?? 0;
-		const inImport = importText.match(pattern)?.length ?? 0;
+		if (!candidates.has(name)) continue;
+		// Code references only: a word in the template's text ("Home" as a
+		// link's label) or in a comment is not a use.
 		const asRoutes = uses.filter(
 			(identifier) => identifier.text === name
 		).length;
-		if (everywhere - inImport === asRoutes) lazy.add(name);
+		if (
+			identifierReferences(file, name) === asRoutes &&
+			identifierReferencesIn(setupScript(wholeFile), name) === 0 &&
+			!templateUses(wholeFile, name)
+		)
+			lazy.add(name);
 	}
 	if (lazy.size === 0) return null;
 
