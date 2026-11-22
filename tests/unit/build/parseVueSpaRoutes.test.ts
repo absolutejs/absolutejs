@@ -58,3 +58,16 @@ export const routes = defineRoutes([
 		{ importPath: './Help.vue', path: '/help' }
 	]);
 });
+
+test('each named view of a route is found', () => {
+	const routes = parseVueSpaRoutes(`
+export const routes = defineRoutes([
+	{ components: { default: () => import('./Home.vue'), sidebar: () => import('./Side.vue') }, path: '/' }
+]);
+`);
+
+	expect(routes).toEqual([
+		{ importPath: './Home.vue', path: '/' },
+		{ importPath: './Side.vue', path: '/' }
+	]);
+});

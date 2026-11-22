@@ -52,6 +52,24 @@ describe('Vue router pages load lazily', () => {
 		);
 	});
 
+	test('each named view of a route is split', () => {
+		const out =
+			split(
+				script(
+					`[{ components: { default: Home, sidebar: About }, path: '/' }]`
+				)
+			) ?? '';
+
+		expect(out).toContain(
+			`default: () => import("../components/Home.vue")`
+		);
+		expect(out).toContain(
+			`sidebar: () => import("../components/About.vue")`
+		);
+		expect(out).not.toContain(`import Home from`);
+		expect(out).not.toContain(`import About from`);
+	});
+
 	test('a component the template also uses stays eager', () => {
 		const body = script(`[{ component: Home, path: '/' }]`);
 		const out = split(body, '<template><Home /><RouterView /></template>');
