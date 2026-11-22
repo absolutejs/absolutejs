@@ -3,49 +3,11 @@ import { decodeSrcPath, encodeSrcPath } from './srcPath';
 import { transitiveImporters } from './transformCache';
 
 export const CLIENT_MODULE_PREFIX = '/@hmr/client-module/';
-
-export const clientModuleUpdates = (
-	manifest: Record<string, string>,
-	files: string[],
-	canRefresh: (file: string) => boolean
-) => {
-	const entries = Object.values(manifest).filter((url) =>
-		url.startsWith(CLIENT_MODULE_PREFIX)
-	);
-	if (!entries.length) return {};
-	const changes = files.map((file) => ({
-		file: resolve(file),
-		importers: transitiveImporters(resolve(file))
-	}));
-	const updates: Record<string, { urls: string[]; refresh: boolean }> = {};
-	for (const entry of entries) {
-		const source = resolve(
-			decodeSrcPath(entry.slice(CLIENT_MODULE_PREFIX.length))
-		);
-		const affected = changes.filter((change) =>
-			change.importers.has(source)
-		);
-		if (!affected.length) continue;
-		updates[entry] = {
-			refresh: affected.every(
-				({ file }) => file !== source && canRefresh(file)
-			),
-			urls: affected.map(
-				({ file }) =>
-					'/@src/' + encodeSrcPath(relative(process.cwd(), file))
-			)
-		};
-	}
-	return updates;
-};
-
-// The host owns the mount arguments and disposal handle. A subscribing
-// host gets the current namespace immediately, including edits made while
-// its panel was closed. Ordinary named imports remain available.
 export const clientModuleBootstrap = (entry: string) => {
 	const source = JSON.stringify(
-		'/@src/' + entry.slice(CLIENT_MODULE_PREFIX.length)
+		`/@src/${entry.slice(CLIENT_MODULE_PREFIX.length)}`
 	);
+
 	return `export * from ${source};
 import * as initial from ${source};
 let current = initial;
@@ -82,4 +44,39 @@ function connect() {
 }
 connect();
 `;
+};
+export const clientModuleUpdates = (
+	manifest: Record<string, string>,
+	files: string[],
+	canRefresh: (file: string) => boolean
+) => {
+	const entries = Object.values(manifest).filter((url) =>
+		url.startsWith(CLIENT_MODULE_PREFIX)
+	);
+	if (!entries.length) return {};
+	const changes = files.map((file) => ({
+		file: resolve(file),
+		importers: transitiveImporters(resolve(file))
+	}));
+	const updates: Record<string, { urls: string[]; refresh: boolean }> = {};
+	for (const entry of entries) {
+		const source = resolve(
+			decodeSrcPath(entry.slice(CLIENT_MODULE_PREFIX.length))
+		);
+		const affected = changes.filter((change) =>
+			change.importers.has(source)
+		);
+		if (!affected.length) continue;
+		updates[entry] = {
+			refresh: affected.every(
+				({ file }) => file !== source && canRefresh(file)
+			),
+			urls: affected.map(
+				({ file }) =>
+					`/@src/${encodeSrcPath(relative(process.cwd(), file))}`
+			)
+		};
+	}
+
+	return updates;
 };

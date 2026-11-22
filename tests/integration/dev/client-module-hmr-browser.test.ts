@@ -6,7 +6,7 @@ import { openPage } from '../../helpers/browser';
 import { startDevServer, type DevServer } from '../../helpers/devServer';
 
 const repo = resolve(import.meta.dir, '../../..');
-const root = join(repo, '.hmr-temp', 'client-module-' + process.pid);
+const root = join(repo, '.hmr-temp', `client-module-${process.pid}`);
 const dir = relative(repo, root);
 const source = relative(root, join(repo, 'src'));
 const counter = (label: string) => `import { useState } from 'react';
@@ -75,11 +75,11 @@ new Elysia().use(absolutejs)
 }, 180_000);
 afterAll(async () => {
 	await server?.kill();
-	await rm(root, { recursive: true, force: true });
+	await rm(root, { force: true, recursive: true });
 });
 test('a foreign page refreshes its embedded component and remounts for mount-time code', async () => {
 	if (!server) throw new Error('Dev server did not start');
-	const session = await openPage(server.baseUrl + '/host');
+	const session = await openPage(`${server.baseUrl}/host`);
 	try {
 		const { page } = session;
 		await page.getByText('old 0').click();
