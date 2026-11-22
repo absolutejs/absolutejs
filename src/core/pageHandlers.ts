@@ -84,6 +84,12 @@ const handleStaticPageRequest = async (
 		? injectBrowserTranslationBaseline(transformedHtml)
 		: transformedHtml;
 
+	/* The request is passed so the response can be compressed and so a
+	 * repeat visit can match the ETag. Without it `withPageCacheHeaders`
+	 * has no `accept-encoding` to read, which is why static HTML and HTMX
+	 * pages came back uncompressed even though the build had already
+	 * written a `.br` beside them — the asset plugin that serves those
+	 * never sees a page a handler read and returned itself. */
 	return withPageCacheHeaders(
 		await withStreamingSlots(
 			new Response(injectIslandPageContext(htmlWithTranslationBaseline), {
@@ -93,7 +99,8 @@ const handleStaticPageRequest = async (
 				...options,
 				streamingSlots: options.streamingSlots ?? []
 			}
-		)
+		),
+		getCurrentAbsoluteRequest()
 	);
 };
 
@@ -118,7 +125,8 @@ const renderStaticPageError = async (
 			new Response(ssrErrorPage(framework, error), {
 				headers: { 'Content-Type': HTML_CONTENT_TYPE },
 				status: 500
-			})
+			}),
+		getCurrentAbsoluteRequest()
 	);
 };
 
