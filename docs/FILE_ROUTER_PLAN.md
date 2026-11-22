@@ -106,11 +106,30 @@ export const server = new Elysia()
 | `[[lang]]/about.tsx` | `/about` and `/:lang/about` (`params.lang?: string`) | 2 |
 | `(marketing)/pricing.tsx` | `/pricing` (group folder left out of the path) | 2 |
 | `blog/error.tsx`, `blog/loading.tsx`, `blog/not-found.tsx` | conventions for `/blog/**` | 3 |
+| `layout.tsx`, `blog/layout.tsx` | wraps `/**` and `/blog/**` (React, built) | 2 |
 
 - Unsupported segments and two files claiming one path are **build errors**
   in production and warnings in dev, listing every offending file.
 - Precedence between static and param routes at the same depth is Elysia's
   router's (static wins), the same as hand-written routes.
+- **Nested layouts (built, React).** A `layout.<ext>` wraps its own folder
+  and everything below it, so a route's chain is every layout from the
+  route root down to its own folder, outermost first. A `(group)` folder
+  participates like any other, which is most of what groups are for: a
+  layout over a set of pages that adds no path segment.
+  The chain is composed twice — by `react/fileRoute.ts` for the server
+  render and by the generated hydration index — and the two MUST agree.
+  They are folded from the right over an outermost-first list; invert one
+  and React discards the server tree and re-renders the root, which looks
+  correct on screen and throws the server render away.
+  **A page under a layout renders a fragment, not a document.** React pages
+  here render their own `<html>`, and the outermost layout owns the shell
+  once there is one — a page that renders a document under a layout gets
+  its `<head>` hoisted and duplicated (two `<title>` tags), which React
+  does not treat as an error. Not detected at build time yet.
+  Svelte, Vue, Angular, HTML and HTMX do not compose layouts yet, so a
+  `layout.<ext>` in one of those route folders is a reported problem
+  rather than a file that is silently ignored.
 - **Catch-all, optional and group (built).** A `[...rest]` segment has to be
   the last one, because Elysia's `*` matches the rest of the path and
   anything after it would never be reached. Elysia names that param `*`; the

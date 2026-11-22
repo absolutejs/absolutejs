@@ -40,6 +40,8 @@ export type ScannedFileRoute = {
 	/** The name a `[...catchAll]` segment declared; the runtime copies
 	 *  Elysia's `*` param onto it. */
 	catchAll?: string;
+	/** `layout.<ext>` files wrapping this route, outermost first. */
+	layouts?: string[];
 	/** Co-located `<route>.server.ts`, absolute, when present. */
 	server?: string;
 	/** The path the route's types are written against: a catch-all appears
@@ -82,6 +84,8 @@ const PAGE_EXTENSIONS: Record<FileRouteFramework, readonly string[]> = {
 };
 const SERVER_EXTENSIONS = ['.server.ts', '.server.js'];
 const CONVENTION_RE = /^(?:.+\.)?(?:error|loading|not-found)\.[^.]+$/;
+/* `layout.tsx`, `layout.svelte`, … — a folder's layout, not a route. */
+const LAYOUT_RE = /^layout\.[^.]+$/;
 const TEST_RE = /\.(?:test|spec)\.[^.]+$/;
 const PARAM_RE = /^\[([A-Za-z_$][\w$]*)\]$/;
 const CATCH_ALL_RE = /^\[\.\.\.([A-Za-z_$][\w$]*)\]$/;
@@ -192,9 +196,35 @@ const isRouteCandidate = (relativePath: string) => {
 	return (
 		!segments.some(isIgnoredSegment) &&
 		!CONVENTION_RE.test(fileName) &&
+		!LAYOUT_RE.test(fileName) &&
 		!TEST_RE.test(fileName) &&
 		!fileName.includes('.server.')
 	);
+};
+
+/* The layouts wrapping a route, outermost first.
+ *
+ * A `layout.<ext>` applies to its own folder and everything below it, so
+ * the chain is every layout from the route folder's root down to the
+ * route's own folder. `routes/layout.tsx` wraps the whole app;
+ * `routes/blog/layout.tsx` wraps `/blog/**` inside it.
+ *
+ * A `(group)` folder participates like any other, which is most of why
+ * groups are useful: `(marketing)/layout.tsx` wraps every page in the
+ * group without adding a path segment. */
+const layoutsFor = (root: FileRouteRoot, relativePath: string) => {
+	const segments = relativePath.split('/').slice(0, -1);
+	const extensions = PAGE_EXTENSIONS[root.framework];
+	const chain: string[] = [];
+	for (let depth = 0; depth <= segments.length; depth += 1) {
+		const dir = join(root.dir, ...segments.slice(0, depth));
+		const found = extensions
+			.map((extension) => join(dir, `layout${extension}`))
+			.find((candidate) => existsSync(candidate));
+		if (found) chain.push(found);
+	}
+
+	return chain;
 };
 
 /* One path segment of a route file, classified.
@@ -439,13 +469,23 @@ const routesFromFile = (
 
 		return none;
 	}
+	const layouts = layoutsFor(root, relativePath);
+	/* A layout that cannot be applied is worse than no layout: the page
+	 * renders without its chrome and nothing says so. Only React composes
+	 * layouts today, so a `layout.<ext>` anywhere else is reported. */
+	if (layouts.length > 0 && root.framework !== 'react') {
+		problems.push(
+			`${toPosix(relative(process.cwd(), layouts[0] ?? ''))}: layouts are only applied to React routes so far, so this file would be ignored. Remove it, or move the route to a React route folder.`
+		);
+	}
 	const shared = {
 		framework: root.framework,
 		name: fileRoutePageName(root.framework, relativePath),
 		server: findServerModule(root.framework, source),
 		source,
 		typePath: mapped.typePath,
-		...(mapped.catchAll === undefined ? {} : { catchAll: mapped.catchAll })
+		...(mapped.catchAll === undefined ? {} : { catchAll: mapped.catchAll }),
+		...(layouts.length > 0 && root.framework === 'react' ? { layouts } : {})
 	};
 
 	return mapped.paths.map((path) => {
@@ -615,6 +655,18 @@ const renderRoute = (route: ScannedFileRoute, outputDir: string) => {
 		...typeArguments,
 		`\t>({`,
 		...(route.catchAll ? [`\t\tcatchAll: ${quote(route.catchAll)},`] : []),
+		/* Outermost first, so the adapter and the hydration index can
+		 * compose them in the same order the server rendered them. */
+		...(route.layouts && route.layouts.length > 0
+			? [
+					`\t\tlayouts: [`,
+					...route.layouts.map(
+						(layout) =>
+							`\t\t\t() => import(${quote(importSpecifier(outputDir, layout))}),`
+					),
+					`\t\t],`
+				]
+			: []),
 		`\t\tname: ${quote(route.name)},`,
 		// Svelte pages render from their compiled module in the manifest;
 		// importing the `.svelte` source on the server is never needed.

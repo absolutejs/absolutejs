@@ -59,13 +59,20 @@ export const reactRefreshRuntimePath = join(
 
 /** A page that lives outside `pages/` under a name of its own: a file
  *  route (src/build/fileRoutes.ts). */
-export type ExtraReactPage = { name: string; source: string };
+export type ExtraReactPage = {
+	/** `layout.tsx` sources wrapping this page, outermost first. */
+	layouts?: readonly string[];
+	name: string;
+	source: string;
+};
 
 type ReactIndexPage = {
 	componentName: string;
 	/** Import specifier, relative to the indexes directory. */
 	importPath: string;
 	source: string;
+	/** Import specifiers for the page's layouts, outermost first. */
+	layoutPaths?: readonly string[];
 };
 
 const toImportPath = (fromDir: string, source: string) => {
@@ -152,12 +159,15 @@ export const generateReactIndexFiles = async (
 		...extraPages.map((page) => ({
 			componentName: page.name,
 			importPath: toImportPath(reactIndexesDirectory, page.source),
+			layoutPaths: (page.layouts ?? []).map((layout) =>
+				toImportPath(reactIndexesDirectory, layout)
+			),
 			source: resolve(page.source)
 		}))
 	];
 
 	const promises = pages.map(async (page) => {
-		const { componentName, importPath } = page;
+		const { componentName, importPath, layoutPaths = [] } = page;
 		const pascalComponentName = toPascal(componentName);
 
 		const hmrPreamble = isDev
@@ -290,6 +300,35 @@ export const generateReactIndexFiles = async (
 			`\tthrow new Error('React page module ' + componentPath + ' does not export a component. Expected default, ${pascalComponentName}, ${componentName}, or any PascalCase export.');`,
 			`}`,
 			`const PageComponent = resolvePageComponent(PageModule, ['default', '${pascalComponentName}', '${componentName}']);\n`,
+			/* A file route's layouts, composed here exactly as the server
+			 * composed them (`react/fileRoute.ts`): outermost first,
+			 * folded from the right so the first one ends up outermost.
+			 * If the two orders ever disagree the client rebuilds a
+			 * different tree than the server sent, which React answers by
+			 * discarding the server markup and rendering the whole root
+			 * again — correct on screen, and the server render wasted. */
+			...layoutPaths.map(
+				(layoutPath, index) =>
+					`import * as LayoutModule${index} from '${layoutPath}';`
+			),
+			...(layoutPaths.length > 0
+				? [
+						`const PageLayouts = [${layoutPaths
+							.map(
+								(_, index) =>
+									`resolvePageComponent(LayoutModule${index}, ['default'])`
+							)
+							.join(', ')}];`,
+						// A function rather than one composed component, so
+						// the hot-update path can re-wrap the module it just
+						// re-imported.
+						`const PageLayoutsOrPage = (Component) => (props) => PageLayouts.reduceRight((node, Layout) => createElement(Layout, null, node), createElement(Component, props));`,
+						`const RenderedPage = PageLayoutsOrPage(PageComponent);\n`
+					]
+				: [
+						`const PageLayoutsOrPage = (Component) => Component;`,
+						`const RenderedPage = PageComponent;\n`
+					]),
 			`function isHydrationError(error) {`,
 			`\tif (!error) return false;`,
 			`\tconst errorMessage = error instanceof Error ? error.message : String(error);`,
@@ -362,7 +401,7 @@ export const generateReactIndexFiles = async (
 			`\t\t}\n`,
 			`\t\t// Render into the same root container when falling back to client-only`,
 			`\t\tconst root = createRoot(container);`,
-			`\t\troot.render(createElement(ErrorBoundary, null, createElement(PageComponent, mergedProps)));`,
+			`\t\troot.render(createElement(ErrorBoundary, null, createElement(RenderedPage, mergedProps)));`,
 			`\t\twindow.__REACT_ROOT__ = root;`,
 			`\t\twindow.__HMR_CLIENT_ONLY_MODE__ = true;`,
 			`\t} catch (fallbackError) {`,
@@ -403,7 +442,10 @@ export const generateReactIndexFiles = async (
 						`// a deterministic remount path that still imports only the changed module.`,
 						`window.__ABS_REACT_REMOUNT__ = (nextModule) => {`,
 						`\tconst NextPageComponent = resolvePageComponent(nextModule, ['default', '${pascalComponentName}', '${componentName}']);`,
-						`\tconst element = createElement(ErrorBoundary, null, createElement(NextPageComponent, mergedProps));`,
+						// Re-wrap after a hot update, or an edited page would
+						// re-render without the layouts around it.
+						`\tconst NextRendered = PageLayoutsOrPage(NextPageComponent);`,
+						`\tconst element = createElement(ErrorBoundary, null, createElement(NextRendered, mergedProps));`,
 						`\tif (window.__REACT_ROOT__) {`,
 						`\t\twindow.__REACT_ROOT__.render(element);`,
 						`\t\treturn;`,
@@ -421,7 +463,7 @@ export const generateReactIndexFiles = async (
 			`\t// Mobile data envelopes and dirty HMR pages have no matching SSR markup.`,
 			`\tif (window.__SSR_DIRTY__ || shouldClientRender) {`,
 			`\t\troot = createRoot(container);`,
-			`\t\troot.render(createElement(ErrorBoundary, null, createElement(PageComponent, mergedProps)));`,
+			`\t\troot.render(createElement(ErrorBoundary, null, createElement(RenderedPage, mergedProps)));`,
 			`\t\twindow.__REACT_ROOT__ = root;`,
 			`\t} else {`,
 			`\tconst restoreTranslation = prepareBrowserTranslationHydration(container);`,
@@ -430,7 +472,7 @@ export const generateReactIndexFiles = async (
 			`\t\tconst startHydration = () => {`,
 			`\t\troot = hydrateRoot(`,
 			`\t\t\tcontainer,`,
-			`\t\t\tcreateElement(ErrorBoundary, null, createElement(PageComponent, mergedProps)),`,
+			`\t\t\tcreateElement(ErrorBoundary, null, createElement(RenderedPage, mergedProps)),`,
 			`\t\t\t{`,
 			`\t\t\t\tonRecoverableError: (error) => {`,
 			`\t\t\t\t\t// Check if this is a hydration error (isHydrationError filters out whitespace-only head mismatches)`,

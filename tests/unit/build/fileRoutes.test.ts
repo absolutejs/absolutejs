@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, relative, sep } from 'node:path';
 import {
 	fileRouteFor,
 	fileRouteNamed,
@@ -38,6 +38,8 @@ afterEach(async () => {
 	// Leave the process-wide registry empty for the next test file.
 	scanFileRoutes({});
 });
+
+const toPosix = (path: string) => path.split(sep).join('/');
 
 describe('fileRoutePath', () => {
 	test('maps index, static and [param] segments to Elysia paths', () => {
@@ -448,6 +450,78 @@ describe('route module', () => {
 			expect(source).not.toContain(
 				"page: () => import('./angular/routes"
 			);
+		} finally {
+			process.chdir(cwd);
+		}
+	});
+
+	/* A `layout.<ext>` applies to its folder and everything below it, so a
+	 * route's chain is every layout from the route root down to its own
+	 * folder, outermost first. A `(group)` folder participates like any
+	 * other, which is most of why groups are useful. */
+	test('collects the layouts wrapping each route, outermost first', async () => {
+		const root = await makeProject({
+			'react/routes/(marketing)/layout.tsx': '',
+			'react/routes/(marketing)/plans/layout.tsx': '',
+			'react/routes/(marketing)/plans/pricing.tsx': '',
+			'react/routes/blog/index.tsx': '',
+			'react/routes/layout.tsx': ''
+		});
+		const cwd = process.cwd();
+		process.chdir(root);
+		try {
+			const { problems, routes } = scanFileRoutes({
+				fileRoutes: true,
+				reactDirectory: 'react'
+			});
+			/* Relative to the RESOLVED cwd, not to `root`: on macOS
+			 * `mkdtemp` hands back a `/var/...` path while `process.cwd()`
+			 * reports `/private/var/...`, and the scanner's paths are
+			 * built from the latter. */
+			const layoutsOf = (path: string) =>
+				(
+					routes.find((route) => route.path === path)?.layouts ?? []
+				).map((layout) => toPosix(relative(process.cwd(), layout)));
+
+			expect(problems).toEqual([]);
+			expect(layoutsOf('/plans/pricing')).toEqual([
+				'react/routes/layout.tsx',
+				'react/routes/(marketing)/layout.tsx',
+				'react/routes/(marketing)/plans/layout.tsx'
+			]);
+			// A sibling branch gets only the layouts above it.
+			expect(layoutsOf('/blog')).toEqual(['react/routes/layout.tsx']);
+			// A layout is never itself a route.
+			expect(routes.map((route) => route.path).sort()).toEqual([
+				'/blog',
+				'/plans/pricing'
+			]);
+		} finally {
+			process.chdir(cwd);
+		}
+	});
+
+	/* Only React composes layouts so far. A layout that cannot be applied
+	 * is worse than no layout — the page renders without its chrome and
+	 * nothing says so — so it is reported rather than ignored. */
+	test('reports a layout in a framework that cannot apply it yet', async () => {
+		const root = await makeProject({
+			'svelte/routes/docs/index.svelte': '',
+			'svelte/routes/docs/layout.svelte': ''
+		});
+		const cwd = process.cwd();
+		process.chdir(root);
+		try {
+			const { problems, routes } = scanFileRoutes({
+				fileRoutes: true,
+				svelteDirectory: 'svelte'
+			});
+
+			expect(problems.join('\n')).toContain('layout.svelte');
+			expect(problems.join('\n')).toContain('only applied to React');
+			// The route itself still serves, without the layout.
+			expect(routes.map((route) => route.path)).toEqual(['/docs']);
+			expect(routes[0]?.layouts).toBeUndefined();
 		} finally {
 			process.chdir(cwd);
 		}
