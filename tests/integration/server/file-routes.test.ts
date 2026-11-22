@@ -82,8 +82,28 @@ const expectRoutes = async (port: number) => {
 	expect(topic.body).toContain('SVELTE_CHILD');
 	expect(topic.body).toMatch(/RouteDocsTopic[0-9a-z]{6}/);
 	/* A (group) folder names no path segment. */
-	expect((await get(port, '/pricing')).body).toContain('FILE_PRICING');
-	expect((await get(port, '/marketing/pricing')).status).toBe(404);
+	const pricing = await get(port, '/plans/pricing');
+	expect(pricing.body).toContain('FILE_PRICING');
+	expect((await get(port, '/marketing/plans/pricing')).status).toBe(404);
+
+	/* Nested layouts, in order: the group's layout owns the document and
+	 * the `plans/` layout sits inside it, so the markup nests
+	 * marketing-layout → plans-layout → page. Asserting that both ids
+	 * merely APPEAR would pass with the nesting inverted, which is the
+	 * mistake a `reduce` instead of a `reduceRight` would make — hence a
+	 * single ordered match. */
+	expect(
+		/<div id="marketing-layout">\s*<section id="plans-layout">[\s\S]*FILE_PRICING/.test(
+			pricing.body
+		)
+	).toBe(true);
+	/* A layout wraps only the routes below it. `/blog` is outside the
+	 * group, and nothing above it declares a layout, so it keeps
+	 * rendering its own document. */
+	const blog = await get(port, '/blog');
+	expect(blog.body).toContain('FILE_BLOG_INDEX');
+	expect(blog.body).not.toContain('marketing-layout');
+	expect(blog.body).not.toContain('plans-layout');
 
 	/* An [[optional]] segment serves both paths, and `load` runs on each —
 	 * the shorter path carries no params at all, which is where a

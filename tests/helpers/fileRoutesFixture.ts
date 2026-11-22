@@ -110,9 +110,56 @@ export const Shell = ({ children }: { children: ReactNode }) => (
 	<main id="shell">{children}</main>
 );
 `,
-	'react/routes/(marketing)/pricing.tsx': `export default function Pricing() {
+	/* Nested layouts. `routes/layout.tsx` wraps every React route;
+	 * `routes/(marketing)/layout.tsx` wraps the group inside it. The
+	 * group matters: it contributes no path segment, so this is a layout
+	 * that applies to a set of pages without appearing in their URLs. */
+	/* The outer layout of the chain: it owns the document, because a page
+	 * under layouts renders a fragment. The inline script marks every
+	 * element the server sent, so a test can tell a kept tree from a
+	 * re-rendered one. */
+	'react/routes/(marketing)/layout.tsx': `import type { ReactNode } from 'react';
+
+export default function MarketingLayout({ children }: { children: ReactNode }) {
 	return (
-		${reactDocument('Pricing', '<p>FILE_PRICING</p>')}
+		<html lang="en">
+			<head>
+				<title>Layouts</title>
+			</head>
+			<body>
+				<div id="marketing-layout">{children}</div>
+				<script
+					dangerouslySetInnerHTML={{
+						__html: "for (const el of document.querySelectorAll('[id]')) el.setAttribute('data-from-server', '1');"
+					}}
+				/>
+			</body>
+		</html>
+	);
+}
+`,
+	'react/routes/(marketing)/plans/layout.tsx': `import type { ReactNode } from 'react';
+
+export default function PlansLayout({ children }: { children: ReactNode }) {
+	return <section id="plans-layout">{children}</section>;
+}
+`,
+	'react/routes/(marketing)/plans/pricing.tsx': `import { useEffect, useState } from 'react';
+
+export default function Pricing() {
+	const [clicks, setClicks] = useState(0);
+
+	useEffect(() => {
+		Reflect.set(window, '__pricingHydrated', true);
+	}, []);
+
+	return (
+		<p id="pricing">
+			FILE_PRICING
+			<button id="pricing-clicks" onClick={() => setClicks(clicks + 1)}>
+				clicks {clicks}
+			</button>
+		</p>
 	);
 }
 `,

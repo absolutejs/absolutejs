@@ -5,6 +5,20 @@
 		{
 			"changes": [
 				{
+					"detail": "A `layout.tsx` in a React route folder wraps that folder and everything below it, so a route is rendered inside every layout from the route root down to its own folder, outermost first. A `(group)` folder participates like any other, which gives a set of pages a shared layout without adding a path segment. The chain is composed twice — once for the server render and once in the generated hydration index — and both fold the same outermost-first list, because a disagreement is not an error React reports: it discards the server tree and re-renders the root, which looks right on screen and throws the server render away. A page under a layout renders a fragment rather than a document, since the outermost layout owns the shell; a page that renders its own `<html>` under a layout has its head hoisted and duplicated, which is not detected at build time yet. Only React composes layouts so far, so a `layout.<ext>` in a Svelte, Vue, Angular, HTML or HTMX route folder is reported as a problem rather than ignored, which would leave the page rendering without its chrome and say nothing.",
+					"kind": "added",
+					"summary": "React file routes can have nested layouts",
+					"symbols": [
+						"reactFileRoute"
+					]
+				}
+			],
+			"date": "2026-11-22",
+			"version": "0.20.0-beta.274"
+		},
+		{
+			"changes": [
+				{
 					"detail": "An `angularDirectory` app can put pages in `<angularDirectory>/routes/` and serve them through the generated route module, which completes file routing for every framework the project supports. An Angular page takes no props — data reaches a component as the page`s request context — so a route`s `load` returns that context, and the page`s `Context` export is what the generated module types it against. `Context` is a type-only export that `typeof import(page)` cannot reach, so the module writes a type-level `import(page).Context` when the page exports one and falls back to a permissive record when it does not. The compiled server module and hydration index are renamed to the route`s flat page name in place, keeping their folder, because a manifest key comes from an output`s file name and two routes called `[id]` in different folders would otherwise claim one key.",
 					"kind": "added",
 					"summary": "Angular pages can be file routes",
