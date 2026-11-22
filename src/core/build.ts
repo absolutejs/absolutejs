@@ -1,5 +1,9 @@
 import { DEFAULT_PORT } from '../constants';
 import {
+	resolveClientModules,
+	writeClientModuleStubs
+} from '../build/clientModules';
+import {
 	copyFileSync,
 	cpSync,
 	existsSync,
@@ -1028,6 +1032,7 @@ const buildUnlocked = async ({
 	assetsDirectory,
 	publicDirectory,
 	islands,
+	clientModules,
 	reactDirectory,
 	reactServerComponentsDirectory,
 	htmlDirectory,
@@ -2405,6 +2410,19 @@ const buildUnlocked = async ({
 		...angularServerPaths
 	];
 	const reactClientEntryPoints = [...reactEntries];
+	// Client modules (build/clientModules.ts): built with the React pages,
+	// through stubs in the generated React directory so they share its root.
+	const clientModuleStubDir = join(
+		getFrameworkGeneratedDir('react'),
+		'modules'
+	);
+	if (reactDir && clientModules && !isIncremental)
+		reactClientEntryPoints.push(
+			...writeClientModuleStubs(
+				resolveClientModules(clientModules, projectRoot),
+				clientModuleStubDir
+			)
+		);
 	// Scan for files referenced by new URL('./path', import.meta.url) — these
 	// are regular files (e.g. workers) that Bun.build won't follow automatically.
 	const urlReferencedFiles = await urlReferencedFilesPromise;
@@ -2811,6 +2829,12 @@ const buildUnlocked = async ({
 	// from previous builds don't accumulate in dist/.
 	if (reactDir && reactClientEntryPoints.length > 0) {
 		rmSync(join(buildPath, 'react', 'generated', 'indexes'), {
+			force: true,
+			recursive: true
+		});
+	}
+	if (reactDir && clientModules && !isIncremental && clientRoot) {
+		rmSync(join(buildPath, relative(clientRoot, clientModuleStubDir)), {
 			force: true,
 			recursive: true
 		});

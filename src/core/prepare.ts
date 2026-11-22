@@ -1,4 +1,8 @@
 import { createHash } from 'node:crypto';
+import {
+	clientModuleManifestKey,
+	resolveClientModules
+} from '../build/clientModules';
 import { runUntracked } from '../dev/hotResources';
 import { existsSync, readdirSync, readFileSync, type Dirent } from 'node:fs';
 import { filenameToRoute } from './prerenderPaths';
@@ -462,6 +466,14 @@ const prepareDev = async (
 	// This ensures page refreshes after HMR load fresh code.
 	const devIndexDir = resolvePath(buildDir, '_src_indexes');
 	patchManifestIndexes(result.manifest, devIndexDir, SRC_URL_PREFIX);
+	// Client modules load from source too, so an edit reaches whatever page
+	// imports one (build/clientModules.ts).
+	for (const { name, source } of resolveClientModules(
+		config.clientModules,
+		process.cwd()
+	))
+		result.manifest[clientModuleManifestKey(name)] =
+			`${SRC_URL_PREFIX}${encodeSrcPath(relative(process.cwd(), source))}`;
 	recordStep('configure dev plugins', stepStartedAt);
 
 	// Load convention files (error/loading/not-found) into the runtime registry

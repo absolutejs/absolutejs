@@ -52,11 +52,15 @@ describe('README imports', () => {
 	 * Start got `undefined` passed to `.use()`. Path-only checks would not
 	 * have caught it. */
 	test('every name it imports exists on the module it imports from', async () => {
+		/* SOURCE, not `dist`. The unit job in CI runs before the build, so a
+		 * test that reaches into `dist` passes on a developer's machine and
+		 * fails there with "Cannot find module" — which is exactly what the
+		 * first version of this test did. */
 		const SUBPATH_MODULE: Record<string, string> = {
-			'.': '../../../dist/index.js',
-			'./build': '../../../dist/build.js',
-			'./react': '../../../dist/react/index.js',
-			'./svelte': '../../../dist/svelte/index.js'
+			'.': '../../../src/index',
+			'./react': '../../../src/react/index',
+			'./svelte': '../../../src/svelte/index',
+			'./vue': '../../../src/vue/index'
 		};
 		/* Value imports only. A type exists for the compiler and not at run
 		 * time, so `FileRouteContext` is absent from the module object while
