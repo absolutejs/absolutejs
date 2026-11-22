@@ -9,7 +9,7 @@
 					"kind": "added",
 					"summary": "clientModules: React modules an app builds for another page to import",
 					"symbols": [
-						"BuildConfig"
+						"BaseBuildConfig"
 					]
 				}
 			],
