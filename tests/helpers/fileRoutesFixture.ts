@@ -151,6 +151,13 @@ export const islandRegistry = defineIslandRegistry({ svelte: { Counter } });
 		null,
 		'\t'
 	),
+	/* The `loading` convention: markup the navigation layer shows while a
+	 * soft navigation is in flight. A fragment, not a page — it is
+	 * inserted into the live document. */
+	'react/pages/loading.tsx': `export default function Loading() {
+	return <div id="nav-loading">NAVIGATING</div>;
+}
+`,
 	'react/routes/_parts/Shell.tsx': `import type { ReactNode } from 'react';
 
 export const Shell = ({ children }: { children: ReactNode }) => (
@@ -228,9 +235,23 @@ export default function Pricing() {
 				clicks {clicks}
 			</button>
 			<a href="/plans/compare" id="to-compare">compare</a>
+			<a href="/plans/slow" id="to-slow">slow</a>
 			<a href="/blog" id="to-blog">blog</a>
 		</p>
 	);
+}
+`,
+	/* A deliberately slow route, so a navigation to it outlasts the
+	 * indicator's delay. The sleep is in `load`, which runs before the
+	 * page renders — the same place a real app's database call would be. */
+	'react/routes/(marketing)/plans/slow.server.ts': `export const load = async () => {
+	await new Promise((done) => setTimeout(done, 900));
+
+	return { label: 'SLOW_READY' };
+};
+`,
+	'react/routes/(marketing)/plans/slow.tsx': `export default function Slow({ label }: { label: string }) {
+	return <p id="slow">{label}</p>;
 }
 `,
 	'react/routes/[[lang]]/guide.server.ts': `import type { FileRouteContext } from '@absolutejs/absolute';

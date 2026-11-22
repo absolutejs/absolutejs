@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "A `loading` convention was scanned, compiled, path-remapped and shipped, and then read by nothing at all. It is now the indicator the cross-framework navigation layer shows while a soft navigation is in flight — until now a click had no feedback: the layer fetched the next document and swapped it, and the page sat unchanged in between. The markup is appended to the body and removed when the navigation ends, so the live page and any persisted island in it are untouched, and positioning is the app`s own CSS. It appears only after 150ms, because most swaps are faster than the eye and a flash of a spinner reads as jank rather than progress. The fragment is fetched from `/__absolute/loading` once per session rather than inlined into every page: the scripts a page handler embeds are written in seven different handlers, so inlining would be seven edits and bytes on every response for markup most navigations never show. A 204 means the app ships no convention and the layer stops asking. The request-time CSP nonce is stripped before the fragment is cached — it would otherwise be wrong for every later page — and re-applied on insertion from the live document. A `<script>` in a loading convention does not run, which is the safer default for markup injected into a live document.",
+					"kind": "added",
+					"summary": "The `loading` convention is shown during a soft navigation"
+				}
+			],
+			"date": "2026-11-22",
+			"version": "0.20.0-beta.276"
+		},
+		{
+			"changes": [
+				{
 					"detail": "An island declared once in a React layout, with a `persist` key and `navigation: true`, keeps running while the routes under that layout change: its instance is never unmounted and never hydrated again, and the DOM state it was carrying — a typed-in value, an open menu, a running interval — comes with it. Leaving the layout tears it down, since a key the incoming page does not render is deliberately not persisted and the island must not outlive the layout that declared it. This needed no new mechanism: it is what nested layouts and `persist` compose to, and the test proves it through the mount count, the destroy flag and the carried state rather than through the island still being on the page, which a re-created one would satisfy too.",
 					"kind": "added",
 					"summary": "A layout keeps its island alive across the routes under it"

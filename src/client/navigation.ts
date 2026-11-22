@@ -1102,9 +1102,92 @@ const swapDocument = async (
 
 const isCurrent = (nav: Runtime, token: number) => nav.token === token;
 
+/* ------------------------------------------------------------------ */
+
+/* The `loading` convention, shown while a soft navigation is in flight.
+ *
+ * Until now a click had no feedback at all: the layer fetched the next
+ * document and swapped it, and the page sat unchanged in between. The
+ * convention's markup is appended to the body and removed when the
+ * navigation finishes, so the live page — and any persisted island in it
+ * — is untouched. Positioning is the app's: it styles its own indicator.
+ *
+ * Shown only after a delay, because most swaps are faster than the eye
+ * and a flash of a spinner reads as jank rather than progress. Fetched
+ * once per session and remembered, including the "this app has none"
+ * answer, so a 204 means the layer stops asking.
+ *
+ * Inserted with `innerHTML`, so a `<script>` in a loading convention does
+ * NOT run — an indicator has no business needing one, and that is the
+ * safer default for markup being injected into a live document. Styles do
+ * apply, and the live document's CSP nonce is stamped onto them here
+ * because the server strips the request-time one before caching. */
+const LOADING_INDICATOR_PATH = '/__absolute/loading';
+const LOADING_INDICATOR_ATTRIBUTE = 'data-absolute-loading';
+const LOADING_INDICATOR_DELAY_MS = 150;
+const LOADING_INDICATOR_EMPTY = 204;
+
+let loadingMarkup: Promise<string | null> | undefined;
+
+const fetchLoadingMarkup = () =>
+	(loadingMarkup ??= fetch(LOADING_INDICATOR_PATH, {
+		headers: { accept: 'text/html' }
+	})
+		.then((response) =>
+			response.status === LOADING_INDICATOR_EMPTY || !response.ok
+				? null
+				: response.text()
+		)
+		.catch(() => null));
+
+const removeLoadingIndicator = () => {
+	for (const host of Array.from(
+		document.querySelectorAll(`[${LOADING_INDICATOR_ATTRIBUTE}]`)
+	)) {
+		host.remove();
+	}
+};
+
+const showLoadingIndicator = async (nav: Runtime, isStale: () => boolean) => {
+	const markup = await fetchLoadingMarkup();
+	// The navigation may have finished while this was in flight, and a
+	// second one may have started: either way there is nothing to show.
+	if (markup === null || isStale()) return;
+	if (document.querySelector(`[${LOADING_INDICATOR_ATTRIBUTE}]`)) return;
+	const host = document.createElement('div');
+	host.setAttribute(LOADING_INDICATOR_ATTRIBUTE, '');
+	host.innerHTML = markup;
+	for (const styled of Array.from(host.querySelectorAll('style'))) {
+		applyNonce(nav, styled, true);
+	}
+	document.body.append(host);
+};
+
+/** Starts the delay; the returned function cancels it and clears the
+ *  indicator, whichever of the two is still pending. */
+const startLoadingIndicator = (nav: Runtime, isStale: () => boolean) => {
+	const timer = setTimeout(() => {
+		void showLoadingIndicator(nav, isStale);
+	}, LOADING_INDICATOR_DELAY_MS);
+
+	return () => {
+		clearTimeout(timer);
+		/* Only the navigation still in charge clears the indicator. A
+		 * superseded one must not: the navigation that replaced it may
+		 * already be showing its own, and `removeLoadingIndicator` is a
+		 * document-wide query that cannot tell them apart. The replacing
+		 * navigation clears any leftover when it starts. */
+		if (!isStale()) removeLoadingIndicator();
+	};
+};
+
 const performNavigation = async (nav: Runtime, request: NavigationRequest) => {
 	nav.token += 1;
 	const { token } = nav;
+	/* Whatever a previous navigation left behind goes now, before this one
+	 * decides whether to show its own. A navigation that is cancelled or
+	 * refused below would otherwise inherit a stale indicator. */
+	removeLoadingIndicator();
 	nav.controller?.abort();
 	const controller = new AbortController();
 	nav.controller = controller;
@@ -1121,6 +1204,10 @@ const performNavigation = async (nav: Runtime, request: NavigationRequest) => {
 	if (!canTearDown()) return reload(nav, request, false);
 
 	const committedBefore = nav.documentId;
+	const stopLoadingIndicator = startLoadingIndicator(
+		nav,
+		() => !isCurrent(nav, token)
+	);
 	try {
 		const loaded = await loadDocument(nav, request.url, controller.signal);
 		if (!isCurrent(nav, token)) return outcome('superseded');
@@ -1142,6 +1229,10 @@ const performNavigation = async (nav: Runtime, request: NavigationRequest) => {
 
 		return reload(nav, request, nav.documentId !== committedBefore);
 	} finally {
+		/* Cleared whatever the outcome — swapped, superseded, cancelled or
+		 * thrown. A superseded navigation leaves the indicator to the one
+		 * that replaced it, which started its own. */
+		stopLoadingIndicator();
 		if (isCurrent(nav, token)) nav.navigating = false;
 	}
 };

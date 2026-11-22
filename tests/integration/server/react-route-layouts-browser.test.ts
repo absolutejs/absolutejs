@@ -131,6 +131,82 @@ describe('a React file route under nested layouts', () => {
 		}
 	}, 300_000);
 
+	/* The `loading` convention, which until now was scanned, compiled,
+	 * shipped and never read by anything.
+	 *
+	 * It is shown over the live document while a soft navigation is in
+	 * flight, after a delay, so a fast swap does not flash it. Both halves
+	 * are asserted: it appears on a navigation that outlasts the delay,
+	 * and it is gone once the page arrives. The fast case is checked too,
+	 * because an indicator that is always shown is as wrong as one that
+	 * never is — and the first would pass a test that only looked for it
+	 * on the slow route. */
+	test('shows the loading convention while a slow navigation is in flight', async () => {
+		const session = await openPage(pageUrl, { waitUntil: 'load' });
+		try {
+			const { page } = session;
+			await page.waitForFunction(
+				() => Reflect.get(window, '__pricingHydrated') === true,
+				undefined,
+				{ timeout: 30_000 }
+			);
+			// Nothing is shown while the page sits there.
+			expect(await page.locator('#nav-loading').count()).toBe(0);
+
+			await page.click('#to-slow');
+			// The route sleeps 900ms in `load`; the delay is 150ms.
+			await page.waitForSelector('#nav-loading', { timeout: 10_000 });
+
+			// And it goes once the page it was covering arrives.
+			await page.waitForSelector('#slow', { timeout: 20_000 });
+			expect(await page.locator('#slow').textContent()).toBe(
+				'SLOW_READY'
+			);
+			await page.waitForFunction(
+				() => document.querySelectorAll('#nav-loading').length === 0,
+				undefined,
+				{ timeout: 10_000 }
+			);
+		} finally {
+			await session.close();
+		}
+	}, 300_000);
+
+	test('leaves a fast navigation alone', async () => {
+		const session = await openPage(pageUrl, { waitUntil: 'load' });
+		try {
+			const { page } = session;
+			await page.waitForFunction(
+				() => Reflect.get(window, '__pricingHydrated') === true,
+				undefined,
+				{ timeout: 30_000 }
+			);
+			/* Watched from the moment of the click rather than checked
+			 * afterwards: an indicator that appeared and was removed would
+			 * be invisible to a check that ran after the swap. */
+			await page.evaluate(() => {
+				Reflect.set(window, '__sawLoading', false);
+				const observer = new MutationObserver(() => {
+					if (document.querySelector('#nav-loading'))
+						Reflect.set(window, '__sawLoading', true);
+				});
+				observer.observe(document.body, {
+					childList: true,
+					subtree: true
+				});
+			});
+
+			await page.click('#to-compare');
+			await page.waitForSelector('#compare', { timeout: 20_000 });
+
+			expect(
+				await page.evaluate(() => Reflect.get(window, '__sawLoading'))
+			).toBe(false);
+		} finally {
+			await session.close();
+		}
+	}, 300_000);
+
 	/* The point of a layout, once soft navigation is on: an island declared
 	 * ONCE in the layout keeps running while the routes under it change.
 	 * The key is written in one place, and every route below renders it —

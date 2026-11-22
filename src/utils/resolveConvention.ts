@@ -518,6 +518,123 @@ const NOT_FOUND_PRIORITY: (keyof ConventionsMap)[] = [
 /** Renders the first available not-found convention. An HTMX request
  *  (`HX-Request` header) tries the HTMX pages directory's not-found.html
  *  first, so an HTMX swap gets HTMX markup. */
+/* ------------------------------------------------------------------ */
+
+/* The `loading` convention, rendered once as a FRAGMENT.
+ *
+ * It is not a page: the navigation layer shows it over the live document
+ * while a soft navigation is in flight, so it has to be insertable markup
+ * rather than a document. A component's styles are concatenated ahead of
+ * its body — a `<style>` is legal in `<body>`, and the alternative is
+ * asking every loading convention to inline its own styles.
+ *
+ * Rendered on demand and cached by the route that serves it, so the cost
+ * is one render per process rather than one per navigation. */
+export const resolveLoadingConventionPath = (framework: keyof ConventionsMap) =>
+	getMap()[framework]?.defaults?.loading;
+
+const renderReactLoading = async (conventionPath: string) => {
+	const { createElement } = await import('react');
+	const { renderToReadableStream } = await import('react-dom/server');
+	const mod = await import(conventionPath);
+	const LoadingComponent = mod.default;
+	if (typeof LoadingComponent !== 'function') return null;
+
+	const stream = await renderToReadableStream(
+		createElement(LoadingComponent)
+	);
+
+	return new Response(stream).text();
+};
+
+const renderSvelteLoading = async (conventionPath: string) => {
+	const { render } = await import('svelte/server');
+	const mod = await import(conventionPath);
+	const LoadingComponent = mod.default;
+	if (!LoadingComponent) return null;
+	const { head, body } = render(LoadingComponent, {});
+
+	return `${nonceSvelteHeadStyles(head)}${body}`;
+};
+
+const renderVueLoading = async (conventionPath: string) => {
+	const { createSSRApp, h: createVNode } = await import('vue');
+	const { renderToString } = await import('vue/server-renderer');
+	const mod = await import(conventionPath);
+	const LoadingComponent = mod.default;
+	if (!LoadingComponent) return null;
+	const app = createSSRApp({
+		render: () => createVNode(LoadingComponent)
+	});
+	const { styles, body } = unescapeVueStyles(await renderToString(app));
+
+	return `${styles}${body}`;
+};
+
+const renderAngularLoading = async (conventionPath: string) => {
+	const mod = await import(conventionPath);
+	const renderFn = mod.default;
+	if (typeof renderFn !== 'function') return null;
+
+	return String(renderFn());
+};
+
+/* An HTML or HTMX loading convention is used as written. A full document
+ * would be nonsense inside a live page, so only what a `<body>` holds is
+ * taken when the file happens to be one. */
+const renderHtmlLoading = async (conventionPath: string) => {
+	const html = await nonceStaticHtml(await Bun.file(conventionPath).text());
+	const body = /<body[^>]*>([\s\S]*)<\/body>/i.exec(html);
+
+	return body?.[1] ?? html;
+};
+
+const LOADING_RENDERERS: Record<
+	keyof ConventionsMap,
+	(conventionPath: string) => Promise<string | null>
+> = {
+	angular: renderAngularLoading,
+	html: renderHtmlLoading,
+	htmx: renderHtmlLoading,
+	react: renderReactLoading,
+	svelte: renderSvelteLoading,
+	vue: renderVueLoading,
+	ember: async () => null
+};
+
+/* The per-framework renderers stamp the REQUEST's CSP nonce onto any
+ * style they emit, which is correct for an error page rendered per
+ * request and wrong for a fragment cached for the life of the process:
+ * every later page carries a different nonce, and a strict CSP would
+ * block the style from the second navigation on. The nonce is stripped
+ * here and re-applied by the navigation layer from the live document
+ * (`applyNonce`), which is the only place that knows the current one. */
+const stripNonces = (html: string) => html.replace(/\snonce="[^"]*"/g, '');
+
+/** The first `loading` convention any configured framework ships, as
+ *  insertable markup. `null` when the app has none. */
+export const renderFirstLoadingFragment = async () => {
+	const renderNext = async (
+		frameworks: (keyof ConventionsMap)[]
+	): Promise<string | null> => {
+		const [framework, ...remaining] = frameworks;
+		if (!framework) return null;
+		const conventionPath = resolveLoadingConventionPath(framework);
+		if (!conventionPath) return renderNext(remaining);
+		try {
+			const fragment = await LOADING_RENDERERS[framework](conventionPath);
+			if (fragment !== null && fragment.trim() !== '')
+				return stripNonces(fragment);
+		} catch (renderError) {
+			logConventionRenderError(framework, 'loading', renderError);
+		}
+
+		return renderNext(remaining);
+	};
+
+	return renderNext([...NOT_FOUND_PRIORITY]);
+};
+
 export const renderFirstNotFound = async (
 	options: { preferHtmx?: boolean } = {}
 ) => {

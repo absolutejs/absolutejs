@@ -37,6 +37,7 @@ import { logStartupTimingBlock } from '../utils/startupTimings';
 import { markBoot } from '../utils/bootTimeline';
 import { logWarn } from '../utils/logger';
 import { deferUntilServing, setBootPhase } from '../dev/bootLifecycle';
+import { createLoadingIndicatorPlugin } from './loadingIndicator';
 import {
 	createAssetCachePlugin,
 	createPrecompressedPlugin
@@ -527,6 +528,7 @@ const prepareDev = async (
 		.use(hmrPlugin)
 		.use(createBuildErrorRecoveryPlugin())
 		.use(await loadVitalsPlugin(config, true))
+		.use(createLoadingIndicatorPlugin())
 		.use(createStaticErrorPlugin(() => absolutejs))
 		.use(createNotFoundPlugin());
 	await withOpenApi(absolutejs, config, process.cwd(), true);
@@ -1011,6 +1013,7 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 			.use(staticFiles)
 			.use(generatedAssetsPlugin)
 			.use(await loadVitalsPlugin(config, false))
+			.use(createLoadingIndicatorPlugin())
 			.use(createStaticErrorPlugin(() => absolutejs))
 			.use(createNotFoundPlugin());
 		await withOpenApi(absolutejs, config, process.cwd(), false);
@@ -1041,6 +1044,7 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 		.use(staticFiles)
 		.use(generatedAssetsPlugin)
 		.use(await loadVitalsPlugin(config, false))
+		.use(createLoadingIndicatorPlugin())
 		.use(createStaticErrorPlugin(() => absolutejs))
 		.use(createNotFoundPlugin());
 	await withOpenApi(absolutejs, config, process.cwd(), false);
