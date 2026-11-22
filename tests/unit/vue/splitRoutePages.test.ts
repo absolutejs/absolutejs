@@ -70,6 +70,32 @@ describe('Vue router pages load lazily', () => {
 		expect(out).not.toContain(`import About from`);
 	});
 
+	test('the page name in template text (a link label) is not a use', () => {
+		const body = script(`[{ component: Home, path: '/' }]`);
+		const out = split(
+			body,
+			'<template><RouterLink to="/">Home</RouterLink><RouterView /></template>'
+		);
+
+		expect(out).toContain(
+			`component: () => import("../components/Home.vue")`
+		);
+	});
+
+	test('a component the template uses by kebab tag or binding stays eager', () => {
+		const body = script(`[{ component: Home, path: '/' }]`);
+
+		expect(
+			split(body, '<template><home /><RouterView /></template>')
+		).toBeNull();
+		expect(
+			split(
+				body,
+				'<template><component :is="Home" /><RouterView /></template>'
+			)
+		).toBeNull();
+	});
+
 	test('a component the template also uses stays eager', () => {
 		const body = script(`[{ component: Home, path: '/' }]`);
 		const out = split(body, '<template><Home /><RouterView /></template>');

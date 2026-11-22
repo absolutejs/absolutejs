@@ -1,4 +1,5 @@
 import type TS from 'typescript';
+import { identifierReferences } from '../build/identifierReferences';
 import { ts } from '../utils/lazyTypescript';
 
 /* Pages placed in an Angular SPA's router load their code the first time
@@ -193,16 +194,12 @@ export const splitAngularRoutePages = (source: string, fileName: string) => {
 	for (const name of new Set(
 		uses.map((property) => property.initializer.getText())
 	)) {
-		const binding = bindings.get(name);
-		if (!binding) continue;
-		const declarationText = binding.declaration.getText();
-		const pattern = new RegExp(`\\b${name}\\b`, 'g');
-		const everywhere = source.match(pattern)?.length ?? 0;
-		const inImport = declarationText.match(pattern)?.length ?? 0;
+		if (!bindings.has(name)) continue;
+		// Code references only: the name in a string or a comment is not a use.
 		const asRoutes = uses.filter(
 			(property) => property.initializer.getText() === name
 		).length;
-		if (everywhere - inImport === asRoutes) lazy.add(name);
+		if (identifierReferences(file, name) === asRoutes) lazy.add(name);
 	}
 	if (lazy.size === 0) return null;
 

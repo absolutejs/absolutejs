@@ -342,12 +342,24 @@ describe('a page that installs the Angular router', () => {
 		try {
 			const { page } = session;
 			const seen = watch(page);
+			// Angular reports a hydration or router setup problem with
+			// console.error (NG05001 and friends), during the load: listen,
+			// then load again.
+			const consoleErrors: string[] = [];
+			page.on('console', (message) => {
+				if (message.type() === 'error')
+					consoleErrors.push(message.text());
+			});
+			await page.reload({ waitUntil: 'load' });
 			await hydratedAngular(page);
 			await page.waitForSelector('#routed-inner', { timeout: 15_000 });
 
 			expect(await page.locator('#routed-inner').count()).toBe(1);
 			expect(await angularLive(page)).toBe(true);
 			expect(seen.errors).toEqual([]);
+			expect(
+				consoleErrors.filter((text) => /NG0|hydrat/i.test(text))
+			).toEqual([]);
 		} finally {
 			await session.close();
 		}

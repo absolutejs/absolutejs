@@ -153,6 +153,22 @@ describe('Svelte router pages load lazily', () => {
 		expect(compiles(out)).toBe(true);
 	});
 
+	test('the page name in text (a link label) is not a use', () => {
+		const out =
+			lower(
+				page(`	<a href="/">Home</a>
+	<!-- Home is the default route -->
+	<Route path="/">
+		{#snippet content()}<Home />{/snippet}
+	</Route>`)
+			) ?? '';
+
+		expect(out).toContain(
+			`<Route path="/" loader={() => import("./Home.svelte")}>`
+		);
+		expect(compiles(out)).toBe(true);
+	});
+
 	test('a file with no router is left alone', () => {
 		expect(
 			lower(`<script>import Home from './Home.svelte';</script><Home />`)
