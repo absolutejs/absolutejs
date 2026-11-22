@@ -107,6 +107,18 @@ export type FileRouteServerModule<
 	/** Runs before `load`; return a value (a `Response`, a redirect) to
 	 *  answer the request instead of rendering the page. */
 	beforeHandle?: (context: FileRouteContext<Path>) => unknown;
+	/** The param sets this route serves, for the paths a build has to
+	 *  enumerate: the sitemap today, prerendering next.
+	 *
+	 *  A dynamic route cannot be enumerated from its file name —
+	 *  `blog/[slug].tsx` says nothing about which slugs exist — so a
+	 *  route without this is simply left out of the sitemap rather than
+	 *  guessed at. The shape is the route's own params, so a renamed
+	 *  `[slug]` is a type error here as well as in `load`.
+	 *
+	 *  Called at BUILD time, in the build's own process, so it may read a
+	 *  database or the filesystem but should not expect a request. */
+	entries?: () => MaybePromise<readonly FileRouteParams<Path>[]>;
 	/** Returns the props the page renders with. */
 	load?: (context: FileRouteContext<Path>) => MaybePromise<Props | Response>;
 };

@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { ensureDistBuild } from '../../helpers/ensureDistBuild';
@@ -233,6 +233,34 @@ describe('file routes in production', () => {
 
 	test('serves React and Svelte file routes with their load props', async () => {
 		await expectRoutes(PROD_PORT);
+	});
+
+	/* The sitemap is built from a static scan of the project's Elysia
+	 * registrations, and a file route is not one — `fileRoutes()`
+	 * registers it at run time — so this used to be `<urlset></urlset>`
+	 * for a project whose pages are all file routes. Asserted on the
+	 * build's own output rather than through the server, because that is
+	 * where the file lands. */
+	test('lists the file routes in sitemap.xml, entries() expanded', async () => {
+		const xml = await readFile(
+			join(root, 'start-build', 'sitemap.xml'),
+			'utf-8'
+		);
+		const paths = [...xml.matchAll(/<loc>([^<]*)<\/loc>/g)].map(
+			(match) => new URL(match[1] ?? '').pathname
+		);
+
+		// Static routes, including one under a (group) and one from HTMX.
+		expect(paths).toContain('/plans/pricing');
+		expect(paths).toContain('/panel');
+		// Dynamic routes come from `entries()` in the server module.
+		expect(paths).toContain('/blog/hello');
+		expect(paths).toContain('/blog/world');
+		// A catch-all entry keeps its slashes.
+		expect(paths).toContain('/docs/guide/routing');
+		// A dynamic route with no `entries()` is left out, not guessed at.
+		expect(paths.some((path) => path.includes(':'))).toBe(false);
+		expect(paths).not.toContain('/shop/widget');
 	});
 
 	test('serves the route pages client bundles', async () => {

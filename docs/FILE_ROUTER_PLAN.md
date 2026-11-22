@@ -299,6 +299,36 @@ export const load = async ({ params }: FileRouteContext<'/blog/:slug'>) => {
   the context construction, because the framework cannot prove it supplies
   keys the app declared. An app consuming the published declarations never
   sees it.
+- **`entries()` and the sitemap (built).** The sitemap is generated from a
+  static scan of the project's Elysia registrations
+  (`scanRouteRegistrations`), and a file route is not one: `fileRoutes()`
+  registers it at run time from the generated module, so nothing in the
+  source looks like `.get('/blog/:slug', …)`. A project whose pages were
+  all file routes therefore got an EMPTY sitemap — measured on the
+  fixture, 20-odd routes and `<urlset></urlset>`.
+  A static file route is now listed as its own URL. A dynamic one cannot
+  be enumerated from its file name, so its server module may export
+  `entries()` returning the param sets, and each becomes a URL:
+
+  ```ts
+  export const entries = () => [{ slug: 'hello' }, { slug: 'world' }];
+  ```
+
+  It is typed against the route's own params, so a renamed `[slug]` is an
+  error here as it is in `load`. A dynamic route WITHOUT `entries()` is
+  left out: a sitemap missing a URL is a worse sitemap, but one containing
+  `/blog/:slug` is a broken one. A catch-all's value is a path, so its
+  slashes survive (`{ rest: 'guide/routing' }` → `/docs/guide/routing`) —
+  the same filler `route()` uses, which is why they cannot disagree.
+  `entries()` runs in the build's own process and may read a database, so
+  a module that throws, or cannot be imported, costs one warning and its
+  own route rather than the build. The resolution happens in
+  `build/fileRouteSitemapPaths.ts` and reaches the generator as a list of
+  URLs, keeping a function whose job is to write XML out of importing
+  anyone's server module.
+  This is also the `generateStaticParams` equivalent prerendering needs,
+  which is why it is an export on the server module rather than a sitemap
+  option.
 - **Hook for form actions (parallel work, not built here).** The server
   module reserves an `actions` export. When the form-actions runtime lands,
   `fileRoutes()` will register, for a route whose server module exports
@@ -462,10 +492,12 @@ Exit criteria (all met, see section 4):
   module.
 
 **Phase 2 — More segments, more frameworks, tooling.**
-Exit criteria: `[...rest]`, `[[optional]]`, `(group)` mapped and typed; Vue
-and HTML/HTMX route folders; sitemap includes static file routes and
-`entries()`; `absolute ls`/`absolute routes` show route sources; typed
-plugin-derived context; the `actions` hook wired to the form-actions runtime.
+Exit criteria: ~~`[...rest]`, `[[optional]]`, `(group)` mapped and typed~~
+**done**; ~~Vue and HTML/HTMX route folders~~ **done**; ~~sitemap includes
+static file routes and `entries()`~~ **done — see 2.3**; `absolute
+ls`/`absolute routes` show route sources; ~~typed plugin-derived
+context~~ **done**; the `actions` hook wired to the form-actions runtime
+(waiting on that runtime, which is parallel work).
 
 **Phase 3 — Angular, conventions, static generation.**
 Exit criteria: Angular route folders; per-folder `error`/`loading`/`not-found`;
