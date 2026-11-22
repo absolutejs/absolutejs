@@ -36,7 +36,12 @@ export const createManifestKeysRefresher = (config: BuildConfig) => {
 		try {
 			const { writeManifestKeysDeclaration } =
 				await import('../build/manifestKeys');
-			await writeManifestKeysDeclaration(config, projectRoot);
+			const { writeRouteMapDeclaration } =
+				await import('../build/routeMap');
+			await Promise.all([
+				writeManifestKeysDeclaration(config, projectRoot),
+				writeRouteMapDeclaration(config, projectRoot)
+			]);
 		} catch {
 			/* type declarations are a convenience; never at the cost of dev */
 		} finally {

@@ -548,9 +548,17 @@ const remember = (roots: FileRouteRoot[], routes: ScannedFileRoute[]) => {
 };
 
 /** Scan every route folder. Records the result so the build and the dev
- *  server can map a route file to its page name. */
-export const scanFileRoutes = (config: BuildConfig) => {
-	const resolved = resolveFileRoutes(config);
+ *  server can map a route file to its page name.
+ *
+ *  `root` is the project the config's directories are relative to, and
+ *  defaults to the working directory, which is what every build, dev and
+ *  typecheck caller wants. It exists for a caller that derives a project
+ *  OTHER than the one it is running in — the manifest-key and route-map
+ *  declarations take a `projectRoot` and used to scan the working
+ *  directory regardless, so for a workspace service with its own root the
+ *  file routes went missing from the derivation. */
+export const scanFileRoutes = (config: BuildConfig, root = process.cwd()) => {
+	const resolved = resolveFileRoutes(config, root);
 	const problems: string[] = [];
 	if (!resolved) {
 		remember([], []);

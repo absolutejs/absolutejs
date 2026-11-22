@@ -7,19 +7,33 @@ import { manifestKeysEditorHint } from '../../../src/cli/scripts/manifestKeysEdi
  * changed nothing: the editor still never saw the keys. A project that
  * excludes .absolutejs is told to use `files` (which `exclude` doesn't
  * touch), and no note prints once tsconfig.json puts the file in the
- * program. */
+ * program.
+ *
+ * Both generated declarations are named now — the manifest keys and the
+ * route map — because an editor that sees one and not the other silently
+ * accepts exactly what this command rejects. They share a directory, so an
+ * `include` pattern covers both at once while a `files` list has to name
+ * each. */
 
 const PATH = '.absolutejs/types/manifest.d.ts';
+const ROUTES = '.absolutejs/types/routes.d.ts';
+
+/* The declarations the command actually wrote, which is what it passes.
+ * Only those are named: a `files` entry for a file that is not there is
+ * TS6053, and the route map is absent in any project with no file
+ * routes. */
+const hint = (config: Parameters<typeof manifestKeysEditorHint>[0]) =>
+	manifestKeysEditorHint(config, [PATH, ROUTES]);
 
 describe('manifestKeysEditorHint', () => {
 	test('a tsconfig that excludes .absolutejs is told to use "files"', () => {
-		const hint = manifestKeysEditorHint({
+		const note = hint({
 			exclude: ['node_modules', 'build', '.absolutejs'],
 			include: ['**/*']
 		});
 
-		expect(hint).toContain(`"files": ["${PATH}"]`);
-		expect(hint).toContain('"exclude" removes it from "include"');
+		expect(note).toContain(`"files": ["${PATH}", "${ROUTES}"]`);
+		expect(note).toContain('"exclude" removes them from "include"');
 	});
 
 	test('listing it in "include" does not help while .absolutejs is excluded', () => {
@@ -32,23 +46,31 @@ describe('manifestKeysEditorHint', () => {
 		]) {
 			expect({
 				exclude,
-				hint: manifestKeysEditorHint({
-					exclude,
-					include: ['src', PATH]
-				})
+				hint: hint({ exclude, include: ['src', PATH] })
 			}).toEqual({ exclude, hint: expect.stringContaining('"files"') });
 		}
 	});
 
-	test('no note once "files" lists it', () => {
-		for (const files of [[PATH], [`./${PATH}`]])
+	test('no note once "files" lists them', () => {
+		for (const files of [
+			[PATH, ROUTES],
+			[`./${PATH}`, `./${ROUTES}`]
+		])
 			expect(
-				manifestKeysEditorHint({
-					exclude: ['.absolutejs'],
-					files,
-					include: ['**/*']
-				})
+				hint({ exclude: ['.absolutejs'], files, include: ['**/*'] })
 			).toBeNull();
+	});
+
+	/* Half-listed is not listed: the route map would still be invisible,
+	 * and `route('/abuot')` silently fine in the editor. */
+	test('a "files" list naming only one of them still warns', () => {
+		expect(
+			hint({
+				exclude: ['.absolutejs'],
+				files: [PATH],
+				include: ['**/*']
+			})
+		).toContain(ROUTES);
 	});
 
 	test('no note when "include" covers it and nothing excludes it', () => {
@@ -59,10 +81,7 @@ describe('manifestKeysEditorHint', () => {
 			['.absolutejs']
 		])
 			expect({
-				hint: manifestKeysEditorHint({
-					exclude: ['node_modules', 'dist'],
-					include
-				}),
+				hint: hint({ exclude: ['node_modules', 'dist'], include }),
 				include
 			}).toEqual({ hint: null, include });
 	});
@@ -74,9 +93,22 @@ describe('manifestKeysEditorHint', () => {
 			{ include: ['**/*'] },
 			{ exclude: ['node_modules'], include: ['src'] }
 		]) {
-			const hint = manifestKeysEditorHint(config);
-			expect(hint).toContain(`add "${PATH}" to "include"`);
-			expect(hint).not.toContain('"files"');
+			const note = hint(config);
+			expect(note).toContain(`add "${PATH}", "${ROUTES}" to "include"`);
+			expect(note).not.toContain('"files"');
 		}
+	});
+
+	/* A project with no file routes has no route map to name, and naming
+	 * it anyway would be TS6053 in the editor the note is advising. */
+	test('names only the declarations it was given', () => {
+		const note = manifestKeysEditorHint({ include: ['src'] }, [PATH]);
+
+		expect(note).toContain(`add "${PATH}" to "include"`);
+		expect(note).not.toContain(ROUTES);
+	});
+
+	test('no note when nothing was written', () => {
+		expect(manifestKeysEditorHint({ include: ['src'] }, [])).toBeNull();
 	});
 });

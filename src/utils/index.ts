@@ -10,6 +10,7 @@ export * from './getEnv';
 export * from './networking';
 export * from './projectRoot';
 export * from './registerClientScript';
+export * from './route';
 export * from './streamingSlotMetricSink';
 export * from './streamingSlots';
 export * from './isPrerendering';

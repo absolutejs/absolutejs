@@ -26,6 +26,7 @@ import { buildFonts } from '../build/fonts/buildFonts';
 import { injectFontTags } from '../build/fonts/injectFontTags';
 import { generateManifest } from '../build/generateManifest';
 import { writeManifestKeysDeclaration } from '../build/manifestKeys';
+import { writeRouteMapDeclaration } from '../build/routeMap';
 import { verifyAngularCoreUniqueness } from '../build/verifyAngularCoreUniqueness';
 import {
 	collectIslandFrameworkSources,
@@ -4104,12 +4105,18 @@ export const build = async (config: BuildConfig) => {
 		// derived from the source tree (not from this build's output, which
 		// in dev holds only the pages built so far). Alongside the build;
 		// it never rejects.
-		const manifestKeys =
+		// The route-map declaration that types `route(path, params)` rides
+		// along with it: same source-tree derivation, same never-rejects
+		// contract, same reason to skip it on an incremental pass.
+		const declarations =
 			config.incrementalFiles && config.incrementalFiles.length > 0
 				? undefined
-				: writeManifestKeysDeclaration(config, projectRoot);
+				: Promise.all([
+						writeManifestKeysDeclaration(config, projectRoot),
+						writeRouteMapDeclaration(config, projectRoot)
+					]);
 		const result = await buildUnlocked(config);
-		await manifestKeys;
+		await declarations;
 
 		return result;
 	});

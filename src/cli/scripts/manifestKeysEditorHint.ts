@@ -1,8 +1,19 @@
-import { MANIFEST_KEYS_DECLARATION } from '../../build/manifestKeys';
-
 /* The note `absolute typecheck` prints when the project's editor can't see
- * the generated manifest-key declaration (.absolutejs/types/manifest.d.ts),
- * or null when tsconfig.json already puts it in the program.
+ * the generated declarations — the manifest keys
+ * (.absolutejs/types/manifest.d.ts) and the route map
+ * (.absolutejs/types/routes.d.ts) — or null when tsconfig.json already puts
+ * them in the program.
+ *
+ * Every declaration the command WROTE is named, because an editor that
+ * cannot see one of them does not report what this command reports:
+ * `asset(manifest, 'Abuot')` and `route('/abuot')` are errors here and
+ * silently fine there. They share a directory, so one verdict covers them
+ * all.
+ *
+ * Only the ones that exist, though: a `files` entry for a file that is not
+ * there is error TS6053, and the route map is absent in any project
+ * without file routes. That is the same trap the `include`-versus-`files`
+ * advice below exists for, one level up.
  *
  * How tsc builds the program decides the advice: an `exclude` entry drops
  * matching files from `include`, but never from `files`. Scaffolds made
@@ -54,11 +65,19 @@ const patternMatches = (pattern: string, path: string) => {
 };
 
 /** The note, or null when tsconfig.json (its `include`, `files` and
- *  `exclude`) already lists the declaration. */
-export const manifestKeysEditorHint = (config: TsconfigLists) => {
-	const path = MANIFEST_KEYS_DECLARATION;
+ *  `exclude`) already lists every declaration in `declarations`, or when
+ *  there are none. */
+export const manifestKeysEditorHint = (
+	config: TsconfigLists,
+	declarations: readonly string[]
+) => {
+	const paths = [...new Set(declarations)].sort();
+	/* One verdict covers them all: they share a directory, so whatever
+	 * `include`/`exclude` says about the first says it about the rest. */
+	const [path] = paths;
+	if (path === undefined) return null;
 	const files = toEntries(config.files);
-	if (files.includes(path)) return null;
+	if (paths.every((entry) => files.includes(entry))) return null;
 	const excluded = toEntries(config.exclude).some((pattern) =>
 		patternMatches(pattern, path)
 	);
@@ -66,9 +85,10 @@ export const manifestKeysEditorHint = (config: TsconfigLists) => {
 		patternMatches(pattern, path)
 	);
 	if (included && !excluded) return null;
+	const listed = paths.map((entry) => `"${entry}"`).join(', ');
 	const where = excluded
-		? `to "files" in tsconfig.json ("exclude" removes it from "include", but not from "files"): "files": ["${path}"]`
+		? `to "files" in tsconfig.json ("exclude" removes them from "include", but not from "files"): "files": [${listed}]`
 		: `to "include" in tsconfig.json`;
 
-	return `\x1b[33mnote\x1b[0m asset(manifest, key) keys are checked by this command. For the same check in your editor, add "${path}" ${where}.`;
+	return `\x1b[33mnote\x1b[0m asset(manifest, key) keys and route() paths are checked by this command. For the same checks in your editor, add ${listed} ${where}.`;
 };

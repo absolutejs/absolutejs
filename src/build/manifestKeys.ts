@@ -92,7 +92,7 @@ export const deriveManifestKeys = async (
 	const htmlDir = at(config.htmlDirectory);
 	const htmxDir = at(config.htmxDirectory);
 	const assetsDir = at(config.assetsDirectory);
-	const fileRoutes = scanFileRoutes(config).routes;
+	const fileRoutes = scanFileRoutes(config, projectRoot).routes;
 
 	// React: one hydration index per page (generateReactIndexFiles names
 	// it by the file name up to its first dot) and per React file route.
