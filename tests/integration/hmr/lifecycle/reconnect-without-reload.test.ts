@@ -48,9 +48,11 @@ const open = async () => {
 	return page;
 };
 
-// A dropped connection, as a network change closes it (not a clean close).
-const dropSocket = (page: BrowserSession['page']) =>
-	page.evaluate(() => (window as HmrWindow).__HMR_WS__?.close(4000, 'drop'));
+const dropSocket = (page: BrowserSession['page'], code = 4000) =>
+	page.evaluate(
+		(value) => (window as HmrWindow).__HMR_WS__?.close(value, 'drop'),
+		code
+	);
 
 const waitForReconnect = (page: BrowserSession['page']) =>
 	page.waitForFunction(
@@ -60,25 +62,35 @@ const waitForReconnect = (page: BrowserSession['page']) =>
 	);
 
 describe('dev client reconnect', () => {
-	test('a dropped connection reconnects without reloading, and edits keep applying', async () => {
-		const page = await open();
-		await dropSocket(page);
-		await waitForReconnect(page);
-		expect(
-			await page.evaluate(() => (window as HmrWindow).__reconnectMarker)
-		).toBe(1);
+	test.each([1000, 4000])(
+		'closure %i reconnects without reloading, and edits keep applying',
+		async (code) => {
+			const page = await open();
+			await dropSocket(page, code);
+			await waitForReconnect(page);
+			expect(
+				await page.evaluate(
+					() => (window as HmrWindow).__reconnectMarker
+				)
+			).toBe(1);
 
-		mutateFile(PAGE, (text) =>
-			text.replace(
-				`<h1>${HEADING}</h1>`,
-				'<h1>AbsoluteJS + HTML, reconnected</h1>'
-			)
-		);
-		await waitForText(page, 'h1', (text) => text.includes('reconnected'));
-		expect(
-			await page.evaluate(() => (window as HmrWindow).__reconnectMarker)
-		).toBe(1);
-	}, 90_000);
+			mutateFile(PAGE, (text) =>
+				text.replace(
+					`<h1>${HEADING}</h1>`,
+					'<h1>AbsoluteJS + HTML, reconnected</h1>'
+				)
+			);
+			await waitForText(page, 'h1', (text) =>
+				text.includes('reconnected')
+			);
+			expect(
+				await page.evaluate(
+					() => (window as HmrWindow).__reconnectMarker
+				)
+			).toBe(1);
+		},
+		90_000
+	);
 
 	test('offline, it waits for the network; an edit made meanwhile reloads the page on return', async () => {
 		const page = await open();

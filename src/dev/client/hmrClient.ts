@@ -3,11 +3,7 @@ import { withClientBasePath } from './basePath';
    Initializes WebSocket connection, dispatches messages to framework handlers */
 
 import { hmrState } from './hmrState';
-import {
-	HMR_UPDATE_TIMEOUT_MS,
-	PING_INTERVAL_MS,
-	WEBSOCKET_NORMAL_CLOSURE
-} from './constants';
+import { HMR_UPDATE_TIMEOUT_MS, PING_INTERVAL_MS } from './constants';
 import {
 	RECONNECT_GIVE_UP_MS,
 	missedWhileDisconnected,
@@ -506,7 +502,8 @@ const connectHmrSocket = () => {
 		handleHMRMessage(message);
 	};
 
-	wsc.onclose = function (event: CloseEvent) {
+	wsc.onclose = function () {
+		if (window.__HMR_WS__ !== wsc) return;
 		hmrState.isConnected = false;
 
 		if (hmrState.pingInterval) {
@@ -514,10 +511,9 @@ const connectHmrSocket = () => {
 			hmrState.pingInterval = null;
 		}
 
-		if (event.code !== WEBSOCKET_NORMAL_CLOSURE) {
-			showConnectionLostBanner();
-			scheduleReconnect(connectHmrSocket);
-		}
+		// A proxy or a dev server can close cleanly while this document stays open.
+		showConnectionLostBanner();
+		scheduleReconnect(connectHmrSocket);
 	};
 
 	wsc.onerror = function () {
@@ -528,7 +524,12 @@ const connectHmrSocket = () => {
 // The network or the tab coming back is the moment to retry, not the next
 // backoff step.
 const reconnectNow = () => {
-	if (hmrState.isConnected || !disconnectedAt) return;
+	if (
+		hmrState.isConnected ||
+		!disconnectedAt ||
+		window.__HMR_WS__?.readyState === WebSocket.CONNECTING
+	)
+		return;
 	reconnectAttempt = 0;
 	if (hmrState.reconnectTimeout) clearTimeout(hmrState.reconnectTimeout);
 	hmrState.reconnectTimeout = null;
