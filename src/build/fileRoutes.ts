@@ -65,11 +65,15 @@ const DEFAULT_OUTPUT = join('src', 'routes.gen.ts');
 const HASH_LENGTH = 6;
 const HASH_RADIX = 36;
 const PAGE_GLOBS: Record<FileRouteFramework, string> = {
+	html: '**/*.html',
+	htmx: '**/*.html',
 	react: '**/*.{tsx,jsx}',
 	svelte: '**/*.svelte',
 	vue: '**/*.vue'
 };
 const PAGE_EXTENSIONS: Record<FileRouteFramework, readonly string[]> = {
+	html: ['.html'],
+	htmx: ['.html'],
 	react: ['.tsx', '.jsx'],
 	svelte: ['.svelte'],
 	vue: ['.vue']
@@ -83,6 +87,8 @@ const OPTIONAL_RE = /^\[\[([A-Za-z_$][\w$]*)\]\]$/;
 const OPTIONAL_CATCH_ALL_RE = /^\[\[\.\.\.([A-Za-z_$][\w$]*)\]\]$/;
 const GROUP_RE = /^\(([A-Za-z0-9._~-]+)\)$/;
 const STATIC_SEGMENT_RE = /^[A-Za-z0-9._~-]+$/;
+/* Frameworks whose route file is served as-is, with no props. */
+const STATIC_ONLY_FRAMEWORKS = new Set<FileRouteFramework>(['html', 'htmx']);
 
 const REGISTRY_KEY = Symbol.for('absolutejs.fileRoutes.registry');
 
@@ -144,6 +150,16 @@ export const resolveFileRoutes = (
 		roots.push({
 			dir: resolve(root, config.vueDirectory, directory),
 			framework: 'vue'
+		});
+	if (config.htmlDirectory)
+		roots.push({
+			dir: resolve(root, config.htmlDirectory, directory),
+			framework: 'html'
+		});
+	if (config.htmxDirectory)
+		roots.push({
+			dir: resolve(root, config.htmxDirectory, directory),
+			framework: 'htmx'
 		});
 	const resolved: ResolvedFileRoutes = {
 		output: resolve(root, options.output ?? DEFAULT_OUTPUT),
@@ -301,6 +317,18 @@ export const fileRoutePath = (
 		const result = segmentOf(segment);
 		if ('error' in result) return result;
 		parsed.push(result);
+	}
+	/* An HTML or HTMX route is a static file: it has no props and no
+	 * `load`, so a matched param has nowhere to go and every value of it
+	 * would serve byte-identical markup. A `(group)` is still fine — it
+	 * organises source and contributes no segment. */
+	const dynamic = parsed.find(
+		(segment) => segment.kind !== 'group' && segment.kind !== 'static'
+	);
+	if (dynamic && STATIC_ONLY_FRAMEWORKS.has(framework)) {
+		return {
+			error: `an ${framework} route is a static file with no props, so it can only use static segments and (group) folders — "${routeSegments[parsed.indexOf(dynamic)]}" would match a value the page cannot read. Serve it from a framework page, or add a hand-written route.`
+		};
 	}
 	/* A catch-all is Elysia's `*`, which matches the rest of the path and so
 	 * can only be last. Anything after it would never be reached, and
@@ -498,6 +526,14 @@ const ADAPTERS: Record<
 	FileRouteFramework,
 	{ name: string; specifier: string }
 > = {
+	html: {
+		name: 'htmlFileRoute',
+		specifier: '@absolutejs/absolute'
+	},
+	htmx: {
+		name: 'htmxFileRoute',
+		specifier: '@absolutejs/absolute'
+	},
 	react: {
 		name: 'reactFileRoute',
 		specifier: '@absolutejs/absolute/react/server'
@@ -519,15 +555,25 @@ const renderRoute = (route: ScannedFileRoute, outputDir: string) => {
 		: undefined;
 	const serverType = server ? `typeof import(${server})` : 'undefined';
 	const source = quote(toPosix(relative(process.cwd(), route.source)));
-	/* The type argument is the route's TYPE path, not the path it registers
-	 * under: `/docs/*` carries no name for its catch-all, so a `load` typed
-	 * against it could not read `params.rest`. They are the same string for
-	 * a route with no catch-all and no optional segment. */
+	/* The first type argument is the route's TYPE path, not the path it
+	 * registers under: `/docs/*` carries no name for its catch-all, so a
+	 * `load` typed against it could not read `params.rest`. They are the
+	 * same string for a route with no catch-all and no optional segment.
+	 *
+	 * A static route takes no page type. There is no module to type — the
+	 * build copies the `.html` file and the manifest holds where it landed
+	 * — and `typeof import('./about.html')` would be meaningless even if
+	 * the specifier kept its extension. */
+	const typeArguments = STATIC_ONLY_FRAMEWORKS.has(route.framework)
+		? [`\t\t${quote(route.typePath ?? route.path)},`, `\t\t${serverType}`]
+		: [
+				`\t\t${quote(route.typePath ?? route.path)},`,
+				`\t\ttypeof import(${page}),`,
+				`\t\t${serverType}`
+			];
 	const lines = [
 		`\t${ADAPTERS[route.framework].name}<`,
-		`\t\t${quote(route.typePath ?? route.path)},`,
-		`\t\ttypeof import(${page}),`,
-		`\t\t${serverType}`,
+		...typeArguments,
 		`\t>({`,
 		...(route.catchAll ? [`\t\tcatchAll: ${quote(route.catchAll)},`] : []),
 		`\t\tname: ${quote(route.name)},`,
@@ -561,11 +607,21 @@ export const renderFileRouteModule = (
 	const frameworks = [...new Set(routes.map((route) => route.framework))]
 		.sort()
 		.map((framework) => ADAPTERS[framework]);
+	/* Grouped by specifier: `htmlFileRoute` and `htmxFileRoute` both come
+	 * from the package root, and two imports of one module is something a
+	 * linter in the app's own project would flag. */
+	const bySpecifier = new Map<string, string[]>();
+	for (const adapter of frameworks) {
+		bySpecifier.set(adapter.specifier, [
+			...(bySpecifier.get(adapter.specifier) ?? []),
+			adapter.name
+		]);
+	}
 	const imports = [
 		`import type { FileRouteDefinition } from '@absolutejs/absolute';`,
-		...frameworks.map(
-			(adapter) =>
-				`import { ${adapter.name} } from '${adapter.specifier}';`
+		...[...bySpecifier.entries()].map(
+			([specifier, names]) =>
+				`import { ${names.join(', ')} } from '${specifier}';`
 		)
 	];
 	const body =
@@ -645,6 +701,8 @@ export const fileRouteFor = (source: string) => {
 	 * know which page a changed file is. */
 	return routesFromFile(root, relativePath, [])[0];
 };
+export const fileRouteRootOf = (framework: FileRouteFramework) =>
+	registry().roots.find((root) => root.framework === framework)?.dir;
 export const fileRouteNamed = (name: string) =>
 	[...registry().bySource.values()].find((route) => route.name === name);
 export const fileRoutesOf = (framework: FileRouteFramework) =>

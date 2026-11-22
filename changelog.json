@@ -5,6 +5,22 @@
 		{
 			"changes": [
 				{
+					"detail": "An `htmlDirectory` or `htmxDirectory` app can put pages in its `routes/` folder and serve them through the generated route module, alongside React, Svelte and Vue routes in one URL space. A static page is served as the file the build produced, so only static segments and `(group)` folders are allowed — a `[param]` is a build error naming the segment, because a matched value would have nowhere to go and every value would serve byte-identical markup. A server module may export `beforeHandle` to guard the route; `load` is not part of the type, since props it returned would be dropped. The route tree is copied to `<build>/<dir>/routes` and post-processed exactly like `pages/` rather than being renamed into it, because `<abs-include>` resolves against a page`s source location: a flattened route would compute a source path that does not exist and its includes would quietly expand to nothing. The route tree is also scanned recursively, since nesting is the point of it; the `pages/` scan is unchanged and still sees only its top level. A static framework directory that has `routes/` and no `pages/` no longer fails the build.",
+					"kind": "added",
+					"summary": "HTML and HTMX pages can be file routes",
+					"symbols": [
+						"FileRouteFramework",
+						"htmlFileRoute",
+						"htmxFileRoute"
+					]
+				}
+			],
+			"date": "2026-11-22",
+			"version": "0.20.0-beta.272"
+		},
+		{
+			"changes": [
+				{
 					"detail": "A `vueDirectory` app can put pages in `<vueDirectory>/routes/` and serve them through the generated route module, with the same `[param]`, `[...catchAll]`, `[[optional]]` and `(group)` segments and the same co-located `<route>.server.ts` for `load` and `beforeHandle` that React and Svelte routes have. Vue needed a different mapping from the other two: Svelte flattens a route into `pages/<name>`, but Vue`s generated tree mirrors the source layout, so a route`s compiled module keeps its folder and takes only the route`s flat page name as its file name. That keeps a route`s own sibling imports (`./_Tag.vue`) resolving while giving every manifest key derivation a page name to read instead of `[item]`, which two routes in different folders would otherwise share.",
 					"kind": "added",
 					"summary": "Vue pages can be file routes",

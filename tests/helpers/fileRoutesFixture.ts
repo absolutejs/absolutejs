@@ -1,7 +1,8 @@
 import { mkdir, readdir, symlink, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 
-/* A small app that opts into file routes (React + Svelte + Vue). Written from
+/* A small app that opts into file routes (React, Svelte, Vue, HTML, HTMX).
+ * Written from
  * strings so the repo typecheck never sees its `@absolutejs/absolute`
  * imports, which resolve to an older published package from the repo root. */
 
@@ -12,6 +13,8 @@ const CONFIG = `import { defineConfig } from '@absolutejs/absolute';
 export default defineConfig({
 	buildDirectory: './build',
 	fileRoutes: { output: './routes.gen.ts' },
+	htmlDirectory: './html',
+	htmxDirectory: './htmx',
 	reactDirectory: './react',
 	svelteDirectory: './svelte',
 	vueDirectory: './vue'
@@ -43,6 +46,31 @@ const reactDocument = (title: string, body: string) => `<html lang="en">
 
 export const FILE_ROUTES_FIXTURE: Record<string, string> = {
 	'absolute.config.ts': CONFIG,
+	'html/pages/HtmlHome.html': `<!doctype html>
+<html lang="en"><head><title>Home</title></head>
+<body><p>HTML_PAGE_HOME</p></body></html>
+`,
+	/* The three Phase 2 segment kinds. A catch-all reads its param under
+	 * the name the file gave it, not Elysia's `*`; an optional segment
+	 * serves two paths from this one file, and its `load` runs on both; a
+	 * group contributes no path segment at all. */
+	/* A static route with a partial it includes. The partial lives outside
+	 * `routes/`, and `<abs-include>` resolves against the page's SOURCE
+	 * location — which is why a route's output tree mirrors its source
+	 * folder instead of being flattened into `pages/`. */
+	'html/partials/_banner.html': `<p id="banner">HTML_BANNER</p>
+`,
+	'html/routes/(site)/handbook.html': `<!doctype html>
+<html lang="en"><head><title>Handbook</title></head>
+<body>
+	<p id="handbook">HTML_ROUTE_HANDBOOK</p>
+	<abs-include src="../../partials/_banner.html"></abs-include>
+</body></html>
+`,
+	'htmx/routes/panel.html': `<!doctype html>
+<html lang="en"><head><title>Panel</title></head>
+<body><p id="panel">HTMX_ROUTE_PANEL</p></body></html>
+`,
 	'package.json': JSON.stringify(
 		{ name: 'file-routes-fixture', private: true, type: 'module' },
 		null,
@@ -54,10 +82,6 @@ export const Shell = ({ children }: { children: ReactNode }) => (
 	<main id="shell">{children}</main>
 );
 `,
-	/* The three Phase 2 segment kinds. A catch-all reads its param under
-	 * the name the file gave it, not Elysia's `*`; an optional segment
-	 * serves two paths from this one file, and its `load` runs on both; a
-	 * group contributes no path segment at all. */
 	'react/routes/(marketing)/pricing.tsx': `export default function Pricing() {
 	return (
 		${reactDocument('Pricing', '<p>FILE_PRICING</p>')}

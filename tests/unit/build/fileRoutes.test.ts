@@ -376,6 +376,43 @@ describe('route module', () => {
 		}
 	});
 
+	/* An HTML or HTMX route is served as the file the build produced, with
+	 * no props and no `load` — so a param would match a value the page
+	 * cannot read, and every value would serve identical markup. A group
+	 * still works: it contributes no segment. */
+	test('writes HTML and HTMX routes, static segments only', async () => {
+		const root = await makeProject({
+			'html/routes/(site)/about.html': '',
+			'html/routes/pricing/[tier].html': '',
+			'htmx/routes/panel.html': ''
+		});
+		const cwd = process.cwd();
+		process.chdir(root);
+		try {
+			const { problems, routes } = syncFileRoutes({
+				fileRoutes: { output: 'routes.gen.ts' },
+				htmlDirectory: 'html',
+				htmxDirectory: 'htmx'
+			}) ?? { problems: [], routes: [] };
+			const source = await readFile(join(root, 'routes.gen.ts'), 'utf-8');
+
+			expect(routes.map((route) => route.path).sort()).toEqual([
+				'/about',
+				'/panel'
+			]);
+			expect(problems.join('\n')).toContain('[tier]');
+			expect(problems.join('\n')).toContain('static file with no props');
+			expect(source).toContain(
+				"import { htmlFileRoute, htmxFileRoute } from '@absolutejs/absolute';"
+			);
+			// Nothing is imported for the page: the build copies the file and
+			// the manifest holds where it landed.
+			expect(source).not.toContain("import('./html/routes");
+		} finally {
+			process.chdir(cwd);
+		}
+	});
+
 	test('an app with no routes still exports an empty tree', () => {
 		expect(renderFileRouteModule([], '/app/routes.gen.ts')).toContain(
 			'export const routeTree: readonly FileRouteDefinition[] = [];'
