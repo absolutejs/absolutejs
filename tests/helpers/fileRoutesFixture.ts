@@ -374,6 +374,39 @@ export const load = ({ params }: FileRouteContext<'/docs/:topic'>) => ({
 `,
 	'svelte/routes/docs/index.svelte': `<h1>SVELTE_DOCS_INDEX</h1>
 `,
+	'svelte/routes/guides/[topic].server.ts': `import type { FileRouteContext } from '@absolutejs/absolute';
+
+export const load = ({ params }: FileRouteContext<'/guides/:topic'>) => ({
+	topic: \`GUIDE_\${params.topic}\`
+});
+`,
+	/* A Svelte route under two layouts. Svelte wraps them in the page's
+	 * source, so the server and the client load one module and cannot
+	 * disagree — the opposite of React, where two composition sites have
+	 * to be kept in step. A layout takes its content the Svelte 5 way,
+	 * through `children`. */
+	'svelte/routes/guides/[topic].svelte': `<script lang="ts">
+	let { topic }: { topic: string; url?: string } = $props();
+	let clicks = $state(0);
+</script>
+
+<svelte:head><title>Guide</title></svelte:head>
+
+<h1 id="guide-topic">{topic}</h1>
+<button id="guide-clicks" onclick={() => (clicks += 1)}>clicks {clicks}</button>
+`,
+	'svelte/routes/guides/layout.svelte': `<script lang="ts">
+	let { children }: { children: () => unknown } = $props();
+</script>
+
+<section id="guides-layout">{@render children()}</section>
+`,
+	'svelte/routes/layout.svelte': `<script lang="ts">
+	let { children }: { children: () => unknown } = $props();
+</script>
+
+<div id="svelte-root-layout">{@render children()}</div>
+`,
 	'tsconfig.json': JSON.stringify(
 		{
 			compilerOptions: {

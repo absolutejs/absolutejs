@@ -17,6 +17,20 @@ import { env } from 'node:process';
 import { write, file, Transpiler } from 'bun';
 import { resolvePackageImport } from './resolvePackageImport';
 import { fileRouteFor } from './fileRoutes';
+import { wrapSvelteRouteLayouts } from './svelteRouteLayouts';
+
+/* The specifier the page uses to import a layout: a relative path from the
+ * page's own folder, so the import resolves exactly like one the author
+ * wrote. compileSvelte's child discovery then rewrites it to the compiled
+ * layout, the same as any other local component. */
+const layoutSpecifier = (pageSource: string, layoutSource: string) => {
+	const specifier = relative(dirname(pageSource), layoutSource).replace(
+		/\\/g,
+		'/'
+	);
+
+	return specifier.startsWith('.') ? specifier : `./${specifier}`;
+};
 import { getFrameworkGeneratedDir } from '../utils/generatedDir';
 import { buildIslandMetadataExports } from '../islands/sourceMetadata';
 import { createSvelteStylePreprocessor } from './stylePreprocessor';
@@ -286,7 +300,26 @@ export const compileSvelte = async (
 		const memoized = cache.get(src);
 		if (memoized) return memoized;
 
-		const raw = await file(src).text();
+		const onDisk = await file(src).text();
+		/* A file route's layouts are wrapped around its markup in the
+		 * SOURCE, before anything else looks at it: Svelte renders from one
+		 * compiled module that both the server and the client load, so
+		 * there is no second place for the composition to disagree with.
+		 * The injected imports are also what make the layouts compile —
+		 * children are discovered from a route's imports below. */
+		const layouts = fileRouteFor(src)?.layouts ?? [];
+		const raw =
+			layouts.length > 0
+				? (wrapSvelteRouteLayouts(
+						onDisk,
+						{
+							specifiers: layouts.map((layout) =>
+								layoutSpecifier(src, layout)
+							)
+						},
+						parse
+					) ?? onDisk)
+				: onDisk;
 		const islandMetadataExports = buildIslandMetadataExports(raw);
 
 		// Check if source is unchanged since last compilation. Disk-check

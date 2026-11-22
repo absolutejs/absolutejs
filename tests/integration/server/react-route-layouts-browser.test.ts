@@ -131,6 +131,45 @@ describe('a React file route under nested layouts', () => {
 		}
 	}, 300_000);
 
+	/* A SVELTE route under layouts has to hydrate too, and its risk is
+	 * different from React's. Svelte wraps the layouts in the page's
+	 * source, so one compiled module carries the whole tree and the two
+	 * sides cannot disagree about the order — but the page's own slot
+	 * handling can still go wrong, since a Svelte island slot writes only
+	 * when it is empty and a layout now stands between the page and the
+	 * markup it hydrates into. */
+	test('hydrates a Svelte route inside its layouts', async () => {
+		const session = await openPage(
+			`http://localhost:${PORT}/guides/routing`,
+			{ waitUntil: 'load' }
+		);
+		try {
+			const { page } = session;
+			await page.waitForSelector('#guide-topic', { timeout: 30_000 });
+
+			expect(
+				await page
+					.locator('#svelte-root-layout #guides-layout #guide-topic')
+					.count()
+			).toBe(1);
+			expect(await page.locator('#guide-topic').textContent()).toBe(
+				'GUIDE_routing'
+			);
+			// Interactive: the page's own state works inside the layouts.
+			await page.click('#guide-clicks');
+			await page.waitForFunction(
+				() =>
+					document
+						.querySelector('#guide-clicks')
+						?.textContent?.trim() === 'clicks 1',
+				undefined,
+				{ timeout: 10_000 }
+			);
+		} finally {
+			await session.close();
+		}
+	}, 300_000);
+
 	/* The `loading` convention, which until now was scanned, compiled,
 	 * shipped and never read by anything.
 	 *

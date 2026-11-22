@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "A `layout.svelte` in a Svelte route folder now wraps that folder and everything below it, as `layout.tsx` already did for React. Svelte composes them somewhere else and had to: its page renders from one compiled module that both the server and the client load, so the layouts are wrapped around the page`s markup in the source and the two sides cannot disagree about the order — where React composes at run time in two places that have to be kept in step. The injected import is also what makes a layout compile, since a route`s children are discovered from its imports. A Svelte layout takes its content as `children` and renders `{@render children()}`. `<svelte:…>` elements are hoisted out of the wrapper, because a wrapped `<svelte:options>` does not compile and a `<svelte:head>` usually sits between the nodes being wrapped. Vue, Angular, HTML and HTMX still report a `layout.<ext>` as a problem rather than ignoring it.",
+					"kind": "added",
+					"summary": "Svelte file routes can have nested layouts"
+				}
+			],
+			"date": "2026-11-22",
+			"version": "0.20.0-beta.277"
+		},
+		{
+			"changes": [
+				{
 					"detail": "A `loading` convention was scanned, compiled, path-remapped and shipped, and then read by nothing at all. It is now the indicator the cross-framework navigation layer shows while a soft navigation is in flight — until now a click had no feedback: the layer fetched the next document and swapped it, and the page sat unchanged in between. The markup is appended to the body and removed when the navigation ends, so the live page and any persisted island in it are untouched, and positioning is the app`s own CSS. It appears only after 150ms, because most swaps are faster than the eye and a flash of a spinner reads as jank rather than progress. The fragment is fetched from `/__absolute/loading` once per session rather than inlined into every page: the scripts a page handler embeds are written in seven different handlers, so inlining would be seven edits and bytes on every response for markup most navigations never show. A 204 means the app ships no convention and the layer stops asking. The request-time CSP nonce is stripped before the fragment is cached — it would otherwise be wrong for every later page — and re-applied on insertion from the live document. A `<script>` in a loading convention does not run, which is the safer default for markup injected into a live document.",
 					"kind": "added",
 					"summary": "The `loading` convention is shown during a soft navigation"

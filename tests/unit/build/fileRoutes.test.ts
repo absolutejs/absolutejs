@@ -501,10 +501,37 @@ describe('route module', () => {
 		}
 	});
 
-	/* Only React composes layouts so far. A layout that cannot be applied
-	 * is worse than no layout — the page renders without its chrome and
-	 * nothing says so — so it is reported rather than ignored. */
+	/* React and Svelte compose layouts; Vue, Angular, HTML and HTMX do
+	 * not yet. A layout that cannot be applied is worse than no layout —
+	 * the page renders without its chrome and nothing says so — so it is
+	 * reported rather than ignored. */
 	test('reports a layout in a framework that cannot apply it yet', async () => {
+		const root = await makeProject({
+			'vue/routes/shop/index.vue': '',
+			'vue/routes/shop/layout.vue': ''
+		});
+		const cwd = process.cwd();
+		process.chdir(root);
+		try {
+			const { problems, routes } = scanFileRoutes({
+				fileRoutes: true,
+				vueDirectory: 'vue'
+			});
+
+			expect(problems.join('\n')).toContain('layout.vue');
+			expect(problems.join('\n')).toContain(
+				'applied to React and Svelte'
+			);
+			// The route itself still serves, without the layout.
+			expect(routes.map((route) => route.path)).toEqual(['/shop']);
+			expect(routes[0]?.layouts).toBeUndefined();
+		} finally {
+			process.chdir(cwd);
+		}
+	});
+
+	/* And a Svelte layout is now collected rather than reported. */
+	test('collects a Svelte route layout', async () => {
 		const root = await makeProject({
 			'svelte/routes/docs/index.svelte': '',
 			'svelte/routes/docs/layout.svelte': ''
@@ -517,11 +544,12 @@ describe('route module', () => {
 				svelteDirectory: 'svelte'
 			});
 
-			expect(problems.join('\n')).toContain('layout.svelte');
-			expect(problems.join('\n')).toContain('only applied to React');
-			// The route itself still serves, without the layout.
-			expect(routes.map((route) => route.path)).toEqual(['/docs']);
-			expect(routes[0]?.layouts).toBeUndefined();
+			expect(problems).toEqual([]);
+			expect(
+				(routes[0]?.layouts ?? []).map((layout) =>
+					toPosix(relative(process.cwd(), layout))
+				)
+			).toEqual(['svelte/routes/docs/layout.svelte']);
 		} finally {
 			process.chdir(cwd);
 		}
