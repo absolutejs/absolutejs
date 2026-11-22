@@ -15,6 +15,8 @@ export default defineConfig({
 	angularDirectory: './angular',
 	buildDirectory: './build',
 	fileRoutes: { output: './routes.gen.ts' },
+	islands: { registry: './islands/registry.ts' },
+	navigation: true,
 	htmlDirectory: './html',
 	htmxDirectory: './htmx',
 	reactDirectory: './react',
@@ -48,10 +50,6 @@ const reactDocument = (title: string, body: string) => `<html lang="en">
 
 export const FILE_ROUTES_FIXTURE: Record<string, string> = {
 	'absolute.config.ts': CONFIG,
-	/* The three Phase 2 segment kinds. A catch-all reads its param under
-	 * the name the file gave it, not Elysia's `*`; an optional segment
-	 * serves two paths from this one file, and its `load` runs on both; a
-	 * group contributes no path segment at all. */
 	/* An Angular route. Its `load` returns the page's request CONTEXT —
 	 * Angular components take no props — which the component reads with
 	 * `usePageContext`. The `Context` export is what the generated module
@@ -99,6 +97,55 @@ export class ReportPageComponent {
 <html lang="en"><head><title>Panel</title></head>
 <body><p id="panel">HTMX_ROUTE_PANEL</p></body></html>
 `,
+	/* The three Phase 2 segment kinds. A catch-all reads its param under
+	 * the name the file gave it, not Elysia's `*`; an optional segment
+	 * serves two paths from this one file, and its `load` runs on both; a
+	 * group contributes no path segment at all. */
+	/* An island declared ONCE, in a layout. Every route under that layout
+	 * renders it, so a `persist` key written in one place is the key both
+	 * pages of a navigation produce — which is what the navigation layer
+	 * matches on. It records its own mounts so a test can tell a moved
+	 * instance from a re-created one. */
+	'islands/Counter.svelte': `<script lang="ts">
+	import { onDestroy, onMount } from 'svelte';
+
+	let ticks = $state(0);
+	let timer: ReturnType<typeof setInterval> | undefined;
+
+	const scope = () => (typeof window === 'undefined' ? undefined : window);
+
+	onMount(() => {
+		const target = scope();
+		if (target) {
+			const mounts = Reflect.get(target, '__counterMounts');
+			Reflect.set(
+				target,
+				'__counterMounts',
+				(typeof mounts === 'number' ? mounts : 0) + 1
+			);
+		}
+		timer = setInterval(() => {
+			ticks += 1;
+		}, 50);
+	});
+
+	onDestroy(() => {
+		if (timer !== undefined) clearInterval(timer);
+		const target = scope();
+		if (target) Reflect.set(target, '__counterDestroyed', true);
+	});
+</script>
+
+<div id="counter-island">
+	<input id="counter-draft" placeholder="type here" />
+	<output id="counter-ticks">{ticks}</output>
+</div>
+`,
+	'islands/registry.ts': `import { defineIslandRegistry } from '@absolutejs/absolute/islands';
+import Counter from './Counter.svelte';
+
+export const islandRegistry = defineIslandRegistry({ svelte: { Counter } });
+`,
 	'package.json': JSON.stringify(
 		{ name: 'file-routes-fixture', private: true, type: 'module' },
 		null,
@@ -118,7 +165,8 @@ export const Shell = ({ children }: { children: ReactNode }) => (
 	 * under layouts renders a fragment. The inline script marks every
 	 * element the server sent, so a test can tell a kept tree from a
 	 * re-rendered one. */
-	'react/routes/(marketing)/layout.tsx': `import type { ReactNode } from 'react';
+	'react/routes/(marketing)/layout.tsx': `import { Island } from '@absolutejs/absolute/react';
+import type { ReactNode } from 'react';
 
 export default function MarketingLayout({ children }: { children: ReactNode }) {
 	return (
@@ -127,7 +175,16 @@ export default function MarketingLayout({ children }: { children: ReactNode }) {
 				<title>Layouts</title>
 			</head>
 			<body>
-				<div id="marketing-layout">{children}</div>
+				<div id="marketing-layout">
+					<Island
+						component="Counter"
+						framework="svelte"
+						hydrate="load"
+						persist="marketing-counter"
+						props={{}}
+					/>
+					{children}
+				</div>
 				<script
 					dangerouslySetInnerHTML={{
 						__html: "for (const el of document.querySelectorAll('[id]')) el.setAttribute('data-from-server', '1');"
@@ -135,6 +192,17 @@ export default function MarketingLayout({ children }: { children: ReactNode }) {
 				/>
 			</body>
 		</html>
+	);
+}
+`,
+	/* A sibling under the same two layouts, so a navigation between them
+	 * stays inside the layout that owns the island. */
+	'react/routes/(marketing)/plans/compare.tsx': `export default function Compare() {
+	return (
+		<p id="compare">
+			FILE_COMPARE
+			<a href="/plans/pricing" id="to-pricing">pricing</a>
+		</p>
 	);
 }
 `,
@@ -159,6 +227,8 @@ export default function Pricing() {
 			<button id="pricing-clicks" onClick={() => setClicks(clicks + 1)}>
 				clicks {clicks}
 			</button>
+			<a href="/plans/compare" id="to-compare">compare</a>
+			<a href="/blog" id="to-blog">blog</a>
 		</p>
 	);
 }
@@ -229,7 +299,7 @@ export default function Post({ title, view }: PostProps) {
 `,
 	'react/routes/blog/index.tsx': `export default function Blog() {
 	return (
-		${reactDocument('Blog', '<p>FILE_BLOG_INDEX</p>')}
+		${reactDocument('Blog', '<p id="blog-page">FILE_BLOG_INDEX</p>')}
 	);
 }
 `,

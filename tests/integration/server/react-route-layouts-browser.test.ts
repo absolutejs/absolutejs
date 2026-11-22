@@ -130,4 +130,77 @@ describe('a React file route under nested layouts', () => {
 			await session.close();
 		}
 	}, 300_000);
+
+	/* The point of a layout, once soft navigation is on: an island declared
+	 * ONCE in the layout keeps running while the routes under it change.
+	 * The key is written in one place, and every route below renders it —
+	 * which is what `persist` matches on — so this is 4.3's ergonomics
+	 * arriving from 4.2 rather than from a new mechanism.
+	 *
+	 * Asserting the island is still on the page would prove nothing: a
+	 * re-created one looks identical. What distinguishes them is the mount
+	 * count, the destroy flag, and the DOM state it was carrying. */
+	test('keeps its island alive across routes that share it', async () => {
+		const session = await openPage(pageUrl, { waitUntil: 'load' });
+		try {
+			const { page } = session;
+			await page.waitForFunction(
+				() => Reflect.get(window, '__counterMounts') === 1,
+				undefined,
+				{ timeout: 30_000 }
+			);
+			await page.fill('#counter-draft', 'kept');
+			const ticksBefore = Number(
+				await page.locator('#counter-ticks').textContent()
+			);
+
+			await page.click('#to-compare');
+			await page.waitForSelector('#compare', { timeout: 20_000 });
+
+			// A soft navigation: same document, different route.
+			expect(new URL(page.url()).pathname).toBe('/plans/compare');
+			expect(await page.locator('#pricing').count()).toBe(0);
+			/* The same instance, moved: mounted once in total, never
+			 * destroyed, still holding what was typed into it, and its
+			 * interval still counting. */
+			expect(
+				await page.evaluate(() =>
+					Reflect.get(window, '__counterMounts')
+				)
+			).toBe(1);
+			expect(
+				await page.evaluate(() =>
+					Reflect.get(window, '__counterDestroyed')
+				)
+			).toBeUndefined();
+			expect(await page.inputValue('#counter-draft')).toBe('kept');
+			await page.waitForFunction(
+				(before) =>
+					Number(
+						document.querySelector('#counter-ticks')?.textContent ??
+							'0'
+					) > before,
+				ticksBefore,
+				{ timeout: 10_000 }
+			);
+
+			/* And leaving the layout tears it down. A key the incoming page
+			 * does not render is deliberately NOT persisted — otherwise the
+			 * island outlives the layout that declared it, which is the
+			 * leak `persist` was careful to avoid. */
+			await page.click('#to-pricing');
+			await page.waitForSelector('#pricing', { timeout: 20_000 });
+			await page.click('#to-blog');
+			await page.waitForSelector('#blog-page', { timeout: 20_000 });
+
+			expect(await page.locator('#counter-island').count()).toBe(0);
+			expect(
+				await page.evaluate(() =>
+					Reflect.get(window, '__counterDestroyed')
+				)
+			).toBe(true);
+		} finally {
+			await session.close();
+		}
+	}, 300_000);
 });

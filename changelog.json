@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "An island declared once in a React layout, with a `persist` key and `navigation: true`, keeps running while the routes under that layout change: its instance is never unmounted and never hydrated again, and the DOM state it was carrying — a typed-in value, an open menu, a running interval — comes with it. Leaving the layout tears it down, since a key the incoming page does not render is deliberately not persisted and the island must not outlive the layout that declared it. This needed no new mechanism: it is what nested layouts and `persist` compose to, and the test proves it through the mount count, the destroy flag and the carried state rather than through the island still being on the page, which a re-created one would satisfy too.",
+					"kind": "added",
+					"summary": "A layout keeps its island alive across the routes under it"
+				}
+			],
+			"date": "2026-11-22",
+			"version": "0.20.0-beta.275"
+		},
+		{
+			"changes": [
+				{
 					"detail": "A `layout.tsx` in a React route folder wraps that folder and everything below it, so a route is rendered inside every layout from the route root down to its own folder, outermost first. A `(group)` folder participates like any other, which gives a set of pages a shared layout without adding a path segment. The chain is composed twice — once for the server render and once in the generated hydration index — and both fold the same outermost-first list, because a disagreement is not an error React reports: it discards the server tree and re-renders the root, which looks right on screen and throws the server render away. A page under a layout renders a fragment rather than a document, since the outermost layout owns the shell; a page that renders its own `<html>` under a layout has its head hoisted and duplicated, which is not detected at build time yet. Only React composes layouts so far, so a `layout.<ext>` in a Svelte, Vue, Angular, HTML or HTMX route folder is reported as a problem rather than ignored, which would leave the page rendering without its chrome and say nothing.",
 					"kind": "added",
 					"summary": "React file routes can have nested layouts",
