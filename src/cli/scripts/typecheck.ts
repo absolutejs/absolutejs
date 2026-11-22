@@ -29,6 +29,7 @@ import {
 } from '../../build/svelteDeclarations';
 import { ensureFileRouteModule } from '../../build/fileRoutes';
 import { writeManifestKeysDeclaration } from '../../build/manifestKeys';
+import { writeRouteMapDeclaration } from '../../build/routeMap';
 import { manifestKeysEditorHint } from './manifestKeysEditorHint';
 import {
 	diagnosticKeys,
@@ -401,11 +402,13 @@ export const svelteRoots = (
 	return roots.map((dir) => relative(projectRoot, dir) || '.');
 };
 
-/* The generated manifest-key declarations (build/manifestKeys.ts), one per
- * project root: listed in each config that checks server code, so
- * `asset(manifest, 'Abuot')` is an error. They sit under .absolutejs, which
- * the configs exclude, so they are named in `files`. */
-let manifestKeyDeclarations: string[] = [];
+/* The generated declarations — manifest keys (build/manifestKeys.ts) and
+ * the route map (build/routeMap.ts), each written per project root and
+ * only when that project has any: listed in each config that checks server
+ * code, so `asset(manifest, 'Abuot')` and `route('/abuot')` are errors.
+ * They sit under .absolutejs, which the configs exclude, so they are named
+ * in `files`. */
+let generatedDeclarations: string[] = [];
 
 const prepareManifestKeys = async (
 	targets: readonly AbsoluteServiceConfig[]
@@ -416,15 +419,19 @@ const prepareManifestKeys = async (
 		byRoot.set(root, [...(byRoot.get(root) ?? []), target]);
 	}
 	const written = await Promise.all(
-		[...byRoot].map(([root, configs]) =>
-			writeManifestKeysDeclaration(configs, root)
-		)
+		[...byRoot].flatMap(([root, configs]) => [
+			writeManifestKeysDeclaration(configs, root),
+			writeRouteMapDeclaration(configs, root)
+		])
 	);
-	manifestKeyDeclarations = written.filter(
+	generatedDeclarations = written.filter(
 		(path): path is string => path !== null
 	);
-	if (manifestKeyDeclarations.length === 0) return;
-	const hint = manifestKeysEditorHint(readProjectTsconfig());
+	if (generatedDeclarations.length === 0) return;
+	const hint = manifestKeysEditorHint(
+		readProjectTsconfig(),
+		generatedDeclarations.map((path) => relative(process.cwd(), path))
+	);
 	if (hint) console.log(hint);
 };
 
@@ -491,8 +498,8 @@ const buildVueTscCheck = async (cacheDir: string) => {
 				exclude: getProjectTypecheckExcludes(),
 				extends: resolve('tsconfig.json'),
 				include: getProjectTypecheckIncludes(),
-				...(manifestKeyDeclarations.length > 0
-					? { files: manifestKeyDeclarations }
+				...(generatedDeclarations.length > 0
+					? { files: generatedDeclarations }
 					: {})
 			},
 			null,
@@ -633,7 +640,7 @@ const writeTypecheckConfig = async (
 	const shim = checker === 'vue' ? svelteShimPath : vueShimPath;
 	const shimFiles = [
 		...(shim === null ? [] : [shim]),
-		...manifestKeyDeclarations
+		...generatedDeclarations
 	];
 	await writeIfChanged(
 		tscConfigPath,

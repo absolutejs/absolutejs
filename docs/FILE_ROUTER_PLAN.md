@@ -330,6 +330,50 @@ reactFileRoute<'/blog/:slug', typeof import('./react/routes/blog/[slug]'),
   project's checker sees: with Svelte's ambient `*.svelte` declaration they
   are loose; `absolute typecheck`'s Svelte declaration mirror (or
   `svelte-check`) makes them exact.
+- **Typed links, as `route()` rather than a typed `href` (built).**
+  `route('/blog/:slug', { slug })` builds the URL with the path and its
+  params both checked. The project's routes are derived from the source
+  tree — no build — and written to `.absolutejs/types/routes.d.ts`, which
+  merges them into `AbsoluteRouteMap`, exactly as the manifest keys work.
+  A project with no file routes gets no declaration, so `route()` accepts
+  any path there and nothing existing breaks.
+
+  **Why a function and not a typed `href`.** Because of where links are
+  written. The navigation layer intercepts plain `a[href]`, and the example
+  app is 76 `<a>` to 1 `<Link>`. React, Svelte and Vue do each have a
+  `Link` whose `href` prop a union could check — each framework's own
+  checker checks component props, and `absolute typecheck` runs them — but
+  those are per-framework router links and a small minority of the link
+  sites. Angular's is a directive on a plain `<a>` (`<a absLink href=…>`),
+  so its `href` is the native attribute and not checkable at all, and an
+  `<a href>` anywhere, or a link in an HTML or HTMX route, is beyond any
+  union's reach. A function covers all of it, plus two places a prop
+  cannot go: a server module's `redirect`, and a prefetch call.
+
+  Two things were measured into the types, not reasoned into them. The
+  path union is written as an indexed access over a mapped type rather
+  than `Extract<keyof …, string>`, because only then does TypeScript print
+  the project's routes in the error (`'"/blog/:slug" | "/pricing"'`
+  instead of `'keyof AbsoluteRouteMap'`). And the params tuple stays
+  permissive for a path that is not a route, because a path that is not a
+  route still infers as its own literal: without that branch the params
+  were computed from the constraint and a typo reported "Expected 2
+  arguments, but got 1" without ever naming the path.
+
+  A value with a `/` in it stays a path separator, each part encoded
+  separately. That is what a `[...catchAll]` route needs, and the typed
+  path cannot say which param is the catch-all one — `[...rest]` and
+  `[rest]` are both typed `:rest`. So the rule is uniform, and a `/` in a
+  param that was not meant as a catch-all becomes two segments and fails
+  to match, rather than being encoded to `%2F` and 404ing invisibly.
+
+  **Still open: a link audit.** `route()` cannot catch a literal typo
+  written straight into an `href`, and no type can reach a template or a
+  static `.html`. That belongs to a checker: the same pass that validates
+  `asset(manifest, key)` can collect literal same-origin `href` values
+  from JSX, templates and HTML routes and report ones matching no route.
+  It would need an opt-out for paths registered by hand in Elysia, and it
+  can only judge literals.
 
 ### 2.5 Frameworks and mixing
 

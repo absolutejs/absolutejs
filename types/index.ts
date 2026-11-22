@@ -11,6 +11,7 @@ export * from './i18n';
 export * from './image';
 export * from './island';
 export * from './manifest';
+export * from './routeMap';
 export * from './messages';
 export * from './telemetry';
 export * from './tool';
