@@ -17,6 +17,13 @@
  * unprefixed: the framework reads those paths from disk as well.
  *
  * Set per process with `ABSOLUTE_BASE_PATH`, or `basePath` in the config.
+ *
+ * Some of those prefixes can instead be shared with the app at the origin's
+ * root (`ABSOLUTE_BASE_PATH_SHARED`, or `basePathShared` in the config):
+ * the import map leaves them alone, so they load from the root app. Studio,
+ * under `/studio/projects/<id>`, shares `/react/vendor/` with the platform
+ * at the root, so its page runs on the platform's one React. Both apps must
+ * build the shared modules from the same versions, in the same mode.
  */
 
 /** Module URL prefixes that bundles and the dev module server write as
@@ -33,6 +40,20 @@ export const BASE_PATH_MODULE_PREFIXES = [
 	'/angular/vendor/',
 	'/ember/vendor/'
 ] as const;
+/** The module prefixes this app shares with the app at the origin's root:
+ *  only ones the import map would otherwise move. */
+export const getBasePathShared = () =>
+	parseBasePathShared(process.env.ABSOLUTE_BASE_PATH_SHARED);
+export const parseBasePathShared = (raw: string | undefined) => {
+	const listed = new Set(
+		(raw ?? '')
+			.split(',')
+			.map((prefix) => prefix.trim())
+			.filter(Boolean)
+	);
+
+	return BASE_PATH_MODULE_PREFIXES.filter((prefix) => listed.has(prefix));
+};
 export const getBasePath = () =>
 	normalizeBasePath(process.env.ABSOLUTE_BASE_PATH);
 export const normalizeBasePath = (raw: string | undefined) => {
@@ -57,10 +78,16 @@ const nonceAttribute = (nonce: string | undefined) =>
  * is ignored): the import map, and the base for the browser-side code that
  * builds URLs itself (the HMR client). `''` when there is no base.
  */
-export const basePathHeadTags = (base = getBasePath(), nonce?: string) => {
+export const basePathHeadTags = (
+	base = getBasePath(),
+	nonce?: string,
+	shared: readonly string[] = getBasePathShared()
+) => {
 	if (base === '') return '';
 	const imports = Object.fromEntries(
-		BASE_PATH_MODULE_PREFIXES.map((prefix) => [prefix, `${base}${prefix}`])
+		BASE_PATH_MODULE_PREFIXES.filter(
+			(prefix) => !shared.includes(prefix)
+		).map((prefix) => [prefix, `${base}${prefix}`])
 	);
 	/* Two scope keys: one ending in `/` matches every URL under the base,
 	 * and one without matches the page at the bare base itself, which the

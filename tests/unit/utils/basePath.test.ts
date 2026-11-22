@@ -6,6 +6,7 @@ import {
 } from '../../../src/dev/client/basePath';
 import {
 	basePathHeadTags,
+	parseBasePathShared,
 	getBasePath,
 	insertAfterHeadOpen,
 	normalizeBasePath,
@@ -75,6 +76,24 @@ describe('base path', () => {
 		}
 		expect(html).toContain('window.__ABSOLUTE_BASE_PATH__="/s/p";');
 		expect(basePathHeadTags('')).toBe('');
+	});
+
+	test('shared prefixes load from the root app: the map leaves them alone', () => {
+		const html = basePathHeadTags('/s/p', undefined, ['/react/vendor/']);
+		const map = JSON.parse(
+			/<script type="importmap" data-absolute-base-path>(.*?)<\/script>/.exec(
+				html
+			)?.[1] ?? '{}'
+		);
+		expect(map.scopes['/s/p/']['/react/vendor/']).toBeUndefined();
+		expect(map.scopes['/s/p/']['/@src/']).toBe('/s/p/@src/');
+	});
+
+	test('only known module prefixes can be shared', () => {
+		expect(parseBasePathShared('/react/vendor/, /etc/ ,')).toEqual([
+			'/react/vendor/'
+		]);
+		expect(parseBasePathShared(undefined)).toEqual([]);
 	});
 
 	test('the base cannot close the script it is written into', () => {

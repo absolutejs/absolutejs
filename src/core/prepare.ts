@@ -776,6 +776,11 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 	// else the config's (read everywhere through getBasePath()).
 	if (process.env.ABSOLUTE_BASE_PATH === undefined && config.basePath)
 		process.env.ABSOLUTE_BASE_PATH = config.basePath;
+	if (
+		process.env.ABSOLUTE_BASE_PATH_SHARED === undefined &&
+		config.basePathShared
+	)
+		process.env.ABSOLUTE_BASE_PATH_SHARED = config.basePathShared.join(',');
 	// Angular zone.js mode must patch the process before the app listens.
 	if (config.angular?.changeDetection === 'zone')
 		await installAngularZoneRuntime();
