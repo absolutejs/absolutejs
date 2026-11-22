@@ -14,6 +14,9 @@ globalThis.__transformCache = cache;
 const importers =
 	globalThis.__transformImporters ?? new Map<string, Set<string>>();
 globalThis.__transformImporters = importers;
+const dependencies =
+	globalThis.__transformDependencies ?? new Map<string, string[]>();
+globalThis.__transformDependencies = dependencies;
 
 // Cache entries are invalidated by invalidateModule() when files
 // change — no need to re-stat on every read. If it's in the cache,
@@ -28,6 +31,12 @@ export const setTransformed = (
 	imports?: string[]
 ) => {
 	const resolvedImports = imports ?? [];
+	for (const old of dependencies.get(filePath) ?? []) {
+		const parents = importers.get(old);
+		parents?.delete(filePath);
+		if (!parents?.size) importers.delete(old);
+	}
+	dependencies.set(filePath, resolvedImports);
 	cache.set(filePath, { content, imports: resolvedImports, mtime });
 
 	// Update reverse dependency map
@@ -80,6 +89,14 @@ export const findNearestComponent = (filePath: string) => {
 
 	return undefined;
 };
+export const transitiveImporters = (file: string) => {
+	const files = new Set([file]);
+	for (const current of files) {
+		for (const parent of importers.get(current) ?? []) files.add(parent);
+	}
+	return files;
+};
+
 export const getInvalidationVersion = (filePath: string) =>
 	invalidationVersions.get(filePath) ?? 0;
 /**
@@ -123,5 +140,6 @@ export const invalidate = (filePath: string) => {
 export const invalidateAll = () => {
 	cache.clear();
 	importers.clear();
+	dependencies.clear();
 	invalidationVersions.clear();
 };

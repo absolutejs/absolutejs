@@ -1,3 +1,4 @@
+import { CLIENT_MODULE_PREFIX, clientModuleBootstrap } from './clientModuleHmr';
 import { BASE_36_RADIX, UNFOUND_INDEX } from '../constants';
 import { lowerSvelteRoutePages } from '../svelte/lowerRoutePages';
 import { splitRoutePages } from '../build/splitRoutePages';
@@ -1906,6 +1907,8 @@ export const createModuleServer = (config: ModuleServerConfig) => {
 	}
 
 	return async (pathname: string) => {
+		if (pathname.startsWith(CLIENT_MODULE_PREFIX))
+			return jsResponse(clientModuleBootstrap(pathname));
 		if (pathname.startsWith('/@stub/')) return handleStubRequest(pathname);
 		if (pathname.startsWith('/@hmr/'))
 			return handleHmrBootstrap(pathname, vendorPaths);

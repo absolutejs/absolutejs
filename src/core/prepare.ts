@@ -1,3 +1,4 @@
+import { CLIENT_MODULE_PREFIX } from '../dev/clientModuleHmr';
 import { createHash } from 'node:crypto';
 import {
 	clientModuleManifestKey,
@@ -473,7 +474,7 @@ const prepareDev = async (
 		process.cwd()
 	))
 		result.manifest[clientModuleManifestKey(name)] =
-			`${SRC_URL_PREFIX}${encodeSrcPath(relative(process.cwd(), source))}`;
+			`${CLIENT_MODULE_PREFIX}${encodeSrcPath(relative(process.cwd(), source))}`;
 	recordStep('configure dev plugins', stepStartedAt);
 
 	// Load convention files (error/loading/not-found) into the runtime registry
