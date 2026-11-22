@@ -536,6 +536,12 @@ export type BaseBuildConfig = {
 	 * app renders itself (a stylesheet `<link>`).
 	 */
 	basePath?: string;
+	/** Module prefixes (`'/react/vendor/'`) an app under `basePath` loads
+	 *  from the app at the origin's root instead of its own, so the page
+	 *  runs on that app's copy (one React). Both apps must build them from
+	 *  the same versions, in the same mode. Per process:
+	 *  `ABSOLUTE_BASE_PATH_SHARED`, comma separated. */
+	basePathShared?: readonly string[];
 	buildDirectory?: string;
 	assetsDirectory?: string;
 	publicDirectory?: string;
