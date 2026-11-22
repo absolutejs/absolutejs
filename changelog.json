@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "An app served under a base path puts an import map first in its pages, so its root-absolute module paths (`/@src/…`, `/react/vendor/…`) resolve under the base. That map applied to every module in the document: a module another app on the same origin serves at its own root, imported into the page (Studio, under `/studio/projects/<id>`, mounting the portal's Settings module), had its imports sent to the base app instead. The map is now scoped to the base path (both the page at the bare base and everything under it), so the base app's modules resolve exactly as before and another app's module keeps its own paths.",
+					"kind": "fixed",
+					"summary": "A base path's import map applies only to that app's modules, not to another app's module imported into its page"
+				}
+			],
+			"date": "2026-11-22",
+			"version": "0.20.0-beta.294"
+		},
+		{
+			"changes": [
+				{
 					"detail": "A disruptive changelog entry can declare a migration, and `@absolutejs/changelog` exports the apparatus for applying one — but nothing in this CLI read them, so a project several releases behind had to read every entry to learn what its own code needed. `absolute upgrade` now does: it reads the version actually installed in `node_modules` (not whatever the manifest range allows, since those disagree in any project that has not reinstalled), fetches the published changelog for the target, asks the library for the migrations between the two in the order they happened, applies the mechanical ones and lists the rest with the release that introduced each. `--to <version>` picks a target other than the latest, and `--dry-run` reports without writing. Measured against this package's own history, which is also why it reports as loudly as it edits: of 349 released entries, 9 declare a migration and only 3 of those are mechanical — two dependency ranges and one rename of Elysia's lifecycle hooks — while 6 are instructions for a person. Verified end to end against a project pinned to 0.20.0-beta.140 upgrading to beta.291: `elysia` goes from `1.4.0` to `^2.0.0-rc.0` in the manifest, `.beforeHandle(`, `.afterHandle(` and `.error(` become their `on*` names in the source, and the six manual instructions print with their versions. The installed version in `package.json` is deliberately left alone: which range a project wants, and which package manager writes its lockfile, are not this command's to decide, and a manifest edited to a version nobody installed would be worse than one untouched — so it ends by naming the `bun add` to run. Order is the library's: a symbol renamed in one release and moved in the next has to be renamed first, or the move looks for a name that is no longer there.",
 					"kind": "added",
 					"summary": "absolute upgrade applies the migrations between two versions"
