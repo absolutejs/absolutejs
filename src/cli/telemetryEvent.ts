@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { arch, platform } from 'node:os';
 import { dirname, join, parse } from 'node:path';
 import type { TelemetryEvent } from '../../types/telemetry';
-import { getTelemetryConfig } from './scripts/telemetry';
+import { getTelemetryConfig, telemetryOptOut } from './scripts/telemetry';
 
 const checkCandidate = (candidate: string) => {
 	if (!existsSync(candidate)) {
@@ -47,7 +47,9 @@ export const sendTelemetryEvent = (
 	payload: Record<string, unknown>
 ) => {
 	try {
-		if (process.env.TELEMETRY_OFF === '1') return;
+		/* Before the config is read and before a body is built: an opt-out
+		 * should not cause a file read or a version walk either. */
+		if (telemetryOptOut() !== null) return;
 		const config = getTelemetryConfig();
 		if (!config?.enabled) return;
 
