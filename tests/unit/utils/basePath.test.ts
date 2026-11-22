@@ -64,8 +64,15 @@ describe('base path', () => {
 				html
 			)?.[1] ?? '{}'
 		);
-		expect(map.imports['/@src/']).toBe('/s/p/@src/');
-		expect(map.imports['/react/vendor/']).toBe('/s/p/react/vendor/');
+		// Scoped to the base: the page and everything served under it, and
+		// nothing another app serves at the origin's root.
+		expect(map.imports).toBeUndefined();
+		for (const scope of ['/s/p', '/s/p/']) {
+			expect(map.scopes[scope]['/@src/']).toBe('/s/p/@src/');
+			expect(map.scopes[scope]['/react/vendor/']).toBe(
+				'/s/p/react/vendor/'
+			);
+		}
 		expect(html).toContain('window.__ABSOLUTE_BASE_PATH__="/s/p";');
 		expect(basePathHeadTags('')).toBe('');
 	});
