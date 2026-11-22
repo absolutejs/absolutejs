@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "`buildDirectory` in `absolute.config.ts` was overwritten before it was read, so the CLI ignored it. Measured on this repository's own example app, whose config says `example/build`: `absolute build` wrote `./build`, `absolute start` wrote `./dist`, and `prepare()` — which is what the project's own server calls — read `./example/build`. Three directories for one concept. The documented flow of building and then serving therefore read a directory the build never wrote, for any project whose config did not happen to say `build`, and nothing failed loudly: the build succeeded, the server started, and pages 404ed or served stale assets. Both example configs in the README say exactly `build`, which is what kept it hidden. `absolute analyze` was wrong in the same way and visibly so — on the example app it reported 26 KB across two categories, reading a stale leftover, where the build it was describing is 705 KB across five. Both commands now resolve `--outdir`, else the config's `buildDirectory`, else their previous default. An explicit `--outdir` still wins. `absolute start --prebuilt` keeps the `dist` default, because it reads the config its build wrote rather than importing `absolute.config.ts` and so cannot know the project's directory before it has found the build; its \"not found\" error now says to pass `--outdir`.",
+					"kind": "fixed",
+					"summary": "the CLI honours `buildDirectory` from the config"
+				}
+			],
+			"date": "2026-11-22",
+			"version": "0.20.0-beta.302"
+		},
+		{
+			"changes": [
+				{
 					"detail": "The dev error overlay knew the file, line and column and printed them as plain text, with at most the single offending line underneath — which is all Bun's `BuildMessage.position` carries, and often the least informative line in the file (`}` or `);`) with no line number to count from. There was nothing to click and nothing to orient by. A build failure now carries the lines around the error, read off disk by the dev server because the browser cannot read the filesystem, and the overlay renders them numbered with a caret on the reported column. The file path above the frame is a button that opens the file at that line: set `ABSOLUTE_EDITOR`, `LAUNCH_EDITOR` or `EDITOR` to `code`, `cursor`, `subl`, `webstorm`, `nvim` and the rest, and the argument shape per editor family is handled for you. With none set the button says which variable to set rather than guessing at an installed editor. The endpoint that launches it is dev-only, refuses any path resolving outside the project, requires the file to exist, takes the editor command from the environment and never from the request, and passes the path as an argv entry with no shell.",
 					"kind": "added",
 					"summary": "the dev error overlay shows a code frame and opens the file in your editor",
