@@ -1,9 +1,26 @@
+/** One line of an error's code frame, as the dev server read it off disk.
+ *  The browser cannot read the filesystem, so the surrounding lines have
+ *  to arrive with the error. */
+export type ErrorOverlayFrameLine = {
+	/** Zero-based column to point a caret at; only on the error line. */
+	caretColumn?: number;
+	isError: boolean;
+	/** One-based line number, as it appears in the file. */
+	number: number;
+	text: string;
+};
+
 export type ErrorOverlayOptions = {
 	column?: number;
+	/** Lines around the error. When present the overlay renders a numbered
+	 *  frame with a caret instead of the bare `lineText`. */
+	codeFrame?: { lines: ErrorOverlayFrameLine[] };
 	file?: string;
 	framework?: string;
 	kind?: 'compilation' | 'runtime';
 	line?: number;
+	/** The single offending line, which is all Bun's `BuildMessage`
+	 *  carries. Still the fallback when no frame could be read. */
 	lineText?: string;
 	message?: string;
 	/** Full Error.stack (or pre-formatted multi-line trace). Optional —

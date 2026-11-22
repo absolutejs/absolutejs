@@ -1,4 +1,5 @@
 import { changeNeedsRestart } from './restartScope';
+import { readCodeFrame } from './codeFrame';
 import { existsSync, readdirSync, rmSync, statSync } from 'node:fs';
 import {
 	basename,
@@ -294,6 +295,37 @@ const extractBuildErrorDetails = (
 	}
 
 	return { ...parsed, framework: detectedFw };
+};
+
+/* Every path that reports a build failure to the browser goes through
+ * here, so the code frame is read in one place rather than at each of the
+ * four broadcast sites.
+ *
+ * It has to happen on this side: the overlay cannot read the filesystem,
+ * and Bun's `BuildMessage.position` carries only the single offending
+ * line — which is often the least informative line in the file, with no
+ * number to count from. */
+const broadcastRebuildError = (
+	state: HMRState,
+	message: { data: Record<string, unknown>; type: string } & Record<
+		string,
+		unknown
+	>
+) => {
+	const { column, file, line } = message.data;
+	const frame =
+		typeof file === 'string' && typeof line === 'number'
+			? readCodeFrame(file, {
+					column: typeof column === 'number' ? column : undefined,
+					line
+				})
+			: null;
+	broadcastToClients(
+		state,
+		frame === null
+			? message
+			: { ...message, data: { ...message.data, codeFrame: frame } }
+	);
 };
 
 const isValidDeletedAffectedFile = (
@@ -1766,7 +1798,7 @@ const broadcastAngularUserError = (
 	const message = failure.detail
 		? `${failure.reason}: ${failure.detail}`
 		: failure.reason;
-	broadcastToClients(state, {
+	broadcastRebuildError(state, {
 		data: {
 			affectedFrameworks: ['angular'],
 			column: failure.column,
@@ -2626,7 +2658,7 @@ const handleReactModuleServerPath = async (
 	if (failed?.error) {
 		// The browser keeps the running page; the overlay names the error,
 		// and the save that fixes it arrives as a normal react-update.
-		broadcastToClients(state, {
+		broadcastRebuildError(state, {
 			data: {
 				affectedFrameworks: ['react'],
 				column: failed.error.column,
@@ -5703,7 +5735,7 @@ const performFullRebuild = async (
 		if (onDemandPage && state.lazyPages) {
 			state.lazyPages.lastError = first?.message ?? 'Build failed';
 		}
-		broadcastToClients(state, {
+		broadcastRebuildError(state, {
 			data: {
 				affectedFrameworks,
 				column: first?.column,
@@ -6033,7 +6065,7 @@ export const triggerRebuild = async (
 			affectedFrameworks,
 			state.resolvedPaths
 		);
-		broadcastToClients(state, {
+		broadcastRebuildError(state, {
 			data: {
 				affectedFrameworks,
 				error: error instanceof Error ? error.message : String(error),
