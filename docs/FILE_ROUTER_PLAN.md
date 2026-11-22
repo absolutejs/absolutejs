@@ -112,6 +112,19 @@ export const server = new Elysia()
   in production and warnings in dev, listing every offending file.
 - Precedence between static and param routes at the same depth is Elysia's
   router's (static wins), the same as hand-written routes.
+- **A layout's island persists across the routes under it (built).** With
+  `navigation: true`, an island declared once in a layout with a `persist`
+  key keeps running while the routes below change: every route under that
+  layout renders the same key, which is what the navigation layer matches
+  on, so the live element is moved rather than re-created. Leaving the
+  layout tears it down, because a key the incoming page does not render is
+  deliberately not persisted — the island must not outlive the layout that
+  declared it. No new mechanism was needed for this; it is what 4.2 and
+  4.3 compose to, and `tests/integration/server/react-route-layouts-browser`
+  is the evidence (mount count, destroy flag and carried DOM state, not
+  "the island is still on the page", which a re-created one satisfies).
+  An automatically derived key is still open: the key is written once, in
+  the layout, but it is written.
 - **Nested layouts (built, React).** A `layout.<ext>` wraps its own folder
   and everything below it, so a route's chain is every layout from the
   route root down to its own folder, outermost first. A `(group)` folder

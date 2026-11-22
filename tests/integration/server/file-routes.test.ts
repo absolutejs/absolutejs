@@ -93,7 +93,7 @@ const expectRoutes = async (port: number) => {
 	 * mistake a `reduce` instead of a `reduceRight` would make — hence a
 	 * single ordered match. */
 	expect(
-		/<div id="marketing-layout">\s*<section id="plans-layout">[\s\S]*FILE_PRICING/.test(
+		/<div id="marketing-layout">[\s\S]*?<section id="plans-layout">[\s\S]*?FILE_PRICING/.test(
 			pricing.body
 		)
 	).toBe(true);
