@@ -413,6 +413,46 @@ describe('route module', () => {
 		}
 	});
 
+	/* An Angular page takes no props: data reaches it as the page's
+	 * request context, so a route's `load` returns that and the middle type
+	 * argument is the page's `Context`. It is a type-only export, which
+	 * `typeof import()` cannot see, so the page is typed with a
+	 * type-level `import(page).Context` — and only when the page really
+	 * exports one, since naming a type that is not there is a type error
+	 * in the generated module. */
+	test('types an Angular route against the page Context it exports', async () => {
+		const root = await makeProject({
+			'angular/routes/admin/[id].server.ts': '',
+			'angular/routes/admin/[id].ts':
+				'export type Context = { id: string };\n',
+			'angular/routes/plain.ts': 'export class PlainComponent {}\n'
+		});
+		const cwd = process.cwd();
+		process.chdir(root);
+		try {
+			syncFileRoutes({
+				angularDirectory: 'angular',
+				fileRoutes: { output: 'routes.gen.ts' }
+			});
+			const source = await readFile(join(root, 'routes.gen.ts'), 'utf-8');
+
+			expect(source).toContain(
+				"import { angularFileRoute } from '@absolutejs/absolute/angular/server';"
+			);
+			expect(source).toContain(
+				"import('./angular/routes/admin/[id]').Context,"
+			);
+			// No `Context` export: permissive rather than a type error.
+			expect(source).toContain('Record<string, unknown>,');
+			// Angular renders from the manifest, so no page import.
+			expect(source).not.toContain(
+				"page: () => import('./angular/routes"
+			);
+		} finally {
+			process.chdir(cwd);
+		}
+	});
+
 	test('an app with no routes still exports an empty tree', () => {
 		expect(renderFileRouteModule([], '/app/routes.gen.ts')).toContain(
 			'export const routeTree: readonly FileRouteDefinition[] = [];'

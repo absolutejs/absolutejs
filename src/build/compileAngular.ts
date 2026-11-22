@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, promises as fs } from 'fs';
 import { splitAngularRoutePages } from '../angular/splitRoutePages';
+import { fileRouteFor } from './fileRoutes';
 import { join, basename, sep, dirname, resolve, relative } from 'path';
 import type { CompilerOptions } from '@angular/compiler-cli';
 import { Glob } from 'bun';
@@ -2193,7 +2194,15 @@ export const compileAngular = async (
 					entry: resolvedEntry
 				})
 			: aotOutputs;
-		const fileBase = basename(resolvedEntry).replace(/\.[tj]s$/, '');
+		/* A file route is named after the route, not after its source
+		 * file. Manifest keys come from an output's file NAME, so a route
+		 * at `routes/blog/[slug].ts` would otherwise be keyed from
+		 * `[slug]` and collide with every other `[slug]` in the app. Only
+		 * the emitted names change; `relativeEntry` below still matches the
+		 * Angular compiler's own output, which is keyed on the source. */
+		const fileRoute = fileRouteFor(resolvedEntry);
+		const fileBase =
+			fileRoute?.name ?? basename(resolvedEntry).replace(/\.[tj]s$/, '');
 		const jsName = `${fileBase}.js`;
 		const compiledFallbackPaths = [
 			join(compiledRoot, relativeEntry),
@@ -2271,6 +2280,17 @@ export const compileAngular = async (
 			() => fs.readFile(rawServerFile, 'utf-8'),
 			{ entry: resolvedEntry }
 		);
+
+		/* Where the rewritten server module is written. The Angular
+		 * compiler emits under the SOURCE name, which is how
+		 * `resolveRawServerFile` finds it; a file route's rewritten module
+		 * is then written beside it under the route's name, because the
+		 * server bundle's output name becomes the page's manifest key.
+		 * Same directory, so every relative specifier computed from
+		 * `dirname(rawServerFile)` below is unaffected. */
+		const serverOutputFile = fileRoute
+			? join(dirname(rawServerFile), jsName)
+			: rawServerFile;
 
 		// Detect the actual exported class so the generated `export default`
 		// (and the client-bundle wrappers below) reference a real symbol.
@@ -2356,7 +2376,7 @@ export const compileAngular = async (
 			return {
 				clientPath: clientFile,
 				indexUnchanged: true,
-				serverPath: rawServerFile
+				serverPath: serverOutputFile
 			};
 		}
 
@@ -2493,13 +2513,13 @@ export const compileAngular = async (
 
 		await traceAngularPhase(
 			'wrapper/write-server-output',
-			() => writeTextFileAtomically(rawServerFile, rewritten),
+			() => writeTextFileAtomically(serverOutputFile, rewritten),
 			{ entry: resolvedEntry }
 		);
 
 		// Calculate relative path from indexes directory to the server file
 		// This handles deeply nested paths that Angular compiler may create
-		const relativePath = relative(indexesDir, rawServerFile).replace(
+		const relativePath = relative(indexesDir, serverOutputFile).replace(
 			/\\/g,
 			'/'
 		);
@@ -2806,7 +2826,7 @@ Reflect.set(globalThis, __abs_routerHandoffKey, __abs_routerHandoff);
 		return {
 			clientPath: clientFile,
 			indexUnchanged,
-			serverPath: rawServerFile
+			serverPath: serverOutputFile
 		};
 	});
 

@@ -8,7 +8,8 @@ import type { Context } from 'elysia';
  * that can answer the request itself). The build writes a route module
  * (`fileRoutes.output`) the server passes to `fileRoutes()`. */
 
-export type FileRouteFramework = 'html' | 'htmx' | 'react' | 'svelte' | 'vue';
+export type FileRouteFramework =
+	'angular' | 'html' | 'htmx' | 'react' | 'svelte' | 'vue';
 
 export type FileRoutesConfig = {
 	/** Folder inside each framework directory that holds route files.

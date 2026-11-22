@@ -9,5 +9,6 @@ export {
 	DETERMINISTIC_SEED,
 	provideDeterministicEnv
 } from './deterministicEnv';
+export { angularFileRoute } from './fileRoute';
 export { handleAngularPageRequest } from './pageHandler';
 export { withPendingTask } from './pendingTask';

@@ -1176,6 +1176,7 @@ const buildUnlocked = async ({
 	await tracePhase('file-routes/scan', async () =>
 		reportFileRouteProblems(
 			syncFileRoutes({
+				angularDirectory,
 				fileRoutes,
 				htmlDirectory,
 				htmxDirectory,
@@ -1571,7 +1572,10 @@ const buildUnlocked = async ({
 		...vueConventionResult.pageFiles,
 		...fileRoutesOf('vue').map((route) => route.source)
 	];
-	const allAngularEntries = angularConventionResult.pageFiles;
+	const allAngularEntries = [
+		...angularConventionResult.pageFiles,
+		...fileRoutesOf('angular').map((route) => route.source)
+	];
 	const allEmberEntries = emberConventionResult.pageFiles;
 
 	const conventionsMap: ConventionsMap = {};

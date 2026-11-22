@@ -1,7 +1,8 @@
 import { mkdir, readdir, symlink, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 
-/* A small app that opts into file routes (React, Svelte, Vue, HTML, HTMX).
+/* A small app that opts into file routes (every framework: React, Svelte,
+ * Vue, Angular, HTML, HTMX).
  * Written from
  * strings so the repo typecheck never sees its `@absolutejs/absolute`
  * imports, which resolve to an older published package from the repo root. */
@@ -11,6 +12,7 @@ const repoRoot = resolve(import.meta.dir, '..', '..');
 const CONFIG = `import { defineConfig } from '@absolutejs/absolute';
 
 export default defineConfig({
+	angularDirectory: './angular',
 	buildDirectory: './build',
 	fileRoutes: { output: './routes.gen.ts' },
 	htmlDirectory: './html',
@@ -46,14 +48,40 @@ const reactDocument = (title: string, body: string) => `<html lang="en">
 
 export const FILE_ROUTES_FIXTURE: Record<string, string> = {
 	'absolute.config.ts': CONFIG,
-	'html/pages/HtmlHome.html': `<!doctype html>
-<html lang="en"><head><title>Home</title></head>
-<body><p>HTML_PAGE_HOME</p></body></html>
-`,
 	/* The three Phase 2 segment kinds. A catch-all reads its param under
 	 * the name the file gave it, not Elysia's `*`; an optional segment
 	 * serves two paths from this one file, and its `load` runs on both; a
 	 * group contributes no path segment at all. */
+	/* An Angular route. Its `load` returns the page's request CONTEXT —
+	 * Angular components take no props — which the component reads with
+	 * `usePageContext`. The `Context` export is what the generated module
+	 * types that `load` against. */
+	'angular/routes/reports/[period].server.ts': `import type { FileRouteContext } from '@absolutejs/absolute';
+
+export const load = ({ params }: FileRouteContext<'/reports/:period'>) => ({
+	period: \`PERIOD_\${params.period}\`
+});
+`,
+	'angular/routes/reports/[period].ts': `import { Component, inject, REQUEST_CONTEXT } from '@angular/core';
+
+export type Context = { period: string };
+
+@Component({
+	selector: 'abs-report-page',
+	standalone: true,
+	template: \`<main><p id="period">{{ period }}</p></main>\`
+})
+export class ReportPageComponent {
+	private readonly ctx = inject(REQUEST_CONTEXT, {
+		optional: true
+	}) as Context | null;
+	period = this.ctx?.period ?? 'NO_CONTEXT';
+}
+`,
+	'html/pages/HtmlHome.html': `<!doctype html>
+<html lang="en"><head><title>Home</title></head>
+<body><p>HTML_PAGE_HOME</p></body></html>
+`,
 	/* A static route with a partial it includes. The partial lives outside
 	 * `routes/`, and `<abs-include>` resolves against the page's SOURCE
 	 * location — which is why a route's output tree mirrors its source

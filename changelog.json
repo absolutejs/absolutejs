@@ -5,6 +5,21 @@
 		{
 			"changes": [
 				{
+					"detail": "An `angularDirectory` app can put pages in `<angularDirectory>/routes/` and serve them through the generated route module, which completes file routing for every framework the project supports. An Angular page takes no props — data reaches a component as the page`s request context — so a route`s `load` returns that context, and the page`s `Context` export is what the generated module types it against. `Context` is a type-only export that `typeof import(page)` cannot reach, so the module writes a type-level `import(page).Context` when the page exports one and falls back to a permissive record when it does not. The compiled server module and hydration index are renamed to the route`s flat page name in place, keeping their folder, because a manifest key comes from an output`s file name and two routes called `[id]` in different folders would otherwise claim one key.",
+					"kind": "added",
+					"summary": "Angular pages can be file routes",
+					"symbols": [
+						"FileRouteFramework",
+						"angularFileRoute"
+					]
+				}
+			],
+			"date": "2026-11-22",
+			"version": "0.20.0-beta.273"
+		},
+		{
+			"changes": [
+				{
 					"detail": "An `htmlDirectory` or `htmxDirectory` app can put pages in its `routes/` folder and serve them through the generated route module, alongside React, Svelte and Vue routes in one URL space. A static page is served as the file the build produced, so only static segments and `(group)` folders are allowed — a `[param]` is a build error naming the segment, because a matched value would have nowhere to go and every value would serve byte-identical markup. A server module may export `beforeHandle` to guard the route; `load` is not part of the type, since props it returned would be dropped. The route tree is copied to `<build>/<dir>/routes` and post-processed exactly like `pages/` rather than being renamed into it, because `<abs-include>` resolves against a page`s source location: a flattened route would compute a source path that does not exist and its includes would quietly expand to nothing. The route tree is also scanned recursively, since nesting is the point of it; the `pages/` scan is unchanged and still sees only its top level. A static framework directory that has `routes/` and no `pages/` no longer fails the build.",
 					"kind": "added",
 					"summary": "HTML and HTMX pages can be file routes",
