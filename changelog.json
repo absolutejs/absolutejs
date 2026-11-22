@@ -5,6 +5,26 @@
 		{
 			"changes": [
 				{
+					"detail": "A new `@absolutejs/absolute/testing` subpath exports `startProject`, `waitForServer`, `fetchPage`, `getAvailablePort` and a reversible file-mutation registry (`mutateFile`, `mutateFileInPlace`, `createFile`, `renameFile`, `restoreFile`, `restoreAllFiles`, `withFileMutation`). This repository had a harness for all of it, but it was wired to this repository: the project root came from the helper's own location, the entry and config defaulted to `example/`, and the child ran `src/cli/index.ts` from source. None of that exists in a project that installs the package, so there was no supported way to boot an app in a test — everyone rewrote the spawn, the readiness probe and the teardown, and the teardown is the part that goes wrong. `startProject` runs the `absolute` binary the project has installed, from the project directory, on a free port, and its `kill()` throws if anything is still listening afterwards, because a leaked server fails the next test rather than the one that caused it. Verified end to end from a project outside this repository in both modes. The package's own `tests/helpers` now re-export these, so there is one implementation. Browser helpers are excluded on purpose: they need Playwright, and a test harness should not make a browser a dependency of the framework.",
+					"kind": "added",
+					"summary": "a published test harness at `@absolutejs/absolute/testing`"
+				},
+				{
+					"detail": "`restoreFile` undid the FIRST recorded edit for a path rather than the most recent. A fixture that is created and then mutated — `createFile` then `mutateFile`, which is what a hot-reload test does — records two entries for one path, so `restoreFile` undid the creation: it deleted a file the caller only wanted un-mutated, and left the mutation entry behind for `restoreAllFiles` to resurrect the file from with pre-mutation content. `withFileMutation` is built on it, so the same thing happened on its failure path — the one case it exists to cover. It now undoes the newest edit, which makes mutate / restore / mutate cycles work on a created fixture and leaves the creation for the final cleanup. Found by writing the first tests for this code as it was published; `restoreAllFiles` was already correct and is unchanged.",
+					"kind": "fixed",
+					"summary": "`restoreFile` undoes the latest edit to a file, not the first",
+					"symbols": [
+						"restoreFile",
+						"withFileMutation"
+					]
+				}
+			],
+			"date": "2026-11-22",
+			"version": "0.20.0-beta.299"
+		},
+		{
+			"changes": [
+				{
 					"detail": "`DO_NOT_TRACK` is the cross-tool convention: a person sets it once and expects every CLI on the machine to stop, without configuring each one. This CLI ignored it — measured with telemetry enabled and `DO_NOT_TRACK=1` exported, the POST to absolutejs.com still went out. A standard opt-out that is silently ignored is worse than none, because the person believes they are covered. Both `DO_NOT_TRACK` and `TELEMETRY_OFF` are now checked before the saved config is read and before any request body is built, and both accept any value that is not empty, `0` or `false` — the previous `TELEMETRY_OFF` check was `=== \"1\"`, so `TELEMETRY_OFF=true` sent anyway. `absolute telemetry status` now says which variable suppressed it rather than reporting \"enabled\" while nothing is sent, and `telemetry enable` says the setting will not take effect while one is set. Telemetry remains off until explicitly enabled; the README now documents that, what is sent, and that error events carry the error message, which can contain paths from the machine.",
 					"kind": "fixed",
 					"summary": "the CLI honours DO_NOT_TRACK"

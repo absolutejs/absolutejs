@@ -1,18 +1,3 @@
-import { createServer } from 'net';
-
-export const getAvailablePort = () =>
-	new Promise<number>((resolve, reject) => {
-		const server = createServer();
-		server.listen(0, '127.0.0.1', () => {
-			const addr = server.address();
-			if (!addr || typeof addr === 'string') {
-				server.close();
-				reject(new Error('Could not get port'));
-
-				return;
-			}
-			const { port } = addr;
-			server.close(() => resolve(port));
-		});
-		server.on('error', reject);
-	});
+/* Re-export of the published helper, so this repository's 41 consumers
+ * and a user's project exercise the same implementation. */
+export { getAvailablePort } from '../../src/testing/ports';

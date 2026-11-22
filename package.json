@@ -308,6 +308,10 @@
 			"import": "./dist/svelte/server.js",
 			"types": "./dist/src/svelte/server.d.ts"
 		},
+		"./testing": {
+			"import": "./dist/testing/index.js",
+			"types": "./dist/src/testing/index.d.ts"
+		},
 		"./tunnel": {
 			"import": "./dist/tunnel.js",
 			"types": "./dist/src/tunnel.d.ts"
@@ -605,7 +609,7 @@
 			]
 		}
 	},
-	"version": "0.20.0-beta.298",
+	"version": "0.20.0-beta.299",
 	"workspaces": [
 		"tests/fixtures/*",
 		"tests/fixtures/_packages/*"

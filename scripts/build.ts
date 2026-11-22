@@ -158,6 +158,9 @@ const SERVER_ENTRY_POINTS = [
 	// not a re-export: importing it must pull in nothing else.
 	'src/serverOnly.ts',
 	'src/tunnel.ts',
+	// Published as `@absolutejs/absolute/testing`. Its own entry point so a
+	// test harness never pulls the build pipeline into a project's bundle.
+	'src/testing/index.ts',
 	'src/angular/index.ts',
 	'src/angular/browser.ts',
 	'src/angular/server.ts',
