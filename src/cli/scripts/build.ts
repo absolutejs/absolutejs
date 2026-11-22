@@ -82,12 +82,26 @@ export const build = async (
 	configPath?: string,
 	profile = false
 ) => {
-	const resolvedOutdir = resolve(outdir ?? 'build');
 	const buildStart = performance.now();
 	if (profile) process.env.ABSOLUTE_BUILD_TRACE = '1';
 	process.stdout.write(cliTag('\x1b[36m', 'Building assets'));
 
 	const buildConfig = await loadConfig(configPath);
+	/* `--outdir`, else what the config says, else `build`.
+	 *
+	 * The config's `buildDirectory` used to be overwritten before it was
+	 * read, so this command always wrote `./build`. Nothing else agreed:
+	 * `prepare()` — which is what the project's own server calls — reads
+	 * `config.buildDirectory ?? 'build'`, and so does `absolute analyze`.
+	 * For any project whose config does not happen to say `build`, the
+	 * documented flow of building and then serving read a directory the
+	 * build never wrote, and nothing failed loudly: the build succeeded,
+	 * the server started, and pages 404ed or served stale assets. Both
+	 * example configs in the README say exactly `build`, which is what
+	 * kept it hidden. */
+	const resolvedOutdir = resolve(
+		outdir ?? buildConfig.buildDirectory ?? 'build'
+	);
 	buildConfig.buildDirectory = resolvedOutdir;
 	buildConfig.mode = 'production';
 

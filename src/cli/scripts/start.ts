@@ -386,7 +386,13 @@ export const start = async (
 	killStaleProcesses(port);
 
 	const entryName = basename(serverEntry).replace(/\.[^.]+$/, '');
-	const resolvedOutdir = resolve(outdir ?? 'dist');
+	/* `--prebuilt` reads the config its build wrote rather than importing
+	 * `absolute.config.ts`, so it cannot know the project's
+	 * `buildDirectory` before it has found the build. It keeps the `dist`
+	 * default; a project whose config says something else passes
+	 * `--outdir`, and the error below says so. A fresh start resolves the
+	 * directory from the config further down, once it is loaded. */
+	const prebuiltOutdir = resolve(outdir ?? 'dist');
 
 	// ── Resolve package version ─────────────────────────────────────
 	const absoluteVersion = resolvePackageVersion([
@@ -397,9 +403,17 @@ export const start = async (
 	// (productionRuntime.ts) rather than importing absolute.config.ts,
 	// which also loads everything the config imports into this process.
 	const builtConfig = options.prebuilt
-		? readProductionRuntime(resolvedOutdir)
+		? readProductionRuntime(prebuiltOutdir)
 		: null;
 	const buildConfig = builtConfig ?? (await loadConfig(configPath));
+	/* `--outdir`, else what the config declares, else `dist`. The config's
+	 * `buildDirectory` used to be overwritten before it was read, so this
+	 * command always wrote `dist` while `absolute build` wrote `build` and
+	 * the server's own `prepare()` read a third directory. */
+	const resolvedOutdir =
+		outdir === undefined && builtConfig === null
+			? resolve(buildConfig.buildDirectory ?? 'dist')
+			: prebuiltOutdir;
 	buildConfig.buildDirectory = resolvedOutdir;
 	buildConfig.mode = 'production';
 	if (buildConfig.mobile)
@@ -420,8 +434,17 @@ export const start = async (
 
 	if (options.prebuilt) {
 		if (!existsSync(outputPath)) {
+			/* The likeliest cause, now that `absolute build` honours the
+			 * config: the build wrote the directory the config declares and
+			 * this looked in `dist`, which `--prebuilt` cannot know better
+			 * than because it deliberately does not import the config. */
+			const advice =
+				outdir === undefined
+					? 'A prebuilt start looks in `dist` unless told otherwise, and does not read absolute.config.ts. If your config sets a different `buildDirectory`, pass `--outdir <that directory>`.'
+					: 'Run `absolute prepare` (or `absolute build`) into that directory first.';
+
 			throw new Error(
-				`Prepared production server not found: ${outputPath}`
+				`Prepared production server not found: ${outputPath}\n${advice}`
 			);
 		}
 
