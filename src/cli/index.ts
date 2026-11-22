@@ -250,6 +250,10 @@ if (command === 'dev') {
 	const configPath = parseNamedArg('--config');
 	const { typecheck } = await import('./scripts/typecheck');
 	await typecheck(configPath);
+} else if (command === 'links') {
+	sendTelemetryEvent('cli:command', { command });
+	const { links } = await import('./scripts/links');
+	await links(parseNamedArg('--config'));
 } else if (command === 'migrate') {
 	sendTelemetryEvent('cli:command', { command });
 	const { migrate } = await import('./scripts/migrate');
@@ -349,6 +353,9 @@ if (command === 'dev') {
 		'  routes [--json] List every route (pages + API) of a running dev server'
 	);
 	console.error('  typecheck     Run type checkers for all frameworks');
+	console.error(
+		'  links [--config path] Report literal <a href="/…"> links no route serves (exits 1 on findings)'
+	);
 	console.error(
 		'  migrate       Report what moving this project to AbsoluteJS involves'
 	);

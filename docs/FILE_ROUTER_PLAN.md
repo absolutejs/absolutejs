@@ -367,13 +367,37 @@ reactFileRoute<'/blog/:slug', typeof import('./react/routes/blog/[slug]'),
   param that was not meant as a catch-all becomes two segments and fails
   to match, rather than being encoded to `%2F` and 404ing invisibly.
 
-  **Still open: a link audit.** `route()` cannot catch a literal typo
-  written straight into an `href`, and no type can reach a template or a
-  static `.html`. That belongs to a checker: the same pass that validates
-  `asset(manifest, key)` can collect literal same-origin `href` values
-  from JSX, templates and HTML routes and report ones matching no route.
-  It would need an opt-out for paths registered by hand in Elysia, and it
-  can only judge literals.
+  **The other half: the dead-link check (built).** `route()` cannot catch
+  a literal typo written straight into an `href`, and no type reaches a
+  template or a static `.html`. A scan can read all of them, so
+  `build/auditLinks.ts` collects every literal `<a href="/…">` in the
+  project's source and reports the ones no route serves — matched against
+  the project's file routes and its own Elysia registrations, which
+  `scanRouteRegistrations` already extracts for the sitemap.
+
+  **It warns; it does not fail a build.** Both reasons are false positives
+  it produced before it existed:
+
+  - A link to a static file. `/assets/ico/favicon.ico` is served by the
+    asset plugin, so no route table will ever contain it. Anything with a
+    file extension is skipped.
+  - A link to a route an installed PLUGIN mounts. `@absolutejs/auth`
+    registers its own from inside the package, where a scan of the
+    project's source cannot see them, so `/auth/sign-in` looks dead and is
+    not. `links.ignore` names those (a trailing `*` matches by prefix),
+    and is why this cannot be an error nobody can turn off.
+
+  `absolute links` runs the same check and exits non-zero, so CI can make
+  it a gate; the build warning rides along in **production only**, where
+  the registration scan is already paid for. That split came from
+  measurement: collecting the links costs ~20ms against this repo and the
+  registration scan ~1.2s, so adding it to a dev rebuild would cost a
+  second per rebuild to find what a production build already reports.
+
+  Two earlier versions of the scan looked right and were not, which is
+  what the tests pin: matching any `href=` reported three stylesheet and
+  favicon URLs from `<link rel>` elements, and scanning every file
+  reported hashed CSS paths out of the project's own `build/` output.
 
 ### 2.5 Frameworks and mixing
 
