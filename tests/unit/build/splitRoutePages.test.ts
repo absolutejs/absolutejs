@@ -152,6 +152,46 @@ export const AdminRoutes = () => (
 		expect(out).toContain(`import { AdminPage } from './AdminShell';`);
 	});
 
+	test('an element named once in a const and reused by several routes', () => {
+		const source = `import { Route, Routes } from 'react-router';
+import { AdminPage } from './AdminShell';
+import { type AdminOrder, OrdersView } from './OrdersView';
+export const AdminRoutes = ({ print }: { print: (order: AdminOrder) => void }) => {
+	const ordersPage = (
+		<AdminPage title="Orders">
+			<OrdersView onPrint={print} />
+		</AdminPage>
+	);
+
+	return (
+		<Routes>
+			<Route element={ordersPage} path="/orders" />
+			<Route element={ordersPage} path="/orders/:id" />
+		</Routes>
+	);
+};
+`;
+		const out = splitRoutePages(source, 'AdminRoutes.tsx') ?? '';
+
+		expect(out).toContain('const OrdersView = __absoluteLazyRoute(');
+		expect(out).toContain(`import { type AdminOrder } from './OrdersView';`);
+		expect(transpiles(out)).toBe(true);
+	});
+
+	test('a name that is not a const holding JSX is not followed', () => {
+		const source = `import { Route, Routes } from 'react-router';
+import { OrdersView } from './OrdersView';
+let ordersPage = <OrdersView />;
+export const AdminRoutes = () => (
+	<Routes>
+		<Route element={ordersPage} path="/orders" />
+	</Routes>
+);
+`;
+
+		expect(splitRoutePages(source, 'AdminRoutes.tsx')).toBeNull();
+	});
+
 	test('a file with no router is left alone', () => {
 		expect(
 			splitRoutePages(`import { Billing } from './Billing';\nexport const X = () => <Billing />;`, 'X.tsx')

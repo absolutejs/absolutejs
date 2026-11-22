@@ -149,11 +149,60 @@ const elementPages = (expression: TS.Expression) => {
 	return pages;
 };
 
+const unwrapParentheses = (expression: TS.Expression): TS.Expression =>
+	ts.isParenthesizedExpression(expression)
+		? unwrapParentheses(expression.expression)
+		: expression;
+
+const isJsx = (expression: TS.Expression) =>
+	ts.isJsxElement(expression) ||
+	ts.isJsxSelfClosingElement(expression) ||
+	ts.isJsxFragment(expression);
+
+/* `const ordersPage = (<AdminPage><OrdersView /></AdminPage>);` — an element
+ * named once and reused by several routes. Only a name declared exactly
+ * once in the file, as a const holding JSX, is followed. */
+const jsxConstants = (file: TS.SourceFile) => {
+	const found = new Map<string, TS.Expression | null>();
+	const visit = (node: TS.Node) => {
+		if (
+			ts.isVariableDeclaration(node) &&
+			ts.isIdentifier(node.name) &&
+			node.initializer
+		) {
+			const value = unwrapParentheses(node.initializer);
+			const isConst =
+				ts.isVariableDeclarationList(node.parent) &&
+				(node.parent.flags & ts.NodeFlags.Const) !== 0;
+			const name = node.name.text;
+			found.set(
+				name,
+				!found.has(name) && isConst && isJsx(value) ? value : null
+			);
+		}
+		ts.forEachChild(node, visit);
+	};
+	visit(file);
+
+	return found;
+};
+
+/* The JSX a route's element stands for: written inline, or through a
+ * const that holds it. */
+const resolveElement = (
+	expression: TS.Expression,
+	constants: Map<string, TS.Expression | null>
+) =>
+	ts.isIdentifier(expression)
+		? (constants.get(expression.text) ?? null)
+		: expression;
+
 /* The tag-name identifiers of every route page element, and the names of
  * the components used that way. */
 const findRoutePages = (file: TS.SourceFile, routeNames: Set<string>) => {
 	const pageTags = new Set<TS.Node>();
 	const pageNames = new Set<string>();
+	const constants = jsxConstants(file);
 	const visit = (node: TS.Node) => {
 		const opening = ts.isJsxElement(node)
 			? node.openingElement
@@ -167,7 +216,8 @@ const findRoutePages = (file: TS.SourceFile, routeNames: Set<string>) => {
 			routeNames.has(name) &&
 			isLeafRoute(node)
 		) {
-			const expression = elementExpression(opening);
+			const written = elementExpression(opening);
+			const expression = written && resolveElement(written, constants);
 			for (const page of expression ? elementPages(expression) : []) {
 				for (const tag of page.tags) pageTags.add(tag);
 				pageNames.add(page.name);
