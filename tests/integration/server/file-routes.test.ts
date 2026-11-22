@@ -165,6 +165,22 @@ const expectRoutes = async (port: number) => {
 	expect(report.body).toContain('PERIOD_q3');
 	expect(report.body).not.toContain('NO_CONTEXT');
 
+	/* A Svelte route under two layouts. Svelte wraps them in the page's
+	 * source, so one compiled module carries the whole tree — the ordered
+	 * match is the claim, since both ids appearing would hold with the
+	 * nesting inverted. */
+	const svelteGuide = await get(port, '/guides/routing');
+	expect(svelteGuide.status).toBe(200);
+	expect(
+		/<div id="svelte-root-layout">[\s\S]*?<section id="guides-layout">[\s\S]*?GUIDE_routing/.test(
+			svelteGuide.body
+		)
+	).toBe(true);
+	/* A Svelte route in another branch gets the root layout but not the
+	 * `guides/` one — a layout wraps only what is below it. */
+	expect(topic.body).toContain('svelte-root-layout');
+	expect(topic.body).not.toContain('guides-layout');
+
 	// Explicit routes win, registered before or after fileRoutes().
 	expect((await get(port, '/about')).body).toBe('EXPLICIT_ABOUT');
 	expect((await get(port, '/explicit-first')).body).toBe('EXPLICIT_FIRST');

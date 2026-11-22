@@ -138,6 +138,22 @@ export const server = new Elysia()
   "the island is still on the page", which a re-created one satisfies).
   An automatically derived key is still open: the key is written once, in
   the layout, but it is written.
+- **Nested layouts (built: React and Svelte).** Svelte composes them in a
+  different place, and had to: its page renders from ONE compiled module
+  that the server and the client both load, so the layouts are wrapped
+  around the page's markup in the SOURCE and the two sides cannot disagree
+  — the opposite of React, where two composition sites have to be kept in
+  step. The injected `import` is also what makes a layout compile, since
+  compileSvelte discovers a route's children from its imports.
+  Two things the transform has to get right: `<svelte:…>` elements are
+  hoisted OUT of the wrapper (a wrapped `<svelte:options>` fails to
+  compile, and a `<svelte:head>` usually sits between the nodes being
+  wrapped), and the generated component name has to start with a capital
+  — Svelte reads a lowercase or `_`-prefixed tag as an element and refuses
+  it with `tag_invalid_name`, which the unit test could not see and every
+  Svelte route in the fixture reported at once.
+  A Svelte layout takes its content as `children` and renders
+  `{@render children()}`, the ordinary Svelte 5 way.
 - **Nested layouts (built, React).** A `layout.<ext>` wraps its own folder
   and everything below it, so a route's chain is every layout from the
   route root down to its own folder, outermost first. A `(group)` folder
