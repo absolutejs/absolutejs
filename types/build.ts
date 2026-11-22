@@ -44,7 +44,12 @@ export type BunBuildPassConfig = {
 } & Partial<Record<BunBuildPassKey, BunBuildConfigOverride>>;
 
 export type BuildOptions = {
-	/** When true, build() throws on error instead of exit(1) - used by HMR rebuilds */
+	/** Escalates build warnings that are survivable into thrown errors —
+	 *  today that is the SSR Angular `@angular/core` multi-instance
+	 *  guardrail, which logs a warning on its own and throws under this
+	 *  flag. A build *failure* (a failed Bun pass, a manifest key
+	 *  collision) always throws, with or without this, so a library caller
+	 *  can catch it; it does not end the host process. */
 	throwOnError?: boolean;
 	/** When true, HMR client code is injected into built assets. Set by devBuild(). */
 	injectHMR?: boolean;
