@@ -21,13 +21,23 @@
  * - Only values of 12 characters or more. Shorter ones collide with
  *   ordinary content; `KEY=1` would otherwise fail every page.
  * - A `PUBLIC_` prefix exempts a variable, which is how a publishable key
- *   (`PUBLIC_STRIPE_PUBLISHABLE_KEY`) says it is meant to be sent.
+ *   (`PUBLIC_STRIPE_PUBLISHABLE_KEY`) says it is meant to be sent. So does
+ *   a name that already says so in the words its provider chose: a
+ *   `PUBLIC` word anywhere (`VAPID_PUBLIC_KEY`, `NEXT_PUBLIC_…`) or
+ *   `PUBLISHABLE` (`STRIPE_PUBLISHABLE_KEY`, Stripe's own name for the key
+ *   every Stripe page sends). Failing those on upgrade broke checkout
+ *   pages that were correct. A Stripe publishable value (`pk_live_…`,
+ *   `pk_test_…`) is exempt under any name, for the same reason.
  * - A literal substring match. A secret that was re-encoded on the way
  *   through — base64, a hash, URL-escaped — is not found. This catches the
  *   accident, not an adversary inside the handler. */
 
 const SENSITIVE_NAME = /CREDENTIAL|KEY|PASSWORD|SECRET|TOKEN/i;
 const PUBLIC_PREFIX = 'PUBLIC_';
+/** A name that says the value is meant for the browser. */
+const PUBLIC_NAME = /(^|_)PUBLIC(_|$)|PUBLISHABLE/i;
+/** A value that is public by its provider's design. */
+const PUBLIC_VALUE = /^pk_(live|test)_/;
 const MINIMUM_LENGTH = 12;
 
 type Secret = { name: string; value: string };
@@ -37,7 +47,9 @@ let cached: Secret[] | undefined;
 const isSensitive = ([name, value]: [string, string | undefined]) =>
 	SENSITIVE_NAME.test(name) &&
 	!name.startsWith(PUBLIC_PREFIX) &&
+	!PUBLIC_NAME.test(name) &&
 	typeof value === 'string' &&
+	!PUBLIC_VALUE.test(value) &&
 	value.length >= MINIMUM_LENGTH;
 
 /* Read once: the environment does not change under a running server, and

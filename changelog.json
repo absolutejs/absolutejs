@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "The check that refuses to serialize a server secret into page props failed pages that send a key meant for the browser under its provider's own name. `STRIPE_PUBLISHABLE_KEY` turned every Stripe checkout page into an SSR error on upgrade (embroidery-place's /customize). A name with `PUBLISHABLE` in it, or `PUBLIC` as a word anywhere in it (`VAPID_PUBLIC_KEY`, `NEXT_PUBLIC_…`), now says it's meant to be sent, as the `PUBLIC_` prefix already did. A Stripe publishable value (`pk_live_…`, `pk_test_…`) is exempt under any name. Secret-looking names that say nothing about being public still fail, with the same message telling you to add the `PUBLIC_` prefix.",
+					"kind": "fixed",
+					"summary": "Publishable and public keys may reach page props (STRIPE_PUBLISHABLE_KEY no longer fails checkout pages)"
+				}
+			],
+			"date": "2026-11-22",
+			"version": "0.20.0-beta.288"
+		},
+		{
+			"changes": [
+				{
 					"detail": "The sitemap is generated from a static scan of the project's Elysia registrations, and a file route is not one: `fileRoutes()` registers it at run time from the generated module, so nothing in the source looks like `.get('/blog/:slug', …)`. A project whose pages were all file routes therefore got an empty sitemap — measured on the file-routes fixture, 20-odd routes and `<urlset></urlset>`, now 13 URLs. A static file route is listed as its own URL. A dynamic one cannot be enumerated from its file name, so its server module may export `entries()` returning the param sets it serves — `export const entries = () => [{ slug: 'hello' }, { slug: 'world' }]` — and each becomes a URL. It is typed against the params of the route, so a renamed `[slug]` is an error there as it already was in `load`. A dynamic route without `entries()` is left out rather than guessed at: a sitemap missing a URL is a worse sitemap, but one containing `/blog/:slug` is a broken one. A catch-all's value is a path, so its slashes survive (`{ rest: 'guide/routing' }` becomes `/docs/guide/routing`), through the same filler `route()` uses — it was extracted from `route()` for this rather than written twice, so the two cannot disagree, and it reports a missing param instead of throwing because one unfillable entry should cost one URL and not the build. `entries()` runs in the build's own process and may read a database, so a module that throws, or that cannot be imported, costs one warning and its own route. The resolution lives in `build/fileRouteSitemapPaths.ts` and reaches the generator as a plain list of URLs, which keeps a function whose job is to write XML from importing anyone's server module. This is also the `generateStaticParams` equivalent that prerendering needs, which is why it is an export on the server module rather than a sitemap option.",
 					"kind": "added",
 					"summary": "File routes are in the sitemap, with entries() for dynamic ones",
