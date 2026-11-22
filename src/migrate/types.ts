@@ -6,6 +6,8 @@
  * for a human) and the Studio AI tools (which hand the same values to a model
  * as JSON). A core that logged would force the AI to scrape text. */
 
+import type { CodemodPlan } from './codemods';
+
 /** Frameworks the detector can recognise in a project it did not create. */
 export type StackKind =
 	| 'absolutejs'
@@ -57,6 +59,9 @@ export type PackageSubstitution = {
 export type ApplyMode = 'apply' | 'propose';
 
 export type MigrationPlan = {
+	/** Framework-module imports: the mechanical rewrites and the ones a
+	 *  person has to make. See `codemods.ts` for why they are separate. */
+	codemods: CodemodPlan;
 	detection: StackDetection;
 	substitutions: PackageSubstitution[];
 };

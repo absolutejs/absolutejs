@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "`absolute migrate` spoke only about third-party dependencies — the `next-auth`, `pino`, `stripe` table — and changed nothing. Measured on a four-file Next.js app it reported six dependency swaps and said nothing at all about the eight `next/*` imports in the source, which is the framework the project is actually leaving. It now reads those too, and splits them in the one way that matters: `next/link` and `next/image` are rewritten, because `<Link>` and `ImageProps` were built against Next's own prop names, and `--apply` writes them (merged into one import, with a renamed local binding preserved as an alias). `next/head`, `next/navigation`, `next/router`, `next/dynamic`, `next/script`, `next/font`, `next/headers`, `next/server` and `next/cache` are located, explained and left alone, each naming its real counterpart or saying there is none yet. Dependency swaps are still never applied: `next-auth` and `@absolutejs/auth` are different APIs, so rewriting that import would leave code that does not compile. The command previews by default and writes only under `--apply`, the opposite default to `upgrade`, because this edits somebody else's framework code rather than applying our own migrations to our own API.",
+					"kind": "added",
+					"summary": "`absolute migrate` reports and applies framework-module codemods"
+				}
+			],
+			"date": "2026-11-22",
+			"version": "0.20.0-beta.297"
+		},
+		{
+			"changes": [
+				{
 					"detail": "`build()` is public API, but two of its failure paths — a failed Bun bundling pass and a manifest key collision — called `process.exit(1)` unless the caller passed `options.throwOnError`. A library that ends the host process takes the decision away from whoever called it: a tool building several projects lost the rest of them, and an in-process caller could not report the failure in its own terms. Both paths now throw. The failure is still logged once and still sends its `build:error` telemetry before the throw, and the error carries a `reported` marker so the CLI prints a short \"Build step failed.\" rather than the same diagnostics twice — the CLI already had that try/catch, and `exit(1)` was returning before it. `absolute build` still exits 1. `options.throwOnError` is unchanged for callers that pass it and now means only escalation: the SSR Angular `@angular/core` multi-instance guardrail, which warns on its own, throws under the flag.",
 					"kind": "fixed",
 					"summary": "build() throws on failure instead of ending the host process",

@@ -407,7 +407,7 @@ if (command === 'dev') {
 } else if (command === 'migrate') {
 	sendTelemetryEvent('cli:command', { command });
 	const { migrate } = await import('./scripts/migrate');
-	migrate(parseNamedArg('--path'));
+	migrate(parseNamedArg('--path'), args.includes('--apply'));
 } else if (command === 'mkcert') {
 	sendTelemetryEvent('cli:command', { command });
 	const { setupMkcert } = await import('../dev/devCert');

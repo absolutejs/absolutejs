@@ -8,6 +8,12 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import catalogSnapshot from './catalogSnapshot.json';
+import {
+	planCodemods,
+	type ManualCodemod,
+	type MechanicalCodemod,
+	type SourceFile
+} from './codemods';
 import { detectStack } from './detect';
 import {
 	planSubstitutions,
@@ -150,30 +156,42 @@ const importsInFile = (text: string, packages: readonly string[]) =>
  *  quoted specifier: an import map does not need a parser, and being wrong
  *  here costs a slightly long list, not a bad edit. */
 export const findImporters = (
-	root: string,
-	files: readonly string[],
+	sources: readonly SourceFile[],
 	packages: readonly string[]
 ) =>
-	files.filter(isSource).reduce<Record<string, string[]>>((carry, file) => {
-		for (const name of importsInFile(textOf(join(root, file)), packages)) {
-			carry[name] = [...(carry[name] ?? []), file];
+	sources.reduce<Record<string, string[]>>((carry, { path, text }) => {
+		for (const name of importsInFile(text, packages)) {
+			carry[name] = [...(carry[name] ?? []), path];
 		}
 
 		return carry;
 	}, {});
 
+/** Every source file's text, read once. Both the dependency scan and the
+ *  codemod planner need the same bytes, and reading a 5,000-file project
+ *  twice to answer two questions about the same text is waste. */
+export const readSources = (root: string, files: readonly string[]) =>
+	files
+		.filter(isSource)
+		.map((path) => ({ path, text: textOf(join(root, path)) }));
+
 export type ScanOptions = {
 	catalog?: readonly CatalogEntryLike[];
+	codemodRules?: readonly MechanicalCodemod[];
+	manualRules?: readonly ManualCodemod[];
 	rules?: readonly SubstitutionRule[];
 };
 
-/** Read a project and produce the plan. Does not modify anything. */
+/** Read a project and produce the plan. Does not modify anything — the
+ *  codemod half carries each rewritten file's text so a caller can diff it
+ *  or write it, which `apply.ts` does. */
 export const scanProject = (
 	root: string,
-	{ catalog, rules }: ScanOptions = {}
+	{ catalog, codemodRules, manualRules, rules }: ScanOptions = {}
 ): MigrationPlan => {
 	const manifest = readManifest(root);
 	const files = listProjectFiles(root);
+	const sources = readSources(root, files);
 	const dependencies = declaredDependencies(manifest);
 	// Studio passes its live catalog; the CLI falls back to the snapshot so
 	// suggestions stay validated with no network and no Studio present.
@@ -181,11 +199,16 @@ export const scanProject = (
 		catalog ?? catalogSnapshot.names.map((name) => ({ name }));
 
 	return {
+		codemods: planCodemods({
+			files: sources,
+			manualRules,
+			rules: codemodRules
+		}),
 		detection: detectStack({ files, manifest }),
 		substitutions: planSubstitutions({
 			catalog: resolvedCatalog,
 			dependencies,
-			importsByPackage: findImporters(root, files, dependencies),
+			importsByPackage: findImporters(sources, dependencies),
 			rules
 		})
 	};
