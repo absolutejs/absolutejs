@@ -93,9 +93,10 @@ const OPTIONAL_RE = /^\[\[([A-Za-z_$][\w$]*)\]\]$/;
 const OPTIONAL_CATCH_ALL_RE = /^\[\[\.\.\.([A-Za-z_$][\w$]*)\]\]$/;
 const GROUP_RE = /^\(([A-Za-z0-9._~-]+)\)$/;
 const STATIC_SEGMENT_RE = /^[A-Za-z0-9._~-]+$/;
-/* Frameworks that compose a route's layouts: React at run time, Svelte
- * and Vue in the page's source. */
+/* Frameworks that compose a route's layouts: React at run time, Svelte,
+ * Vue and Angular in the page's source. */
 const LAYOUT_FRAMEWORKS = new Set<FileRouteFramework>([
+	'angular',
 	'react',
 	'svelte',
 	'vue'
@@ -485,7 +486,7 @@ const routesFromFile = (
 	 * reported. */
 	if (layouts.length > 0 && !LAYOUT_FRAMEWORKS.has(root.framework)) {
 		problems.push(
-			`${toPosix(relative(process.cwd(), layouts[0] ?? ''))}: layouts are applied to React, Svelte and Vue routes so far, so this file would be ignored. Remove it, or move the route to one of those route folders.`
+			`${toPosix(relative(process.cwd(), layouts[0] ?? ''))}: layouts are applied to React, Svelte, Vue and Angular routes so far, so this file would be ignored. Remove it, or move the route to one of those route folders.`
 		);
 	}
 	const shared = {

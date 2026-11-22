@@ -50,6 +50,19 @@ const reactDocument = (title: string, body: string) => `<html lang="en">
 
 export const FILE_ROUTES_FIXTURE: Record<string, string> = {
 	'absolute.config.ts': CONFIG,
+	/* Two Angular layouts, so the chain's ORDER is observable. A layout
+	 * takes its content through `<ng-content />`, and it has to declare a
+	 * `selector`: the wrap writes the layout into the page's template, and
+	 * a template names a component by its selector. */
+	'angular/routes/layout.ts': `import { Component } from '@angular/core';
+
+@Component({
+	selector: 'abs-ng-shell',
+	standalone: true,
+	template: \`<div id="ng-root-layout">NG_ROOT_LAYOUT<ng-content /></div>\`
+})
+export class NgRootLayout {}
+`,
 	/* An Angular route. Its `load` returns the page's request CONTEXT —
 	 * Angular components take no props — which the component reads with
 	 * `usePageContext`. The `Context` export is what the generated module
@@ -75,6 +88,15 @@ export class ReportPageComponent {
 	}) as Context | null;
 	period = this.ctx?.period ?? 'NO_CONTEXT';
 }
+`,
+	'angular/routes/reports/layout.ts': `import { Component } from '@angular/core';
+
+@Component({
+	selector: 'abs-ng-reports',
+	standalone: true,
+	template: \`<section id="ng-reports-layout">NG_REPORTS_LAYOUT<ng-content /></section>\`
+})
+export class NgReportsLayout {}
 `,
 	'html/pages/HtmlHome.html': `<!doctype html>
 <html lang="en"><head><title>Home</title></head>
