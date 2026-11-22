@@ -1,51 +1,30 @@
-const DEFAULT_RETRY_DELAY_MS = 500;
-const DEFAULT_MAX_RETRIES = 120;
+/* Adapter over the published helper, so this repository and a user's
+ * project exercise the same implementation.
+ *
+ * The published `waitForServer(url, options)` takes one options object.
+ * This repository's ~14 call sites pass `(url, retries, delayMs)` or
+ * `(url, retries, { delayMs, isReady, rejectUnauthorized })`, so the old
+ * positional shape is kept here rather than touched in every caller: the
+ * point of this change is one implementation, not a rename. */
 
-export const fetchPage = async (url: string) => {
-	// Match a browser navigation so HTML error and not-found conventions run.
-	const res = await fetch(url, { headers: { accept: 'text/html' } });
-	const html = await res.text();
+import { waitForServer as wait } from '../../src/testing/http';
 
-	return { headers: res.headers, html, status: res.status };
+export { fetchPage } from '../../src/testing/http';
+
+type LegacyOptions = {
+	delayMs?: number;
+	isReady?: (response: Response) => boolean | Promise<boolean>;
+	rejectUnauthorized?: boolean;
 };
-export const waitForServer = async (
+
+export const waitForServer = (
 	url: string,
-	maxRetries = DEFAULT_MAX_RETRIES,
-	tlsOptionsOrDelay?:
-		| number
-		| {
-				rejectUnauthorized?: boolean;
-				delayMs?: number;
-				isReady?: (response: Response) => boolean | Promise<boolean>;
-		  }
-) => {
-	const delayMs =
-		typeof tlsOptionsOrDelay === 'number'
-			? tlsOptionsOrDelay
-			: (tlsOptionsOrDelay?.delayMs ?? DEFAULT_RETRY_DELAY_MS);
-	// `tls: { rejectUnauthorized: false }` bypasses the self-signed
-	// cert reject when probing HTTPS dev servers.
-	const fetchInit =
-		typeof tlsOptionsOrDelay === 'object' &&
-		tlsOptionsOrDelay?.rejectUnauthorized === false
-			? ({
-					tls: { rejectUnauthorized: false }
-				} as unknown as RequestInit)
-			: undefined;
-	for (let i = 0; i < maxRetries; i++) {
-		try {
-			const res = await fetch(url, fetchInit);
-			const isReady =
-				typeof tlsOptionsOrDelay === 'object'
-					? tlsOptionsOrDelay.isReady
-					: undefined;
-			if (res.ok && (!isReady || (await isReady(res)))) return true;
-		} catch {
-			// Server not ready yet
-		}
-		await Bun.sleep(delayMs);
-	}
-	throw new Error(
-		`Server at ${url} did not become ready after ${maxRetries} retries`
-	);
-};
+	maxRetries?: number,
+	tlsOptionsOrDelay?: LegacyOptions | number
+) =>
+	wait(url, {
+		...(typeof tlsOptionsOrDelay === 'number'
+			? { delayMs: tlsOptionsOrDelay }
+			: (tlsOptionsOrDelay ?? {})),
+		...(maxRetries === undefined ? {} : { maxRetries })
+	});

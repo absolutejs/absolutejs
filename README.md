@@ -129,6 +129,49 @@ every command and the global flags; these are the ones reached for most:
 `--config <path>` works on every command that reads one, and
 `absolute --version` prints the installed version.
 
+### Testing your app
+
+`@absolutejs/absolute/testing` boots your project the way the CLI does,
+waits for it, and tears it down:
+
+```ts
+import { afterAll, expect, test } from 'bun:test';
+import { fetchPage, startProject } from '@absolutejs/absolute/testing';
+
+const app = await startProject({
+	mode: 'production', // or 'development', for hot reload
+	projectRoot: import.meta.dir,
+	serverEntry: 'server.ts'
+});
+
+afterAll(async () => {
+	await app.kill();
+});
+
+test('serves the home page', async () => {
+	const { html, status } = await fetchPage(`${app.baseUrl}/`);
+
+	expect(status).toBe(200);
+	expect(html).toContain('<h1>');
+});
+```
+
+`startProject` runs the `absolute` binary **your project has installed**,
+from your project directory, on a port the OS says is free. `kill()` throws
+if anything is still listening afterwards, because a leaked server holding a
+port fails the _next_ test rather than the one that caused it.
+
+Also exported: `waitForServer` for a server you start yourself,
+`getAvailablePort`, and a file-mutation registry for testing hot reload —
+`mutateFile`, `mutateFileInPlace` (an in-place write, which a watcher sees as
+a `change` rather than a `rename`), `createFile`, `renameFile`, and
+`withFileMutation`, which puts the file back even when the assertion inside
+throws. `restoreAllFiles()` in an `afterEach` returns the tree to what git
+has, whatever happened.
+
+The browser helpers are deliberately not here: they need Playwright, and a
+test harness should not make a browser a dependency of the framework.
+
 ### Telemetry
 
 **Off unless you turn it on.** Nothing is sent until you run
