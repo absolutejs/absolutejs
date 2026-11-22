@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "Angular logs \"Angular is running in development mode.\" on every `bootstrapApplication`, which on a server is once per request, so the SSR renderer filtered it by saving `console.log`, replacing it, and restoring it in a `finally` — around each render. Under concurrency that leaks: each render captures whatever is installed when IT starts and reinstalls that when IT finishes, so the last render to finish wins and a wrapper is left behind. One accumulates per round of concurrent renders, and every `console.log` anywhere in the process then walks the whole chain. Measured with eight concurrent renders completing in start order: after 60 rounds — 480 renders, a few seconds of traffic — 20,000 `console.log` calls went from 0.3ms to 79.7ms, a 240x degradation that keeps climbing, and a message containing the filtered phrase was swallowed for the life of the process. The accumulation does not depend on anything logging during a render; the install and restore were unconditional, so a production server rendering Angular pages concurrently made all of its own logging progressively slower. The filter is now installed once, with a counter marking whether a render is in flight: nothing nests, nothing accumulates, and it is only active while rendering rather than forever. It is also narrowed to Angular's own wording, so an application line that merely shares the phrase is no longer hidden. This does not change render throughput — measured at 4,138 req/s against 3,960-4,401 before, which is the same noise band. Angular SSR costs a full application bootstrap per request and that is where its time goes.",
+					"kind": "fixed",
+					"summary": "the Angular SSR dev-log filter no longer leaks a console.log wrapper per render"
+				}
+			],
+			"date": "2026-11-22",
+			"version": "0.20.0-beta.305"
+		},
+		{
+			"changes": [
+				{
 					"detail": "`absolute bench` measures bundle size and build time per framework and server-render throughput per page, writes the lot as one record with `--save`, and fails with `--check` when anything is worse than the committed baseline. Nothing recorded anything across runs before this: `--profile` printed per-framework build time and threw it away, `analyze --check` enforces absolute size budgets but not movement, and render throughput was not measured at all, so \"did this release get slower?\" had no answer. Two tolerances, because the measurements are not alike: bundle sizes are deterministic and default to 1.05, while build time and throughput move with CPU contention and default to 1.25, with a warmup window that is measured and discarded. Gating a wall clock as tightly as a byte count is how a benchmark gate becomes the flaky job everyone reruns until it passes. Throughput drains each response body, because stopping at the headers makes a streaming render read as instant, and counts a non-2xx as a failure rather than as a very fast reply. Assets that belong to no single framework are reported as `shared` rather than charged to one, since a chunk two frameworks import belongs to neither. Improvements are never reported. Per-framework build rows come from the build trace and overlap, so the report says they do not sum to the total. This measures AbsoluteJS against its own past; a comparison against Next.js, Nuxt or SvelteKit is a separate piece of work with its own methodology risk, and is not what this claims to be.",
 					"kind": "added",
 					"summary": "`absolute bench`, with a committed baseline and a regression gate",
