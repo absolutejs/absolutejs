@@ -32,6 +32,18 @@ const request = (
 	path: string
 ) => app.handle(new Request(`http://localhost${path}`));
 
+/** The keys `FileRouteContext` documents, so a test can ask what ELSE
+ *  arrived. */
+const KNOWN_CONTEXT_KEYS = new Set([
+	'headers',
+	'params',
+	'path',
+	'query',
+	'redirect',
+	'request',
+	'set'
+]);
+
 describe('fileRoutes', () => {
 	test('serves each route with the props its load returns', async () => {
 		const blog = defineFileRouteWith(
@@ -275,6 +287,110 @@ describe('fileRoutes', () => {
 		});
 		expect(await (await request(app, '/about')).json()).toEqual({
 			lang: 'default'
+		});
+	});
+
+	/* What a plugin derived reaches `load`, and what Elysia put on the
+	 * context does not. The first half is the feature; the second is why
+	 * it is a deny-list of Elysia's keys rather than a copy of the whole
+	 * context, which would hand every route `store`, `route`, `qi` and
+	 * `url` as though a plugin had derived them. */
+	test('passes plugin-derived context to load, and nothing of Elysia own', async () => {
+		const account = defineFileRouteWith(
+			'react',
+			{
+				name: 'RouteAccount',
+				path: '/account',
+				source: 'react/routes/account.tsx',
+				server: async () => ({
+					load: (context: FileRouteContext<'/account'>) => ({
+						derivedKeys: Object.keys(context)
+							.filter((key) => !KNOWN_CONTEXT_KEYS.has(key))
+							.sort(),
+						session: Reflect.get(context, 'session')
+					})
+				})
+			},
+			renderJson
+		);
+		const app = new Elysia()
+			.derive(() => ({ session: { user: 'u1' } }))
+			.derive(() => ({ tenant: 'acme' }))
+			.use(fileRoutes([account], {}));
+
+		/* An exact list, not a `toContain`: the point of the deny-list is
+		 * that Elysia's own keys — `store`, `route`, `qi`, `~sig` — do NOT
+		 * arrive, and only an exact assertion fails when a later Elysia
+		 * adds one. */
+		expect(await (await request(app, '/account')).json()).toEqual({
+			derivedKeys: ['session', 'tenant'],
+			session: { user: 'u1' }
+		});
+	});
+
+	/* Recorded because it is the opposite of what a reader would assume:
+	 * a plugin that derives a key Elysia's context already owns REPLACES
+	 * it, and the route's own value is gone before `fileRoutes()` sees the
+	 * context. The deny-list keeps such a key from being copied twice; it
+	 * cannot put back params Elysia overwrote. Deriving `params` is
+	 * pathological, so this documents the behaviour rather than guarding
+	 * against it. */
+	test('a plugin that derives a key Elysia owns replaces it', async () => {
+		const blog = defineFileRouteWith(
+			'react',
+			{
+				name: 'RouteBlogSlug',
+				path: '/blog/:slug',
+				source: 'react/routes/blog/[slug].tsx',
+				server: async () => ({
+					load: ({ params }: FileRouteContext<'/blog/:slug'>) => ({
+						slug: params.slug
+					})
+				})
+			},
+			renderJson
+		);
+		const app = new Elysia()
+			.derive(() => ({ params: { slug: 'DERIVED' } }))
+			.use(fileRoutes([blog], {}));
+
+		expect(await (await request(app, '/blog/real')).json()).toEqual({
+			slug: 'DERIVED'
+		});
+	});
+
+	/* `beforeHandle` too, which is the half that makes the feature useful:
+	 * a route guard is the main reason to want the session, and it is a
+	 * separate call into the same context builder. */
+	test('a beforeHandle guard sees the derived session', async () => {
+		const account = defineFileRouteWith(
+			'react',
+			{
+				name: 'RouteAccount',
+				path: '/account',
+				source: 'react/routes/account.tsx',
+				server: async () => ({
+					beforeHandle: (context: FileRouteContext<'/account'>) =>
+						Reflect.get(context, 'session') === null
+							? context.redirect('/login')
+							: undefined,
+					load: () => ({ ok: true })
+				})
+			},
+			renderJson
+		);
+		const signedIn = new Elysia()
+			.derive(() => ({ session: { user: 'u1' } }))
+			.use(fileRoutes([account], {}));
+		const signedOut = new Elysia()
+			.derive(() => ({ session: null }))
+			.use(fileRoutes([account], {}));
+		const guarded = await request(signedOut, '/account');
+
+		expect(guarded.status).toBe(302);
+		expect(guarded.headers.get('location')).toBe('/login');
+		expect(await (await request(signedIn, '/account')).json()).toEqual({
+			ok: true
 		});
 	});
 

@@ -64,11 +64,64 @@ const withCatchAllParam = (
 	};
 };
 
+/* Elysia's own context keys, so everything else on the context is
+ * something the app's plugins derived and belongs in a route's `load`.
+ *
+ * A deny-list rather than an allow-list, because the derived keys are the
+ * ones nobody here can name: `@absolutejs/auth`'s session, an
+ * `onBeforeHandle`'s own values, whatever a project's plugin adds.
+ *
+ * Measured against the Elysia in this repo rather than guessed, and it
+ * differs between versions — `body` appears only on a request that has
+ * one, `store` and `url` are own keys on some versions and not others,
+ * and `qi` and anything `~`-prefixed are internals. So the list is the
+ * union of what was observed, plus the `~` rule, and a key a later
+ * version adds would show up as though a plugin had derived it: harmless
+ * until something collides with it, and visible in the unit test that
+ * asserts exactly which keys reach a `load`.
+ *
+ * The keys are filtered BEFORE any value is read. They are all plain
+ * values on this version, but `server` is a getter on others, and
+ * copying the whole context would invoke it on every request. */
+const ELYSIA_CONTEXT_KEYS = new Set([
+	'body',
+	'cookie',
+	'headers',
+	'params',
+	'path',
+	'qi',
+	'query',
+	'redirect',
+	'request',
+	'route',
+	'server',
+	'set',
+	'status',
+	'store',
+	'url'
+]);
+
+const isDerivedKey = (key: string) =>
+	!key.startsWith('~') && !ELYSIA_CONTEXT_KEYS.has(key);
+
+const derivedOf = (context: RouteRequestContext) =>
+	Object.fromEntries(
+		Object.keys(context)
+			.filter(isDerivedKey)
+			.map((key) => [key, Reflect.get(context, key)])
+	);
+
 const toFileRouteContext = (
 	context: RouteRequestContext,
 	catchAll?: string
 ) => {
 	const fileRouteContext: FileRouteContext = {
+		/* First, so the documented keys below are the ones a route gets
+		 * from this object. That is not protection against a plugin that
+		 * derives `params`: Elysia replaces the key on the context itself,
+		 * before anything here runs, so the route's own params are already
+		 * gone by then (a unit test records that). */
+		...derivedOf(context),
 		headers: context.headers,
 		params: withCatchAllParam(paramsOf(context), catchAll),
 		path: context.path,

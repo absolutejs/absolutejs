@@ -56,18 +56,46 @@ export type FileRouteParams<Path extends string> = string extends Path
 
 export type FileRouteRedirectStatus = 301 | 302 | 303 | 307 | 308;
 
+/* What the app's plugins derive onto a request, as the app declares it.
+ *
+ * Empty here on purpose: `fileRoutes()` passes through whatever the
+ * plugins registered before it put on the context — `@absolutejs/auth`'s
+ * session, an `onBeforeHandle`'s own values — and only the app knows what
+ * those are. An app declares them once:
+ *
+ *   declare module '@absolutejs/absolute' {
+ *     interface FileRouteDerivedContext {
+ *       session: Session | null;
+ *     }
+ *   }
+ *
+ * and every route's `load` and `beforeHandle` sees them typed, with no
+ * per-route annotation and nothing to keep in step.
+ *
+ * Declared rather than inferred, because the generated route module never
+ * imports the server: it cannot see the app's Elysia type, so there is
+ * nothing to infer from. Which means this is a claim the app makes, like
+ * Elysia's own context augmentation — a key declared here that no plugin
+ * actually derives arrives as `undefined`. Inferring it from the server
+ * instead is still open. */
+// An interface, not a type: declaration merging is how the keys get in,
+// as for `AbsoluteManifestKeys` in types/manifest.ts.
+// eslint-disable-next-line @typescript-eslint/consistent-type-definitions, @typescript-eslint/no-empty-object-type
+export interface FileRouteDerivedContext {}
+
 /** What `load` and `beforeHandle` receive for a request to `Path`. */
-export type FileRouteContext<Path extends string = string> = {
-	headers: Record<string, string | undefined>;
-	params: FileRouteParams<Path>;
-	path: string;
-	query: Record<string, string | undefined>;
-	request: Request;
-	/** Response status and headers, as on an Elysia context. */
-	set: Context['set'];
-	/** A redirect response; return it from `beforeHandle` or `load`. */
-	redirect: (url: string, status?: FileRouteRedirectStatus) => Response;
-};
+export type FileRouteContext<Path extends string = string> =
+	FileRouteDerivedContext & {
+		headers: Record<string, string | undefined>;
+		params: FileRouteParams<Path>;
+		path: string;
+		query: Record<string, string | undefined>;
+		request: Request;
+		/** Response status and headers, as on an Elysia context. */
+		set: Context['set'];
+		/** A redirect response; return it from `beforeHandle` or `load`. */
+		redirect: (url: string, status?: FileRouteRedirectStatus) => Response;
+	};
 
 type MaybePromise<Value> = Value | Promise<Value>;
 
