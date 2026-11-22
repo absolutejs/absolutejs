@@ -1,4 +1,8 @@
-import { afterAll, beforeEach, describe, expect, test } from 'bun:test';
+import { describe, expect, test } from 'bun:test';
+import {
+	shouldSuppressAngularLog,
+	withSuppressedAngularDevLogs
+} from '../../../src/angular/ssrRender';
 
 /* Angular logs "Angular is running in development mode." on every
  * `bootstrapApplication`, which on a server is once per request, so it
@@ -14,20 +18,13 @@ import { afterAll, beforeEach, describe, expect, test } from 'bun:test';
  * containing the filtered phrase was swallowed for the life of the
  * process.
  *
- * Ordering is load-bearing in this file. The filter installs itself on
- * first use and closes over the `console.log` it finds then, so the sink
- * has to be in place BEFORE the module is imported — otherwise the
- * wrapper delegates to the real console and nothing here can observe
- * what survived. */
-
-const realLog = console.log;
-const lines: unknown[] = [];
-console.log = (...args: unknown[]) => {
-	lines.push(args[0]);
-};
-
-const { withSuppressedAngularDevLogs } =
-	await import('../../../src/angular/ssrRender');
+ * Nothing here intercepts `console.log`. An earlier version of this file
+ * installed a sink and asserted on what reached it, which passed when run
+ * alone and failed in the shared unit run: the filter installs itself on
+ * first use and closes over the `console.log` it finds then, so that
+ * assertion only held if this file happened to be the first thing in the
+ * process to touch the module. Asserting on the predicate and on the
+ * installed wrapper's identity is order-independent. */
 
 const NOTICE = 'Angular is running in development mode.';
 
@@ -41,43 +38,45 @@ const concurrentRound = () =>
 		)
 	);
 
-beforeEach(() => {
-	lines.length = 0;
-});
-
-afterAll(() => {
-	console.log = realLog;
-});
-
 describe('the Angular dev-log filter', () => {
 	test('suppresses Angular’s notice while a render is in flight', async () => {
-		await withSuppressedAngularDevLogs(async () => {
-			console.log(NOTICE);
+		const duringRender = await withSuppressedAngularDevLogs(async () => {
 			await Bun.sleep(1);
+
+			return shouldSuppressAngularLog([NOTICE]);
 		});
 
-		expect(lines).toEqual([]);
+		expect(duringRender).toBe(true);
 	}, 30_000);
 
 	/* Only while rendering. A permanently installed content filter would
 	 * swallow the same phrase from application code forever, which is the
 	 * other way to get this wrong. */
 	test('leaves the notice alone outside a render', () => {
-		console.log(NOTICE);
-
-		expect(lines).toEqual([NOTICE]);
+		expect(shouldSuppressAngularLog([NOTICE])).toBe(false);
 	});
 
 	/* Narrowed to Angular's own wording. An application line that happens
 	 * to share the phrase is not the framework's to hide. */
-	test('does not swallow an unrelated message containing the phrase', async () => {
-		await withSuppressedAngularDevLogs(async () => {
-			console.log('starting worker in development mode');
+	test('does not suppress an unrelated message containing the phrase', async () => {
+		const duringRender = await withSuppressedAngularDevLogs(async () => {
 			await Bun.sleep(1);
+
+			return shouldSuppressAngularLog([
+				'starting worker in development mode'
+			]);
 		});
 
-		expect(lines).toEqual(['starting worker in development mode']);
+		expect(duringRender).toBe(false);
 	}, 30_000);
+
+	test('ignores a non-string first argument', async () => {
+		const duringRender = await withSuppressedAngularDevLogs(() =>
+			Promise.resolve(shouldSuppressAngularLog([{ notice: NOTICE }]))
+		);
+
+		expect(duringRender).toBe(false);
+	});
 
 	test('a render that throws still stops suppressing', async () => {
 		await expect(
@@ -86,32 +85,26 @@ describe('the Angular dev-log filter', () => {
 			})
 		).rejects.toThrow('render failed');
 
-		console.log(NOTICE);
-
-		expect(lines).toEqual([NOTICE]);
+		expect(shouldSuppressAngularLog([NOTICE])).toBe(false);
 	});
 
 	/* Nested renders — a page containing an Angular island — must not
 	 * un-suppress when the inner one finishes. */
 	test('stays suppressed until the outermost render finishes', async () => {
-		await withSuppressedAngularDevLogs(async () => {
+		const afterInner = await withSuppressedAngularDevLogs(async () => {
 			await withSuppressedAngularDevLogs(() => Bun.sleep(1));
-			console.log(NOTICE);
+
+			return shouldSuppressAngularLog([NOTICE]);
 		});
 
-		expect(lines).toEqual([]);
+		expect(afterInner).toBe(true);
+		expect(shouldSuppressAngularLog([NOTICE])).toBe(false);
 	}, 30_000);
 
-	test('does not nest a wrapper per concurrent render', async () => {
-		await concurrentRound();
-		const afterOne = console.log;
-		await concurrentRound();
+	test('a round of concurrent renders leaves nothing suppressed', async () => {
 		await concurrentRound();
 
-		/* Whatever is installed after the first round is still exactly
-		 * what is installed after two more. The old shape left one more
-		 * wrapper each time. */
-		expect(console.log).toBe(afterOne);
+		expect(shouldSuppressAngularLog([NOTICE])).toBe(false);
 	}, 30_000);
 
 	/* The symptom that made this worth fixing: every `console.log` in the
@@ -124,6 +117,9 @@ describe('the Angular dev-log filter', () => {
 	 * broken code, which is worse than no test: counting distinct
 	 * installations catches the accumulation exactly. */
 	test('installs exactly one wrapper however many rounds run', async () => {
+		/* One round first, so the count below cannot include the one-off
+		 * install this file may itself trigger. */
+		await concurrentRound();
 		const seenIdentities = new Set<unknown>();
 		for (let round = 0; round < 20; round += 1) {
 			/* eslint-disable-next-line no-await-in-loop -- the leak needed

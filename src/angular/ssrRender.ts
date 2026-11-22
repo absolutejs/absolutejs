@@ -204,12 +204,24 @@ const isAngularDevModeNotice = (args: readonly unknown[]) => {
 	);
 };
 
+/** Whether the installed filter would drop this line right now.
+ *
+ *  Exported so the behaviour can be tested without intercepting
+ *  `console.log`: the wrapper closes over whatever was installed when it
+ *  was created, so a test that swaps `console.log` afterwards observes
+ *  nothing, and one that swaps it beforehand only works if it happens to
+ *  be the first thing in the process to touch this module. Both are
+ *  order-dependent, and the second passed alone and failed in the shared
+ *  unit run. */
+export const shouldSuppressAngularLog = (args: readonly unknown[]) =>
+	rendersInFlight > 0 && isAngularDevModeNotice(args);
+
 const installDevLogFilter = () => {
 	if (filterInstalled) return;
 	filterInstalled = true;
 	const original = console.log;
 	console.log = (...args: unknown[]) => {
-		if (rendersInFlight > 0 && isAngularDevModeNotice(args)) return;
+		if (shouldSuppressAngularLog(args)) return;
 		original.apply(console, args);
 	};
 };
