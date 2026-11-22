@@ -914,10 +914,11 @@ projection route is not available — the server replaces the whole
 element for Angular to hydrate at that position, which is why
 `ngSkipHydration` is there at all. The container therefore stays
 client-rendered, and the component now looks for the live island before
-writing markup: by `data-island-id` (which the server gives every island,
-and which `preserveIslandMarkup` carries into the component's own
-attributes, so two islands of one component with identical props cannot be
-mistaken for each other), else by `persist` key. It looks in the document
+writing markup: by `data-island-id` (which `preserveIslandMarkup` carries
+into the component's own attributes, so two islands of one component with
+identical props cannot be mistaken for each other), else by `persist` key.
+**The claim that the server gives every island an `island-id` was wrong,
+and it cost two attempts at the next defect — see below.** It looks in the document
 first and in the disposer registry second — by the time a navigation
 brings a persisted island in, the element is detached and the registry is
 the only thing still holding it. That is what `registeredIslandElements`
@@ -979,6 +980,64 @@ connected=false  chain= div[island] < div#angular-page
 A parent chain that stops before `<body>` is a detached tree, and that one
 line named both the orphan and the page that had discarded it.
 
+### Closed: an island mounts once per copy of the islands runtime (0.20.0-beta.279)
+
+The last open island defect, and it was never an Angular one. An island on
+a page visited more than once mounted **once per visit squared** — 1, 4,
+9, 16 — with every orphan still running its interval.
+
+`moduleUrlFor` gives a revisited page's module entry a fresh
+`?absolute-nav=N` URL on purpose, because a module URL evaluates once per
+document and the entry has to run again. The islands bootstrap is one of
+those entries, and the runtime's `hydratingIslands` and `observedRoots`
+sets were module-level. So each visit produced **another instance of the
+islands runtime**, with its own sets and its own MutationObserver on the
+same root, and each instance hydrated every island element inserted after
+it started — each past its own private guard. Both sets now live on
+`globalThis` behind a `Symbol.for` key, which is what the disposer
+registry, the island store snapshot and the streaming-slot registrar
+already do.
+
+Angular looked like the owner because its numbers were worse: its island
+component creates the island element itself rather than taking the
+server's, late enough for two observers to see it, so Angular hit the
+multiplication one visit before Vue did. With the sharing in place Angular
+still mounted twice per visit, and that is the second fix: the component
+now adopts an ordinary island instead of writing a second copy of it. The
+server emits `data-island-id` only for an island that is itself an Angular
+component — the one case where Angular needs a selector to bootstrap into
+— so a Svelte, React or Vue island on an Angular page had neither an id
+nor a `persist` key, and `findLiveIsland` returned early every time. It
+matches on the island's signature instead, each element claimed by one
+component instance in document order, which is the claim
+`claimServerIslandStyleLink` already makes for the same reason.
+
+Both fixes were disabled in turn and the counts re-measured, which is the
+only reason both shipped:
+
+| | visit 1 | 2 | 3 | 4 |
+| --- | --- | --- | --- | --- |
+| Angular, before | 1 | 4 | 9 | 16 |
+| Angular, shared sets only | 1 | 3 | 5 | 7 |
+| Angular, adoption only | 1 | 2 | 4 | 7 |
+| Vue, before | 1 | 2 | 4 | 7 |
+| either, both fixes | 1 | 2 | 3 | 4 |
+
+Two things about how it was found are worth keeping.
+
+**The note left by the previous attempt was wrong, and specifically.** It
+recorded that the runtime dedupes per element, so four mounts had to mean
+four elements — which ruled out the whole family of causes the answer was
+in. A `data-hydrated` mutation record read with `attributeOldValue` showed
+the same element going `true` → `true`. One element, hydrated twice,
+points at nothing but two copies of the guard.
+
+**The second round trip is the test.** Vue read 1, 2, 4, 7, so the
+existing single-round-trip cell passed while the defect was live. The
+navigation matrix now goes away and back twice and counts live instances
+(mounts minus destroys) rather than mounts alone — an orphan is detached,
+so no DOM assertion can see it.
+
 Layout-route conventions emitting `persist` automatically (step 5) are
 also still open.
 
@@ -1006,6 +1065,11 @@ none of this built.
 ## 5. Known limitations (phase 1)
 
 - A revisited page's index module is downloaded again under a new query
-  string (small; vendor chunks are not).
+  string (small; vendor chunks are not). The cost is not only bytes: a
+  re-run entry is a second instance of every module in its own graph, and
+  anything those modules keep in module scope is per instance rather than
+  per document. That is what the islands runtime was caught by
+  (0.20.0-beta.279), so any new per-document state belongs on `globalThis`
+  behind a `Symbol.for` key.
 - `history.state` gains an `__absoluteNavigation` key only in browsers
   without the Navigation API.

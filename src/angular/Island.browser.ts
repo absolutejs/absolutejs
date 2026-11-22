@@ -13,6 +13,38 @@ import { registeredIslandElements } from '../client/islandDisposers';
 import { preserveIslandMarkup } from '../client/preserveIslandMarkup';
 import { serializeIslandAttributes } from '../core/islandMarkupAttributes';
 
+/* The marker attributes that identify which island an element is, and the
+ * value the islands runtime reads when one is absent. Two elements that
+ * agree on all four are the same island rendered twice — the server's copy
+ * and the one this component would otherwise create. */
+const ISLAND_SIGNATURE: Readonly<Record<string, string>> = {
+	'data-component': '',
+	'data-framework': '',
+	'data-hydrate': 'load',
+	'data-props': '{}'
+};
+
+/* Claimed once, by one component instance. Two islands of the same
+ * component with the same props have the same signature, so without this
+ * the second instance would adopt — and so steal — the element the first
+ * already took; each takes the first element nobody has taken yet, in
+ * document order, which is the order the instances set up in. This is the
+ * claim `claimServerIslandStyleLink` already makes for the same reason.
+ *
+ * Weak, and never cleared: entries are elements, so a visit's claims fall
+ * away with the markup they were made against, and a later visit's
+ * elements are new ones. A soft navigation does re-run this page's entry
+ * module, but its imports keep their URLs, so this module is not
+ * re-evaluated and the set cannot be relied on to reset. */
+const claimedIslands = new WeakSet<Element>();
+
+const hasSignature = (element: Element, attributes: Record<string, string>) =>
+	Object.entries(ISLAND_SIGNATURE).every(
+		([name, fallback]) =>
+			(element.getAttribute(name) ?? fallback) ===
+			(attributes[name] ?? fallback)
+	);
+
 @Component({
 	selector: 'absolute-island',
 	standalone: true,
@@ -83,20 +115,39 @@ export class Island implements AfterViewInit, OnChanges {
 	 * detached nodes: two disposers for one element, on every load.
 	 *
 	 * The disposer registry is the only thing still holding that instance,
-	 * so this finds it there and the container adopts it. Matched on
-	 * `data-island-id` first, which the server gives every island and
-	 * `preserveIslandMarkup` carries into this component's own attributes,
-	 * so two islands of the same component with the same props cannot be
-	 * mistaken for each other; then on a `persist` key, which is how an
-	 * island moved in by a navigation is identified. */
-	private findLiveIsland(container: HTMLElement) {
+	 * so this finds it there and the container adopts it.
+	 *
+	 * Matched on `data-island-id` first, then a `persist` key — which is
+	 * how an island moved in by a navigation is identified — and failing
+	 * both, on the island's signature.
+	 *
+	 * The signature case is the ordinary one, not the exception: the
+	 * server emits `data-island-id` only for an island that is itself an
+	 * Angular component, because that is the one case where Angular needs
+	 * a selector to bootstrap into. A Svelte, React or Vue island on an
+	 * Angular page has no id and no persist key, so until this fell back
+	 * to the signature, an ordinary island could never be adopted. The
+	 * component wrote a second copy of it on every render of the page,
+	 * which on a soft navigation back meant the island the navigation
+	 * layer had just inserted — already hydrated and running — was left
+	 * orphaned on detached nodes while a fresh one took its place. */
+	private islandMatcher() {
 		const islandId = this.attributes['data-island-id'];
 		const persist = this.attributes['data-absolute-persist'];
-		if (islandId === undefined && persist === undefined) return undefined;
-		const selector =
-			islandId === undefined
-				? `[data-absolute-persist="${CSS.escape(persist ?? '')}"][data-island="true"]`
-				: `[data-island-id="${CSS.escape(islandId)}"]`;
+		if (islandId !== undefined)
+			return (element: Element) =>
+				element.getAttribute('data-island-id') === islandId;
+		if (persist !== undefined)
+			return (element: Element) =>
+				element.getAttribute('data-absolute-persist') === persist;
+
+		return (element: Element) =>
+			!claimedIslands.has(element) &&
+			hasSignature(element, this.attributes);
+	}
+
+	private findLiveIsland(container: HTMLElement) {
+		const matches = this.islandMatcher();
 		/* The document first: when this runs before the islands bootstrap
 		 * has hydrated anything, the island is still the server's markup
 		 * sitting in the container Angular is about to discard, and the
@@ -106,14 +157,13 @@ export class Island implements AfterViewInit, OnChanges {
 		 * The registry second: by the time a navigation brings a persisted
 		 * island in, or the bootstrap has run, the element may be detached
 		 * already, and the registry is the only thing still holding it. */
-		const inDocument = document.querySelector(selector);
-		if (inDocument && !container.contains(inDocument)) return inDocument;
+		const live = [
+			...document.querySelectorAll<HTMLElement>('[data-island="true"]'),
+			...registeredIslandElements()
+		].find((element) => !container.contains(element) && matches(element));
+		if (live) claimedIslands.add(live);
 
-		return registeredIslandElements().find((element) => {
-			if (container.contains(element)) return false;
-
-			return element.matches(selector);
-		});
+		return live;
 	}
 
 	/* Write once.
