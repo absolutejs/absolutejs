@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, relative, sep } from 'node:path';
+import { basename, dirname, join, relative, sep } from 'node:path';
 import {
 	fileRouteFor,
 	fileRouteNamed,
@@ -505,10 +505,39 @@ describe('route module', () => {
 	 * not yet. A layout that cannot be applied is worse than no layout —
 	 * the page renders without its chrome and nothing says so — so it is
 	 * reported rather than ignored. */
+	/* HTML, because a static page has nothing to compose a layout WITH —
+	 * no component model and no render step. Angular used to be this
+	 * test's example and now composes them like Svelte and Vue. */
 	test('reports a layout in a framework that cannot apply it yet', async () => {
 		const root = await makeProject({
+			'html/routes/admin/index.html': '',
+			'html/routes/admin/layout.html': ''
+		});
+		const cwd = process.cwd();
+		process.chdir(root);
+		try {
+			const { problems, routes } = scanFileRoutes({
+				fileRoutes: true,
+				htmlDirectory: 'html'
+			});
+
+			expect(problems.join('\n')).toContain('layout.html');
+			expect(problems.join('\n')).toContain(
+				'applied to React, Svelte, Vue and Angular'
+			);
+			// The route itself still serves, without the layout.
+			expect(routes.map((route) => route.path)).toEqual(['/admin']);
+			expect(routes[0]?.layouts).toBeUndefined();
+		} finally {
+			process.chdir(cwd);
+		}
+	});
+
+	test('collects an Angular route layout', async () => {
+		const root = await makeProject({
 			'angular/routes/admin/index.ts': '',
-			'angular/routes/admin/layout.ts': ''
+			'angular/routes/admin/layout.ts': '',
+			'angular/routes/layout.ts': ''
 		});
 		const cwd = process.cwd();
 		process.chdir(root);
@@ -518,13 +547,11 @@ describe('route module', () => {
 				fileRoutes: true
 			});
 
-			expect(problems.join('\n')).toContain('layout.ts');
-			expect(problems.join('\n')).toContain(
-				'applied to React, Svelte and Vue'
-			);
-			// The route itself still serves, without the layout.
-			expect(routes.map((route) => route.path)).toEqual(['/admin']);
-			expect(routes[0]?.layouts).toBeUndefined();
+			expect(problems).toEqual([]);
+			// Outermost first, which is the order the wrap depends on.
+			expect(
+				routes[0]?.layouts?.map((path) => basename(dirname(path)))
+			).toEqual(['routes', 'admin']);
 		} finally {
 			process.chdir(cwd);
 		}

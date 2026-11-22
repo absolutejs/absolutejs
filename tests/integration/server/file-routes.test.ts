@@ -172,6 +172,17 @@ const expectRoutes = async (port: number) => {
 	expect(report.body).toContain('PERIOD_q3');
 	expect(report.body).not.toContain('NO_CONTEXT');
 
+	/* The same Angular route under two layouts. Angular wraps them in the
+	 * page's source like Svelte and Vue, but writes each layout's own
+	 * SELECTOR into the template rather than a local import name, so the
+	 * ordered match is also the proof that each layout's `@Component` was
+	 * read. Both ids appearing would hold with the nesting inverted. */
+	expect(
+		/<div id="ng-root-layout">[\s\S]*?<section id="ng-reports-layout">[\s\S]*?PERIOD_q3/.test(
+			report.body
+		)
+	).toBe(true);
+
 	/* A Svelte route under two layouts. Svelte wraps them in the page's
 	 * source, so one compiled module carries the whole tree — the ordered
 	 * match is the claim, since both ids appearing would hold with the

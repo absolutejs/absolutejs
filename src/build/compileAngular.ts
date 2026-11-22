@@ -1,5 +1,9 @@
 import { existsSync, readFileSync, promises as fs } from 'fs';
 import { splitAngularRoutePages } from '../angular/splitRoutePages';
+import {
+	readAngularLayoutMeta,
+	wrapAngularRouteLayouts
+} from './angularRouteLayouts';
 import { fileRouteFor } from './fileRoutes';
 import { join, basename, sep, dirname, resolve, relative } from 'path';
 import type { CompilerOptions } from '@angular/compiler-cli';
@@ -548,6 +552,59 @@ const resolveResourceTransformCachePath = async (
 	);
 };
 
+/** How a page imports one of its layouts: a relative, extensionless,
+ *  POSIX specifier, which is what the layout resolves as from the page's
+ *  own directory whatever the route tree looks like. */
+const layoutSpecifier = (pagePath: string, layoutPath: string) => {
+	const relativePath = relative(dirname(pagePath), layoutPath)
+		.split(sep)
+		.join('/')
+		.replace(/\.[tj]s$/, '');
+
+	return relativePath.startsWith('.') ? relativePath : `./${relativePath}`;
+};
+
+/* The page's source with its layouts wrapped around its template.
+ *
+ * Everything that can go wrong here is reported rather than skipped: a
+ * page that silently renders without its chrome is the failure mode the
+ * file router is trying not to have, and a layout is chrome by
+ * definition. */
+const wrapRouteLayouts = async (
+	source: string,
+	pagePath: string,
+	layoutPaths: readonly string[],
+	readFile: SyncReadFile | undefined
+) => {
+	const layouts = await Promise.all(
+		layoutPaths.map(async (layoutPath) => {
+			const meta = readAngularLayoutMeta(
+				await readFileForAotTransform(layoutPath, readFile)
+			);
+			if (!meta)
+				throw new Error(
+					`${relative(process.cwd(), layoutPath)} exports no Angular component, so it cannot be a layout.`
+				);
+			if (!meta.selector)
+				throw new Error(
+					`${relative(process.cwd(), layoutPath)} declares no \`selector\`, so it cannot be used in a template. Give its \`@Component\` one.`
+				);
+
+			return {
+				...meta,
+				specifier: layoutSpecifier(pagePath, layoutPath)
+			};
+		})
+	);
+	const result = wrapAngularRouteLayouts(source, { layouts });
+	if (result.kind === 'problem')
+		throw new Error(
+			`${relative(process.cwd(), pagePath)} ${result.message}.`
+		);
+
+	return result.kind === 'wrapped' ? result.source : source;
+};
+
 const precomputeAotResourceTransforms = async (
 	inputPaths: string[],
 	readFile: SyncReadFile | undefined,
@@ -595,6 +652,23 @@ const precomputeAotResourceTransforms = async (
 		transformedSource =
 			splitAngularRoutePages(transformedSource, resolvedPath) ??
 			transformedSource;
+		/* A file route's layouts, wrapped around its template here rather
+		 * than at render time — after `inlineResources`, because a page
+		 * written with `templateUrl` has an inline `template` only once
+		 * that has run. The layouts are visited too: this walker follows
+		 * the imports of the source as WRITTEN, so the import the wrap
+		 * injects would not reach it, and a layout with its own
+		 * `templateUrl` would compile un-inlined. */
+		const layoutPaths = fileRouteFor(resolvedPath)?.layouts ?? [];
+		if (layoutPaths.length > 0) {
+			transformedSource = await wrapRouteLayouts(
+				transformedSource,
+				resolvedPath,
+				layoutPaths,
+				readFile
+			);
+			await Promise.all(layoutPaths.map(transformFile));
+		}
 		if (transformedSource !== source) {
 			stats.transformedFiles += 1;
 			transformedSources.set(resolvedPath, transformedSource);
@@ -1844,6 +1918,20 @@ export const compileAngularFileJIT = async (
 		// (angular/splitRoutePages.ts).
 		sourceCode =
 			splitAngularRoutePages(sourceCode, actualPath) ?? sourceCode;
+		/* A file route's layouts, as in the AOT build. Nothing has to
+		 * visit the layouts here: the import scan below reads the source
+		 * AFTER this transform, so the injected import is followed like
+		 * any other — which is why dev needed its own call rather than
+		 * one shared place, and why the two can drift. The build test
+		 * asserts the wrap through BOTH servers for that reason. */
+		const layoutPaths = fileRouteFor(actualPath)?.layouts ?? [];
+		if (layoutPaths.length > 0)
+			sourceCode = await wrapRouteLayouts(
+				sourceCode,
+				actualPath,
+				layoutPaths,
+				undefined
+			);
 
 		// Compute output path preserving directory structure. `toOutputPath`
 		// is the single source of truth — it handles the in-place branch

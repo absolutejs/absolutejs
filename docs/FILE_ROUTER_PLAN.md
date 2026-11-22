@@ -106,7 +106,7 @@ export const server = new Elysia()
 | `[[lang]]/about.tsx` | `/about` and `/:lang/about` (`params.lang?: string`) | 2 |
 | `(marketing)/pricing.tsx` | `/pricing` (group folder left out of the path) | 2 |
 | `blog/error.tsx`, `blog/loading.tsx`, `blog/not-found.tsx` | conventions for `/blog/**` | 3 |
-| `layout.tsx`, `blog/layout.tsx` | wraps `/**` and `/blog/**` (React, built) | 2 |
+| `layout.tsx`, `blog/layout.tsx` | wraps `/**` and `/blog/**` (React, Svelte, Vue, Angular; built) | 2 |
 
 - Unsupported segments and two files claiming one path are **build errors**
   in production and warnings in dev, listing every offending file.
@@ -138,6 +138,30 @@ export const server = new Elysia()
   "the island is still on the page", which a re-created one satisfies).
   An automatically derived key is still open: the key is written once, in
   the layout, but it is written.
+- **Nested layouts (built: every framework with a component model).**
+  Angular wraps them in the page's source, where Svelte and Vue do, and
+  for the same reason — one compiled module serves both the server render
+  and the client bootstrap, so the two sides cannot disagree about the
+  order. What Angular adds is that a template names a component by its
+  SELECTOR rather than by a local import name, so the wrap has to read
+  each layout's own `@Component` for the selector AND the class, and put
+  the class in the page's `imports` (adding an `imports` array when the
+  component has none). A layout with no `selector` cannot appear in a
+  template at all, so that is reported rather than wrapped around
+  nothing, and so is a page with no inline `template` or with more than
+  one exported component — a file route holding several is a router host
+  with co-located children, and guessing which one the layouts belong
+  around would wrap the wrong template as readily as the right one. An
+  Angular layout takes its content through `<ng-content />`.
+  The wrap is applied **after** `inlineResources`, because a page written
+  with `templateUrl` has an inline `template` only once that has run, and
+  it is called from TWO places — the AOT staging and the JIT (dev) path —
+  which is why the build test asserts the composed markup through both
+  servers. The AOT walker follows the imports of the source as written,
+  so it visits each layout explicitly; the JIT path scans imports after
+  its transforms and follows the injected one by itself.
+  HTML and HTMX still report a `layout.<ext>` as a problem: a static page
+  has no component model and no render step to compose one with.
 - **Nested layouts (built: React, Svelte and Vue).** Vue works the way
   Svelte does — the layouts wrap the page's `<template>` in the SOURCE,
   so one compiled module carries the tree — and the transform is simpler:
@@ -179,9 +203,9 @@ export const server = new Elysia()
   once there is one — a page that renders a document under a layout gets
   its `<head>` hoisted and duplicated (two `<title>` tags), which React
   does not treat as an error. Not detected at build time yet.
-  Svelte, Vue, Angular, HTML and HTMX do not compose layouts yet, so a
-  `layout.<ext>` in one of those route folders is a reported problem
-  rather than a file that is silently ignored.
+  HTML and HTMX do not compose layouts, so a `layout.<ext>` in one of
+  those route folders is a reported problem rather than a file that is
+  silently ignored.
 - **Catch-all, optional and group (built).** A `[...rest]` segment has to be
   the last one, because Elysia's `*` matches the rest of the path and
   anything after it would never be reached. Elysia names that param `*`; the
