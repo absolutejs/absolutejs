@@ -186,7 +186,6 @@ afterAll(async () => {
 });
 
 const HYDRATES = '? false : true;';
-const NEVER_HYDRATES = '? false : false;';
 
 describe('plain {#await}', () => {
 	test('server-renders the pending branch', () => {
@@ -225,7 +224,16 @@ describe('plain {#await}', () => {
 // The streamed response itself is covered by
 // tests/unit/svelte/pageHandlerStreaming.test.ts (AwaitStreamingPage fixture).
 describe('<!-- absolute:stream --> {#await}', () => {
-	test('keeps hydration off only for the page that streams', () => {
-		expect(probeResult().indexes.StreamedAwait).toContain(NEVER_HYDRATES);
+	/* This asserted the opposite until now — that a page with a streamed
+	 * block NEVER hydrates — which was the behaviour beta.261 removed.
+	 * A page with a streamed slot anywhere in it rendered and then did
+	 * nothing: no onMount, no handlers, no reactivity, and it looked
+	 * finished. The flag that disabled hydration is gone, and the index
+	 * this test reads says so in its own generated comment.
+	 *
+	 * The stale assertion survived the fix because this file runs only in
+	 * the nightly, and the nightly did not run between the fix and now. */
+	test('hydrates like any other page', () => {
+		expect(probeResult().indexes.StreamedAwait).toContain(HYDRATES);
 	});
 });
