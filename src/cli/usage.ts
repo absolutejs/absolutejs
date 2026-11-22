@@ -49,7 +49,7 @@ const COMMAND_FLAGS: Readonly<
 	},
 	info: {},
 	links: {},
-	migrate: { '--path': 'value' },
+	migrate: { '--apply': 'boolean', '--path': 'value' },
 	mkcert: {},
 	prepare: { '--outdir': 'value' },
 	start: { '--outdir': 'value', '--prebuilt': 'boolean' },
