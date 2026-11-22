@@ -129,6 +129,21 @@ every command and the global flags; these are the ones reached for most:
 `--config <path>` works on every command that reads one, and
 `absolute --version` prints the installed version.
 
+### The dev error overlay
+
+A build error shows the lines around it, numbered, with a caret on the
+column — and the file path above it is a button that opens the file at that
+line in your editor. Set the command once:
+
+```bash
+ABSOLUTE_EDITOR=cursor   # or code, subl, webstorm, nvim, emacs…
+```
+
+`$LAUNCH_EDITOR` and `$EDITOR` are used as fallbacks, in that order.
+`ABSOLUTE_EDITOR` exists so you can point this at a GUI editor without
+changing `$EDITOR`, which also drives git. With none of them set, the button
+says so rather than guessing at an installed editor.
+
 ### Testing your app
 
 `@absolutejs/absolute/testing` boots your project the way the CLI does,

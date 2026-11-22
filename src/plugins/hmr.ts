@@ -310,6 +310,47 @@ export const hmr = (
 			message: (ws, msg) => handleHMRMessage(hmrState, ws, msg),
 			open: (ws) => handleClientConnect(hmrState, ws, manifest)
 		})
+		/* Dev only, because this plugin is. See `src/dev/openInEditor.ts`
+		 * for why spawning a process with a path from a request is
+		 * acceptable here and what constrains it. */
+		/* Elysia parses the body before the handler runs, so reading
+		 * `request.json()` here returns null — measured: a valid
+		 * `{ file }` POST answered "Expected a `file` string". */
+		.post('/_absolute/open-in-editor', async ({ body, set }) => {
+			const { openInEditor } = await import('../dev/openInEditor');
+			const file =
+				body !== null && typeof body === 'object'
+					? Reflect.get(body, 'file')
+					: undefined;
+			if (typeof file !== 'string' || file.length === 0) {
+				set.status = 400;
+
+				return { ok: false, reason: 'Expected a `file` string.' };
+			}
+			const readNumber = (key: string) => {
+				const value =
+					body !== null && typeof body === 'object'
+						? Reflect.get(body, key)
+						: undefined;
+
+				return typeof value === 'number' && Number.isFinite(value)
+					? value
+					: undefined;
+			};
+			const result = openInEditor({
+				column: readNumber('column'),
+				file,
+				line: readNumber('line'),
+				projectRoot: process.cwd()
+			});
+			if (!result.ok) {
+				set.status = result.status;
+
+				return { ok: false, reason: result.reason };
+			}
+
+			return { command: result.command, ok: true };
+		})
 		.get('/hmr-status', () => ({
 			connectedClients: hmrState.connectedClients.size,
 			connectedTargets: Object.fromEntries(

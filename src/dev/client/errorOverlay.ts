@@ -75,13 +75,96 @@ const sectionLabelStyle =
 const codeBlockStyle =
 	'margin:0;padding:14px 18px;background:rgba(15,23,42,0.8);border-radius:10px;border:1px solid rgba(71,85,105,0.4);color:#cbd5e1;font-size:12.5px;line-height:1.55;overflow-x:auto;white-space:pre;font-family:inherit;';
 
+const GUTTER_WIDTH = 4;
+
+/* A numbered frame with a caret, rather than the single offending line
+ * the overlay used to print. One line with no number is often the least
+ * informative line in the file — `}` or `);` — and there is nothing to
+ * count columns from. */
+const buildCodeFrame = (frame: ErrorOverlayOptions['codeFrame']) => {
+	if (!frame || frame.lines.length === 0) return null;
+	const pre = document.createElement('pre');
+	pre.style.cssText = `${codeBlockStyle}margin-top:8px;`;
+	const width = Math.max(
+		GUTTER_WIDTH,
+		...frame.lines.map((entry) => String(entry.number).length)
+	);
+
+	for (const entry of frame.lines) {
+		const row = document.createElement('div');
+		if (entry.isError)
+			row.style.cssText =
+				'background:rgba(239,68,68,0.14);margin:0 -18px;padding:0 18px;';
+		const gutter = String(entry.number).padStart(width, ' ');
+		const marker = entry.isError ? '>' : ' ';
+		row.textContent = `${marker} ${gutter} | ${entry.text}`;
+		if (entry.isError) row.style.color = '#fecaca';
+		pre.appendChild(row);
+
+		if (!entry.isError || entry.caretColumn === undefined) continue;
+		const caret = document.createElement('div');
+		caret.style.cssText = 'color:#f87171;';
+		/* Tabs are one character here but render wider, so a caret under
+		 * a tab-indented line would drift. Copying the leading
+		 * whitespace verbatim keeps it aligned in any tab width. */
+		const prefix = entry.text
+			.slice(0, entry.caretColumn)
+			.replace(/[^\t]/gu, ' ');
+		caret.textContent = `${' '.repeat(width + 2)} | ${prefix}^`;
+		pre.appendChild(caret);
+	}
+
+	return pre;
+};
+
+/* POSTs to the dev server, which launches the editor. The button reports
+ * what came back — most often "no editor configured", which is a thing
+ * the person can fix and so worth saying out loud. */
+const requestOpenInEditor = async (
+	file: string,
+	line: number | undefined,
+	column: number | undefined,
+	onResult: (text: string, failed: boolean) => void
+) => {
+	try {
+		const response = await fetch('/_absolute/open-in-editor', {
+			body: JSON.stringify({ column, file, line }),
+			headers: { 'Content-Type': 'application/json' },
+			method: 'POST'
+		});
+		const payload: unknown = await response.json().catch(() => null);
+		if (response.ok) {
+			onResult('Opened', false);
+
+			return;
+		}
+		const reason =
+			payload !== null && typeof payload === 'object'
+				? Reflect.get(payload, 'reason')
+				: undefined;
+		onResult(
+			typeof reason === 'string' ? reason : 'Could not open the editor.',
+			true
+		);
+	} catch {
+		onResult('Could not reach the dev server.', true);
+	}
+};
+
 const buildLocationSection = (
 	file: string | undefined,
 	line: number | undefined,
 	column: number | undefined,
-	lineText: string | undefined
+	lineText: string | undefined,
+	codeFrame?: ErrorOverlayOptions['codeFrame']
 ) => {
-	if (!file && line === undefined && column === undefined && !lineText) {
+	if (
+		!file &&
+		line === undefined &&
+		column === undefined &&
+		!lineText &&
+		!codeFrame
+	) {
 		return null;
 	}
 
@@ -99,13 +182,51 @@ const buildLocationSection = (
 	if (column !== undefined) locParts.push(String(column));
 	const loc = locParts.join(':') || 'Unknown location';
 
-	const locEl = document.createElement('div');
-	locEl.style.cssText =
-		'padding:12px 18px;background:rgba(71,85,105,0.3);border-radius:10px;border:1px solid rgba(71,85,105,0.4);color:#cbd5e1;font-size:13px;word-break:break-all;';
-	locEl.textContent = loc;
-	locSection.appendChild(locEl);
+	const base =
+		'display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:12px 18px;background:rgba(71,85,105,0.3);border-radius:10px;border:1px solid rgba(71,85,105,0.4);color:#cbd5e1;font-size:13px;word-break:break-all;font-family:inherit;';
 
-	if (lineText) {
+	/* Only a click target when there is a file to open. A button that
+	 * cannot do anything is worse than a label. */
+	if (!file) {
+		const locEl = document.createElement('div');
+		locEl.style.cssText = base;
+		locEl.textContent = loc;
+		locSection.appendChild(locEl);
+	} else {
+		const button = document.createElement('button');
+		button.type = 'button';
+		button.style.cssText = `${base}cursor:pointer;`;
+		button.title = 'Open in your editor';
+
+		const path = document.createElement('span');
+		path.textContent = loc;
+		const hint = document.createElement('span');
+		hint.style.cssText =
+			'margin-left:auto;flex:none;font-size:11px;color:#94a3b8;';
+		hint.textContent = 'Open in editor';
+		button.append(path, hint);
+
+		button.addEventListener('mouseenter', () => {
+			button.style.borderColor = 'rgba(148,163,184,0.7)';
+		});
+		button.addEventListener('mouseleave', () => {
+			button.style.borderColor = 'rgba(71,85,105,0.4)';
+		});
+		button.addEventListener('click', () => {
+			hint.textContent = 'Opening…';
+			void requestOpenInEditor(file, line, column, (text, failed) => {
+				hint.textContent = failed ? 'Could not open' : text;
+				hint.style.color = failed ? '#f87171' : '#4ade80';
+				if (failed) button.title = text;
+			});
+		});
+		locSection.appendChild(button);
+	}
+
+	const frame = buildCodeFrame(codeFrame);
+	if (frame) {
+		locSection.appendChild(frame);
+	} else if (lineText) {
 		const codeBlock = document.createElement('pre');
 		codeBlock.style.cssText = `${codeBlockStyle}margin-top:8px;`;
 		codeBlock.textContent = lineText;
@@ -268,7 +389,7 @@ const renderOverlay = () => {
 			: pendingCompilationOpts;
 	if (!opts) return;
 	const message = opts.message || 'Build failed';
-	const { file, line, column, lineText, stack } = opts;
+	const { codeFrame, file, line, column, lineText, stack } = opts;
 	const framework = (opts.framework || 'unknown').toLowerCase();
 	const frameworkLabel = frameworkLabels[framework] || framework;
 	const accent = frameworkColors[framework] || '#94a3b8';
@@ -341,7 +462,13 @@ const renderOverlay = () => {
 	}
 
 	content.appendChild(buildErrorMessageSection(message));
-	const locSection = buildLocationSection(file, line, column, lineText);
+	const locSection = buildLocationSection(
+		file,
+		line,
+		column,
+		lineText,
+		codeFrame
+	);
 	if (locSection) content.appendChild(locSection);
 	const stackSection = buildStackSection(stack, message);
 	if (stackSection) content.appendChild(stackSection);
