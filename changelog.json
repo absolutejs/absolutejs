@@ -5,6 +5,20 @@
 		{
 			"changes": [
 				{
+					"detail": "`clientModules: { ProjectSettings: 'src/frontend/embeds/ProjectSettings.tsx' }` builds a React module this app serves for another page to import. It is built with the React pages, so it shares their React (`/react/vendor/…`) and chunks, keeps its named exports, and carries none of the pages. Its URL is `asset(manifest, 'ProjectSettingsModule')`; under the dev server that URL is the module server's, so an edit is picked up as page code is. It is for rendering part of this app inside a page another app serves on the same origin, with this app's own React and no iframe. Names are PascalCase; the source must exist.",
+					"kind": "added",
+					"summary": "clientModules: React modules an app builds for another page to import",
+					"symbols": [
+						"BaseBuildConfig"
+					]
+				}
+			],
+			"date": "2026-11-22",
+			"version": "0.20.0-beta.291"
+		},
+		{
+			"changes": [
+				{
 					"detail": "`@capacitor/keyboard` and `@capacitor/network` are no longer dependencies of this package, which neither imports. `network` only ever appeared as a version string the CLI installs into the generated app, and dropping it costs a consumer nothing because `@absolutejs/devices-capacitor` depends on it directly. `keyboard` is the one that reduces a web-only install: nothing else requires it, since the adapter lists it as an optional peer. It does have to resolve when the mobile shell is bundled — the shell always includes the `keyboard` capability and its provider module imports the package — but provisioning installs it on demand from the adapter's own capability manifest (`packages: [\"@capacitor/keyboard@8.0.5\"]`), and `assertNativePackageVersions` then fails loudly rather than leaving a silently broken bundle. A test pins that manifest entry, because the removal is only safe while it exists. `@capacitor/browser`, `@capacitor/filesystem` and `@capacitor/preferences` stay, and docs/MOBILE_NATIVE_DEPENDENCIES.md now records why rather than leaving three dependencies with no web-side imports for someone to tidy away: the shell imports them statically and `buildShellBootstrap` bundles that entry with only `web-vitals` external, so they must resolve at build time, and being dependencies here is what puts them in a consuming project's lockfile without the project asking. That matters for the release path, which installs with a frozen `bun ci` and never runs `absolute mobile init` — as peers, a project that had not declared them could not acquire them during a release, and a frozen install cannot repair itself. The same note records what the real lever is for a smaller web-only install: `@absolutejs/devices-capacitor` is a hard dependency here and depends on four `@capacitor/*` packages itself, so those install for every consumer whatever this manifest says.",
 					"kind": "changed",
 					"summary": "Two @capacitor packages this framework does not import are no longer dependencies"

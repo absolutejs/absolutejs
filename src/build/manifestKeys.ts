@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
+import { clientModuleManifestKey } from './clientModules';
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { basename, dirname, extname, join, relative, resolve } from 'node:path';
 import type { BuildConfig } from '../../types/build';
@@ -112,6 +113,11 @@ export const deriveManifestKeys = async (
 			add(possible, `${GENERATED}/react/indexes/${name}.css`);
 		}
 	}
+
+	// Client modules: `<Name>Module` each (build/clientModules.ts).
+	if (reactDir)
+		for (const name of Object.keys(config.clientModules ?? {}))
+			definite.add(clientModuleManifestKey(name));
 
 	// React Server Components: `<Page>RSC` per page, plus the runtime.
 	const rscDir = at(config.reactServerComponentsDirectory);

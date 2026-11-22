@@ -538,6 +538,15 @@ export type BaseBuildConfig = {
 		registry: string;
 		bootstrap?: string;
 	};
+	/** React modules this app builds for another page to import, by name:
+	 *  `{ ProjectSettings: 'src/frontend/embeds/ProjectSettings.tsx' }`.
+	 *  Each is built with the React pages (sharing their React and chunks),
+	 *  keeps its named exports, and is served at
+	 *  `asset(manifest, 'ProjectSettingsModule')` — from source under the
+	 *  dev server. For rendering part of this app inside a page another app
+	 *  serves on the same origin, with this app's own React, no iframe.
+	 *  Requires `reactDirectory`. */
+	clientModules?: Record<string, string>;
 	reactDirectory?: string;
 	/** Opt-in React Server Components. Pages are the files directly in
 	 *  `<dir>/pages`; serve one with `handleReactServerPageRequest({ page:
