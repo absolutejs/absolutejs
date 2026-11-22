@@ -45,6 +45,12 @@ const COMMAND_FLAGS: Readonly<
 		'--outdir': 'value',
 		'--save': 'boolean'
 	},
+	bench: {
+		'--check': 'boolean',
+		'--json': 'boolean',
+		'--outdir': 'value',
+		'--save': 'boolean'
+	},
 	build: { '--outdir': 'value', '--profile': 'boolean' },
 	compile: { '--outdir': 'value', '--outfile': 'value' },
 	dev: {

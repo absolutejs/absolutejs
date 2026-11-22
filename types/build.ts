@@ -7,6 +7,7 @@ import type { ImageConfig } from './image';
 import type { LinksConfig } from './links';
 import type { SitemapConfig } from './sitemap';
 import type { SizeBudgets } from '../src/utils/sizeBudgets';
+import type { BenchConfig } from './bench';
 
 /** How Angular pages run change detection. `'zoneless'` (the default)
  *  uses signals and explicit scheduling; `'zone'` loads zone.js on the
@@ -717,6 +718,19 @@ export type BaseBuildConfig = {
 	 *  metric-matched fallback faces. Use `fontAssets(manifest)` to put them
 	 *  in a page's head. See docs/FONTS.md. */
 	fonts?: FontsConfig;
+	/** What `absolute bench` measures and how strictly `--check` judges it
+	 *  against the saved baseline.
+	 *
+	 *      bench: {
+	 *          pages: [{ label: 'react', path: '/react' }],
+	 *          sizeTolerance: 1.05,
+	 *          timeTolerance: 1.25
+	 *      }
+	 *
+	 *  `pages` has to be given: only your server knows which path renders
+	 *  which framework, so the framework cannot guess. Without it, bench
+	 *  measures sizes and build time and skips throughput. */
+	bench?: BenchConfig;
 	/** Size budgets `absolute analyze --check` enforces, exiting 1 when
 	 *  something is over. Values are `'250kb'`, `'1.5 MB'` or raw bytes.
 	 *

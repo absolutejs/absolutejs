@@ -81,6 +81,9 @@ const printUsage = (write: (line: string) => void) => {
 		'  analyze [--save] [--json] [--check] Bundle sizes, a diff against a saved baseline, or the size budgets in your config as a gate'
 	);
 	write(
+		'  bench [--save] [--json] [--check] Build time, bundle size and render throughput, against a committed baseline'
+	);
+	write(
 		'  api [--open] [--json] Show the API surface or open the OpenAPI UI (@elysia/openapi)'
 	);
 	write('  eslint        Run ESLint (cached)');
@@ -301,6 +304,10 @@ if (command === 'dev') {
 	sendTelemetryEvent('cli:command', { command: 'add' });
 	const { runAdd } = await import('./scripts/add');
 	await runAdd(args);
+} else if (command === 'bench') {
+	sendTelemetryEvent('cli:command', { command });
+	const { runBench } = await import('./scripts/bench');
+	await runBench(args);
 } else if (command === 'analyze') {
 	sendTelemetryEvent('cli:command', { command: 'analyze' });
 	const { runAnalyze } = await import('./scripts/analyze');

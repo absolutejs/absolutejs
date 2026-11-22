@@ -129,6 +129,46 @@ every command and the global flags; these are the ones reached for most:
 `--config <path>` works on every command that reads one, and
 `absolute --version` prints the installed version.
 
+### Benchmarks and regression gates
+
+`absolute bench` measures what this project costs — bundle size and build
+time per framework, and server-render throughput per page — and
+`--check` fails when any of it gets worse than a baseline you commit:
+
+```ts
+// absolute.config.ts
+export default defineConfig({
+	// …
+	bench: {
+		pages: [
+			{ label: 'react', path: '/react' },
+			{ label: 'svelte', path: '/svelte' }
+		],
+		serverEntry: 'server.ts'
+	}
+});
+```
+
+```bash
+absolute bench --save    # record .absolute-bench-baseline.json, then commit it
+absolute bench --check   # in CI; exits non-zero on a regression
+```
+
+`pages` has no default because only your server knows which path renders
+which framework. Without it, bench reports sizes and build time and skips
+throughput.
+
+Two tolerances, because the measurements are not alike. **Bundle sizes are
+deterministic** — the same input gives the same bytes anywhere — so they
+default to `sizeTolerance: 1.05`. **Build time and throughput move with CPU
+contention and thermal state**, so they default to `timeTolerance: 1.25`
+and the throughput pass takes a warmup window it throws away. Gating a wall
+clock as tightly as a byte count is how a benchmark gate becomes the flaky
+job everyone reruns until it passes.
+
+Improvements are never reported: a build that got faster should not need
+anyone to dismiss a warning about it.
+
 ### Size budgets
 
 `absolute analyze` prints what the build weighs, by category, and diffs it
