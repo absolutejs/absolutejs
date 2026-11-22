@@ -29,6 +29,11 @@ afterEach(() =>
 		'STRIPE_SECRET_KEY',
 		'SHORT_KEY',
 		'PUBLIC_STRIPE_PUBLISHABLE_KEY',
+		'STRIPE_PUBLISHABLE_KEY',
+		'VAPID_PUBLIC_KEY',
+		'NEXT_PUBLIC_MAPS_KEY',
+		'CHECKOUT_KEY',
+		'REPUBLICAN_TOKEN',
 		'DATABASE_URL',
 		'SESSION_TOKEN'
 	)
@@ -74,6 +79,32 @@ describe('findServerSecret', () => {
 		expect(
 			findServerSecret('{"key":"pk_live_51H8xqLexample"}')
 		).toBeUndefined();
+	});
+
+	test('a name that says public or publishable in its own words', () => {
+		// Stripe's own name for the key every checkout page sends.
+		set('STRIPE_PUBLISHABLE_KEY', 'pub_value_8a7b6c5d4e3f');
+		set('VAPID_PUBLIC_KEY', 'BCvapid_public_9x8y7z');
+		set('NEXT_PUBLIC_MAPS_KEY', 'maps_browser_7q6w5e4r');
+		expect(
+			findServerSecret(
+				'{"a":"pub_value_8a7b6c5d4e3f","b":"BCvapid_public_9x8y7z","c":"maps_browser_7q6w5e4r"}'
+			)
+		).toBeUndefined();
+	});
+
+	test('a Stripe publishable value is public under any name', () => {
+		set('CHECKOUT_KEY', 'pk_test_51H8xqLexample');
+		expect(
+			findServerSecret('{"k":"pk_test_51H8xqLexample"}')
+		).toBeUndefined();
+	});
+
+	test('PUBLIC must be its own word in the name', () => {
+		set('REPUBLICAN_TOKEN', 'tok_live_1a2b3c4d5e6f');
+		expect(findServerSecret('{"t":"tok_live_1a2b3c4d5e6f"}')).toBe(
+			'REPUBLICAN_TOKEN'
+		);
 	});
 
 	test('catches any sensitive-looking name, not just KEY', () => {
