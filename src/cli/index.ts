@@ -7,6 +7,13 @@ import {
 	WORKSPACE_COMMAND_ARGS_OFFSET
 } from '../constants';
 import { DEFAULT_SERVER_ENTRY } from './utils';
+import {
+	absoluteCliVersion,
+	HELP_FLAGS,
+	validateCommandFlags,
+	validatesFlags,
+	VERSION_FLAGS
+} from './usage';
 import { markBoot } from '../utils/bootTimeline';
 
 // First statement of the CLI bundle's body: everything before it (Bun's own
@@ -34,6 +41,142 @@ const stripNamedArgs = (...flags: string[]) =>
 			return idx !== flagIdx && idx !== flagIdx + 1;
 		})
 	);
+
+const printUsage = (write: (line: string) => void) => {
+	write('Usage: absolute <command>');
+	write('Commands:');
+	write(
+		'  dev [entry] [--eager] [--no-mobile] [--android-device serial] [--ios-device identifier] Start web and configured mobile development (--eager builds every page at boot instead of on first request)'
+	);
+	write('  workspace dev [--no-tui] Start multi-service workspace dev');
+	write('  build [--outdir dir] [--profile] Build production assets');
+	write(
+		'  prepare [entry] [--outdir dir] Build production assets and server without launching'
+	);
+	write(
+		'  start [entry] [--outdir dir] [--prebuilt] Start production server'
+	);
+	write(
+		'  compile [entry] [--outdir dir] [--outfile path] Compile standalone executable'
+	);
+	write(
+		'  mobile <init|sync|assets|inspect|ci|pair|remotes|doctor|test> Manage Capacitor apps and the experimental Expo hybrid shell'
+	);
+	write(
+		'  config [--port n] Open the unified config UI (ESLint, tsconfig, Prettier)'
+	);
+	write(
+		'  db <backup|restore|seed> Backup/restore (ORM-agnostic JSON, upsert by PK) PostgreSQL, CockroachDB, MySQL, MariaDB, SingleStore, SQLite, libSQL/Turso or SQL Server, or run the seed script'
+	);
+	write(
+		'  doctor [--fix] [--json] Diagnose the project (bun, type graph, config, framework dirs, env, port)'
+	);
+	write(
+		'  env [--check] [--json] Report env vars the app reads (getEnv) and which are missing'
+	);
+	write(
+		'  add <framework> [--no-install] Add a framework (deps, config, starter page)'
+	);
+	write(
+		'  analyze [--save] [--json] Bundle size breakdown + diff vs a saved baseline'
+	);
+	write(
+		'  api [--open] [--json] Show the API surface or open the OpenAPI UI (@elysia/openapi)'
+	);
+	write('  eslint        Run ESLint (cached)');
+	write(
+		'  lint-proof <run|verify> -- <command> Record or verify an exact-source local lint pass'
+	);
+	write(
+		'  generate <page|api|component> <name> [--framework <fw>] Scaffold a page, API plugin, or component'
+	);
+	write(
+		'  htmx [version] Self-host htmx — report or install/upgrade the pinned copy'
+	);
+	write('  info          Print system info for bug reports');
+	write('  inspect [--json] Live request inspector for a running dev server');
+	write(
+		'  islands [--sizes] [--json] List islands by framework, hydration, pages (cross-framework aware)'
+	);
+	write(
+		'  remove <framework> [--prune] Remove a framework from config (keeps source)'
+	);
+	write(
+		"  logs <name> [-f] [-n <lines>] Tail a running server's log by name"
+	);
+	write(
+		"  ls [--sizes] [--budget <size>] [--json] List the project's pages by framework"
+	);
+	write(
+		'  mem [--json] | mem diff <a> <b>  Memory report (RSS), or diff two heap snapshots'
+	);
+	write(
+		'  ps [--watch] [--json] [--kill <pid|port>] [--kill-all] List/manage running servers'
+	);
+	write(
+		'  fmt [--check] Format with bun fmt (Bun 1.4.4+; reads your Prettier config)'
+	);
+	write('  prettier      Run Prettier check (cached)');
+	write(
+		'  routes [--json] List every route (pages + API) of a running dev server'
+	);
+	write('  typecheck     Run type checkers for all frameworks');
+	write(
+		'  links [--config path] Report literal <a href="/…"> links no route serves (exits 1 on findings)'
+	);
+	write(
+		'  migrate       Report what moving this project to AbsoluteJS involves'
+	);
+	write(
+		'  bun-patch [status|install|remove|reset] Bun with the React Fast Refresh fix (oven-sh/bun#32919)'
+	);
+	write('  telemetry     Manage anonymous telemetry');
+	write(
+		'  tunnel-relay  Run the public reverse-tunnel relay (for webhook dev)'
+	);
+	/* Named here because nine commands read `--config` and the lines above
+	 * mention it on only some of them, which made an accepted flag look
+	 * like an unknown one. */
+	write('');
+	write('Global flags:');
+	write('  --config <path> Use this config instead of ./absolute.config.ts');
+	write('  --help, -h      Print this list');
+	write('  --version, -v   Print the installed @absolutejs/absolute version');
+};
+
+/* Help and version first, so neither is treated as a command name. Both
+ * answer on STDOUT and exit 0: `absolute --help` used to print
+ * `Unknown command: --help`, send the list to stderr and exit 1. */
+if (command !== undefined && HELP_FLAGS.has(command)) {
+	printUsage(console.log);
+	process.exit(0);
+}
+if (command !== undefined && VERSION_FLAGS.has(command)) {
+	const version = absoluteCliVersion();
+	if (version === undefined) {
+		console.error('Could not read the version of @absolutejs/absolute.');
+		process.exit(1);
+	}
+	console.log(version);
+	process.exit(0);
+}
+/* `absolute <command> --help` is the command's own help request, not an
+ * argument for it to parse. */
+if (command !== undefined && args.some((arg) => HELP_FLAGS.has(arg))) {
+	printUsage(console.log);
+	process.exit(0);
+}
+/* A flag no command reads was ignored in silence, and so was a flag whose
+ * value was missing. Only commands whose flags this file reads in full are
+ * checked — see usage.ts for why the other 25 are not. */
+if (command !== undefined && validatesFlags(command)) {
+	const problem = validateCommandFlags(command, args);
+	if (problem) {
+		console.error(problem.message);
+		console.error(`Run \`absolute --help\` for the list of commands.`);
+		process.exit(1);
+	}
+}
 
 if (command === 'dev') {
 	sendTelemetryEvent('cli:command', { command });
@@ -267,104 +410,12 @@ if (command === 'dev') {
 	const { tunnelRelay } = await import('./scripts/tunnelRelay');
 	tunnelRelay();
 } else {
-	const message = command
-		? `Unknown command: ${command}`
-		: 'No command specified';
-	console.error(message);
-	console.error('Usage: absolute <command>');
-	console.error('Commands:');
+	/* An unknown command still reports on stderr and exits 1; an explicit
+	 * help request goes to stdout and exits 0, and is handled before the
+	 * dispatch above ever sees it. */
 	console.error(
-		'  dev [entry] [--eager] [--no-mobile] [--android-device serial] [--ios-device identifier] Start web and configured mobile development (--eager builds every page at boot instead of on first request)'
+		command ? `Unknown command: ${command}` : 'No command specified'
 	);
-	console.error(
-		'  workspace dev [--no-tui] Start multi-service workspace dev'
-	);
-	console.error('  build [--outdir dir] [--profile] Build production assets');
-	console.error(
-		'  prepare [entry] [--outdir dir] Build production assets and server without launching'
-	);
-	console.error(
-		'  start [entry] [--outdir dir] [--prebuilt] Start production server'
-	);
-	console.error(
-		'  compile [entry] [--outdir dir] [--outfile path] Compile standalone executable'
-	);
-	console.error(
-		'  mobile <init|sync|assets|inspect|ci|pair|remotes|doctor|test> Manage Capacitor apps and the experimental Expo hybrid shell'
-	);
-	console.error(
-		'  config [--port n] Open the unified config UI (ESLint, tsconfig, Prettier)'
-	);
-	console.error(
-		'  db <backup|restore|seed> Backup/restore (ORM-agnostic JSON, upsert by PK) PostgreSQL, CockroachDB, MySQL, MariaDB, SingleStore, SQLite, libSQL/Turso or SQL Server, or run the seed script'
-	);
-	console.error(
-		'  doctor [--fix] [--json] Diagnose the project (bun, type graph, config, framework dirs, env, port)'
-	);
-	console.error(
-		'  env [--check] [--json] Report env vars the app reads (getEnv) and which are missing'
-	);
-	console.error(
-		'  add <framework> [--no-install] Add a framework (deps, config, starter page)'
-	);
-	console.error(
-		'  analyze [--save] [--json] Bundle size breakdown + diff vs a saved baseline'
-	);
-	console.error(
-		'  api [--open] [--json] Show the API surface or open the OpenAPI UI (@elysia/openapi)'
-	);
-	console.error('  eslint        Run ESLint (cached)');
-	console.error(
-		'  lint-proof <run|verify> -- <command> Record or verify an exact-source local lint pass'
-	);
-	console.error(
-		'  generate <page|api|component> <name> [--framework <fw>] Scaffold a page, API plugin, or component'
-	);
-	console.error(
-		'  htmx [version] Self-host htmx — report or install/upgrade the pinned copy'
-	);
-	console.error('  info          Print system info for bug reports');
-	console.error(
-		'  inspect [--json] Live request inspector for a running dev server'
-	);
-	console.error(
-		'  islands [--sizes] [--json] List islands by framework, hydration, pages (cross-framework aware)'
-	);
-	console.error(
-		'  remove <framework> [--prune] Remove a framework from config (keeps source)'
-	);
-	console.error(
-		"  logs <name> [-f] [-n <lines>] Tail a running server's log by name"
-	);
-	console.error(
-		"  ls [--sizes] [--budget <size>] [--json] List the project's pages by framework"
-	);
-	console.error(
-		'  mem [--json] | mem diff <a> <b>  Memory report (RSS), or diff two heap snapshots'
-	);
-	console.error(
-		'  ps [--watch] [--json] [--kill <pid|port>] [--kill-all] List/manage running servers'
-	);
-	console.error(
-		'  fmt [--check] Format with bun fmt (Bun 1.4.4+; reads your Prettier config)'
-	);
-	console.error('  prettier      Run Prettier check (cached)');
-	console.error(
-		'  routes [--json] List every route (pages + API) of a running dev server'
-	);
-	console.error('  typecheck     Run type checkers for all frameworks');
-	console.error(
-		'  links [--config path] Report literal <a href="/…"> links no route serves (exits 1 on findings)'
-	);
-	console.error(
-		'  migrate       Report what moving this project to AbsoluteJS involves'
-	);
-	console.error(
-		'  bun-patch [status|install|remove|reset] Bun with the React Fast Refresh fix (oven-sh/bun#32919)'
-	);
-	console.error('  telemetry     Manage anonymous telemetry');
-	console.error(
-		'  tunnel-relay  Run the public reverse-tunnel relay (for webhook dev)'
-	);
+	printUsage(console.error);
 	process.exit(1);
 }

@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "`absolute --help` printed `Unknown command: --help`, sent the whole command list to stderr and exited 1 — so piping it showed nothing and any script checking the status saw a failure — and `absolute --version` printed no version at all, on either stream. Both now answer on stdout and exit 0, `-h` and `-v` and a bare `help` included, and `absolute <command> --help` prints the list without running the command. An unknown flag was ignored in silence: `absolute typecheck --bogus-flag --config` ran the full typecheck and exited 0, ignoring the unknown flag AND the `--config` that had no value after it, which meant it quietly used the default config. A flag no command reads is now an error that names the command, with the nearest real flag suggested when the distance reads as a typo rather than a different intention — `--no-mobil` on `absolute dev` had been doing a mobile build the user meant to skip, silently. Only 12 of the 37 commands validate their flags, which is the deliberate half of this: the other 25 forward their whole argument list to a script that parses it itself, so checking them here would reject arguments that work today. The 12 are the ones whose flags the dispatcher reads in full, and they include every command a new user types first. `--config` is also documented now: nine commands read it and the help text named it on only some of their lines, so an accepted flag looked like an unknown one.",
+					"kind": "fixed",
+					"summary": "absolute --help and --version work, and an unknown flag is an error"
+				}
+			],
+			"date": "2026-11-22",
+			"version": "0.20.0-beta.289"
+		},
+		{
+			"changes": [
+				{
 					"detail": "The check that refuses to serialize a server secret into page props failed pages that send a key meant for the browser under its provider's own name. `STRIPE_PUBLISHABLE_KEY` turned every Stripe checkout page into an SSR error on upgrade (embroidery-place's /customize). A name with `PUBLISHABLE` in it, or `PUBLIC` as a word anywhere in it (`VAPID_PUBLIC_KEY`, `NEXT_PUBLIC_…`), now says it's meant to be sent, as the `PUBLIC_` prefix already did. A Stripe publishable value (`pk_live_…`, `pk_test_…`) is exempt under any name. Secret-looking names that say nothing about being public still fail, with the same message telling you to add the `PUBLIC_` prefix.",
 					"kind": "fixed",
 					"summary": "Publishable and public keys may reach page props (STRIPE_PUBLISHABLE_KEY no longer fails checkout pages)"
