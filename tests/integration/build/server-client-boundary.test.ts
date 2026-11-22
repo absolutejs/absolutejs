@@ -5,7 +5,9 @@ import { build } from '../../../src/core/build';
 
 /* The boundary through a real `build()`, not just the plugins: what makes
  * item 0.7 a fix is that these failures reach the build's own error path.
- * `throwOnError` is how a caller gets the message instead of exit(1). */
+ * A failed build throws, so the message reaches the caller; `throwOnError`
+ * is kept on these cases because they predate that and the flag is now
+ * only about escalating survivable warnings. */
 
 const tempDirs: string[] = [];
 const testBuildRoot = join(

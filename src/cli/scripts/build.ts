@@ -103,7 +103,11 @@ export const build = async (
 			durationMs: Math.round(performance.now() - buildStart)
 		});
 		console.error(cliTag('\x1b[31m', 'Build step failed.'));
-		console.error(err);
+		/* A build-pass failure has already been logged with its file, line
+		 * and specifier by the time it is thrown, so printing the error
+		 * again would repeat all of it. Anything else is unreported. */
+		if (!(err instanceof Error && Reflect.get(err, 'reported') === true))
+			console.error(err);
 		process.exit(1);
 	}
 

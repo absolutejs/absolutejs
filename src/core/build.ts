@@ -24,7 +24,7 @@ import {
 	resolve,
 	sep
 } from 'node:path';
-import { cwd, env, exit } from 'node:process';
+import { cwd, env } from 'node:process';
 import { build as bunBuild, type BuildArtifact, Glob } from 'bun';
 import { buildFonts } from '../build/fonts/buildFonts';
 import { injectFontTags } from '../build/fonts/injectFontTags';
@@ -398,8 +398,7 @@ const extractBuildError = (
 	pass: string,
 	label: string,
 	frameworkNames: string[],
-	isIncremental: boolean | 0 | undefined,
-	throwOnError: boolean
+	isIncremental: boolean | 0 | undefined
 ) => {
 	const passError = buildPassError(
 		logs,
@@ -408,12 +407,22 @@ const extractBuildError = (
 		frameworkNames,
 		isIncremental
 	);
-	if (throwOnError) {
-		const err = new Error(passError.message);
-		Object.assign(err, { logs });
-		throw err;
-	}
-	exit(1);
+	/* Always a throw, never `exit(1)`.
+	 *
+	 * `build()` is public API (`@absolutejs/absolute/build`), and a library
+	 * that ends the host process takes the decision away from whoever
+	 * called it: a tool building several projects loses the rest of them,
+	 * and an in-process caller cannot report the failure in its own terms.
+	 * The three CLI callers — build, start and compile — already wrap this
+	 * in a try/catch, so each of them now reaches its own error path for
+	 * the first time; `exit(1)` was returning before they could.
+	 *
+	 * `buildPassError` above has already logged the failure and sent its
+	 * telemetry, which is why the error carries `reported` — the CLI prints
+	 * a summary rather than the whole thing twice. */
+	const err = new Error(passError.message);
+	Object.assign(err, { logs, reported: true });
+	throw err;
 };
 
 /* Copies a static (HTML) convention entry's files into `outDir`, so the
@@ -1207,7 +1216,11 @@ const buildUnlocked = async ({
 	// Normalize incrementalFiles for consistent cross-platform path checking
 	const normalizedIncrementalFiles = incrementalFiles?.map(normalizePath);
 
-	const throwOnError = options?.throwOnError === true;
+	/* `throwOnError` no longer decides whether a failed build throws — it
+	 * always does. What is left of it is escalation: the §3.4 Angular
+	 * multi-instance guardrail is a warning by default and an error for a
+	 * caller that asked for one. See `BuildOptions.throwOnError`. */
+	const escalateWarnings = options?.throwOnError === true;
 	const hmr = options?.injectHMR === true;
 	const buildPath = validateSafePath(buildDirectory, projectRoot);
 	const assetsPath =
@@ -3151,14 +3164,7 @@ const buildUnlocked = async ({
 
 			return;
 		}
-		extractBuildError(
-			logs,
-			pass,
-			label,
-			frameworkNames,
-			isIncremental,
-			throwOnError
-		);
+		extractBuildError(logs, pass, label, frameworkNames, isIncremental);
 	};
 
 	// Server sourcemap chain (docs/BUN_SOURCEMAP_CHAIN_BUG.md). Bun.build
@@ -3434,7 +3440,7 @@ const buildUnlocked = async ({
 			verifyAngularCoreUniqueness(
 				serverOutputs,
 				serverOutDir,
-				throwOnError
+				escalateWarnings
 			)
 		);
 	}
@@ -3885,11 +3891,12 @@ const buildUnlocked = async ({
 				message,
 				pass: 'manifest'
 			});
-		} else if (throwOnError) {
-			throw new Error(message);
 		} else {
-			logError('Manifest key collision', new Error(message));
-			exit(1);
+			const collision = new Error(message);
+			logError('Manifest key collision', collision);
+			Object.assign(collision, { reported: true });
+
+			throw collision;
 		}
 	}
 

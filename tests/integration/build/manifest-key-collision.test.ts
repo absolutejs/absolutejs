@@ -10,7 +10,12 @@ import { join, resolve } from 'node:path';
 const repoRoot = resolve(import.meta.dir, '..', '..', '..');
 const fixtures: string[] = [];
 
-const createProject = async (name: string, htmxPage: string) => {
+const createProject = async (
+	name: string,
+	htmxPage: string,
+	body = `const result = await build(config);
+console.log(JSON.stringify(result?.manifest ?? {}));`
+) => {
 	const root = join(
 		repoRoot,
 		'.test-builds',
@@ -31,14 +36,14 @@ const createProject = async (name: string, htmxPage: string) => {
 		join(root, 'build.ts'),
 		`import { build } from ${JSON.stringify(join(repoRoot, 'src', 'core', 'build.ts'))};
 
-const result = await build({
+const config = {
 	buildDirectory: 'build',
 	htmlDirectory: 'html',
 	htmxDirectory: 'htmx',
-	mode: 'production',
-	options: { throwOnError: true }
-});
-console.log(JSON.stringify(result?.manifest ?? {}));
+	mode: 'production'
+};
+
+${body}
 `
 	);
 
@@ -77,6 +82,31 @@ describe('manifest key collisions', () => {
 		expect(output).toContain(join('html', 'pages', 'Home.html'));
 		expect(output).toContain(join('htmx', 'pages', 'Home.html'));
 		expect(output).toContain('HomePage.html');
+	}, 120_000);
+
+	/* `build()` is public API, so the caller decides what a failure means.
+	 * The collision branch used to call `exit(1)` unless `throwOnError` was
+	 * passed, which ended the host process from inside a library: before
+	 * this fix the marker below never printed and the exit code was 1. */
+	test('a caller can catch the failure instead of losing its process', async () => {
+		const root = await createProject(
+			'catchable',
+			'Home.html',
+			`try {
+	await build(config);
+	console.log('NO_THROW');
+} catch (error) {
+	console.log('CAUGHT', error instanceof Error ? error.message : error);
+}
+console.log('STILL_RUNNING');`
+		);
+		const { exitCode, stdout } = await runBuild(root);
+
+		expect(stdout).toContain('CAUGHT');
+		expect(stdout).toContain('Manifest key "Home" belongs to two pages');
+		expect(stdout).toContain('STILL_RUNNING');
+		expect(stdout).not.toContain('NO_THROW');
+		expect(exitCode).toBe(0);
 	}, 120_000);
 
 	test('distinct names still build', async () => {

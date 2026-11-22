@@ -5,6 +5,20 @@
 		{
 			"changes": [
 				{
+					"detail": "`build()` is public API, but two of its failure paths — a failed Bun bundling pass and a manifest key collision — called `process.exit(1)` unless the caller passed `options.throwOnError`. A library that ends the host process takes the decision away from whoever called it: a tool building several projects lost the rest of them, and an in-process caller could not report the failure in its own terms. Both paths now throw. The failure is still logged once and still sends its `build:error` telemetry before the throw, and the error carries a `reported` marker so the CLI prints a short \"Build step failed.\" rather than the same diagnostics twice — the CLI already had that try/catch, and `exit(1)` was returning before it. `absolute build` still exits 1. `options.throwOnError` is unchanged for callers that pass it and now means only escalation: the SSR Angular `@angular/core` multi-instance guardrail, which warns on its own, throws under the flag.",
+					"kind": "fixed",
+					"summary": "build() throws on failure instead of ending the host process",
+					"symbols": [
+						"build"
+					]
+				}
+			],
+			"date": "2026-11-22",
+			"version": "0.20.0-beta.296"
+		},
+		{
+			"changes": [
+				{
 					"detail": "A project with a real security history — the image endpoint that served any readable file, a forgeable pre-render bypass header, unsigned form-action result cookies — had no stated way to report a vulnerability privately. `SECURITY.md`, `CONTRIBUTING.md` and `CODE_OF_CONDUCT.md` were all absent, from the root and from `.github/`, so the only channel a researcher had was the public issue tracker, which is the one place such a report must not go. Reports now go through the repository's Security tab as a draft advisory, with a route that still works if private reporting is not enabled: open an issue saying only that a report exists and asking for a private channel, with no details and no reproduction. The supported-versions table says what is true rather than inventing an LTS — only the most recent prerelease, because fixes land in a new one rather than being backported — and points at `absolute upgrade` for the migrations between two versions. `CONTRIBUTING.md` is the four gates in order with the traps that cost a CI round each: `bun run format` rather than a separately installed Prettier, which is a different version and reformats untouched lines; checking gates by exit code, since `absolute typecheck` prints diagnostics as `<error code=\"TS…\">` and grepping for `error TS` reads a failing run as clean; `src/build/` being outside ESLint's reach; unit tests not depending on `dist/`, because CI runs that job before the build; and the changelog entry a user-visible change needs, including when to add `symbols` and `migration`. It also records what two maintainers releasing from `main` independently means in practice, since the generated changelog is the only thing that ever conflicts. A unit test pins the parts that rot: each file existing where GitHub looks for it, the private channel and its fallback, the Bun version matching `engines`, and every `bun run <script>` the guide tells a contributor to run being a real script — a renamed gate makes a contributor guide lie, which is how the README's install step came to be broken.",
 					"kind": "added",
 					"summary": "SECURITY.md, CONTRIBUTING.md and CODE_OF_CONDUCT.md"
