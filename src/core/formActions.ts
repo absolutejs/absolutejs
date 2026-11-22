@@ -1,4 +1,5 @@
 import { Elysia, ElysiaStatus, macroType, status } from 'elysia';
+import { isHttpsRequest } from '../utils/isHttpsRequest';
 import type { TObject } from 'typebox';
 import { Value } from 'typebox/value';
 import type {
@@ -590,7 +591,7 @@ const backTarget = (request: Request) => {
 };
 
 const flashCookie = (request: Request, flash: ActionFlash) => {
-	const secure = new URL(request.url).protocol === 'https:';
+	const secure = isHttpsRequest(request);
 
 	return encodeActionFlash(flash, secure);
 };

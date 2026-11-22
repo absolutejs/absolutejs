@@ -1,4 +1,5 @@
 import { Elysia } from 'elysia';
+import { isHttpsRequest } from '../utils/isHttpsRequest';
 import type { ActionResult } from '../../types/formAction';
 import {
 	ACTION_ERROR_ATTRIBUTE,
@@ -348,7 +349,7 @@ export const attachCsrfCookie = (request: Request, response: unknown) => {
 	// pre-rendered page has nothing for its helpers to send.
 	if (request.method === 'GET' && isHtmlResponse(response))
 		ensureCsrfCookie(request);
-	const secure = new URL(request.url).protocol === 'https:';
+	const secure = isHttpsRequest(request);
 	const cookie = csrfSetCookie(request, secure);
 	const embedded = csrfTokenEmbedded(request);
 	if (!cookie && !embedded) return undefined;
@@ -384,7 +385,7 @@ export const consumeActionFlash = (request: Request, response: unknown) => {
 			? rewriteActionForms(response, flash, request.url)
 			: response;
 	const headers = new Headers(body.headers);
-	const secure = new URL(request.url).protocol === 'https:';
+	const secure = isHttpsRequest(request);
 	headers.append('set-cookie', clearActionFlashCookie(secure));
 	// This copy shows one user's result: never cache it, and don't let it
 	// stand in for the page's normal ETag.
