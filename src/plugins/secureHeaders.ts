@@ -1,4 +1,5 @@
 import { Elysia } from 'elysia';
+import { isHttpsRequest } from '../utils/isHttpsRequest';
 import {
 	disableCspNonces,
 	enableCspNonces,
@@ -74,15 +75,10 @@ export type SecureHeadersOptions = {
 
 const DEFAULT_HSTS_MAX_AGE = 15_552_000;
 
-/* A proxy that terminates TLS forwards plain HTTP, so the request's own
- * URL says `http:` on most real deployments. The first value of
- * `x-forwarded-proto` is the client's protocol; later ones are hops. */
-const isHttps = (request: Request) => {
-	if (new URL(request.url).protocol === 'https:') return true;
-	const forwarded = request.headers.get('x-forwarded-proto');
-
-	return (forwarded?.split(',')[0] ?? '').trim().toLowerCase() === 'https';
-};
+/* Shared with the cookie code, which used to decide this differently and
+ * so lost `Secure` behind a proxy. One implementation, so they cannot
+ * drift apart again. */
+const isHttps = isHttpsRequest;
 
 const hstsHeader = (hsts: SecureHeadersOptions['hsts']) => {
 	if (!hsts) return undefined;
