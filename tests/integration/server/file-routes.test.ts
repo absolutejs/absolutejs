@@ -136,6 +136,15 @@ const expectRoutes = async (port: number) => {
 	// A page in `pages/` is untouched by any of this.
 	expect((await get(port, '/panel')).body).toContain('HTMX_ROUTE_PANEL');
 
+	/* An Angular route. `load` returns the page's request context rather
+	 * than props, so `NO_CONTEXT` in the body would mean the route served
+	 * but the context never reached the component — the failure this
+	 * assertion exists for. */
+	const report = await get(port, '/reports/q3');
+	expect(report.status).toBe(200);
+	expect(report.body).toContain('PERIOD_q3');
+	expect(report.body).not.toContain('NO_CONTEXT');
+
 	// Explicit routes win, registered before or after fileRoutes().
 	expect((await get(port, '/about')).body).toBe('EXPLICIT_ABOUT');
 	expect((await get(port, '/explicit-first')).body).toBe('EXPLICIT_FIRST');
@@ -190,8 +199,21 @@ describe('file routes in production', () => {
 			topic.body
 		)?.[1];
 
+		/* Angular route pages hydrate through a bare `import(...)` call
+		 * rather than a `src=` script, and the index is named after the
+		 * route — which is what the compiler rename exists for. */
+		const report = await get(PROD_PORT, '/reports/q3');
+		const angularIndex =
+			/import\("(\/[^"]*RouteReportsPeriod[^"]+\.js)"\)/.exec(
+				report.body
+			)?.[1];
+
 		expect(script).toBeDefined();
 		expect(svelteIndex).toBeDefined();
+		expect(angularIndex).toBeDefined();
+		expect((await get(PROD_PORT, angularIndex ?? '/missing')).status).toBe(
+			200
+		);
 		expect((await get(PROD_PORT, script ?? '/missing')).status).toBe(200);
 		expect((await get(PROD_PORT, svelteIndex ?? '/missing')).status).toBe(
 			200

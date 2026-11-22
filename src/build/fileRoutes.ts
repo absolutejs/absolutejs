@@ -65,6 +65,7 @@ const DEFAULT_OUTPUT = join('src', 'routes.gen.ts');
 const HASH_LENGTH = 6;
 const HASH_RADIX = 36;
 const PAGE_GLOBS: Record<FileRouteFramework, string> = {
+	angular: '**/*.ts',
 	html: '**/*.html',
 	htmx: '**/*.html',
 	react: '**/*.{tsx,jsx}',
@@ -72,6 +73,7 @@ const PAGE_GLOBS: Record<FileRouteFramework, string> = {
 	vue: '**/*.vue'
 };
 const PAGE_EXTENSIONS: Record<FileRouteFramework, readonly string[]> = {
+	angular: ['.ts'],
 	html: ['.html'],
 	htmx: ['.html'],
 	react: ['.tsx', '.jsx'],
@@ -150,6 +152,11 @@ export const resolveFileRoutes = (
 		roots.push({
 			dir: resolve(root, config.vueDirectory, directory),
 			framework: 'vue'
+		});
+	if (config.angularDirectory)
+		roots.push({
+			dir: resolve(root, config.angularDirectory, directory),
+			framework: 'angular'
 		});
 	if (config.htmlDirectory)
 		roots.push({
@@ -526,6 +533,10 @@ const ADAPTERS: Record<
 	FileRouteFramework,
 	{ name: string; specifier: string }
 > = {
+	angular: {
+		name: 'angularFileRoute',
+		specifier: '@absolutejs/absolute/angular/server'
+	},
 	html: {
 		name: 'htmlFileRoute',
 		specifier: '@absolutejs/absolute'
@@ -564,13 +575,41 @@ const renderRoute = (route: ScannedFileRoute, outputDir: string) => {
 	 * build copies the `.html` file and the manifest holds where it landed
 	 * — and `typeof import('./about.html')` would be meaningless even if
 	 * the specifier kept its extension. */
-	const typeArguments = STATIC_ONLY_FRAMEWORKS.has(route.framework)
-		? [`\t\t${quote(route.typePath ?? route.path)},`, `\t\t${serverType}`]
-		: [
-				`\t\t${quote(route.typePath ?? route.path)},`,
-				`\t\ttypeof import(${page}),`,
-				`\t\t${serverType}`
-			];
+	/* Angular's second type argument is the page's request CONTEXT, not its
+	 * props — `usePageContext<Context>()` is how data reaches an Angular
+	 * component, and a route's `load` returns that context.
+	 *
+	 * `Context` is a type-only export, so `typeof import(page)` cannot
+	 * reach it (that is the module's value namespace). A type-level
+	 * `import(page).Context` can, but only if the page actually exports it,
+	 * so the source is checked for the export and anything else falls back
+	 * to a permissive record. A miss costs precision, not correctness: the
+	 * `load` return stops being checked against the page's own type. A
+	 * false positive is a type error in the generated module naming this
+	 * route, which is visible rather than silent. */
+	const angularContextType = () => {
+		const declared = /^\s*export\s+(?:type|interface)\s+Context\b/m.test(
+			readFileSync(route.source, 'utf8')
+		);
+
+		return declared ? `import(${page}).Context` : 'Record<string, unknown>';
+	};
+	/* The middle argument is what `load` has to satisfy, and it differs by
+	 * framework: the page component's props for React, Svelte and Vue, the
+	 * page's request context for Angular, and nothing at all for a static
+	 * page, which has neither. */
+	const middleArgument = () => {
+		if (STATIC_ONLY_FRAMEWORKS.has(route.framework)) return [];
+		if (route.framework === 'angular')
+			return [`\t\t${angularContextType()},`];
+
+		return [`\t\ttypeof import(${page}),`];
+	};
+	const typeArguments = [
+		`\t\t${quote(route.typePath ?? route.path)},`,
+		...middleArgument(),
+		`\t\t${serverType}`
+	];
 	const lines = [
 		`\t${ADAPTERS[route.framework].name}<`,
 		...typeArguments,
