@@ -37,6 +37,66 @@ generation uses the same Devices core version. The framework regression suite
 checks the selected versions against installed peer contracts and verifies that
 Sync and the application resolve the same Devices runtime pair.
 
+## Which `@capacitor/*` packages this framework declares, and why
+
+Three are hard dependencies: `@capacitor/browser`, `@capacitor/filesystem` and
+`@capacitor/preferences`. They are imported statically by the mobile shell —
+`src/mobile/shellBootstrap.ts` and `src/mobile/shellUpdate.ts` — and
+`buildShellBootstrap` bundles that entry with `Bun.build`, marking only
+`web-vitals` external. So they must RESOLVE when the shell is bundled, not
+merely at run time on a device, and the framework declares what it imports.
+
+`@capacitor/filesystem` is the one that is load-bearing rather than merely
+correct. `@absolutejs/devices-capacitor` lists it as an OPTIONAL peer, so
+nothing installs it automatically; `browser` and `preferences` are hard
+dependencies of that adapter and would arrive transitively even if this package
+stopped naming them.
+
+That adapter is also the honest answer to "why does a web-only project install
+Capacitor at all". `@absolutejs/devices-capacitor` is a hard dependency of this
+framework and depends on `@capacitor/app`, `browser`, `network` and
+`preferences`, so those four install for every consumer regardless of what this
+package's own manifest says. Shrinking a web-only install means addressing that
+adapter, not these three entries — and it carries the same release-path
+constraint described below, so it needs the same analysis first.
+
+### Why they are not peers
+
+Being framework dependencies is what puts them in every consuming project's
+lockfile without the project asking, and that matters for the release path
+rather than for a developer's machine. The generated mobile CI workflow
+(`src/mobile/ciWorkflow.ts`) installs with a frozen `bun ci` and never runs
+`absolute mobile init`, so a project that had not already declared these
+packages could not acquire them during a release: a frozen install cannot add
+anything and nothing in the job can repair it. The preview path is the
+exception rather than the rule — it runs `mobile init` before bundling, so it
+would survive them being peers.
+
+Moving them to `peerDependencies` is therefore a change to make only once the
+release pipeline can install them: either that workflow runs `mobile init` (or
+an equivalent install) before the shell is bundled, or whatever provisions a
+project writes them into its manifest when it enables native delivery.
+
+### Two that were removed, and the reason each was safe
+
+`@capacitor/keyboard` was a hard dependency here. The shell always includes the
+`keyboard` capability (`ABSOLUTE_MOBILE_SHELL_DEVICE_CAPABILITIES`) and its
+provider module `@absolutejs/devices-capacitor/keyboard` imports the package, so
+it does have to resolve when the shell is bundled — but provisioning installs it
+on demand: the adapter's capability manifest declares
+`packages: ["@capacitor/keyboard@8.0.5"]`, `mobile init` installs a capability's
+`requiredPackages`, and `assertNativePackageVersions` then fails loudly if the
+tested version is not resolvable. A missing keyboard plugin is a clear error
+rather than a silently broken bundle, which is what makes it safe not to carry
+here. Nothing else requires it (it is an optional peer of the adapter), so this
+is the one removal that reduces a web-only install.
+
+`@capacitor/network` was never imported by anything in `src/`; it appeared only
+as a version string the CLI installs into the generated app
+(`src/mobile/nativePackages.ts`). Removing it saves a web-only project nothing,
+because `@absolutejs/devices-capacitor` depends on it directly — the entry was
+simply a dependency this package did not use.
+
 ## September 2026 audit
 
 The CLI previously selected Devices 0.5.0, Devices Capacitor 0.6.1, and Sync

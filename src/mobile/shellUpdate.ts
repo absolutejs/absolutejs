@@ -1,3 +1,12 @@
+/* The `@capacitor/*` imports below are why those packages are hard
+ * dependencies of this framework rather than peers. This module is bundled
+ * by `buildShellBootstrap` (mobile/capacitorBundle.ts) with `Bun.build`,
+ * which marks only `web-vitals` external — so they have to resolve when the
+ * shell is BUILT. The generated release workflow installs with a frozen
+ * `bun ci` and never runs `absolute mobile init`, so a project that had not
+ * declared them itself could not acquire them during a release.
+ * docs/MOBILE_NATIVE_DEPENDENCIES.md has the whole reason and what would
+ * have to change first. */
 import { Directory, Filesystem } from '@capacitor/filesystem';
 import { Preferences } from '@capacitor/preferences';
 import { registerPlugin } from '@capacitor/core';
