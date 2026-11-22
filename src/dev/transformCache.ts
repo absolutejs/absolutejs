@@ -14,6 +14,9 @@ globalThis.__transformCache = cache;
 const importers =
 	globalThis.__transformImporters ?? new Map<string, Set<string>>();
 globalThis.__transformImporters = importers;
+const dependencies =
+	globalThis.__transformDependencies ?? new Map<string, string[]>();
+globalThis.__transformDependencies = dependencies;
 
 // Cache entries are invalidated by invalidateModule() when files
 // change — no need to re-stat on every read. If it's in the cache,
@@ -28,6 +31,12 @@ export const setTransformed = (
 	imports?: string[]
 ) => {
 	const resolvedImports = imports ?? [];
+	for (const old of dependencies.get(filePath) ?? []) {
+		const parents = importers.get(old);
+		parents?.delete(filePath);
+		if (!parents?.size) importers.delete(old);
+	}
+	dependencies.set(filePath, resolvedImports);
 	cache.set(filePath, { content, imports: resolvedImports, mtime });
 
 	// Update reverse dependency map
@@ -82,22 +91,6 @@ export const findNearestComponent = (filePath: string) => {
 };
 export const getInvalidationVersion = (filePath: string) =>
 	invalidationVersions.get(filePath) ?? 0;
-/**
- * Invalidate `filePath` and every transitive importer.
- *
- * BFS up the reverse-import graph; for each visited file we (1) drop
- * its transform cache so the next request re-transpiles, and (2) bump
- * its invalidation version so `srcUrl()` emits a fresh `?v=` token —
- * forcing the browser to refetch even when the importer's mtime is
- * unchanged. Bumping versions on transitive importers (not just the
- * originally-changed file) is the load-bearing piece: without it, a
- * page that imports a service via two intermediate components keeps
- * resolving the page module under its old `?v=`, the page bundle's
- * internal `/@src/` references stay pointed at stale URLs, and rapid
- * HMR cycles wedge the browser bundle until the dev server restarts.
- *
- * Cycles are tolerated via the `visited` set.
- */
 export const invalidate = (filePath: string) => {
 	const visited = new Set<string>();
 	const queue: string[] = [filePath];
@@ -123,5 +116,14 @@ export const invalidate = (filePath: string) => {
 export const invalidateAll = () => {
 	cache.clear();
 	importers.clear();
+	dependencies.clear();
 	invalidationVersions.clear();
+};
+export const transitiveImporters = (file: string) => {
+	const files = new Set([file]);
+	for (const current of files) {
+		for (const parent of importers.get(current) ?? []) files.add(parent);
+	}
+
+	return files;
 };

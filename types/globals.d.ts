@@ -54,6 +54,7 @@ declare global {
 	var __transformCache:
 		| Map<string, { content: string; imports: string[]; mtime: number }>
 		| undefined;
+	var __transformDependencies: Map<string, string[]> | undefined;
 	var __transformImporters: Map<string, Set<string>> | undefined;
 	/** The dev module server handler and its last transform failure per
 	 *  file. On globalThis so every instance of moduleServer.ts reaches them,
