@@ -1,6 +1,6 @@
 # AbsoluteJS
 
-Full‑stack, **type‑safe** batteries‑included platform that lets you **server‑side render _any_ modern front‑end**—React, Svelte, plain HTML, HTMX (Vue & Angular coming)—with a single Bun‑powered build step.
+Full‑stack, **type‑safe** batteries‑included platform that lets you **server‑side render _any_ modern front‑end**—React, Svelte, Vue, Angular, plain HTML and HTMX—with a single Bun‑powered build step.
 
 [![bun-required](https://img.shields.io/badge/runtime-bun%401.x-yellowgreen?logo=bun)](https://bun.sh)
 [![elysia-required](https://img.shields.io/badge/server-elysia%40latest-blue?logo=elysia)](https://elysiajs.com)
@@ -11,10 +11,10 @@ Full‑stack, **type‑safe** batteries‑included platform that lets you **serv
 ## Why Absolute JS?
 
 - **Universal SSR.** Bring your favourite UI layer; Absolute JS handles bundling, hydration, and HTML streaming.
-- **One build, one manifest.** Call `build()` once—get a manifest mapping every page’s client and server assets, ready to wire into routes.
+- **One build, one manifest.** `absolute dev` and `absolute build` produce a single manifest mapping every page’s client and server assets; `prepare()` hands it to your routes along with the plugin that serves them.
 - **End‑to‑end type safety.** A unified source of truth for your types—from the database, through the server, and all the way to the client—so you can be certain of the data shape at every step.
 - **Zero‑config philosophy.** Point the build at your folders; sane defaults light up everything else.
-- **Plugin power.** Extend with standard Elysia plugins—ship auth, logging, i18n, and more. First‑party: `absolute-auth`, `networkingPlugin`.
+- **Plugin power.** Extend with standard Elysia plugins—ship auth, logging, i18n, and more. First‑party: [`@absolutejs/auth`](https://www.npmjs.com/package/@absolutejs/auth) and the `networking` plugin.
 
 ---
 
@@ -22,7 +22,7 @@ Full‑stack, **type‑safe** batteries‑included platform that lets you **serv
 
 | Tool       | Version | Purpose                                     |
 | ---------- | ------- | ------------------------------------------- |
-| **Bun**    | ≥ 1.2   | Runtime, bundler, and TypeScript transpiler |
+| **Bun**    | ≥ 1.4.4 | Runtime, bundler, and TypeScript transpiler |
 | **Elysia** | latest  | Web server & middleware platform            |
 
 ---
@@ -35,75 +35,115 @@ bun add @absolutejs/absolute
 
 ---
 
-## Quick Start
+## Quick Start
+
+Two files: a config saying where your pages live, and a server that serves
+them. The CLI builds from the config, so nothing calls the bundler by hand.
 
 ```ts
-// example/server.ts
-import { staticPlugin } from '@elysia/static';
-import { Elysia } from 'elysia';
-import { file } from 'bun';
-import { build } from 'absolutejs/core/build';
-import {
-	handleHTMLPageRequest,
-	handleSveltePageRequest
-} from 'absolutejs/core/pageHandlers';
-import { handleReactPageRequest } from 'absolutejs/react';
+// absolute.config.ts
+import { defineConfig } from '@absolutejs/absolute';
 
-import { ReactExample } from './react/pages/ReactExample';
-import SvelteExample from './svelte/pages/SvelteExample.svelte';
-import { networkingPlugin } from 'absolutejs';
-
-const manifest = await build({
-	assetsDirectory: 'example/assets',
-	buildDirectory: 'example/build',
-	htmlDirectory: 'example/html',
-	htmxDirectory: 'example/htmx',
-	reactDirectory: 'example/react',
-	svelteDirectory: 'example/svelte'
+export default defineConfig({
+	assetsDirectory: 'assets',
+	buildDirectory: 'build',
+	htmlDirectory: 'html',
+	reactDirectory: 'react',
+	svelteDirectory: 'svelte'
 });
-
-if (!manifest) throw new Error('Manifest generation failed');
-
-let counter = 0;
-
-export const server = new Elysia()
-	.use(staticPlugin({ assets: './example/build', prefix: '' }))
-
-	// HTML
-	.get('/', () =>
-		handleHTMLPageRequest('./example/build/html/pages/HTMLExample.html')
-	)
-
-	// React
-	.get('/react', () =>
-		handleReactPageRequest(ReactExample, manifest['ReactExampleIndex'], {
-			test: 123
-		})
-	)
-
-	// Svelte
-	.get('/svelte', () =>
-		handleSveltePageRequest(SvelteExample, manifest, { test: 456 })
-	)
-
-	// HTMX demo
-	.get('/htmx', () => file('./example/build/htmx/HtmxHome.html'))
-	.get('/htmx/increment', () => new Response(String(++counter)))
-
-	.use(networkingPlugin)
-	.on('error', (error) => {
-		const { request } = error;
-		console.error(
-			`Server error on ${request.method} ${request.url}: ${error.message}`
-		);
-	});
 ```
 
-### How it works
+```ts
+// server.ts
+import { Elysia } from 'elysia';
+import {
+	asset,
+	handleHTMLPageRequest,
+	networking,
+	prepare
+} from '@absolutejs/absolute';
+import { handleReactPageRequest } from '@absolutejs/absolute/react';
+import { handleSveltePageRequest } from '@absolutejs/absolute/svelte';
+import { ReactExample } from './react/pages/ReactExample';
+import type SvelteExample from './svelte/pages/SvelteExample.svelte';
 
-1. **`build()`** scans your project, bundles each framework, and returns a **manifest** that has the server, and client assets required to serve each route.
-2. Route handlers (`handleReactPageRequest`, `handleSveltePageRequest`, …) stream HTML and inject scripts/assets based on that manifest.
-3. The static plugin serves all compiled files from `/build`.
+// Reads the build the CLI produced: the asset manifest, plus the plugin that
+// serves those assets.
+const { absolutejs, manifest } = await prepare();
+
+export const server = new Elysia()
+	.use(absolutejs)
+	.get('/', () => handleHTMLPageRequest(asset(manifest, 'HTMLExample')))
+	.get('/react', () =>
+		handleReactPageRequest({
+			index: asset(manifest, 'ReactExampleIndex'),
+			Page: ReactExample,
+			props: { initialCount: 0 }
+		})
+	)
+	.get('/svelte', () =>
+		handleSveltePageRequest<typeof SvelteExample>({
+			indexPath: asset(manifest, 'SvelteExampleIndex'),
+			pagePath: asset(manifest, 'SvelteExample'),
+			props: { initialCount: 0 }
+		})
+	)
+	.use(networking);
+```
+
+```bash
+bunx absolute dev      # build a page on first request, hot-reload edits
+bunx absolute build    # production assets
+bunx absolute start    # production server
+```
+
+`asset(manifest, key)` is checked rather than stringly typed: `absolute dev`,
+`absolute build` and `absolute typecheck` derive your project's keys from its
+pages and styles and write a declaration, so `asset(manifest, 'Abuot')` is a
+type error instead of a 404. The same holds for `route('/blog/:slug', { slug })`
+once file routes are on.
+
+---
+
+## The CLI
+
+Installing the package installs an `absolute` binary. `absolute --help` lists
+every command and the global flags; these are the ones reached for most:
+
+| Command                               | Does                                                                                                                             |
+| ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `absolute dev [entry]`                | Development server: builds a page on first request, hot-reloads edits, and serves configured mobile targets unless `--no-mobile` |
+| `absolute build [--outdir dir]`       | Production assets                                                                                                                |
+| `absolute start [entry] [--prebuilt]` | Production server                                                                                                                |
+| `absolute prepare [entry]`            | Build assets and server without launching                                                                                        |
+| `absolute compile [entry]`            | Standalone executable                                                                                                            |
+| `absolute typecheck`                  | Every framework's own checker, plus manifest keys and `route()` paths                                                            |
+| `absolute links`                      | Literal `<a href>` links that no route serves                                                                                    |
+| `absolute routes`                     | The route table                                                                                                                  |
+| `absolute doctor [--fix]`             | Diagnose the project                                                                                                             |
+| `absolute mobile <init                | sync                                                                                                                             | ...>`  | Capacitor apps and the Expo hybrid shell |
+| `absolute db <backup                  | restore                                                                                                                          | seed>` | Database snapshots, ORM-agnostic         |
+
+`--config <path>` works on every command that reads one, and
+`absolute --version` prints the installed version.
+
+---
+
+## How it works
+
+1. **The CLI builds.** `absolute dev` builds a page the first time it is
+   requested and rebuilds on edit; `absolute build` builds everything. Both read
+   `absolute.config.ts`, scan each framework directory and write a **manifest**
+   mapping every page to its server and client assets.
+2. **`prepare()` reads that build** and returns the manifest together with the
+   `absolutejs` plugin, which serves the compiled assets — including the
+   pre-compressed copies and the immutable cache headers for hashed files.
+3. **Page handlers render.** `handleReactPageRequest`, `handleSveltePageRequest`
+   and the rest take the manifest paths, server-render the page, serialize its
+   props for hydration and stream the HTML.
+
+Calling `build()` yourself, from `@absolutejs/absolute/build`, is still
+supported and is what the CLI does internally — but a project does not need to.
 
 ### Type-checked Svelte page props
 
@@ -704,8 +744,8 @@ Absolute JS piggybacks on the [Elysia plugin API](https://elysiajs.com/plugins).
 
 | Plugin                 | Description                                                                                       |
 | ---------------------- | ------------------------------------------------------------------------------------------------- |
-| **`absolute-auth`**    | Full OAuth2 flow configured with 66 providers and allows full customizability with event handlers |
-| **`networkingPlugin`** | Starts your Elysia server with HOST/PORT defaults from environment variables                      |
+| **`@absolutejs/auth`** | Full OAuth2 flow configured with 81 providers and allows full customizability with event handlers |
+| **`networking`**       | Starts your Elysia server with HOST/PORT defaults from environment variables                      |
 
 ### Elysia composition contract
 
@@ -763,11 +803,16 @@ tail -n 200 .absolutejs/workspace/logs/all.log
 
 ## Roadmap
 
-- **Angular** handlers
-- Prisma support
+- Prisma support beyond connection discovery (`absolute db` already finds a
+  `schema.prisma` to read the connection from)
 - Biome support
-- Hot‑reload development server
-- First‑class Docker images & hosting recipes
+- First-class Docker images and hosting recipes
+- A published docs site; `docs/` in this repository is the current source
+
+Angular handlers and the hot-reload development server were on this list and
+have shipped: `absolute dev` rebuilds and hot-updates every framework, and
+Angular has page handlers, file routes, nested layouts and islands like the
+rest.
 
 ---
 

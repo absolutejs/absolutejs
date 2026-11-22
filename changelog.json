@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "The Quick Start could not run. It imported from `absolutejs` rather than `@absolutejs/absolute`, took `build` and the page handlers from paths that do not exist (`absolutejs/core/build`, `absolutejs/core/pageHandlers`), and used a `networkingPlugin` export that has never existed — the plugin is `networking`, so a reader following the README passed `undefined` to `.use()`. It is now the current two-file shape, derived from the example app in this repository rather than written from memory: an `absolute.config.ts` and a server that calls `prepare()` for the manifest and the asset plugin, followed by the three CLI commands a project actually runs. Other claims corrected against the code: the headline said Vue and Angular were coming, on the same page that documents Vue router pages and lists Angular handlers; the requirements table asked for Bun >= 1.2 while `engines` has required >= 1.4.4 since the patched-Bun work; the plugin table named `absolute-auth`, which is published as `@absolutejs/auth`, and credited it with 66 OAuth providers where the installed package has 81; `Call build() once` predated both the CLI and `prepare()`; and the roadmap still listed Angular handlers and a hot-reload development server as future work. The README also now documents the CLI, which is the primary interface and was mentioned only four times in passing, never introduced — including the `--config`, `--help` and `--version` flags. A unit test pins the checkable claims: no import from a package name that does not resolve, every subpath a real export, every imported NAME present on the module it is imported from (the check that would have caught `networkingPlugin`, where a path-only check would not), the Bun version matching `engines`, the headline naming every framework that ships, and the CLI section naming the commands a project starts with. Six of its nine cases fail against the previous README. Those name checks read the SOURCE rather than `dist`, because the unit job in CI runs before the build — the first version reached into `dist`, passed on a machine that had one and failed in CI with `Cannot find module`.",
+					"kind": "fixed",
+					"summary": "The README’s Quick Start runs, and its claims match the code"
+				}
+			],
+			"date": "2026-11-22",
+			"version": "0.20.0-beta.292"
+		},
+		{
+			"changes": [
+				{
 					"detail": "`clientModules: { ProjectSettings: 'src/frontend/embeds/ProjectSettings.tsx' }` builds a React module this app serves for another page to import. It is built with the React pages, so it shares their React (`/react/vendor/…`) and chunks, keeps its named exports, and carries none of the pages. Its URL is `asset(manifest, 'ProjectSettingsModule')`; under the dev server that URL is the module server's, so an edit is picked up as page code is. It is for rendering part of this app inside a page another app serves on the same origin, with this app's own React and no iframe. Names are PascalCase; the source must exist.",
 					"kind": "added",
 					"summary": "clientModules: React modules an app builds for another page to import",
