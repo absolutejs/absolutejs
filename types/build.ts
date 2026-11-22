@@ -6,6 +6,7 @@ import type { FontsConfig } from './fonts';
 import type { ImageConfig } from './image';
 import type { LinksConfig } from './links';
 import type { SitemapConfig } from './sitemap';
+import type { SizeBudgets } from '../src/utils/sizeBudgets';
 
 /** How Angular pages run change detection. `'zoneless'` (the default)
  *  uses signals and explicit scheduling; `'zone'` loads zone.js on the
@@ -716,6 +717,19 @@ export type BaseBuildConfig = {
 	 *  metric-matched fallback faces. Use `fontAssets(manifest)` to put them
 	 *  in a page's head. See docs/FONTS.md. */
 	fonts?: FontsConfig;
+	/** Size budgets `absolute analyze --check` enforces, exiting 1 when
+	 *  something is over. Values are `'250kb'`, `'1.5 MB'` or raw bytes.
+	 *
+	 *      sizeBudgets: {
+	 *          categories: { 'Shared chunks': '600kb', Hydration: '150kb' },
+	 *          perEntry: '500kb',
+	 *          total: '4mb'
+	 *      }
+	 *
+	 *  Category names are the ones `absolute analyze` prints. A category
+	 *  the build has no assets for counts as zero and passes; a category
+	 *  the build has that this does not name is simply unbudgeted. */
+	sizeBudgets?: SizeBudgets;
 	/** Opt-in Core Web Vitals reporting (LCP, INP, CLS, FCP, TTFB) from real
 	 *  visits. See docs/WEB_VITALS.md. */
 	vitals?: VitalsConfig;

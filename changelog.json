@@ -5,6 +5,20 @@
 		{
 			"changes": [
 				{
+					"detail": "Two halves of the same problem: the size report was wrong, and there was no way to make a size a build rule. A manifest value is either a web path (`/chunk-x.js`, served from the build directory) or an absolute filesystem path (a server bundle the project's own server imports). Both start with `/`, and `absolute analyze` stripped that and joined under the build directory, so every server entry resolved to a path that does not exist and was sized as zero. Measured on this repository's example app: 14 of 57 entries read zero, hiding 2,477 KB — including the two largest things in the build, a 1.3 MB Vue page and a 1.08 MB Ember one. The report claimed 705 KB for a 3.1 MB build and printed `Pages 346 B`, because every real page bundle was among the zeros. Both path shapes now resolve, build-relative first so a web path cannot match something at the filesystem root by coincidence. On top of that, `sizeBudgets` in the config and `absolute analyze --check` to enforce it, exiting non-zero on a breach: a `total`, a limit per `categories` entry named as `analyze` prints them, and `perEntry`, which is what catches one page that has quietly become enormous where a total would absorb it. `absolute ls --budget` already enforced one number against every page and still does; what it could not do was live in the config, so the number had to be repeated in every pipeline, and pages and shared chunks had to share a limit. Met budgets are printed as well as breached ones, because a gate that is silent when it passes cannot be told apart from a gate that never ran. A budget that cannot be parsed fails the check and is named, rather than being read as zero (which would fail everything) or as no limit (which would enforce nothing while appearing to).",
+					"kind": "added",
+					"summary": "size budgets in the config, and `analyze` stops reporting 0 for server entries",
+					"symbols": [
+						"BaseBuildConfig"
+					]
+				}
+			],
+			"date": "2026-11-22",
+			"version": "0.20.0-beta.303"
+		},
+		{
+			"changes": [
+				{
 					"detail": "`buildDirectory` in `absolute.config.ts` was overwritten before it was read, so the CLI ignored it. Measured on this repository's own example app, whose config says `example/build`: `absolute build` wrote `./build`, `absolute start` wrote `./dist`, and `prepare()` — which is what the project's own server calls — read `./example/build`. Three directories for one concept. The documented flow of building and then serving therefore read a directory the build never wrote, for any project whose config did not happen to say `build`, and nothing failed loudly: the build succeeded, the server started, and pages 404ed or served stale assets. Both example configs in the README say exactly `build`, which is what kept it hidden. `absolute analyze` was wrong in the same way and visibly so — on the example app it reported 26 KB across two categories, reading a stale leftover, where the build it was describing is 705 KB across five. Both commands now resolve `--outdir`, else the config's `buildDirectory`, else their previous default. An explicit `--outdir` still wins. `absolute start --prebuilt` keeps the `dist` default, because it reads the config its build wrote rather than importing `absolute.config.ts` and so cannot know the project's directory before it has found the build; its \"not found\" error now says to pass `--outdir`.",
 					"kind": "fixed",
 					"summary": "the CLI honours `buildDirectory` from the config"
