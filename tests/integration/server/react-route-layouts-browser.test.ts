@@ -170,6 +170,43 @@ describe('a React file route under nested layouts', () => {
 		}
 	}, 300_000);
 
+	/* A VUE route under layouts. Its risk is the one Vue has had before
+	 * in this area: a layout now stands between the page and the markup
+	 * it hydrates into, and Vue's slot handling is where `persist` and
+	 * island markup have gone wrong twice. */
+	test('hydrates a Vue route inside its layouts', async () => {
+		const session = await openPage(`http://localhost:${PORT}/shop/widget`, {
+			waitUntil: 'load'
+		});
+		try {
+			const { page } = session;
+			await page.waitForSelector('#item', { timeout: 30_000 });
+
+			expect(
+				await page
+					.locator('#vue-root-layout #shop-layout #item')
+					.count()
+			).toBe(1);
+			expect(await page.locator('#item').textContent()).toBe(
+				'ITEM_widget'
+			);
+			// The private sibling the page imports still renders.
+			expect(await page.locator('.tag').textContent()).toBe('VUE_CHILD');
+			// Interactive inside the layouts.
+			await page.click('#vue-clicks');
+			await page.waitForFunction(
+				() =>
+					document
+						.querySelector('#vue-clicks')
+						?.textContent?.trim() === 'clicks 1',
+				undefined,
+				{ timeout: 10_000 }
+			);
+		} finally {
+			await session.close();
+		}
+	}, 300_000);
+
 	/* The `loading` convention, which until now was scanned, compiled,
 	 * shipped and never read by anything.
 	 *

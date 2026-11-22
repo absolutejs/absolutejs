@@ -138,6 +138,16 @@ export const server = new Elysia()
   "the island is still on the page", which a re-created one satisfies).
   An automatically derived key is still open: the key is written once, in
   the layout, but it is written.
+- **Nested layouts (built: React, Svelte and Vue).** Vue works the way
+  Svelte does — the layouts wrap the page's `<template>` in the SOURCE,
+  so one compiled module carries the tree — and the transform is simpler:
+  an SFC's template is a single block, so there is no node list to
+  rebuild and no `<svelte:…>` equivalent to hoist. A component imported
+  in `<script setup>` is available to the template without being
+  registered, so the import is all it takes. A page with only a plain
+  `<script>` gets a `<script setup>` added beside it, which Vue allows;
+  the alternative was editing a `components: {}` option in someone else's
+  script. A Vue layout takes its content through `<slot />`.
 - **Nested layouts (built: React and Svelte).** Svelte composes them in a
   different place, and had to: its page renders from ONE compiled module
   that the server and the client both load, so the layouts are wrapped

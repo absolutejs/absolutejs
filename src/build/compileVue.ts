@@ -2,6 +2,7 @@ import { dedupeCssBlocks } from './dedupeCssBlocks';
 import { withNavigationAutoEnable } from './navigationAutoEnable';
 import { fileRouteFor } from './fileRoutes';
 import { vueModuleOutputPath } from './vueModuleOutputPath';
+import { wrapVueRouteLayouts } from './vueRouteLayouts';
 import { BASE_36_RADIX } from '../constants';
 import { existsSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
@@ -203,6 +204,18 @@ export const vueRouteAwareOutputPath = (
 	if (!route) return mirrored;
 
 	return join(dirname(mirrored), `${route.name}.js`);
+};
+
+/* The specifier the page uses to import a layout: a relative path from
+ * the page's own folder, so it resolves exactly like an import the author
+ * wrote and the existing child-component walk picks it up. */
+const layoutSpecifier = (pageSource: string, layoutSource: string) => {
+	const specifier = relative(dirname(pageSource), layoutSource).replace(
+		/\\/g,
+		'/'
+	);
+
+	return specifier.startsWith('.') ? specifier : `./${specifier}`;
 };
 
 const importScanner = new Bun.Transpiler({ loader: 'ts' });
@@ -579,12 +592,26 @@ const compileVueFileUncached = async (
 	const rawSourceContent = await timed('readMs', () =>
 		file(sourceFilePath).text()
 	);
+	/* A file route's layouts wrap its template in the SOURCE, before
+	 * anything else reads it: one compiled module carries the whole tree,
+	 * so the server and the client cannot disagree about the order. The
+	 * content hash below is taken from the transformed source, so the
+	 * persistent cache keys on what was actually compiled. */
+	const layouts = fileRouteFor(sourceFilePath)?.layouts ?? [];
+	const withLayouts =
+		layouts.length > 0
+			? (wrapVueRouteLayouts(rawSourceContent, {
+					specifiers: layouts.map((layout) =>
+						layoutSpecifier(sourceFilePath, layout)
+					)
+				}) ?? rawSourceContent)
+			: rawSourceContent;
 	// Pages exporting `routes` get an auto-synthesized setupApp that owns
 	// the vue-router lifecycle, using the page bundle's own vue-router
 	// instance (avoids dual-instance provide/inject mismatches).
 	const sourceContent = isEntryPoint
-		? addAutoRouterSetupApp(rawSourceContent)
-		: rawSourceContent;
+		? addAutoRouterSetupApp(withLayouts)
+		: withLayouts;
 
 	// Check persistent cache — skip recompilation if source unchanged AND
 	// the compiled outputs still exist on disk. The disk check matters

@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "A `layout.vue` in a Vue route folder now wraps that folder and everything below it, as `layout.tsx` and `layout.svelte` already did. Vue works the way Svelte does — the layouts wrap the page`s `<template>` in the source, so one compiled module carries the whole tree and the server and the client cannot disagree about the order — and the transform is simpler than Svelte`s: an SFC`s template is a single block, so there is no node list to rebuild and nothing to hoist out of the wrapper. A component imported in `<script setup>` is available to the template without being registered, so the injected import is all it takes, and a page with only a plain `<script>` gets a `<script setup>` added beside it rather than having a `components` option edited. A Vue layout takes its content through `<slot />`. Angular, HTML and HTMX still report a `layout.<ext>` as a problem rather than ignoring it.",
+					"kind": "added",
+					"summary": "Vue file routes can have nested layouts"
+				}
+			],
+			"date": "2026-11-22",
+			"version": "0.20.0-beta.278"
+		},
+		{
+			"changes": [
+				{
 					"detail": "A `layout.svelte` in a Svelte route folder now wraps that folder and everything below it, as `layout.tsx` already did for React. Svelte composes them somewhere else and had to: its page renders from one compiled module that both the server and the client load, so the layouts are wrapped around the page`s markup in the source and the two sides cannot disagree about the order — where React composes at run time in two places that have to be kept in step. The injected import is also what makes a layout compile, since a route`s children are discovered from its imports. A Svelte layout takes its content as `children` and renders `{@render children()}`. `<svelte:…>` elements are hoisted out of the wrapper, because a wrapped `<svelte:options>` does not compile and a `<svelte:head>` usually sits between the nodes being wrapped. Vue, Angular, HTML and HTMX still report a `layout.<ext>` as a problem rather than ignoring it.",
 					"kind": "added",
 					"summary": "Svelte file routes can have nested layouts"

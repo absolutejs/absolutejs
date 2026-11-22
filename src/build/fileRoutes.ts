@@ -93,9 +93,13 @@ const OPTIONAL_RE = /^\[\[([A-Za-z_$][\w$]*)\]\]$/;
 const OPTIONAL_CATCH_ALL_RE = /^\[\[\.\.\.([A-Za-z_$][\w$]*)\]\]$/;
 const GROUP_RE = /^\(([A-Za-z0-9._~-]+)\)$/;
 const STATIC_SEGMENT_RE = /^[A-Za-z0-9._~-]+$/;
-/* Frameworks that compose a route's layouts: React at run time, Svelte in
- * the page's source. */
-const LAYOUT_FRAMEWORKS = new Set<FileRouteFramework>(['react', 'svelte']);
+/* Frameworks that compose a route's layouts: React at run time, Svelte
+ * and Vue in the page's source. */
+const LAYOUT_FRAMEWORKS = new Set<FileRouteFramework>([
+	'react',
+	'svelte',
+	'vue'
+]);
 
 /* Frameworks whose route file is served as-is, with no props. */
 const STATIC_ONLY_FRAMEWORKS = new Set<FileRouteFramework>(['html', 'htmx']);
@@ -476,11 +480,12 @@ const routesFromFile = (
 	const layouts = layoutsFor(root, relativePath);
 	/* A layout that cannot be applied is worse than no layout: the page
 	 * renders without its chrome and nothing says so. React composes them
-	 * at run time and Svelte in the page's source; the rest do not yet, so
-	 * a `layout.<ext>` in one of those route folders is reported. */
+	 * at run time, Svelte and Vue in the page's source; the rest do not
+	 * yet, so a `layout.<ext>` in one of those route folders is
+	 * reported. */
 	if (layouts.length > 0 && !LAYOUT_FRAMEWORKS.has(root.framework)) {
 		problems.push(
-			`${toPosix(relative(process.cwd(), layouts[0] ?? ''))}: layouts are applied to React and Svelte routes so far, so this file would be ignored. Remove it, or move the route to a React or Svelte route folder.`
+			`${toPosix(relative(process.cwd(), layouts[0] ?? ''))}: layouts are applied to React, Svelte and Vue routes so far, so this file would be ignored. Remove it, or move the route to one of those route folders.`
 		);
 	}
 	const shared = {

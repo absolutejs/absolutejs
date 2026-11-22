@@ -501,29 +501,29 @@ describe('route module', () => {
 		}
 	});
 
-	/* React and Svelte compose layouts; Vue, Angular, HTML and HTMX do
+	/* React, Svelte and Vue compose layouts; Angular, HTML and HTMX do
 	 * not yet. A layout that cannot be applied is worse than no layout —
 	 * the page renders without its chrome and nothing says so — so it is
 	 * reported rather than ignored. */
 	test('reports a layout in a framework that cannot apply it yet', async () => {
 		const root = await makeProject({
-			'vue/routes/shop/index.vue': '',
-			'vue/routes/shop/layout.vue': ''
+			'angular/routes/admin/index.ts': '',
+			'angular/routes/admin/layout.ts': ''
 		});
 		const cwd = process.cwd();
 		process.chdir(root);
 		try {
 			const { problems, routes } = scanFileRoutes({
-				fileRoutes: true,
-				vueDirectory: 'vue'
+				angularDirectory: 'angular',
+				fileRoutes: true
 			});
 
-			expect(problems.join('\n')).toContain('layout.vue');
+			expect(problems.join('\n')).toContain('layout.ts');
 			expect(problems.join('\n')).toContain(
-				'applied to React and Svelte'
+				'applied to React, Svelte and Vue'
 			);
 			// The route itself still serves, without the layout.
-			expect(routes.map((route) => route.path)).toEqual(['/shop']);
+			expect(routes.map((route) => route.path)).toEqual(['/admin']);
 			expect(routes[0]?.layouts).toBeUndefined();
 		} finally {
 			process.chdir(cwd);
