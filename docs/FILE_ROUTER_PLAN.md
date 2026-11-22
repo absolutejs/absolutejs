@@ -112,6 +112,19 @@ export const server = new Elysia()
   in production and warnings in dev, listing every offending file.
 - Precedence between static and param routes at the same depth is Elysia's
   router's (static wins), the same as hand-written routes.
+- **The `loading` convention is the soft-navigation indicator (built).**
+  It was scanned, compiled and shipped, and read by nothing. It is now
+  shown over the live document while a soft navigation is in flight, after
+  a 150ms delay so a fast swap does not flash it, and removed when the
+  navigation ends. Fetched once per session from `/__absolute/loading`
+  rather than inlined into every response, because the per-framework
+  scripts a page handler embeds live in seven handlers — inlining would be
+  seven edits and bytes on every page for markup most navigations never
+  show. A 204 means the app has no convention and the layer stops asking.
+  The alternative reading of the name — a Suspense fallback, as in Next —
+  would be close to a no-op here: a file route resolves `load` BEFORE
+  rendering, so there is no suspended boundary for a fallback to cover,
+  and it would only ever show for in-component async.
 - **A layout's island persists across the routes under it (built).** With
   `navigation: true`, an island declared once in a layout with a `persist`
   key keeps running while the routes below change: every route under that
