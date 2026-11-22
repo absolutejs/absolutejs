@@ -129,6 +129,30 @@ every command and the global flags; these are the ones reached for most:
 `--config <path>` works on every command that reads one, and
 `absolute --version` prints the installed version.
 
+### Telemetry
+
+**Off unless you turn it on.** Nothing is sent until you run
+`absolute telemetry enable`, which writes `~/.absolutejs/telemetry.json`
+with a random ID. `absolute telemetry status` says where it stands and
+`absolute telemetry disable` turns it back off.
+
+When it is on, a build, a dev-server rebuild or a CLI command may post to
+`absolutejs.com`: the event name, that random ID, the package version, your
+OS, architecture and Bun version, a timestamp, and a few fields about the
+event — which frameworks a build covered, which pass failed, and **the error
+message itself**, which can contain paths from your machine. There is no
+account, no IP-based identity and no source code.
+
+Two environment variables keep it off whatever the saved setting says:
+
+```bash
+DO_NOT_TRACK=1     # the cross-tool convention; any CLI should respect it
+TELEMETRY_OFF=1    # this project only
+```
+
+Either one is checked before the config is read, so an opt-out costs no file
+read and no request.
+
 ---
 
 ## How it works

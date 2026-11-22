@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "`DO_NOT_TRACK` is the cross-tool convention: a person sets it once and expects every CLI on the machine to stop, without configuring each one. This CLI ignored it — measured with telemetry enabled and `DO_NOT_TRACK=1` exported, the POST to absolutejs.com still went out. A standard opt-out that is silently ignored is worse than none, because the person believes they are covered. Both `DO_NOT_TRACK` and `TELEMETRY_OFF` are now checked before the saved config is read and before any request body is built, and both accept any value that is not empty, `0` or `false` — the previous `TELEMETRY_OFF` check was `=== \"1\"`, so `TELEMETRY_OFF=true` sent anyway. `absolute telemetry status` now says which variable suppressed it rather than reporting \"enabled\" while nothing is sent, and `telemetry enable` says the setting will not take effect while one is set. Telemetry remains off until explicitly enabled; the README now documents that, what is sent, and that error events carry the error message, which can contain paths from the machine.",
+					"kind": "fixed",
+					"summary": "the CLI honours DO_NOT_TRACK"
+				}
+			],
+			"date": "2026-11-22",
+			"version": "0.20.0-beta.298"
+		},
+		{
+			"changes": [
+				{
 					"detail": "`absolute migrate` spoke only about third-party dependencies — the `next-auth`, `pino`, `stripe` table — and changed nothing. Measured on a four-file Next.js app it reported six dependency swaps and said nothing at all about the eight `next/*` imports in the source, which is the framework the project is actually leaving. It now reads those too, and splits them in the one way that matters: `next/link` and `next/image` are rewritten, because `<Link>` and `ImageProps` were built against Next's own prop names, and `--apply` writes them (merged into one import, with a renamed local binding preserved as an alias). `next/head`, `next/navigation`, `next/router`, `next/dynamic`, `next/script`, `next/font`, `next/headers`, `next/server` and `next/cache` are located, explained and left alone, each naming its real counterpart or saying there is none yet. Dependency swaps are still never applied: `next-auth` and `@absolutejs/auth` are different APIs, so rewriting that import would leave code that does not compile. The command previews by default and writes only under `--apply`, the opposite default to `upgrade`, because this edits somebody else's framework code rather than applying our own migrations to our own API.",
 					"kind": "added",
 					"summary": "`absolute migrate` reports and applies framework-module codemods"
