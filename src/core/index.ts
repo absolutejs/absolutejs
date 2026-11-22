@@ -6,6 +6,7 @@ export * from './prepare';
 export * from './requestContext';
 export * from './renderIslandMarkup';
 export * from './responseEnhancers';
+export * from './staticFileRoute';
 export * from './wrapPageHandlerWithStreamingSlots';
 export {
 	formActions,

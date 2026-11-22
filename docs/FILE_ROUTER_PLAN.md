@@ -209,7 +209,7 @@ reactFileRoute<'/blog/:slug', typeof import('./react/routes/blog/[slug]'),
 | React | `<reactDirectory>/routes/**/*.{tsx,jsx}` | `reactFileRoute` → `handleReactPageRequest` | 1 |
 | Svelte | `<svelteDirectory>/routes/**/*.svelte` | `svelteFileRoute` → `handleSveltePageRequest` | 1 |
 | Vue | `<vueDirectory>/routes/**/*.vue` | `vueFileRoute` → `handleVuePageRequest` (built; see the note below — NOT compileSvelte's flat-name mapping. `headTag` from a `head` export is still open) | 2 |
-| HTML / HTMX | `<htmlDirectory>/routes/**/*.html` | `handleHTMLPageRequest` / `handleHTMXPageRequest`; static segments only (a static file has no props); `<abs-include>` works the same because only `pages/` and `routes/` files are pages and partials stay in other folders | 2 |
+| HTML / HTMX | `<htmlDirectory>/routes/**/*.html` | `htmlFileRoute` / `htmxFileRoute` → `handleHTMLPageRequest` / `handleHTMXPageRequest` (built). Static segments and `(group)` only; a param is a build error naming the segment. The route tree is copied to `<build>/<dir>/routes` and post-processed exactly like `pages/`, NOT renamed into it — `<abs-include>` resolves against a page's source location, so a flattened route would compute a source path that does not exist and its includes would quietly expand to nothing. A server module may export `beforeHandle`; `load` is not part of the type, because props it returned would have nowhere to go | 2 |
 | Angular | `<angularDirectory>/routes/**/*.ts` | `angularFileRoute` → `handleAngularPageRequest`; Angular pages already allow nesting, so mostly the naming and the route module | 3 |
 
 - **Mixing frameworks** is one URL space over every framework's route

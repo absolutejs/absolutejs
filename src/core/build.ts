@@ -124,6 +124,7 @@ import { toDevPageEntry } from '../dev/lazyPages';
 import {
 	fileRouteFor,
 	fileRouteNamed,
+	fileRouteRootOf,
 	fileRoutesOf,
 	isInFileRouteRoot,
 	syncFileRoutes
@@ -447,9 +448,12 @@ const materializeStaticConventions = (
  * resolve against the page's source location, where the partials are. */
 const expandStaticPageIncludes = async (
 	sourcePagesDir: string,
-	outputPagesDir: string
+	outputPagesDir: string,
+	// Same reason the manifest scan takes one: `*` does not cross a
+	// directory separator, and a route tree is nested by design.
+	pattern = '*.html'
 ) => {
-	const pages = await scanEntryPoints(outputPagesDir, '*.html');
+	const pages = await scanEntryPoints(outputPagesDir, pattern);
 	await Promise.all(
 		pages.map(async (outputPage) => {
 			const html = await Bun.file(outputPage).text();
@@ -1173,6 +1177,8 @@ const buildUnlocked = async ({
 		reportFileRouteProblems(
 			syncFileRoutes({
 				fileRoutes,
+				htmlDirectory,
+				htmxDirectory,
 				reactDirectory,
 				svelteDirectory,
 				vueDirectory
@@ -3692,6 +3698,93 @@ const buildUnlocked = async ({
 		writeFileSync(filePath, html);
 	};
 
+	/* One tree of static pages, copied and post-processed. Used for a
+	 * framework's `pages/` and, when file routing is on, for its `routes/`
+	 * — which is a SEPARATE output tree rather than pages renamed into
+	 * `pages/`, because `<abs-include>` resolves against a page's SOURCE
+	 * location (see `expandStaticPageIncludes`). Flattening a route into
+	 * `pages/` would compute a source path that does not exist, and its
+	 * includes would quietly expand to nothing. */
+	const processStaticPageTree = async (
+		framework: 'html' | 'htmx',
+		sourceDir: string,
+		outputDir: string,
+		/* `*` does not cross a directory separator, so the long-standing
+		 * `pages/` scan only ever saw the top level: a page in
+		 * `pages/sub/x.html` is copied but never reaches the manifest, so
+		 * `asset()` cannot find it. That is a separate gap and changing it
+		 * here would add manifest keys to existing apps.
+		 *
+		 * A route tree has to recurse, because nesting is the whole point
+		 * of it — `routes/(site)/handbook.html` and `routes/docs/intro.html`
+		 * are the ordinary shapes. */
+		pattern = '*.html'
+	) => {
+		/* An app may have `routes/` and no `pages/`, which file routing
+		 * makes an ordinary shape — and `cpSync` throws ENOENT on a source
+		 * that is not there, failing the whole build. */
+		if (!existsSync(sourceDir)) return;
+		mkdirSync(outputDir, { recursive: true });
+		cpSync(sourceDir, outputDir, { force: true, recursive: true });
+		// Includes first: everything below (asset paths, images, islands)
+		// then sees the included markup too.
+		await expandStaticPageIncludes(sourceDir, outputDir, pattern);
+
+		// Every copy restores source URLs, including unrelated incremental builds.
+		// Always resolve them against the merged manifest before serving the page.
+		await updateAssetPaths(manifest, outputDir);
+		if (fonts && fonts.injectHtml !== false)
+			await injectFontTags(outputDir, fontAssets(manifest));
+		await optimizeHtmlImages(outputDir);
+
+		// Add the pages to the manifest (absolute paths for Bun.file())
+		const pageFiles = await scanEntryPoints(outputDir, pattern);
+		await transformStaticPagesWithIslands(islandRegistryPath, pageFiles);
+		for (const pageFile of pageFiles) {
+			if (hmr) injectHMRIntoHTMLFile(pageFile, framework);
+			if (pwaArtifacts) {
+				const source = readFileSync(pageFile, 'utf8');
+				writeFileSync(pageFile, injectPwaBootstrapHtml(source));
+			}
+			if (vitalsArtifacts) {
+				const source = readFileSync(pageFile, 'utf8');
+				writeFileSync(pageFile, injectVitalsReporterHtml(source));
+			}
+			const sourceFile = join(sourceDir, relative(outputDir, pageFile));
+			/* A route is keyed by its flat page name, so `routes/about.html`
+			 * and `pages/About.html` can coexist and two `about.html` files
+			 * in different route folders do not claim one key. */
+			recordManifestKey(
+				fileRouteFor(sourceFile)?.name ?? basename(pageFile, '.html'),
+				pageFile,
+				sourceFile
+			);
+		}
+	};
+
+	/* Where a framework's static file routes are copied to. `isSingle` puts
+	 * the one framework's pages at the build root, so its routes sit beside
+	 * them rather than under a framework folder. */
+	const staticRouteOutputDir = (frameworkDir: string) =>
+		isSingle
+			? join(buildPath, 'routes')
+			: join(buildPath, basename(frameworkDir), 'routes');
+
+	const processStaticFileRoutes = async (
+		framework: 'html' | 'htmx',
+		frameworkDir: string
+	) => {
+		const routesDir = fileRouteRootOf(framework);
+		if (!routesDir || !existsSync(routesDir)) return;
+
+		await processStaticPageTree(
+			framework,
+			routesDir,
+			staticRouteOutputDir(frameworkDir),
+			'**/*.html'
+		);
+	};
+
 	// HTML + HTMX post-processing run in parallel (independent directories)
 	const processHtmlPages = async () => {
 		if (!(htmlDir && htmlPagesPath)) return;
@@ -3699,44 +3792,8 @@ const buildUnlocked = async ({
 			? join(buildPath, 'pages')
 			: join(buildPath, basename(htmlDir), 'pages');
 
-		mkdirSync(outputHtmlPages, { recursive: true });
-		cpSync(htmlPagesPath, outputHtmlPages, {
-			force: true,
-			recursive: true
-		});
-		// Includes first: everything below (asset paths, images, islands)
-		// then sees the included markup too.
-		await expandStaticPageIncludes(htmlPagesPath, outputHtmlPages);
-
-		// Every copy restores source URLs, including unrelated incremental builds.
-		// Always resolve them against the merged manifest before serving the page.
-		await updateAssetPaths(manifest, outputHtmlPages);
-		if (fonts && fonts.injectHtml !== false)
-			await injectFontTags(outputHtmlPages, fontAssets(manifest));
-		await optimizeHtmlImages(outputHtmlPages);
-
-		// Add HTML pages to manifest (absolute paths for Bun.file())
-		const htmlPageFiles = await scanEntryPoints(outputHtmlPages, '*.html');
-		await transformStaticPagesWithIslands(
-			islandRegistryPath,
-			htmlPageFiles
-		);
-		for (const htmlFile of htmlPageFiles) {
-			if (hmr) injectHMRIntoHTMLFile(htmlFile, 'html');
-			if (pwaArtifacts) {
-				const source = readFileSync(htmlFile, 'utf8');
-				writeFileSync(htmlFile, injectPwaBootstrapHtml(source));
-			}
-			if (vitalsArtifacts) {
-				const source = readFileSync(htmlFile, 'utf8');
-				writeFileSync(htmlFile, injectVitalsReporterHtml(source));
-			}
-			recordManifestKey(
-				basename(htmlFile, '.html'),
-				htmlFile,
-				join(htmlPagesPath, relative(outputHtmlPages, htmlFile))
-			);
-		}
+		await processStaticPageTree('html', htmlPagesPath, outputHtmlPages);
+		await processStaticFileRoutes('html', htmlDir);
 	};
 
 	const processHtmxPages = async () => {
@@ -3745,13 +3802,8 @@ const buildUnlocked = async ({
 			? join(buildPath, 'pages')
 			: join(buildPath, basename(htmxDir), 'pages');
 
-		mkdirSync(outputHtmxPages, { recursive: true });
-		cpSync(htmxPagesPath, outputHtmxPages, {
-			force: true,
-			recursive: true
-		});
-		await expandStaticPageIncludes(htmxPagesPath, outputHtmxPages);
-
+		// The vendor copy happens once, before the trees are processed, so
+		// a page's rewritten script URL has something to point at.
 		if (shouldCopyHtmx) {
 			const htmxDestDir = isSingle
 				? buildPath
@@ -3760,33 +3812,8 @@ const buildUnlocked = async ({
 		}
 
 		// HTMX pages are also freshly copied on every incremental build.
-		await updateAssetPaths(manifest, outputHtmxPages);
-		if (fonts && fonts.injectHtml !== false)
-			await injectFontTags(outputHtmxPages, fontAssets(manifest));
-		await optimizeHtmlImages(outputHtmxPages);
-
-		// Add HTMX pages to manifest (absolute paths for Bun.file())
-		const htmxPageFiles = await scanEntryPoints(outputHtmxPages, '*.html');
-		await transformStaticPagesWithIslands(
-			islandRegistryPath,
-			htmxPageFiles
-		);
-		for (const htmxFile of htmxPageFiles) {
-			if (hmr) injectHMRIntoHTMLFile(htmxFile, 'htmx');
-			if (pwaArtifacts) {
-				const source = readFileSync(htmxFile, 'utf8');
-				writeFileSync(htmxFile, injectPwaBootstrapHtml(source));
-			}
-			if (vitalsArtifacts) {
-				const source = readFileSync(htmxFile, 'utf8');
-				writeFileSync(htmxFile, injectVitalsReporterHtml(source));
-			}
-			recordManifestKey(
-				basename(htmxFile, '.html'),
-				htmxFile,
-				join(htmxPagesPath, relative(outputHtmxPages, htmxFile))
-			);
-		}
+		await processStaticPageTree('htmx', htmxPagesPath, outputHtmxPages);
+		await processStaticFileRoutes('htmx', htmxDir);
 	};
 
 	// The HTML/HTMX convention copies (error.html, not-found.html,

@@ -167,12 +167,17 @@ export const createPageProbe = (config: BuildConfig) => {
 	push(config.angularDirectory, 'angular');
 	push(config.emberDirectory, 'ember');
 
-	// A file route created since the last build: the route watcher has
-	// already rescanned, so its page name is known.
+	/* A file route created since the last build: the route watcher has
+	 * already rescanned, so its page name is known. HTML and HTMX routes
+	 * are skipped — there is nothing to compile on demand, the build copies
+	 * them, so a lazy page entry for one would name a compiler that never
+	 * runs for it. */
 	const probeFileRoute = (name: string) => {
 		const route = fileRouteNamed(name);
+		if (!route || route.framework === 'html' || route.framework === 'htmx')
+			return undefined;
 
-		return route && toDevPageEntry(route.framework, route.source);
+		return toDevPageEntry(route.framework, route.source);
 	};
 
 	return (name: string) =>
