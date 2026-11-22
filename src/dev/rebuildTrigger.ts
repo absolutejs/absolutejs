@@ -1,3 +1,4 @@
+import { clientModuleUpdates } from './clientModuleHmr';
 import { changeNeedsRestart } from './restartScope';
 import { readCodeFrame } from './codeFrame';
 import { existsSync, readdirSync, rmSync, statSync } from 'node:fs';
@@ -2697,6 +2698,12 @@ const handleReactModuleServerPath = async (
 
 		broadcastToClients(state, {
 			data: {
+				clientModules: clientModuleUpdates(
+					state.manifest,
+					editedFiles,
+					(file) =>
+						fastRefreshSupported && registersRefreshComponent(file)
+				),
 				fastRefreshSupported,
 				framework: 'react',
 				hasComponentChanges: true,
