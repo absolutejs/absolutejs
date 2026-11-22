@@ -431,6 +431,13 @@ export const load = ({ params }: FileRouteContext<'/guides/:topic'>) => ({
 	 * place in the mirrored generated tree and only takes the route's name,
 	 * so `./_Tag.vue` still resolves — flattening it the way Svelte does
 	 * would break exactly this import. */
+	/* Two layouts over the Vue route. Vue wraps them in the page's source
+	 * like Svelte, and a component imported in `<script setup>` is
+	 * available to the template without being registered. */
+	'vue/routes/layout.vue': `<template>
+	<div id="vue-root-layout"><slot /></div>
+</template>
+`,
 	'vue/routes/shop/_Tag.vue': `<script setup lang="ts">
 const { label } = defineProps<{ label: string }>();
 </script>
@@ -455,6 +462,10 @@ const clicks = ref(0);
 	<h1 id="item">{{ item }}</h1>
 	<Tag label="VUE_CHILD" />
 	<button id="vue-clicks" @click="clicks += 1">clicks {{ clicks }}</button>
+</template>
+`,
+	'vue/routes/shop/layout.vue': `<template>
+	<section id="shop-layout"><slot /></section>
 </template>
 `
 };

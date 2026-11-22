@@ -138,6 +138,13 @@ const expectRoutes = async (port: number) => {
 	expect(item.body).toContain('ITEM_widget');
 	expect(item.body).toContain('VUE_CHILD');
 	expect(item.body).toMatch(/RouteShopItem[0-9a-z]{6}/);
+	/* Two layouts over it, nested outer → inner. Ordered, since both ids
+	 * appearing would hold with the nesting inverted. */
+	expect(
+		/<div id="vue-root-layout">[\s\S]*?<section id="shop-layout">[\s\S]*?ITEM_widget/.test(
+			item.body
+		)
+	).toBe(true);
 	/* The private sibling has no route of its own: `/shop/_Tag` is served
 	 * by the `[item]` route with `_Tag` as the param, which is also why
 	 * this cannot be asserted as a 404 the way `/_parts/Shell` is — there
