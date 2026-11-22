@@ -370,15 +370,30 @@ const waitForTicking = async (page: Page) => {
  * island component rather than the islands runtime or the navigation
  * layer.
  *
- * One hypothesis tried and DISPROVED, recorded so the next attempt does
- * not start there: `findLiveIsland` can only adopt an island carrying an
- * `island-id` or a `persist` key, and an ordinary island has neither, so
- * a re-created container has nothing to recognise. Giving the component a
- * reference to the island element it had already seen did NOT change the
- * count — so the extra writes are not one component instance losing track
- * of its island. A fresh component instance per change-detection pass,
- * and the islands runtime hydrating one element more than once, both
- * remain open. */
+ * What a bounded attempt at the cause ruled OUT, so the next one does not
+ * start here:
+ *
+ *   - The islands runtime does dedupe, per ELEMENT
+ *     (`dataset.hydrated` / `hydratingIslands`). Four mounts therefore
+ *     means four distinct elements, not one element hydrated four times.
+ *   - `findLiveIsland` can only adopt an island carrying an `island-id`
+ *     or a `persist` key, and an ordinary island has neither — so a
+ *     re-created container has nothing to recognise. Giving the component
+ *     a reference to the island element it had already seen did NOT
+ *     change the count.
+ *   - Nor did looking for the island under the stable `absolute-island`
+ *     HOST rather than the container it had been written into. So the
+ *     extra writes are not one component instance, or one host, losing
+ *     track of its island.
+ *   - After the swap the DOM holds ONE island, one host, one
+ *     `[ng-version]` root and one ticker: the three extra instances left
+ *     no elements behind, so each was written, hydrated, and then
+ *     replaced by the next write.
+ *
+ * Still open: where those writes come from. A stack probe over
+ * `Element.prototype.innerHTML` is NOT the way to find out — patching it
+ * breaks Angular's own rendering and the page never reaches the
+ * assertion. */
 const ANGULAR_SWAP_IN_DEFECT = true;
 
 const hostCase = (framework: 'angular' | 'vue') => {
