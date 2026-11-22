@@ -74,7 +74,10 @@ const TICKER = `<script lang="ts">
 	onDestroy(() => {
 		if (timer !== undefined) clearInterval(timer);
 		const target = scope();
-		if (target) target.__destroyed = true;
+		if (!target) return;
+		const destroys = target.__destroys;
+		target.__destroys = (typeof destroys === 'number' ? destroys : 0) + 1;
+		target.__destroyed = true;
 	});
 </script>
 
@@ -335,6 +338,18 @@ const mounts = (page: Page) => numberFrom(page, '__mounts');
 const destroyed = (page: Page) =>
 	page.evaluate(() => Reflect.get(window, '__destroyed'));
 
+/** Mounts that have not been torn down: how many instances of the island
+ *  are alive. One, always — a second is an orphan running its interval
+ *  against nodes nobody can see. Counting instead of looking at the DOM is
+ *  the point: an orphan is detached, so the DOM cannot see it either. */
+const liveInstances = async (page: Page) =>
+	(await mounts(page)) - (await numberFrom(page, '__destroys'));
+
+const islandsInDom = (page: Page) =>
+	page.evaluate(
+		() => document.querySelectorAll('[data-island="true"]').length
+	);
+
 /** The document the page is on now, so a soft navigation can be told from
  *  a document load: a load resets this to a fresh object. */
 const markDocument = (page: Page) =>
@@ -359,46 +374,32 @@ const waitForTicking = async (page: Page) => {
 	);
 };
 
-/* Angular's cell does not pass, and `test.skip` rather than absence is
- * deliberate: the reproduction belongs where the fix will be written.
+/* TWO round trips, not one, and a count of LIVE instances rather than
+ * mounts alone. Both of those catch something a single trip could not.
  *
- * Measured, five runs, identical every time — an island on an Angular
- * page hydrates once on a cold load, tears down correctly when navigated
- * away from, and then mounts THREE more times when the page is swapped
- * back in. Four instances for one island, three orphaned, each with its
- * own interval. Vue's cell passes all three claims, so this is Angular's
- * island component rather than the islands runtime or the navigation
- * layer.
+ * The island used to mount once per visit squared — 1, 4, 9, 16 — and the
+ * orphans kept their intervals running. A soft navigation re-runs the
+ * incoming page's module entries, and because a module URL evaluates once
+ * per document, `moduleUrlFor` (client/navigation.ts) deliberately gives
+ * the revisit a fresh URL so the entry runs again. The islands bootstrap
+ * is one of those entries, and the runtime's "already hydrating" and
+ * "already observing" sets were module-level — so every visit left another
+ * instance of the runtime watching the document, each hydrating every
+ * island element that appeared after it started.
  *
- * What a bounded attempt at the cause ruled OUT, so the next one does not
- * start here:
+ * Measured on VUE the counts were 1, 2, 4, 7: one round trip gave the
+ * right answer and the second one did not, which is why this test now
+ * makes two. Angular was 1, 4, 9, 16 — the same defect one visit earlier,
+ * because its island component creates the island element itself instead
+ * of adopting the server's, late enough for two observers to see it.
  *
- *   - The islands runtime does dedupe, per ELEMENT
- *     (`dataset.hydrated` / `hydratingIslands`). Four mounts therefore
- *     means four distinct elements, not one element hydrated four times.
- *   - `findLiveIsland` can only adopt an island carrying an `island-id`
- *     or a `persist` key, and an ordinary island has neither — so a
- *     re-created container has nothing to recognise. Giving the component
- *     a reference to the island element it had already seen did NOT
- *     change the count.
- *   - Nor did looking for the island under the stable `absolute-island`
- *     HOST rather than the container it had been written into. So the
- *     extra writes are not one component instance, or one host, losing
- *     track of its island.
- *   - After the swap the DOM holds ONE island, one host, one
- *     `[ng-version]` root and one ticker: the three extra instances left
- *     no elements behind, so each was written, hydrated, and then
- *     replaced by the next write.
- *
- * Still open: where those writes come from. A stack probe over
- * `Element.prototype.innerHTML` is NOT the way to find out — patching it
- * breaks Angular's own rendering and the page never reaches the
- * assertion. */
-const ANGULAR_SWAP_IN_DEFECT = true;
+ * Correcting the note this comment used to carry: four mounts did NOT mean
+ * four elements. A `data-hydrated` mutation record with `oldValue` showed
+ * the SAME element going true → true, which is what sent the search to the
+ * runtime's per-module state. The per-element dedupe was never the
+ * problem; whose copy of it was doing the deduping was. */
 
 const hostCase = (framework: 'angular' | 'vue') => {
-	const run =
-		framework === 'angular' && ANGULAR_SWAP_IN_DEFECT ? test.skip : test;
 	const path = `/${framework}`;
 	const pageId = `#${framework}-page`;
 	const hydratedFlag =
@@ -406,63 +407,81 @@ const hostCase = (framework: 'angular' | 'vue') => {
 	const backLinkId = `#to-${framework}`;
 
 	describe(`an island on a ${framework} page`, () => {
-		run(
-			'hydrates cold, stops when navigated away from, and hydrates again when swapped back in',
-			async () => {
-				const session = await openPage(`${baseUrl()}${path}`, {
-					waitUntil: 'load'
+		test('hydrates cold, stops when navigated away from, and hydrates again when swapped back in', async () => {
+			const session = await openPage(`${baseUrl()}${path}`, {
+				waitUntil: 'load'
+			});
+			try {
+				const { page } = session;
+				await page.waitForFunction(
+					(flag) => Reflect.get(window, flag) === true,
+					hydratedFlag,
+					{ timeout: 40_000 }
+				);
+
+				// 1. Cold: the island is running, mounted once.
+				await page.waitForSelector('#ticker', { timeout: 20_000 });
+				await waitForTicking(page);
+
+				expect(await mounts(page)).toBe(1);
+				expect(await destroyed(page)).toBeUndefined();
+
+				// 2. Navigated away from: it stops and is destroyed.
+				await markDocument(page);
+				await page.click('#to-plain');
+				await page.waitForSelector('#plain-page', {
+					timeout: 20_000
 				});
-				try {
-					const { page } = session;
-					await page.waitForFunction(
-						(flag) => Reflect.get(window, flag) === true,
-						hydratedFlag,
-						{ timeout: 40_000 }
-					);
 
-					// 1. Cold: the island is running, mounted once.
-					await page.waitForSelector('#ticker', { timeout: 20_000 });
-					await waitForTicking(page);
+				expect(await sameDocument(page)).toBe(true);
+				expect(await page.locator(pageId).count()).toBe(0);
+				expect(await destroyed(page)).toBe(true);
+				/* Work STOPPED, not just a flag set: a teardown that left
+				 * the interval running would satisfy the flag and keep
+				 * counting. */
+				const stopped = await ticks(page);
+				await page.waitForTimeout(300);
 
-					expect(await mounts(page)).toBe(1);
-					expect(await destroyed(page)).toBeUndefined();
+				expect(await ticks(page)).toBe(stopped);
 
-					// 2. Navigated away from: it stops and is destroyed.
-					await markDocument(page);
-					await page.click('#to-plain');
-					await page.waitForSelector('#plain-page', {
-						timeout: 20_000
-					});
+				/* 3. Swapped back in — the cell the matrix listed as
+				 * untested. There is no cold load to fall back on here:
+				 * the islands runtime has to hydrate markup the
+				 * navigation layer inserted. */
+				await page.click(backLinkId);
+				await page.waitForSelector(pageId, { timeout: 20_000 });
 
-					expect(await sameDocument(page)).toBe(true);
-					expect(await page.locator(pageId).count()).toBe(0);
-					expect(await destroyed(page)).toBe(true);
-					/* Work STOPPED, not just a flag set: a teardown that left
-					 * the interval running would satisfy the flag and keep
-					 * counting. */
-					const stopped = await ticks(page);
-					await page.waitForTimeout(300);
+				expect(await sameDocument(page)).toBe(true);
+				await page.waitForSelector('#ticker', { timeout: 20_000 });
+				await waitForTicking(page);
+				// A second mount: a new instance for the new markup.
+				expect(await mounts(page)).toBe(2);
+				expect(await liveInstances(page)).toBe(1);
+				expect(await islandsInDom(page)).toBe(1);
 
-					expect(await ticks(page)).toBe(stopped);
+				/* 4. And AGAIN. One round trip is satisfied by an island
+				 * that mounts twice per visit as well as by one that
+				 * mounts once; the second trip is where those part company
+				 * (2, 4 against 2, 3). It is also the first visit on which
+				 * a third copy of the islands runtime would exist. */
+				await page.click('#to-plain');
+				await page.waitForSelector('#plain-page', {
+					timeout: 20_000
+				});
+				await page.click(backLinkId);
+				await page.waitForSelector(pageId, { timeout: 20_000 });
 
-					/* 3. Swapped back in — the cell the matrix listed as
-					 * untested. There is no cold load to fall back on here:
-					 * the islands runtime has to hydrate markup the
-					 * navigation layer inserted. */
-					await page.click(backLinkId);
-					await page.waitForSelector(pageId, { timeout: 20_000 });
+				expect(await sameDocument(page)).toBe(true);
+				await page.waitForSelector('#ticker', { timeout: 20_000 });
+				await waitForTicking(page);
 
-					expect(await sameDocument(page)).toBe(true);
-					await page.waitForSelector('#ticker', { timeout: 20_000 });
-					await waitForTicking(page);
-					// A second mount: a new instance for the new markup.
-					expect(await mounts(page)).toBe(2);
-				} finally {
-					await session.close();
-				}
-			},
-			300_000
-		);
+				expect(await mounts(page)).toBe(3);
+				expect(await liveInstances(page)).toBe(1);
+				expect(await islandsInDom(page)).toBe(1);
+			} finally {
+				await session.close();
+			}
+		}, 300_000);
 	});
 };
 

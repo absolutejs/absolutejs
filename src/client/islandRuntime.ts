@@ -5,6 +5,7 @@ import {
 	REACT_PAGE_ROOT_EVENT
 } from '../core/islandManifest';
 import { readIslandStyleNonce } from '../core/islandStylesheet';
+import { islandHydrationState } from './islandHydrationState';
 import { initializeIslandMarkupSnapshot } from './preserveIslandMarkup';
 import { prepareBrowserTranslationHydration } from './browserTranslation';
 
@@ -51,8 +52,11 @@ const isPropsRecord = (value: unknown): value is Record<string, unknown> =>
 const isIslandElement = (value: EventTarget | null): value is IslandElement =>
 	value instanceof HTMLElement && value.dataset.island === 'true';
 
-const observedRoots = new WeakSet<Node>();
-const hydratingIslands = new WeakSet<HTMLElement>();
+/* Shared with every other copy of this module in the document — see
+ * islandHydrationState.ts for why that is not the same as this module's
+ * own scope. */
+const observedRoots = islandHydrationState().observed;
+const hydratingIslands = islandHydrationState().hydrating;
 
 const ISLAND_FRAMEWORKS: readonly IslandFramework[] = [
 	'react',
