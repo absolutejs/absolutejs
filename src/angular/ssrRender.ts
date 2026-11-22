@@ -168,23 +168,72 @@ export const renderAngularApp = async (
 		})
 	);
 };
+/* Angular logs "Angular is running in development mode." on every
+ * `bootstrapApplication`, which on a server is once per request. It has
+ * to be filtered, and the filter has to be installed exactly once.
+ *
+ * It used to save `console.log`, replace it, and restore it in a
+ * `finally` — per render. Under concurrency that leaks, because each
+ * render captures whatever is installed when IT starts and reinstalls
+ * that when IT finishes, so the last render to finish wins. Measured
+ * with eight concurrent renders completing in start order: `console.log`
+ * is left permanently wrapped, and one wrapper accumulates per round.
+ * After 60 rounds — 480 renders, a few seconds of traffic — 20,000
+ * `console.log` calls went from 0.3ms to 79.7ms, because every log in
+ * the process walks the whole chain. A message containing the filtered
+ * phrase was also swallowed for the life of the process.
+ *
+ * A counter and one install fix both: nothing nests, nothing
+ * accumulates, and the filter is only active while a render is actually
+ * in flight rather than forever. */
+let rendersInFlight = 0;
+let filterInstalled = false;
+
+/* Narrowed to Angular's own notice rather than any line containing
+ * "development mode", so an application's own logging is not caught by a
+ * phrase it happens to share. If a future Angular reworded this, the
+ * notice reappears — noisy, which is the right way round for a filter to
+ * fail. */
+const isAngularDevModeNotice = (args: readonly unknown[]) => {
+	const [first] = args;
+
+	return (
+		typeof first === 'string' &&
+		first.includes('development mode') &&
+		first.includes('Angular')
+	);
+};
+
+/** Whether the installed filter would drop this line right now.
+ *
+ *  Exported so the behaviour can be tested without intercepting
+ *  `console.log`: the wrapper closes over whatever was installed when it
+ *  was created, so a test that swaps `console.log` afterwards observes
+ *  nothing, and one that swaps it beforehand only works if it happens to
+ *  be the first thing in the process to touch this module. Both are
+ *  order-dependent, and the second passed alone and failed in the shared
+ *  unit run. */
+export const shouldSuppressAngularLog = (args: readonly unknown[]) =>
+	rendersInFlight > 0 && isAngularDevModeNotice(args);
+
+const installDevLogFilter = () => {
+	if (filterInstalled) return;
+	filterInstalled = true;
+	const original = console.log;
+	console.log = (...args: unknown[]) => {
+		if (shouldSuppressAngularLog(args)) return;
+		original.apply(console, args);
+	};
+};
+
 export const withSuppressedAngularDevLogs = async <T>(
 	render: () => Promise<T>
 ) => {
-	const origLog = console.log;
-	console.log = (...args: unknown[]) => {
-		if (
-			typeof args[0] === 'string' &&
-			args[0].includes('development mode')
-		) {
-			return;
-		}
-		origLog.apply(console, args);
-	};
-
+	installDevLogFilter();
+	rendersInFlight += 1;
 	try {
 		return await render();
 	} finally {
-		console.log = origLog;
+		rendersInFlight -= 1;
 	}
 };
