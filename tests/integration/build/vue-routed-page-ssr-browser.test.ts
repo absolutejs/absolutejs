@@ -47,7 +47,9 @@ import About from './routed/About.vue';
 
 export const routes = defineRoutes([
 	{ component: Home, path: '/shell' },
-	{ component: About, path: '/shell/about' }
+	{ component: About, path: '/shell/about' },
+	// Named views: each one is split, as a single component is.
+	{ components: { default: About, side: Home }, path: '/shell/split' }
 ]);
 </script>
 
@@ -63,6 +65,7 @@ onMounted(() => {
 <template>
 	<div id="shell" data-ssr="server">
 		<RouterView />
+		<RouterView name="side" />
 	</div>
 </template>
 `;
@@ -212,6 +215,32 @@ describe('the server HTML of a routed Vue page', () => {
 		expect(about).toContain('about route');
 		expect(about).not.toContain('home route');
 	});
+});
+
+describe('a route with named views', () => {
+	test('renders every view on the server and hydrates them', async () => {
+		const html = await (await fetch(`${baseUrl()}/shell/split`)).text();
+		expect(html).toContain('about route');
+		expect(html).toContain('home route');
+
+		await withPage('/shell/split', async (page, errors) => {
+			await page.waitForFunction(
+				() => Reflect.get(window, '__vueShellHydrated') === true,
+				undefined,
+				{ timeout: 20_000 }
+			);
+			await page.click('#home-increment');
+			await page.waitForFunction(
+				() =>
+					document
+						.getElementById('home-increment')
+						?.textContent?.trim() === 'count 1',
+				undefined,
+				{ timeout: 10_000 }
+			);
+			expect(errors).toEqual([]);
+		});
+	}, 180_000);
 });
 
 describe('the client hydrates that HTML', () => {
