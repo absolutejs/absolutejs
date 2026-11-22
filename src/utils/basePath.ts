@@ -9,7 +9,11 @@
  * one out (a page's entry script, its route data, the HMR socket, CSS HMR),
  * and puts an import map first in the page's `<head>` so the root-absolute
  * module specifiers its bundles and dev modules use (`/@src/...`,
- * `/react/vendor/...`) resolve under the prefix too. `asset()` stays
+ * `/react/vendor/...`) resolve under the prefix too. The map is scoped to
+ * the prefix: it applies to the modules this app serves there, and leaves
+ * alone a module another app on the same origin serves at its own root
+ * (Studio, under its prefix, mounting the portal's Settings module: with
+ * an unscoped map, the portal module's own imports went to Studio). `asset()` stays
  * unprefixed: the framework reads those paths from disk as well.
  *
  * Set per process with `ABSOLUTE_BASE_PATH`, or `basePath` in the config.
@@ -58,6 +62,13 @@ export const basePathHeadTags = (base = getBasePath(), nonce?: string) => {
 	const imports = Object.fromEntries(
 		BASE_PATH_MODULE_PREFIXES.map((prefix) => [prefix, `${base}${prefix}`])
 	);
+	/* Two scope keys: one ending in `/` matches every URL under the base,
+	 * and one without matches the page at the bare base itself, which the
+	 * page's own scripts are resolved against. */
+	const scopes: Record<string, Record<string, string>> = {
+		[base]: imports,
+		[`${base}/`]: imports
+	};
 	const json = (value: unknown) =>
 		JSON.stringify(value).replace(/</g, '\\u003c');
 
@@ -66,7 +77,7 @@ export const basePathHeadTags = (base = getBasePath(), nonce?: string) => {
 	// hydrates <head>: it pairs a page's own first inline <script> with the
 	// first <script> it finds there, even one of another type, and the page
 	// hydrates with a mismatch (React's own `importMap` option does the same).
-	return `<script type="importmap" data-absolute-base-path${nonceAttribute(nonce)}>${json({ imports })}</script><script${nonceAttribute(nonce)}>window.__ABSOLUTE_BASE_PATH__=${json(base)};document.querySelector('script[data-absolute-base-path]')?.remove();document.currentScript?.remove();</script>`;
+	return `<script type="importmap" data-absolute-base-path${nonceAttribute(nonce)}>${json({ scopes })}</script><script${nonceAttribute(nonce)}>window.__ABSOLUTE_BASE_PATH__=${json(base)};document.querySelector('script[data-absolute-base-path]')?.remove();document.currentScript?.remove();</script>`;
 };
 
 const HEAD_OPEN = /<head(\s[^>]*)?>/i;
