@@ -263,8 +263,42 @@ export const load = async ({ params }: FileRouteContext<'/blog/:slug'>) => {
   `beforeHandle` sees them.
 - App-wide auth stays in Elysia: hooks and plugins registered before
   `.use(fileRoutes(...))` (an `onBeforeHandle`, `@absolutejs/auth`'s
-  macros/derive) apply to file routes like any route. Phase 2 passes a typed
-  view of derived context values (e.g. the session) into `FileRouteContext`.
+  macros/derive) apply to file routes like any route.
+- **Plugin-derived context reaches `load` and `beforeHandle` (built).**
+  Whatever the plugins registered before `fileRoutes()` derived onto the
+  request is on the context a route sees — `@absolutejs/auth`'s session,
+  an `onBeforeHandle`'s own values — and the app types it once by
+  declaration merging, as it already does for manifest keys:
+
+  ```ts
+  declare module '@absolutejs/absolute' {
+  	interface FileRouteDerivedContext {
+  		session: Session | null;
+  	}
+  }
+  ```
+
+  Declared rather than inferred, because the generated route module never
+  imports the server and so has no Elysia type to infer from. That makes
+  it a claim the app makes: a key declared here that no plugin derives
+  arrives as `undefined`. Inferring it from the server instead is still
+  open.
+  The runtime copies every key Elysia did not put there itself, so it is a
+  deny-list of Elysia's context keys — measured against Elysia rather than
+  guessed, since they differ by version (`body` only on a request that has
+  one, `store` and `url` on some versions, `qi` and `~`-prefixed keys
+  internal). The keys are filtered before any value is read, because
+  `server` is a getter on some versions and copying the whole context
+  would invoke it on every request.
+  A plugin that derives a key Elysia's context already owns REPLACES it,
+  before `fileRoutes()` sees the context — deriving `params` loses the
+  route's own params, and no ordering here can put them back. A unit test
+  records that rather than guarding against it.
+  One limitation worth knowing: augmenting the interface and
+  type-checking the framework's own sources in the same program reports
+  the context construction, because the framework cannot prove it supplies
+  keys the app declared. An app consuming the published declarations never
+  sees it.
 - **Hook for form actions (parallel work, not built here).** The server
   module reserves an `actions` export. When the form-actions runtime lands,
   `fileRoutes()` will register, for a route whose server module exports

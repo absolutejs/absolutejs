@@ -5,6 +5,21 @@
 		{
 			"changes": [
 				{
+					"detail": "A plugin registered before `fileRoutes()` could guard a file route but could not tell it anything: the session from `@absolutejs/auth`, or any value an `onBeforeHandle` derived, was dropped on the way into `load`, because the context a route receives was built from a fixed list of keys. Whatever the plugins derived onto the request is now on it, and an app types it once by declaration merging, the way it already does for manifest keys — `declare module '@absolutejs/absolute' { interface FileRouteDerivedContext { session: Session | null } }` — so every route gets it typed in `load` and `beforeHandle` with no per-route annotation. Declared rather than inferred, because the generated route module never imports the server and so has no Elysia type to infer from, which makes it a claim the app makes: a key declared there that no plugin derives arrives as `undefined`. What reaches a route is everything Elysia did not put on the context itself, so the implementation is a deny-list of the Elysia context keys, measured against Elysia rather than guessed — they differ by version, with `body` present only on a request that has one, `store` and `url` own keys on some versions, and `qi` and `~`-prefixed keys internal. The keys are filtered before any value is read, because `server` is a getter on some versions and copying the whole context would invoke it on every request. A plugin that derives a key the Elysia context already owns replaces it before any of this runs, so deriving `params` loses the params of the route itself; a unit test records that rather than pretending to guard against it. The declaration merging has a test of its own, because it has to reach an interface the package only re-exports through two barrels, and an augmentation that landed in the wrong scope would leave the whole feature silently inert.",
+					"kind": "added",
+					"summary": "Plugin-derived context reaches a file route load and beforeHandle",
+					"symbols": [
+						"FileRouteContext",
+						"FileRouteDerivedContext"
+					]
+				}
+			],
+			"date": "2026-11-22",
+			"version": "0.20.0-beta.282"
+		},
+		{
+			"changes": [
+				{
 					"detail": "A `layout.ts` in an Angular route folder now wraps that folder and everything below it, as `layout.tsx`, `layout.svelte` and `layout.vue` already did — so every framework with a component model composes route layouts, and only HTML and HTMX still report a `layout.<ext>` as a problem, having no component model and no render step to compose one with. Angular wraps them in the page source, where Svelte and Vue do and for the same reason: one compiled module serves both the server render and the client bootstrap, so the two sides cannot disagree about the order. What Angular adds is that a template names a component by its SELECTOR rather than by a local import name, so the wrap reads each layout`s own `@Component` for the selector and the class, puts the class in the page`s `imports` (adding an `imports` array when the component has none) and writes the selectors around the template, which keeps a template expression`s substitutions because the wrap is written inside the existing literal. An Angular layout takes its content through `<ng-content />`. Three things are reported rather than guessed, because a page that silently renders without its chrome is the failure the file router is trying not to have: a layout with no `selector`, which cannot appear in a template at all; a page whose component declares no inline `template`; and a page exporting more than one component, which is a router host with co-located children, where picking one would wrap the wrong template as readily as the right one. The wrap runs after resource inlining, since a page written with `templateUrl` has an inline `template` only once that has happened, and it is called from both the AOT build and the JIT path dev uses — so the build test asserts the composed markup through both servers.",
 					"kind": "added",
 					"summary": "Angular file routes can have nested layouts"
