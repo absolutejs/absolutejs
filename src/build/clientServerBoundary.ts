@@ -109,12 +109,23 @@ const conditionOf = (node: TS.Node) => {
 	return undefined;
 };
 
-/** True when the subtree tests `typeof process`. */
+/* The globals whose `typeof` tells server from browser. `typeof process`
+ * is the documented guard; `typeof window` and `typeof document` are the
+ * other way code commonly asks the same question:
+ *
+ *     const base = typeof window !== 'undefined'
+ *         ? window.location.origin
+ *         : process.env.SITE_URL;
+ */
+const ENVIRONMENT_GLOBALS = new Set(['document', 'process', 'window']);
+
+/** True when the subtree tests `typeof` of a global that tells server from
+ *  browser (`process`, `window`, `document`). */
 const testsTypeofProcess = (node: TS.Node): boolean => {
 	if (
 		ts.isTypeOfExpression(node) &&
 		ts.isIdentifier(node.expression) &&
-		node.expression.text === 'process'
+		ENVIRONMENT_GLOBALS.has(node.expression.text)
 	)
 		return true;
 

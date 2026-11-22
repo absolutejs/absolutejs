@@ -124,6 +124,25 @@ describe('a typeof process test is the documented way to keep a read', () => {
 		).toEqual(['process.env.EARLY']);
 	});
 
+	test('typeof window and typeof document ask the same question', () => {
+		expect(
+			keys(
+				"export const base = typeof window !== 'undefined' ? window.location.origin : (process.env.SITE_URL ?? `http://localhost:${process.env.PORT ?? '3000'}`);"
+			)
+		).toEqual([]);
+		expect(
+			keys(
+				"export const read = () => {\n\tif (typeof document !== 'undefined') return '';\n\n\treturn process.env.LATE;\n};"
+			)
+		).toEqual([]);
+		// A test of some other global guards nothing.
+		expect(
+			keys(
+				"export const x = typeof navigator !== 'undefined' ? '' : process.env.X;"
+			)
+		).toEqual(['process.env.X']);
+	});
+
 	test('a bare typeof process elsewhere in the file guards nothing', () => {
 		expect(
 			keys(
