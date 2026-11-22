@@ -4,6 +4,7 @@ import type { BuildConfig as BunBuildConfig } from 'bun';
 import type { FileRoutesConfig } from './fileRoutes';
 import type { FontsConfig } from './fonts';
 import type { ImageConfig } from './image';
+import type { LinksConfig } from './links';
 import type { SitemapConfig } from './sitemap';
 
 /** How Angular pages run change detection. `'zoneless'` (the default)
@@ -705,6 +706,19 @@ export type BaseBuildConfig = {
 	 *  now). Explicit routes stay the default and take precedence. See
 	 *  docs/FILE_ROUTER_PLAN.md. */
 	fileRoutes?: boolean | FileRoutesConfig;
+	/** The dead-link check (build/auditLinks.ts). It reads every literal
+	 *  `<a href="/…">` in the project's source and warns about ones no
+	 *  route serves — the typo `route()` cannot catch, since a template
+	 *  attribute is not a typed position and an HTML route is not a typed
+	 *  language.
+	 *
+	 *  `ignore` names paths it should not ask about. A path with a file
+	 *  extension is already skipped (the asset plugin serves those), so
+	 *  this is for routes no scan of the project's source can see: the
+	 *  ones an installed plugin mounts (`/auth/*` from
+	 *  `@absolutejs/auth`), or a path something in front of the app
+	 *  rewrites. A trailing `*` matches by prefix. */
+	links?: LinksConfig;
 	// OpenAPI docs via @elysia/openapi. `true` serves a Scalar UI at /openapi
 	// derived from your route schemas; an object customizes it. On by default in
 	// dev, opt-in for production builds.

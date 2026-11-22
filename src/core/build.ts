@@ -72,6 +72,7 @@ import {
 } from '../build/missingClientFrameworks';
 import { createMissingReactRouterPlugin } from '../build/missingReactRouter';
 import { ISLAND_BOOTSTRAP_MANIFEST_KEY } from './islandManifest';
+import { auditLinks, deadLinkWarning } from '../build/auditLinks';
 import { scanRouteRegistrations } from '../build/scanRouteRegistrations';
 import { generateSitemap } from '../utils/generateSitemap';
 import type {
@@ -1051,7 +1052,8 @@ const buildUnlocked = async ({
 	sitemap,
 	sourcemaps,
 	dev,
-	fileRoutes
+	fileRoutes,
+	links
 }: BuildConfig) => {
 	const buildStart = performance.now();
 	// `absolute build` and `absolute compile` explicitly request production.
@@ -4058,6 +4060,30 @@ const buildUnlocked = async ({
 				svelteDirectory,
 				vueDirectory
 			});
+			/* Dead links, on the registration scan this block already
+			 * paid for. That scan is the expensive half — it parses every
+			 * `.ts` in the project — and collecting the links beside it
+			 * costs about a twentieth as much, which is the only reason
+			 * this is a build warning at all. Production only, for the
+			 * same reason: a dev rebuild does not run the scan, and
+			 * running it there would cost a second per rebuild to find
+			 * what a production build or `absolute links` reports anyway. */
+			const dead = auditLinks(
+				{
+					angularDirectory,
+					fileRoutes,
+					htmlDirectory,
+					htmxDirectory,
+					links,
+					reactDirectory,
+					svelteDirectory,
+					vueDirectory
+				},
+				projectRoot,
+				routes
+			);
+			const warning = deadLinkWarning(dead);
+			if (warning) logWarn(warning);
 		} catch (err) {
 			console.warn('[sitemap] Build-time generation failed:', err);
 		}
