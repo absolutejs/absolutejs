@@ -38,21 +38,44 @@ const findVueImport = (node: TS.Node): string | null => {
 	return found;
 };
 
-const parseRoute = (node: TS.Expression): ParsedVueSpaRoute | null => {
-	if (!ts.isObjectLiteralExpression(node)) return null;
-	let path: string | null = null;
-	let importPath: string | null = null;
-
-	for (const property of node.properties) {
-		if (!ts.isPropertyAssignment(property)) continue;
+/* The lazy `.vue` imports a route renders: its `component`, or each named
+ * view of `components: { default, sidebar }`. */
+const routeImports = (node: TS.ObjectLiteralExpression) =>
+	node.properties.flatMap((property) => {
+		if (!ts.isPropertyAssignment(property)) return [];
 		const name = propertyName(property.name);
-		if (name === 'path') path = stringValue(property.initializer);
-		if (name === 'component')
-			importPath = findVueImport(property.initializer);
-	}
+		if (name === 'component') {
+			const found = findVueImport(property.initializer);
 
+			return found ? [found] : [];
+		}
+		if (
+			name !== 'components' ||
+			!ts.isObjectLiteralExpression(property.initializer)
+		)
+			return [];
+
+		return property.initializer.properties.flatMap((view) => {
+			const found = ts.isPropertyAssignment(view)
+				? findVueImport(view.initializer)
+				: null;
+
+			return found ? [found] : [];
+		});
+	});
+
+const parseRoute = (node: TS.Expression): ParsedVueSpaRoute[] => {
+	if (!ts.isObjectLiteralExpression(node)) return [];
+	const pathProperty = node.properties.find(
+		(property): property is TS.PropertyAssignment =>
+			ts.isPropertyAssignment(property) &&
+			propertyName(property.name) === 'path'
+	);
+	const path = pathProperty ? stringValue(pathProperty.initializer) : null;
 	// An empty path is a layout's default child, a real route.
-	return path !== null && importPath ? { importPath, path } : null;
+	if (path === null) return [];
+
+	return routeImports(node).map((importPath) => ({ importPath, path }));
 };
 
 /* A child route's path under its parent's: absolute paths stand as they
@@ -73,7 +96,7 @@ const collectRoutes = (
 ) => {
 	for (const element of routes.elements) {
 		if (!ts.isObjectLiteralExpression(element)) continue;
-		const route = parseRoute(element);
+		const routes = parseRoute(element);
 		const ownPath = element.properties.find(
 			(property): property is TS.PropertyAssignment =>
 				ts.isPropertyAssignment(property) &&
@@ -84,7 +107,7 @@ const collectRoutes = (
 			pathText === null
 				? parentPath
 				: joinRoutePath(parentPath, pathText);
-		if (route)
+		for (const route of routes)
 			entries.push({
 				...route,
 				path: joinRoutePath(parentPath, route.path)

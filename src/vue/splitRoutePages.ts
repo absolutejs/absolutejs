@@ -57,6 +57,22 @@ const propertyNamed = (node: TS.ObjectLiteralExpression, name: string) =>
 			property.name.text === name
 	);
 
+/* A route's page components: `component: X`, or each named view of
+ * `components: { default: X, sidebar: Y }`. */
+const routeComponents = (route: TS.ObjectLiteralExpression) => {
+	const single = propertyNamed(route, 'component');
+	if (single && ts.isIdentifier(single.initializer))
+		return [single.initializer];
+	const views = propertyNamed(route, 'components');
+	if (!views || !ts.isObjectLiteralExpression(views.initializer)) return [];
+
+	return views.initializer.properties.flatMap((view) =>
+		ts.isPropertyAssignment(view) && ts.isIdentifier(view.initializer)
+			? [view.initializer]
+			: []
+	);
+};
+
 /* Every leaf route's `component: X` identifier, through nested children. */
 const leafComponents = (routes: TS.ArrayLiteralExpression) => {
 	const found: TS.Identifier[] = [];
@@ -68,9 +84,7 @@ const leafComponents = (routes: TS.ArrayLiteralExpression) => {
 			if (nested && ts.isArrayLiteralExpression(nested))
 				visitRoutes(nested);
 			if (children) continue;
-			const component = propertyNamed(element, 'component');
-			if (component && ts.isIdentifier(component.initializer))
-				found.push(component.initializer);
+			found.push(...routeComponents(element));
 		}
 	};
 	visitRoutes(routes);
