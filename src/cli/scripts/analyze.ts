@@ -3,6 +3,7 @@ import { join, resolve } from 'node:path';
 import { loadConfig } from '../../utils/loadConfig';
 import { formatBytes } from '../../utils/formatBytes';
 import { colors, padLine } from '../tuiPrimitives';
+import { evaluateBudgets, type SizeBudgets } from '../../utils/sizeBudgets';
 
 const BASELINE_FILE = '.absolute-size-baseline.json';
 const TOP_CHANGES = 12;
@@ -37,6 +38,33 @@ const fileSize = (path: string) => {
 	}
 };
 
+/* A manifest value is one of two things, and this used to handle only
+ * the first:
+ *
+ *   /chunk-g1m5mt8e.js                    a web path, served from the
+ *                                         build directory
+ *   /Users/me/app/build/svelte/server/…   an absolute filesystem path,
+ *                                         which the project's server
+ *                                         `import`s
+ *
+ * Both start with `/`, so stripping that and joining under the build
+ * directory turned every server entry into a path that does not exist,
+ * and `fileSize` answered 0. Measured on this repository's example app:
+ * 14 of 57 entries read as zero, hiding 2,477 KB — including the two
+ * largest things in the build, a 1.3 MB Vue page and a 1.08 MB Ember
+ * one. The report claimed 705 KB for a 3.2 MB build and showed `Pages
+ * 346 B`, because the real page bundles were all among the zeros.
+ *
+ * The build-relative reading is tried first: it is the common case, and
+ * a web path must not be allowed to match something at the filesystem
+ * root by coincidence. */
+const resolveManifestValue = (manifestDir: string, value: string) => {
+	const relative = join(manifestDir, value.replace(/^\//, ''));
+	if (existsSync(relative)) return relative;
+
+	return existsSync(value) ? value : relative;
+};
+
 const readSizes = (manifestDir: string) => {
 	const manifestPath = join(manifestDir, 'manifest.json');
 	if (!existsSync(manifestPath)) return null;
@@ -45,7 +73,7 @@ const readSizes = (manifestDir: string) => {
 	);
 	const sizes: Record<string, number> = {};
 	for (const [key, value] of Object.entries(manifest)) {
-		sizes[key] = fileSize(join(manifestDir, value.replace(/^\//, '')));
+		sizes[key] = fileSize(resolveManifestValue(manifestDir, value));
 	}
 
 	return sizes;
@@ -181,6 +209,51 @@ const printReport = (
 	process.stdout.write(`${parts.join('\n')}\n\n  ${footer}\n`);
 };
 
+/* The CI gate. `absolute ls --budget 50kb` has always enforced one
+ * number against every page and exited 1, which covers a single
+ * interactive check; what it could not do was live in the config, so the
+ * number had to be repeated in every pipeline, and pages and shared
+ * chunks — whose sizes mean entirely different things — had to share it.
+ *
+ * Passing budgets are printed too. A gate that prints nothing when it
+ * passes is indistinguishable from a gate that did not run, which is how
+ * a budget quietly stops being enforced. */
+const runCheck = (sizes: Record<string, number>, budgets: SizeBudgets) => {
+	const report = evaluateBudgets({
+		budgets,
+		categoryTotals: Object.fromEntries(categoryTotals(sizes)),
+		entrySizes: sizes
+	});
+
+	if (
+		report.passed.length === 0 &&
+		report.violations.length === 0 &&
+		report.problems.length === 0
+	) {
+		process.stdout.write(
+			`${colors.dim}No size budgets set. Add \`sizeBudgets\` to your config to enforce some.${colors.reset}\n`
+		);
+
+		return;
+	}
+
+	for (const problem of report.problems)
+		process.stdout.write(
+			`${colors.yellow}?${colors.reset} ${problem.subject}: \`${problem.given}\` is not a size. Use bytes, or \`250kb\` / \`1.5mb\`.\n`
+		);
+	for (const pass of report.passed)
+		process.stdout.write(
+			`${colors.green}✓${colors.reset} ${pass.subject} ${formatBytes(pass.size)} ${colors.dim}of ${formatBytes(pass.limit)}${colors.reset}\n`
+		);
+	for (const violation of report.violations)
+		process.stdout.write(
+			`${colors.red}✗${colors.reset} ${violation.subject} ${formatBytes(violation.size)} ${colors.red}over ${formatBytes(violation.limit)} by ${formatBytes(violation.size - violation.limit)}${colors.reset}\n`
+		);
+
+	if (report.violations.length > 0 || report.problems.length > 0)
+		process.exitCode = 1;
+};
+
 export const runAnalyze = async (args: string[]) => {
 	const cwd = process.cwd();
 	const configIndex = args.indexOf('--config');
@@ -213,6 +286,12 @@ export const runAnalyze = async (args: string[]) => {
 
 	if (args.includes('--json')) {
 		process.stdout.write(`${JSON.stringify(sizes, null, 2)}\n`);
+
+		return;
+	}
+
+	if (args.includes('--check')) {
+		runCheck(sizes, config.sizeBudgets ?? {});
 
 		return;
 	}

@@ -78,7 +78,7 @@ const printUsage = (write: (line: string) => void) => {
 		'  add <framework> [--no-install] Add a framework (deps, config, starter page)'
 	);
 	write(
-		'  analyze [--save] [--json] Bundle size breakdown + diff vs a saved baseline'
+		'  analyze [--save] [--json] [--check] Bundle sizes, a diff against a saved baseline, or the size budgets in your config as a gate'
 	);
 	write(
 		'  api [--open] [--json] Show the API surface or open the OpenAPI UI (@elysia/openapi)'

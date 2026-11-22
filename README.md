@@ -129,6 +129,34 @@ every command and the global flags; these are the ones reached for most:
 `--config <path>` works on every command that reads one, and
 `absolute --version` prints the installed version.
 
+### Size budgets
+
+`absolute analyze` prints what the build weighs, by category, and diffs it
+against a baseline you save with `--save`. To make a size a build rule
+rather than something you remember to look at, declare budgets in the
+config and run `absolute analyze --check` in CI — it exits non-zero when
+something is over:
+
+```ts
+// absolute.config.ts
+export default defineConfig({
+	// …
+	sizeBudgets: {
+		categories: { 'Shared chunks': '600kb', Hydration: '150kb' },
+		perEntry: '500kb',
+		total: '4mb'
+	}
+});
+```
+
+Category names are the ones `analyze` prints. `perEntry` is what catches a
+single page that has quietly become enormous, where a total would absorb
+it. Budgets that are met are printed too, so a passing gate is
+distinguishable from one that never ran.
+
+`absolute ls --sizes --budget 50kb` remains the quick interactive check of
+one number against every page.
+
 ### The dev error overlay
 
 A build error shows the lines around it, numbered, with a caret on the
