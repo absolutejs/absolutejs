@@ -20,7 +20,7 @@ export const shutdown = (config: boolean | ShutdownConfig | undefined) => {
 	const given: ShutdownConfig = typeof config === 'object' ? config : {};
 
 	return new Elysia({ name: 'absolutejs-shutdown' }).onStart((app) => {
-		const remove = installGracefulShutdown({
+		const { remove } = installGracefulShutdown({
 			drainTimeoutMs: given.drainTimeoutMs,
 			readinessGraceMs: given.readinessGraceMs,
 			server: () => app.server ?? undefined

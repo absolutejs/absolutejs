@@ -31,7 +31,7 @@ type InstallOptions = {
 
 const install = (options: InstallOptions = {}) => {
 	const harness: Harness = { exits: [], logs: [], stops: [], waits: [] };
-	const remove = installGracefulShutdown({
+	const { drain, remove } = installGracefulShutdown({
 		drainTimeoutMs: options.drainTimeoutMs,
 		readinessGraceMs: options.readinessGraceMs,
 		exit: (code) => harness.exits.push(code),
@@ -49,13 +49,17 @@ const install = (options: InstallOptions = {}) => {
 	});
 	removers.push(remove);
 
-	return { harness, remove };
-};
+	/* The handler is invoked directly rather than by emitting a real
+	 * signal. `process.emit('SIGTERM')` runs EVERY listener on the
+	 * process, and `buildDirectoryLock` installs one that releases its
+	 * lock and calls `process.exit` — so emitting here killed the entire
+	 * unit run as soon as any earlier test had imported that module. It
+	 * passed when this file ran alone, and failed in CI. */
+	const signal = async (name: 'SIGINT' | 'SIGTERM') => {
+		await drain(name);
+	};
 
-const signal = async (name: 'SIGINT' | 'SIGTERM') => {
-	process.emit(name);
-	/* The handler is async; let its microtasks run. */
-	await Bun.sleep(5);
+	return { harness, remove, signal };
 };
 
 describe('draining', () => {
@@ -64,7 +68,7 @@ describe('draining', () => {
 	 * signalled. `stop(false)` is what lets it finish — `stop(true)` would
 	 * cut it off, which is the thing being fixed. */
 	test('stops without closing active connections', async () => {
-		const { harness } = install();
+		const { harness, signal } = install();
 		await signal('SIGTERM');
 
 		expect(harness.stops).toEqual([false]);
@@ -72,21 +76,21 @@ describe('draining', () => {
 
 	test('exits with the conventional code for the signal', async () => {
 		const term = install();
-		await signal('SIGTERM');
+		await term.signal('SIGTERM');
 
 		expect(term.harness.exits).toEqual([143]);
 
 		term.remove();
 		clearShutdownState();
 		const int = install();
-		await signal('SIGINT');
+		await int.signal('SIGINT');
 
 		expect(int.harness.exits).toEqual([130]);
 	});
 
 	/* Anything asking has to be told before the drain, not after it. */
 	test('marks the process as shutting down', async () => {
-		install();
+		const { signal } = install();
 
 		expect(isShuttingDown()).toBe(false);
 
@@ -97,7 +101,7 @@ describe('draining', () => {
 
 	/* A stop that throws must not leave a process that never exits. */
 	test('exits even when stopping throws', async () => {
-		const { harness } = install({
+		const { harness, signal } = install({
 			stop: () => {
 				throw new Error('already gone');
 			}
@@ -114,11 +118,13 @@ describe('it can never hang', () => {
 	 * resolves is worse than no handler: the process stops responding to
 	 * the signal an operator just sent, and they reach for SIGKILL. */
 	test('a stop that never resolves still exits, by the deadline', async () => {
-		const { harness } = install({
+		const { harness, signal } = install({
 			drainTimeoutMs: 20,
 			stop: () => new Promise<void>(() => undefined)
 		});
-		await signal('SIGTERM');
+		/* Not awaited: this drain never resolves on its own — the deadline
+		 * is what has to end it. */
+		void signal('SIGTERM');
 		await Bun.sleep(60);
 
 		expect(harness.exits).toEqual([143]);
@@ -132,10 +138,11 @@ describe('it can never hang', () => {
 	/* Two Ctrl+Cs mean it. Waiting out a drain the operator is visibly
 	 * trying to skip is what teaches people to use SIGKILL by default. */
 	test('a second signal exits at once without draining again', async () => {
-		const { harness } = install({
+		const { harness, signal } = install({
 			stop: () => new Promise<void>(() => undefined)
 		});
-		await signal('SIGTERM');
+		void signal('SIGTERM');
+		await Bun.sleep(5);
 		await signal('SIGTERM');
 
 		expect(harness.exits).toEqual([143]);
@@ -152,7 +159,7 @@ describe('the readiness grace window', () => {
 	 * balancer would learn from failed connections instead of a clean
 	 * `unready`. With the window it reads `unready`. */
 	test('keeps serving for the window before connections are refused', async () => {
-		const { harness } = install({ readinessGraceMs: 500 });
+		const { harness, signal } = install({ readinessGraceMs: 500 });
 		await signal('SIGTERM');
 
 		expect(harness.waits).toEqual([500]);
@@ -163,7 +170,7 @@ describe('the readiness grace window', () => {
 	/* An operator at a terminal is not a rollout: nothing is going to
 	 * deregister them, so the wait is pure delay. */
 	test('is skipped for SIGINT', async () => {
-		const { harness } = install({ readinessGraceMs: 500 });
+		const { harness, signal } = install({ readinessGraceMs: 500 });
 		await signal('SIGINT');
 
 		expect(harness.waits).toEqual([]);
@@ -171,7 +178,7 @@ describe('the readiness grace window', () => {
 	});
 
 	test('is skipped when it is zero', async () => {
-		const { harness } = install({ readinessGraceMs: 0 });
+		const { harness, signal } = install({ readinessGraceMs: 0 });
 		await signal('SIGTERM');
 
 		expect(harness.waits).toEqual([]);

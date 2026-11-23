@@ -87,9 +87,18 @@ const SIGNAL_EXIT_CODES: Record<string, number> = {
 	SIGTERM: SIGTERM_EXIT_CODE
 };
 
-/** Installs the handlers. Returns a function removing them, which a dev
- *  server rebuilding its runtime in place needs — without it every rebuild
- *  leaves another listener on the process. */
+/** Installs the handlers.
+ *
+ *  Returns `remove`, which a dev server rebuilding its runtime in place
+ *  needs — without it every rebuild leaves another listener — and `drain`,
+ *  the handler itself.
+ *
+ *  `drain` is exposed because testing this by emitting a real signal is
+ *  unsafe: `process.emit('SIGTERM')` runs EVERY listener on the process,
+ *  and `buildDirectoryLock` installs one that releases its lock and exits.
+ *  A test that emitted signals therefore killed the whole test run as soon
+ *  as anything had imported that module — which is exactly what it did in
+ *  CI, while passing when the file was run on its own. */
 export const installGracefulShutdown = ({
 	drainTimeoutMs = DEFAULT_DRAIN_TIMEOUT_MS,
 	exit = (code) => process.exit(code),
@@ -156,9 +165,12 @@ export const installGracefulShutdown = ({
 		process.on(signal, handler);
 	}
 
-	return () => {
-		for (const [signal, handler] of handlers)
-			process.removeListener(signal, handler);
-		handlers.clear();
+	return {
+		drain,
+		remove: () => {
+			for (const [signal, handler] of handlers)
+				process.removeListener(signal, handler);
+			handlers.clear();
+		}
 	};
 };
