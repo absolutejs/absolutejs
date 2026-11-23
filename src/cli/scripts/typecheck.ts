@@ -41,7 +41,16 @@ import type {
 	ServiceConfig
 } from '../../../types/build';
 
-type CheckerResult = { name: string; exitCode: number; output: string };
+type CheckerResult = {
+	name: string;
+	exitCode: number;
+	/** Printed whether or not the check passed. Accessibility warnings go
+	 *  here: they are worth seeing on a green run, which is the only kind
+	 *  of run most projects have, and the failure path prints `output`
+	 *  only. */
+	notes?: string;
+	output: string;
+};
 
 /* A config or a shim this command generates, written only when it differs
  * from what is there. A checker that remembers its last run compares what it
@@ -883,8 +892,13 @@ const buildSvelteCheck = async (
 		svelteBin,
 		'--tsconfig',
 		resolve(svelteTsconfigPath),
+		/* Warning, not error: svelte-check reports accessibility findings
+		 * as warnings, so at `error` they never reached this process.
+		 * Pass/fail is still decided by errors alone — see
+		 * `svelteCheckReport`, which counts them and merely prints the
+		 * accessibility warnings. */
 		'--threshold',
-		'error',
+		'warning',
 		'--compiler-warnings',
 		'css-unused-selector:ignore',
 		'--output',
@@ -1086,15 +1100,24 @@ export const dedupeSvelteResult = (
 			: new Set<string>();
 
 	return results.map((res) => {
-		if (res.name !== 'svelte-check' || res.exitCode === 0) return res;
-		const { dropped, output, remaining } = svelteCheckReport(
-			res.output,
-			reported,
-			read
-		);
-		if (remaining === 0 && dropped === 0) return res;
+		/* Not `|| res.exitCode === 0`, which used to skip this entirely on
+		 * a clean run. svelte-check exits 0 even with warnings present
+		 * (measured: 20 warnings, exit 0), so an early return there means
+		 * the accessibility findings are never looked at — which is the
+		 * second half of why they were invisible. */
+		if (res.name !== 'svelte-check') return res;
+		const { accessibilityOutput, dropped, output, remaining } =
+			svelteCheckReport(res.output, reported, read);
+		const notes =
+			accessibilityOutput.length > 0 ? accessibilityOutput : undefined;
+		if (remaining === 0 && dropped === 0 && notes === undefined) return res;
 
-		return { ...res, exitCode: remaining === 0 ? 0 : res.exitCode, output };
+		return {
+			...res,
+			exitCode: remaining === 0 ? 0 : res.exitCode,
+			notes,
+			output
+		};
 	});
 };
 
@@ -1196,6 +1219,9 @@ export const typecheck = async (configPath?: string) => {
 	);
 	const failed = results.filter((res) => res.exitCode !== 0);
 	const detailedAdvice = importAdviceRequested();
+
+	for (const result of results)
+		if (result.notes !== undefined) console.log(result.notes);
 
 	if (failed.length === 0) {
 		const unchanged = results.every((res) => res.output === UNCHANGED);

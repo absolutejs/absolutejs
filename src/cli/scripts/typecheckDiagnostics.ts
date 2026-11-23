@@ -217,12 +217,32 @@ const parseFailure = (text: string) => {
 const MACHINE_LINE = /^\d+ (.*)$/;
 const IGNORED_EVENTS = ['START ', 'COMPLETED '];
 
-/** svelte-check's machine-verbose output: its errors, its failures, and any
- *  other line it (or node) printed, kept verbatim. Warnings are dropped:
- *  `--threshold error` keeps them out of the output, and this keeps them
- *  out of the count if one ever gets through. */
+/** Codes svelte-check gives its accessibility diagnostics, all of which
+ *  it reports as warnings — which is why they were invisible here. */
+const A11Y_CODE = /^a11y[_-]/u;
+
+export const isAccessibilityDiagnostic = ({
+	code,
+	type
+}: SvelteCheckDiagnostic) =>
+	type === 'WARNING' && A11Y_CODE.test(String(code ?? ''));
+
+/** svelte-check's machine-verbose output, split by what it means.
+ *
+ *  `diagnostics` is errors only, because errors are what fails a
+ *  typecheck and that must not change. `accessibility` is the warnings
+ *  whose codes say they are accessibility findings: an `<img>` with no
+ *  `alt`, a `<div>` with a click handler and no keyboard handler. Svelte
+ *  reports those as WARNINGS, so `--threshold error` dropped every one
+ *  and this parser dropped them again — the checker was running and its
+ *  accessibility findings went nowhere.
+ *
+ *  Every other warning is still dropped. Measured on this repo: 16 of
+ *  them, none actionable by a project using the framework (they are in
+ *  the framework's own components), against 0 accessibility warnings. */
 export const parseSvelteCheckOutput = (output: string) => {
 	const diagnostics: SvelteCheckDiagnostic[] = [];
+	const accessibility: SvelteCheckDiagnostic[] = [];
 	const failures: string[] = [];
 	const other: string[] = [];
 	for (const line of stripAnsi(output).split('\n')) {
@@ -231,6 +251,8 @@ export const parseSvelteCheckOutput = (output: string) => {
 		const diagnostic = event.startsWith('{')
 			? toDiagnostic(parseJson(event))
 			: null;
+		if (diagnostic !== null && isAccessibilityDiagnostic(diagnostic))
+			accessibility.push(diagnostic);
 		if (diagnostic?.type === 'ERROR') diagnostics.push(diagnostic);
 		else if (diagnostic !== null) continue;
 		else if (event.startsWith('FAILURE '))
@@ -239,7 +261,7 @@ export const parseSvelteCheckOutput = (output: string) => {
 			other.push(line);
 	}
 
-	return { diagnostics, failures, other };
+	return { accessibility, diagnostics, failures, other };
 };
 
 const TS_SOURCES = new Set([undefined, 'js', 'ts']);
@@ -304,7 +326,7 @@ export const formatSvelteDiagnostics = (
 ) => {
 	const blocks = diagnostics.map((diagnostic) => {
 		const absolute = resolve(cwd, diagnostic.filename);
-		const file = relative(cwd, absolute) || diagnostic.filename;
+		const file = displayPath(diagnostic.filename, cwd);
 		const line = diagnostic.start.line + 1;
 		const column = diagnostic.start.character + 1;
 		const header = `\x1b[96m${file}\x1b[0m:\x1b[93m${line}\x1b[0m:\x1b[93m${column}\x1b[0m - \x1b[91merror\x1b[0m\x1b[90m${codeLabel(diagnostic)}: \x1b[0m${diagnostic.message}`;
@@ -324,13 +346,66 @@ export const formatSvelteDiagnostics = (
  * A failure or any unrecognised line is kept, and keeps the run failing.
  * `remaining` is 0 when everything svelte-check found is already on screen.
  */
+/* svelte-check reports paths lowercased on a case-insensitive filesystem,
+ * so `relative()` cannot match them against the real working directory and
+ * returns a climb out of it — `../../../../../users/you/project/src/…`
+ * instead of `src/…`. Compared case-insensitively, the prefix matches and
+ * the path reads as the one the developer typed. */
+const displayPath = (filename: string, cwd: string) => {
+	/* Resolved first, because svelte-check hands back a path already
+	 * relativised against something else — `../../../../../users/you/…`
+	 * — so the comparison below has to be made against the absolute form
+	 * or it matches nothing. */
+	const absolutePath = resolve(cwd, filename);
+	const relativePath = relative(cwd, absolutePath);
+	if (relativePath.length > 0 && !relativePath.startsWith('..'))
+		return relativePath;
+	const base = `${cwd.replace(/[\\/]$/u, '')}/`.toLowerCase();
+
+	return absolutePath.toLowerCase().startsWith(base)
+		? absolutePath.slice(base.length)
+		: filename;
+};
+
+/** How many accessibility warnings to print before summarising. A project
+ *  adopting this with hundreds of them should get a usable list and a
+ *  count, not a wall that buries the type errors above it. */
+const MAX_ACCESSIBILITY_SHOWN = 20;
+
+const formatAccessibilityWarnings = (
+	warnings: readonly SvelteCheckDiagnostic[],
+	cwd: string
+) => {
+	if (warnings.length === 0) return '';
+	const shown = warnings.slice(0, MAX_ACCESSIBILITY_SHOWN);
+	const lines = shown.map((warning) => {
+		const file = displayPath(warning.filename, cwd);
+		/* The message carries a docs URL on a second line. One finding per
+		 * line keeps the list scannable; the code names the rule for
+		 * anyone who wants to look it up. */
+		const [summary] = warning.message.split('\n');
+		const code =
+			warning.code === undefined ? '' : ` \x1b[2m${warning.code}\x1b[0m`;
+
+		return `  \x1b[33ma11y\x1b[0m \x1b[96m${file}\x1b[0m:\x1b[93m${warning.start.line + 1}\x1b[0m:\x1b[93m${warning.start.character + 1}\x1b[0m${code} ${summary}`;
+	});
+	const hidden = warnings.length - shown.length;
+	if (hidden > 0) lines.push(`  \x1b[2m… and ${hidden} more\x1b[0m`);
+
+	return [
+		`\x1b[33m${warnings.length} accessibility warning${warnings.length === 1 ? '' : 's'}\x1b[0m \x1b[2m(svelte-check; these do not fail the typecheck)\x1b[0m`,
+		...lines
+	].join('\n');
+};
+
 export const svelteCheckReport = (
 	output: string,
 	reported: ReadonlySet<string>,
 	readSource: (file: string) => string | null,
 	cwd = process.cwd()
 ) => {
-	const { diagnostics, failures, other } = parseSvelteCheckOutput(output);
+	const { accessibility, diagnostics, failures, other } =
+		parseSvelteCheckOutput(output);
 	const kept = diagnostics.filter((diagnostic) => {
 		const key = svelteDiagnosticKey(diagnostic, cwd);
 
@@ -345,6 +420,11 @@ export const svelteCheckReport = (
 	].filter((section) => section.length > 0);
 
 	return {
+		/* Reported, never counted. Accessibility findings are warnings, and
+		 * a warning that fails a build is an error by another name — a
+		 * project that adopts this version would go from passing to
+		 * failing on code it did not change. */
+		accessibilityOutput: formatAccessibilityWarnings(accessibility, cwd),
 		dropped: diagnostics.length - kept.length,
 		output: sections.join('\n'),
 		remaining: kept.length + failures.length + other.length
