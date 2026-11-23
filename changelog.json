@@ -9,6 +9,7 @@
 					"kind": "added",
 					"summary": "Production servers drain in-flight requests before exiting",
 					"symbols": [
+						"BaseBuildConfig",
 						"ShutdownConfig"
 					]
 				}
