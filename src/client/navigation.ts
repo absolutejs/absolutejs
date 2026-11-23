@@ -42,11 +42,12 @@ import { consumePrefetch } from './prefetch';
 /* Shared by every bundle copy of this module (each framework's client pass
  * bundles its own), and read by the Svelte `<Link>` to decide whether a
  * URL no `<Router>` matches should be handed to the browser. */
+import { announcePage, resetFocus } from './navigationFocus';
+
 const RUNTIME_KEY = Symbol.for('absolutejs.navigation');
 const STATE_KEY = '__absoluteNavigation';
 const OPT_OUT_SELECTOR = '[data-absolute-navigation="off"]';
 const MODULE_RUN_PARAM = 'absolute-nav';
-const ANNOUNCER_ID = 'absolute-navigation-announcer';
 const ISLAND_STATE_GLOBAL = '__ABS_ISLAND_STATE__';
 const DISPOSE_GLOBAL = '__ABSOLUTE_PAGE_DISPOSE__';
 const READY_GLOBAL = '__ABSOLUTE_PAGE_READY__';
@@ -889,49 +890,6 @@ const loadsModules = (scripts: PendingScript[]) =>
 /* Focus, announcement, events                                         */
 /* ------------------------------------------------------------------ */
 
-const ensureAnnouncer = () => {
-	const existing = document.getElementById(ANNOUNCER_ID);
-	if (existing) return existing;
-	const region = document.createElement('div');
-	region.id = ANNOUNCER_ID;
-	region.setAttribute('aria-live', 'assertive');
-	region.setAttribute('aria-atomic', 'true');
-	region.setAttribute('role', 'status');
-	// CSSOM, not a style attribute: a strict `style-src-attr` can't block it.
-	Object.assign(region.style, {
-		border: '0',
-		clip: 'rect(0 0 0 0)',
-		height: '1px',
-		margin: '-1px',
-		overflow: 'hidden',
-		padding: '0',
-		position: 'absolute',
-		whiteSpace: 'nowrap',
-		width: '1px'
-	});
-	document.body.append(region);
-
-	return region;
-};
-
-const announcePage = () => {
-	const heading = document.querySelector('h1')?.textContent?.trim();
-	const text = document.title || heading || window.location.pathname;
-	ensureAnnouncer().textContent = text;
-};
-
-const resetFocus = () => {
-	const autofocus = document.querySelector<HTMLElement>('[autofocus]');
-	if (autofocus) {
-		autofocus.focus();
-
-		return;
-	}
-	if (document.activeElement instanceof HTMLElement) {
-		document.activeElement.blur();
-	}
-};
-
 const dispatch = (
 	name: string,
 	detail: DocumentNavigationEventDetail,
@@ -1066,7 +1024,7 @@ const swapDocument = async (
 		applyScroll(request, loaded.url);
 	};
 	await runSwap(nav, swap);
-	resetFocus();
+	const focusMoved = resetFocus();
 	await runScripts(nav, scripts);
 	/* Before waiting, not after: nothing on a page with no framework app
 	 * will ever register a teardown hook, and `waitForPageReady` spends
@@ -1095,7 +1053,7 @@ const swapDocument = async (
 		markPageWithoutTeardown();
 	await waitForPageReady(loadsModules(scripts));
 	reapplyScroll(request, loaded.url);
-	announcePage();
+	announcePage(focusMoved);
 
 	return true;
 };
