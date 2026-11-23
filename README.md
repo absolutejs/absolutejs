@@ -121,6 +121,7 @@ every command and the global flags; these are the ones reached for most:
 | `absolute links`                          | Literal `<a href>` links that no route serves                                                                                    |
 | `absolute routes`                         | The route table                                                                                                                  |
 | `absolute doctor [--fix]`                 | Diagnose the project                                                                                                             |
+| `absolute scan [--path DIR] [--json]` | Check source exposure and locked dependencies. Add `--image REGISTRY/IMAGE:TAG` for container advisories. Run `absolute scan --help` for scope, offline mode and exit codes. |
 | `absolute migrate [--apply]`              | Coming from another framework: what moves mechanically, what needs you, and the dependencies with a first-party equivalent       |
 | `absolute upgrade [--to v]`               | What a newer version of this package costs your code, applying the mechanical migrations                                         |
 | `absolute mobile <init \| sync \| …>`     | Capacitor apps and the Expo hybrid shell                                                                                         |

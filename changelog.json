@@ -6,6 +6,16 @@
 			"changes": [
 				{
 					"kind": "added",
+					"summary": "Run absolute scan to check project source, locked dependencies and registry images before publishing."
+				}
+			],
+			"date": "2026-11-23",
+			"version": "0.20.0-beta.311"
+		},
+		{
+			"changes": [
+				{
+					"kind": "added",
 					"summary": "Report Elysia 2 migrations with --target elysia-2, --check, --json and --apply"
 				}
 			],
