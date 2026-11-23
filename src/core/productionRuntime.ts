@@ -52,6 +52,7 @@ const RUNTIME_KEYS = [
 	'mobile',
 	'openapi',
 	'publicDirectory',
+	'rateLimit',
 	'reactDirectory',
 	'static',
 	'svelteDirectory',

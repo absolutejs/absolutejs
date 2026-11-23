@@ -139,6 +139,16 @@ checks your app registers with `registerHealthCheck('database', …)` and
 answering 503 when one fails. Probing a page instead gets a healthy process
 restarted when one page breaks. See [docs/HEALTH.md](docs/HEALTH.md).
 
+### Rate limiting
+
+`rateLimit: { limit: 300, rules: [{ limit: 10, path: '/api/upload' }] }`
+refuses with `429` and `Retry-After` before a handler runs, counting by
+connection address rather than the spoofable `x-forwarded-for`. App routes
+are opt-in; the framework's own vitals sink is limited by default and the
+health endpoints are never limited by a global limit — a 429 to a readiness
+probe takes the process out of rotation. See
+[docs/RATE_LIMITING.md](docs/RATE_LIMITING.md).
+
 ### Render tracing
 
 `registerTracer(tracerOrNoop(provider, 'app'))` emits OpenTelemetry spans

@@ -7,6 +7,7 @@ import type { HealthConfig } from './health';
 import type { ImageConfig } from './image';
 import type { LinksConfig } from './links';
 import type { LoggingConfig } from './logging';
+import type { RateLimitConfig } from './rateLimit';
 import type { SitemapConfig } from './sitemap';
 import type { SizeBudgets } from '../src/utils/sizeBudgets';
 import type { BenchConfig } from './bench';
@@ -754,6 +755,12 @@ export type BaseBuildConfig = {
 	 *  an object renames the paths, turns on per-check details or changes
 	 *  the per-check timeout. See docs/HEALTH.md. */
 	health?: boolean | HealthConfig;
+	/** Rate limiting. The framework's own vitals endpoint is limited by
+	 *  default when it is mounted; app routes only when `limit` or `rules`
+	 *  say so. The health endpoints are never limited — a 429 to a
+	 *  readiness probe takes the process out of rotation. See
+	 *  docs/RATE_LIMITING.md. */
+	rateLimit?: RateLimitConfig;
 	/** Opt-in per-request logging with a correlation id.
 	 *
 	 *      logging: { requests: 'json' }

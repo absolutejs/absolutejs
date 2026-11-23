@@ -33,6 +33,28 @@ const HEALTH_CHECKS_KEY = Symbol.for('absolutejs.healthChecks');
  *  an orchestrator's own probe timeout. */
 const DEFAULT_TIMEOUT_MS = 2000;
 
+/* How long a report may be reused.
+ *
+ * Readiness is an unauthenticated GET that runs whatever the app
+ * registered, so without this it is an amplifier: measured on the example
+ * of a check doing one 2ms query, 500 concurrent probes produced 500
+ * invocations in 37ms. A cheap public request should not cost more than
+ * it costs the caller.
+ *
+ * One second rather than something cleverer because of what the two
+ * consumers look like: an orchestrator probes every 2-5s and never sees a
+ * cached answer, while a flood collapses onto one run. Longer would make
+ * a real outage take longer to show; `cacheMs: 0` turns it off. */
+const DEFAULT_CACHE_MS = 1000;
+
+type CachedReport = { at: number; report: HealthReport };
+
+let cached: CachedReport | undefined = undefined;
+/* Concurrent probes share one run rather than starting their own. The TTL
+ * alone would not help here: 500 requests arriving together all miss a
+ * cache that nothing has filled yet. */
+let inFlight: Promise<HealthReport> | undefined = undefined;
+
 const isCheckMap = (value: unknown): value is Map<string, HealthCheck> =>
 	value instanceof Map;
 
@@ -92,9 +114,13 @@ const runCheck = async (
 	return result;
 };
 
-/** For tests and for a dev runtime that rebuilds in place. */
+/** For tests and for a dev runtime that rebuilds in place. Drops the
+ *  cached report too: a test that registers a failing check must not read
+ *  the previous test's answer. */
 export const clearHealthChecks = () => {
 	getChecks().clear();
+	cached = undefined;
+	inFlight = undefined;
 };
 
 /** Register a readiness check under a name. Registering the same name
@@ -103,9 +129,16 @@ export const clearHealthChecks = () => {
 export const registerHealthCheck = (name: string, check: HealthCheck) => {
 	const checks = getChecks();
 	checks.set(name, check);
+	/* A cached report describes the set of checks it ran, so changing the
+	 * set invalidates it. Without this, a process that boots, answers one
+	 * probe, and only then registers its database check would report
+	 * `ok` for up to `cacheMs` on the strength of having had no checks —
+	 * and a removed check would keep failing readiness just as long. */
+	cached = undefined;
 
 	return () => {
 		checks.delete(name);
+		cached = undefined;
 	};
 };
 
@@ -113,7 +146,7 @@ export const registerHealthCheck = (name: string, check: HealthCheck) => {
  *  checks is ready: nothing has claimed otherwise, and answering 503
  *  because a feature is unused would take every default deployment out of
  *  rotation. */
-export const runHealthChecks = async (timeoutMs = DEFAULT_TIMEOUT_MS) => {
+const runChecksNow = async (timeoutMs: number) => {
 	const checks = [...getChecks()];
 	const results = await Promise.all(
 		checks.map(([name, check]) => runCheck(name, check, timeoutMs))
@@ -124,4 +157,27 @@ export const runHealthChecks = async (timeoutMs = DEFAULT_TIMEOUT_MS) => {
 	};
 
 	return report;
+};
+
+/** Run every registered check concurrently and report, reusing a report
+ *  younger than `cacheMs` and joining a run already in progress. */
+export const runHealthChecks = async (
+	timeoutMs = DEFAULT_TIMEOUT_MS,
+	cacheMs = DEFAULT_CACHE_MS
+) => {
+	const now = performance.now();
+	if (cached !== undefined && now - cached.at < cacheMs) return cached.report;
+	if (inFlight !== undefined) return inFlight;
+
+	inFlight = runChecksNow(timeoutMs)
+		.then((report) => {
+			cached = { at: performance.now(), report };
+
+			return report;
+		})
+		.finally(() => {
+			inFlight = undefined;
+		});
+
+	return inFlight;
 };

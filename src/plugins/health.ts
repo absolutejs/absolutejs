@@ -37,7 +37,7 @@ export const health = (config: boolean | HealthConfig | undefined) => {
 	if (config === false)
 		return new Elysia({ name: 'absolutejs-health-disabled' });
 
-	const { details, liveness, readiness, timeoutMs } =
+	const { cacheMs, details, liveness, readiness, timeoutMs } =
 		resolveHealthConfig(config);
 
 	return (
@@ -48,7 +48,7 @@ export const health = (config: boolean | HealthConfig | undefined) => {
 			 * healthy server every time its database hiccuped. */
 			.get(liveness, () => json({ status: 'ok' }))
 			.get(readiness, async () => {
-				const report = await runHealthChecks(timeoutMs);
+				const report = await runHealthChecks(timeoutMs, cacheMs);
 				if (report.ok)
 					return json(
 						details
@@ -74,6 +74,7 @@ export const resolveHealthConfig = (
 	const given: HealthConfig = typeof config === 'object' ? config : {};
 
 	return {
+		cacheMs: given.cacheMs,
 		details: given.details === true,
 		liveness: given.liveness ?? DEFAULT_LIVENESS_PATH,
 		readiness: given.readiness ?? DEFAULT_READINESS_PATH,

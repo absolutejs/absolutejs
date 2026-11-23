@@ -21,6 +21,17 @@ export type HealthReport = {
 };
 
 export type HealthConfig = {
+	/** How long a readiness report may be reused, in milliseconds.
+	 *  Default 1000; `0` runs every check on every probe.
+	 *
+	 *  Readiness is an unauthenticated GET that runs whatever the app
+	 *  registered, so without a cache it is an amplifier — measured with a
+	 *  check doing one 2ms query, 500 concurrent probes produced 500
+	 *  invocations in 37ms. Concurrent probes also share one run rather
+	 *  than each starting their own. An orchestrator probing every 2-5s
+	 *  never sees a cached answer; raising this makes a real outage take
+	 *  longer to show. */
+	cacheMs?: number;
 	/** Include each check's name, duration and error in the response body.
 	 *  Default `false`: these endpoints are reachable by anyone who can
 	 *  reach the app, and the names of your dependencies are information
