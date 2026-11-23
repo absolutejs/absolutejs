@@ -46,6 +46,15 @@ const TOO_MANY_REQUESTS = 429;
  *  amplifier. */
 const VITALS_DEFAULT_LIMIT = 60;
 
+/** The vitals summary needs its own rule, and not because it deserves a
+ *  looser one. The default summary path sits UNDER the batch endpoint's
+ *  path, so longest-prefix matching would otherwise hand it the batch
+ *  rule — and a dev overlay polling once a second would both exhaust the
+ *  60/min meant for page loads and share a bucket with them, so reading the
+ *  numbers would refuse the reports that produce them. Reading a histogram
+ *  already in memory is cheap; this is a ceiling, not a budget. */
+const VITALS_SUMMARY_DEFAULT_LIMIT = 600;
+
 type ResolvedRule = {
 	limit: number;
 	path: string;
@@ -67,7 +76,8 @@ const ruleFor = (rules: readonly ResolvedRule[], path: string) => {
 
 const resolveRules = (
 	config: RateLimitConfig | undefined,
-	vitalsPath: string | undefined
+	vitalsPath: string | undefined,
+	vitalsSummaryPath: string | undefined
 ) => {
 	const windowMs = config?.windowMs ?? DEFAULT_WINDOW_MS;
 	const rules: ResolvedRule[] = (config?.rules ?? []).map((rule) => ({
@@ -75,11 +85,25 @@ const resolveRules = (
 		path: rule.path,
 		windowMs: rule.windowMs ?? windowMs
 	}));
-	/* Only when the app has not said something about that path itself. */
+	/* Only when the app has not said something about that path itself.
+	 *
+	 * The batch endpoint first, so an explicit rule for either path is
+	 * still what matches: `ruleFor` is consulted against the rules as they
+	 * stand, and a default pushed for one path must not look like the app's
+	 * own opinion about the other. */
 	if (vitalsPath !== undefined && ruleFor(rules, vitalsPath) === undefined)
 		rules.push({
 			limit: VITALS_DEFAULT_LIMIT,
 			path: vitalsPath,
+			windowMs: DEFAULT_WINDOW_MS
+		});
+	if (
+		vitalsSummaryPath !== undefined &&
+		rules.every((rule) => rule.path !== vitalsSummaryPath)
+	)
+		rules.push({
+			limit: VITALS_SUMMARY_DEFAULT_LIMIT,
+			path: vitalsSummaryPath,
 			windowMs: DEFAULT_WINDOW_MS
 		});
 
@@ -109,15 +133,19 @@ export type RateLimitPluginOptions = {
 	/** The vitals endpoint path, when this app serves one, so it can be
 	 *  limited by default. */
 	vitalsPath?: string;
+	/** The vitals summary path, when one is served, so it gets a rule of
+	 *  its own instead of inheriting the batch endpoint's. */
+	vitalsSummaryPath?: string;
 };
 
 /** Nothing, when no path would be limited. */
 export const rateLimit = ({
 	config,
 	exemptPaths = [],
-	vitalsPath
+	vitalsPath,
+	vitalsSummaryPath
 }: RateLimitPluginOptions) => {
-	const rules = resolveRules(config, vitalsPath);
+	const rules = resolveRules(config, vitalsPath, vitalsSummaryPath);
 	const fallbackLimit = config?.limit;
 	if (rules.length === 0 && fallbackLimit === undefined)
 		return new Elysia({ name: 'absolutejs-rate-limit-disabled' });

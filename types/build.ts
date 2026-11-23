@@ -9,6 +9,7 @@ import type { LinksConfig } from './links';
 import type { LoggingConfig } from './logging';
 import type { RateLimitConfig } from './rateLimit';
 import type { SitemapConfig } from './sitemap';
+import type { VitalsSummaryConfig } from './vitals';
 import type { SizeBudgets } from '../src/utils/sizeBudgets';
 import type { BenchConfig } from './bench';
 
@@ -871,4 +872,9 @@ export type VitalsConfig = {
 	sampleRate?: number;
 	/** Report from `absolute dev` too. Default false. */
 	dev?: boolean;
+	/** Aggregate the reports into per-route 75th percentiles and serve them
+	 *  as JSON. On in dev; off in production unless set, because it is an
+	 *  unauthenticated read of every route that reported and how slow it
+	 *  is. `onVital()` feeds a metrics backend without exposing anything. */
+	summary?: boolean | VitalsSummaryConfig;
 };

@@ -12,20 +12,26 @@ import type { RateLimitConfig } from '../../../types/rateLimit';
  * against `clientKeyFor` in `rateLimit.test.ts`, where a connection
  * address can be supplied directly. */
 
-const appWith = (config: RateLimitConfig | undefined, vitalsPath?: string) =>
+const appWith = (
+	config: RateLimitConfig | undefined,
+	vitalsPath?: string,
+	vitalsSummaryPath?: string
+) =>
 	new Elysia()
 		.use(
 			rateLimit({
 				config,
 				/* What `prepare()` passes: the resolved health paths. */
 				exemptPaths: ['/__absolute/live', '/__absolute/ready'],
-				vitalsPath
+				vitalsPath,
+				vitalsSummaryPath
 			})
 		)
 		.get('/', () => 'page')
 		.get('/api/items', () => 'items')
 		.get('/api/upload', () => 'upload')
 		.get('/__absolute/ready', () => '{"status":"ok"}')
+		.get('/__absolute/vitals/summary', () => '{"routes":[]}')
 		.post('/__absolute/vitals', () => 'ok');
 
 const get = (app: ReturnType<typeof appWith>, path: string) =>
@@ -124,6 +130,60 @@ describe('the framework’s own endpoints', () => {
 
 		expect((await get(app, '/__absolute/ready')).status).toBe(200);
 		expect((await get(app, '/__absolute/ready')).status).toBe(429);
+	});
+
+	/* The summary path sits UNDER the batch endpoint's path, so without a
+	 * rule of its own longest-prefix matching hands it the batch rule —
+	 * and an overlay polling the numbers once a second would exhaust the
+	 * 60/min meant for page loads AND share a bucket with them, so reading
+	 * the summary would start refusing the reports that fill it. */
+	test('polling the summary does not spend the batch endpoint’s allowance', async () => {
+		const app = appWith(
+			undefined,
+			'/__absolute/vitals',
+			'/__absolute/vitals/summary'
+		);
+		for (let index = 0; index < 100; index += 1)
+			// eslint-disable-next-line no-await-in-loop -- the order is the test
+			expect((await get(app, '/__absolute/vitals/summary')).status).toBe(
+				200
+			);
+
+		/* The batch endpoint still has its full allowance. */
+		const batch = await post(app, '/__absolute/vitals');
+
+		expect(batch.status).toBe(200);
+		expect(batch.headers.get('RateLimit-Remaining')).toBe('59');
+	});
+
+	/* It is still bounded: a cheap read is not a free one. */
+	test('the summary has a ceiling of its own', async () => {
+		const app = appWith(
+			undefined,
+			'/__absolute/vitals',
+			'/__absolute/vitals/summary'
+		);
+		const statuses: number[] = [];
+		for (let index = 0; index < 602; index += 1)
+			// eslint-disable-next-line no-await-in-loop -- the order is the test
+			statuses.push(
+				(await get(app, '/__absolute/vitals/summary')).status
+			);
+
+		expect(statuses[599]).toBe(200);
+		expect(statuses[600]).toBe(429);
+	});
+
+	/* An app that says something about that path keeps what it said. */
+	test('an explicit rule for the summary path replaces the default', async () => {
+		const app = appWith(
+			{ rules: [{ limit: 1, path: '/__absolute/vitals/summary' }] },
+			'/__absolute/vitals',
+			'/__absolute/vitals/summary'
+		);
+
+		expect((await get(app, '/__absolute/vitals/summary')).status).toBe(200);
+		expect((await get(app, '/__absolute/vitals/summary')).status).toBe(429);
 	});
 
 	/* An app that says something about that path keeps what it said. */

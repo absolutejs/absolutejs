@@ -1,8 +1,14 @@
 import { Elysia, t } from 'elysia';
+import { createVitalsStore } from './vitalsStore';
+import type { ResolvedVitalsSummary } from '../../types/vitals';
 
 /* The built-in endpoint for web vitals batches (see src/build/vitals.ts).
- * Nothing is stored: each metric is handed to the handlers registered with
- * `onVital()`, for your own store or @absolutejs/observability. */
+ *
+ * Each metric is handed to the handlers registered with `onVital()`, for
+ * your own store or @absolutejs/observability, and — when the summary
+ * endpoint is on — aggregated into per-route histograms this process can
+ * report on. See src/core/vitalsStore.ts for why that aggregation exists at
+ * all. */
 
 export type VitalName = 'CLS' | 'FCP' | 'INP' | 'LCP' | 'TTFB';
 
@@ -77,33 +83,72 @@ export const vitalsBatchSchema = t.Object({
 	route: t.String({ maxLength: 2048 })
 });
 
-/** POST `path`: validates a batch and passes each metric to the `onVital`
- *  handlers. Answers 204; a handler that throws is logged, not surfaced. */
-export const createVitalsPlugin = (path: string) =>
-	new Elysia({ name: 'absolutejs-vitals', seed: path }).post(
+const SUMMARY_HEADERS = {
+	/* The numbers change with every page load, and a proxy caching this
+	 * would report a moment that has passed as the current one. */
+	'cache-control': 'no-store',
+	'content-type': 'application/json; charset=utf-8'
+} as const;
+
+export type VitalsPluginOptions = {
+	/** Where the batches arrive. */
+	path: string;
+	/** Mounts the summary endpoint and starts aggregating. Left out,
+	 *  neither happens: there is no point holding histograms nothing can
+	 *  read. */
+	summary?: ResolvedVitalsSummary;
+};
+
+/** POST `path`: validates a batch, records it when a summary is being kept,
+ *  and passes each metric to the `onVital` handlers. Answers 204; a handler
+ *  that throws is logged, not surfaced.
+ *
+ *  GET the summary path, when one is configured: this process's per-route
+ *  p75s. */
+export const createVitalsPlugin = ({ path, summary }: VitalsPluginOptions) => {
+	const store =
+		summary === undefined
+			? undefined
+			: createVitalsStore({ maxRoutes: summary.maxRoutes });
+
+	const app = new Elysia({ name: 'absolutejs-vitals', seed: path }).post(
 		path,
 		{ body: vitalsBatchSchema },
 		async ({ body, request, set }) => {
 			const handlers = [...getHandlers()];
 			await Promise.all(
-				body.metrics.flatMap((metric) =>
-					handlers.map(async (handler) => {
+				body.metrics.flatMap((metric) => {
+					const report: VitalReport = {
+						...metric,
+						route: body.route
+					};
+					store?.record(report);
+
+					return handlers.map(async (handler) => {
 						try {
-							await handler(
-								{ ...metric, route: body.route },
-								request
-							);
+							await handler(report, request);
 						} catch (error) {
 							console.error(
 								'[vitals] onVital handler failed:',
 								error
 							);
 						}
-					})
-				)
+					});
+				})
 			);
 			set.status = 204;
 
 			return null;
 		}
 	);
+
+	if (store === undefined || summary === undefined) return app;
+
+	return app.get(
+		summary.path,
+		() =>
+			new Response(JSON.stringify(store.summary()), {
+				headers: SUMMARY_HEADERS
+			})
+	);
+};

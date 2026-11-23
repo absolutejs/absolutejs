@@ -22,6 +22,7 @@ export * from './messages';
 export * from './telemetry';
 export * from './tracing';
 export * from './tool';
+export * from './vitals';
 export * from './typeGuards';
 export * from './jsonLd';
 export * from './metadata';
