@@ -110,21 +110,22 @@ once file routes are on.
 Installing the package installs an `absolute` binary. `absolute --help` lists
 every command and the global flags; these are the ones reached for most:
 
-| Command                                   | Does                                                                                                                             |
-| ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| `absolute dev [entry]`                    | Development server: builds a page on first request, hot-reloads edits, and serves configured mobile targets unless `--no-mobile` |
-| `absolute build [--outdir dir]`           | Production assets                                                                                                                |
-| `absolute start [entry] [--prebuilt]`     | Production server                                                                                                                |
-| `absolute prepare [entry]`                | Build assets and server without launching                                                                                        |
-| `absolute compile [entry]`                | Standalone executable                                                                                                            |
-| `absolute typecheck`                      | Every framework's own checker, plus manifest keys and `route()` paths                                                            |
-| `absolute links`                          | Literal `<a href>` links that no route serves                                                                                    |
-| `absolute routes`                         | The route table                                                                                                                  |
-| `absolute doctor [--fix]`                 | Diagnose the project                                                                                                             |
-| `absolute migrate [--apply]`              | Coming from another framework: what moves mechanically, what needs you, and the dependencies with a first-party equivalent       |
-| `absolute upgrade [--to v]`               | What a newer version of this package costs your code, applying the mechanical migrations                                         |
-| `absolute mobile <init \| sync \| …>`     | Capacitor apps and the Expo hybrid shell                                                                                         |
-| `absolute db <backup \| restore \| seed>` | Database snapshots, ORM-agnostic                                                                                                 |
+| Command                                   | Does                                                                                                                                                                         |
+| ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `absolute dev [entry]`                    | Development server: builds a page on first request, hot-reloads edits, and serves configured mobile targets unless `--no-mobile`                                             |
+| `absolute build [--outdir dir]`           | Production assets                                                                                                                                                            |
+| `absolute start [entry] [--prebuilt]`     | Production server                                                                                                                                                            |
+| `absolute prepare [entry]`                | Build assets and server without launching                                                                                                                                    |
+| `absolute compile [entry]`                | Standalone executable                                                                                                                                                        |
+| `absolute typecheck`                      | Every framework's own checker, plus manifest keys and `route()` paths                                                                                                        |
+| `absolute links`                          | Literal `<a href>` links that no route serves                                                                                                                                |
+| `absolute routes`                         | The route table                                                                                                                                                              |
+| `absolute doctor [--fix]`                 | Diagnose the project                                                                                                                                                         |
+| `absolute scan [--path DIR] [--json]`     | Check source exposure and locked dependencies. Add `--image REGISTRY/IMAGE:TAG` for container advisories. Run `absolute scan --help` for scope, offline mode and exit codes. |
+| `absolute migrate [--apply]`              | Coming from another framework: what moves mechanically, what needs you, and the dependencies with a first-party equivalent                                                   |
+| `absolute upgrade [--to v]`               | What a newer version of this package costs your code, applying the mechanical migrations                                                                                     |
+| `absolute mobile <init \| sync \| …>`     | Capacitor apps and the Expo hybrid shell                                                                                                                                     |
+| `absolute db <backup \| restore \| seed>` | Database snapshots, ORM-agnostic                                                                                                                                             |
 
 `--config <path>` works on every command that reads one, and
 `absolute --version` prints the installed version.
@@ -1017,3 +1018,9 @@ deployment slots. Without it, the archive defaults to `.absolutejs/client-assets
 relative to the runtime working directory. Keep the archive outside ephemeral
 release directories. Tabs older than the retained window still need an explicit
 update/reload recovery flow; never silently reload unsaved user input.
+
+Run `absolute migrate --target elysia-2` to locate legacy Elysia calls in a
+project. Use `--path <directory>` to select the project and `--json` for file,
+line and message data. `--check` exits with status 1 when findings remain.
+`--apply` updates locally traced Elysia scope literals and reports remaining
+calls for signature review. Run the project typecheck after applying changes.
