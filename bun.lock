@@ -15,7 +15,7 @@
         "@absolutejs/http": "0.0.1",
         "@absolutejs/pwa": ">=0.16.3 <0.18.0",
         "@absolutejs/vue-check": ">=0.4.0 <0.5.0",
-        "@absolutejs/vulnerabilities": "0.16.0",
+        "@absolutejs/vulnerabilities": "0.17.1",
         "@capacitor/browser": "8.0.4",
         "@capacitor/filesystem": "8.1.3",
         "@capacitor/preferences": "8.0.1",
@@ -499,7 +499,7 @@
 
     "@absolutejs/vue-check-windows-x64": ["@absolutejs/vue-check-windows-x64@0.4.0", "", { "os": "win32", "cpu": "x64" }, "sha512-q2a+KBAW9GgMlQa3hb+D0bkrsVweXXb/PNpWKElgWRI+4nLgPnu0n7rx/Q66AkmryEVl78nOtJWCK9mN3VGQkQ=="],
 
-    "@absolutejs/vulnerabilities": ["@absolutejs/vulnerabilities@0.16.0", "", { "dependencies": { "@absolutejs/manifest": "0.9.0", "@renovatebot/pep440": "5.0.0", "@sinclair/typebox": "0.34.52", "packageurl-js": "2.0.1", "semver": "7.8.5" }, "bin": { "absolute-vulnerability-evidence": "dist/evidence-cli.js" } }, "sha512-cxpAKu+PFga8dYisYOqJWAwkG6If/ruhz7Ox9j+Mq6yRl7qFltyXnbctxyXz4CPlFn01SPPIwlVj+zoolxW3fw=="],
+    "@absolutejs/vulnerabilities": ["@absolutejs/vulnerabilities@0.17.1", "", { "dependencies": { "@absolutejs/manifest": "0.9.0", "@renovatebot/pep440": "5.0.0", "@sinclair/typebox": "0.34.52", "packageurl-js": "2.0.1", "semver": "7.8.5" }, "bin": { "absolute-vulnerability-evidence": "dist/evidence-cli.js" } }, "sha512-wDBpu7bY9Y0/P89mA+hlXPYjP9hJTHRMBxGgP45f5C31dgB3iBpDmmu1iTPG/Za4aoYsjXGH7eYFQVrTCRE7IA=="],
 
     "@adobe/css-tools": ["@adobe/css-tools@4.3.3", "", {}, "sha512-rE0Pygv0sEZ4vBWHlAgJLGDU7Pm8xoO6p3wsEceb7GYAjScrOHpEo8KK/eVkAcnSM+slAEtXjA2JpdjLp4fJQQ=="],
 

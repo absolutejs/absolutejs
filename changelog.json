@@ -5,9 +5,19 @@
 		{
 			"changes": [
 				{
-					"detail": "A browser discovers a module graph by walking it — fetch the entry, parse it, find its imports, fetch those — and each level is a round trip that cannot start until the one above finishes. Measured on the example app's own build, a React page's hydration entry statically imports NINE modules across three levels, and the page's markup preloaded exactly one of them: the entry itself. A page's response now carries a `Link: </chunk.js>; rel=modulepreload` header naming the rest, so they start downloading with the HTML. Verified against a live production server: `/react` answers 200 with nine preloads, `/vue` with four, and a page that ships no client bundle carries no header at all, which is the right answer rather than a miss. A header rather than markup for two reasons, the second decisive: the entry script tag is emitted once per framework, so tags would mean the same change in each; and a STREAMED page has already sent its headers by the time its markup exists, which is exactly the case with the deepest graph. It is also the shape a 103 Early Hints response carries. That is not available here and the reason is precise rather than vague: `Bun.serve` cannot send one, because a `Response` must have a status of 101 or 200-599 and an informational response is not expressible — while Bun's `node:http` CAN, verified by reading a real `HTTP/1.1 103 Early Hints` off a raw socket, but that is a different server from the one underneath this framework. Only static imports are followed, transitively; a dynamic `import()` is deliberately skipped, being code the page has said it does not need yet. Nothing outside the build directory is preloaded whatever a specifier says, and a specifier resolving to no file is skipped rather than failing a build. The graph is computed at build time into a server-only `modulepreload.json`, because the bundler's chunking decides it and a source specifier does not say which chunk it lands in. See docs/MODULE_PRELOAD.md.",
 					"kind": "added",
 					"summary": "A page's response preloads the modules its entry will import"
+				}
+			],
+			"date": "2026-11-23",
+			"version": "0.20.0-beta.330"
+		},
+		{
+			"changes": [
+				{
+					"detail": "`absolute scan` (and the platform's publish check) runs `@absolutejs/vulnerabilities` 0.17.1. 0.16 accepted only `bun.lock` versions 0 and 1, so a project on Bun 1.3's version 2 lockfile always reported its dependency check incomplete. 0.17 reads it, and an incomplete check now says why it stopped and how much it covered.",
+					"kind": "fixed",
+					"summary": "`absolute scan` reads Bun 1.3 lockfiles and says why an incomplete scan stopped"
 				}
 			],
 			"date": "2026-11-23",
