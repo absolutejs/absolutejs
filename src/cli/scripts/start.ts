@@ -1,6 +1,8 @@
 import { env } from 'bun';
 import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
+import { resolveClusterPlan } from '../../core/clusterPlan';
+import type { ClusterConfig } from '../../../types/cluster';
 import type { StaticConfig } from '../../../types/build';
 import type { DbScripts } from '../../../types/cli';
 import {
@@ -197,6 +199,7 @@ export type PreparedBuild = {
 type RunPreparedServerOptions = {
 	absoluteVersion: string;
 	bundleDurationMs: number;
+	cluster?: boolean | ClusterConfig;
 	configPath?: string;
 	frameworks: string[];
 	outdir?: string;
@@ -260,6 +263,7 @@ const prerenderStaticPages = async (
 const runPreparedServer = async ({
 	absoluteVersion,
 	bundleDurationMs,
+	cluster,
 	configPath,
 	frameworks,
 	outdir,
@@ -288,24 +292,57 @@ const runPreparedServer = async ({
 		totalDurationMs: Math.round(totalDuration)
 	});
 
-	const serverProcess = Bun.spawn(['bun', 'run', outputPath], {
-		cwd: process.cwd(),
-		env: {
-			...process.env,
-			ABSOLUTE_BUILD_DIR: resolvedOutdir,
-			ABSOLUTE_BUILD_DURATION: String(Math.round(totalDuration)),
-			// The parent CLI owns this server's registry entry, so the child's
-			// runtime (networking plugin) must not self-register.
-			ABSOLUTE_INSTANCE_MANAGED: '1',
-			ABSOLUTE_VERSION: absoluteVersion,
-			FORCE_COLOR: '1',
-			NODE_ENV: 'production',
-			...(configPath ? { ABSOLUTE_CONFIG: configPath } : {})
-		},
-		stderr: 'inherit',
-		stdin: 'inherit',
-		stdout: 'inherit'
-	});
+	const clusterPlan = resolveClusterPlan(cluster);
+	if (clusterPlan.reason !== undefined)
+		console.log(
+			`[absolutejs] clustering requested but not used: ${clusterPlan.reason}`
+		);
+
+	const spawnWorker = (index: number) =>
+		Bun.spawn(['bun', 'run', outputPath], {
+			cwd: process.cwd(),
+			env: {
+				...process.env,
+				/* Tells the networking plugin to bind with reusePort, which is
+				 * what lets every worker share the port. Only set when there
+				 * is more than one, so a single-process server keeps the plain
+				 * bind and with it the loud EADDRINUSE. */
+				...(clusterPlan.workers > 1
+					? {
+							ABSOLUTE_CLUSTER_WORKER: String(index),
+							ABSOLUTE_CLUSTER_WORKERS: String(
+								clusterPlan.workers
+							)
+						}
+					: {}),
+				ABSOLUTE_BUILD_DIR: resolvedOutdir,
+				ABSOLUTE_BUILD_DURATION: String(Math.round(totalDuration)),
+				// The parent CLI owns this server's registry entry, so the child's
+				// runtime (networking plugin) must not self-register.
+				ABSOLUTE_INSTANCE_MANAGED: '1',
+				ABSOLUTE_VERSION: absoluteVersion,
+				FORCE_COLOR: '1',
+				NODE_ENV: 'production',
+				...(configPath ? { ABSOLUTE_CONFIG: configPath } : {})
+			},
+			stderr: 'inherit',
+			stdin: 'inherit',
+			stdout: 'inherit'
+		});
+
+	const workers = Array.from({ length: clusterPlan.workers }, (_, index) =>
+		spawnWorker(index)
+	);
+	/* The registry, the telemetry and the cleanup below all predate
+	 * clustering and speak of one child. The first worker stands for the
+	 * group for those purposes; `workers` is what actually gets signalled
+	 * and waited on. */
+	const [serverProcess] = workers;
+	if (!serverProcess) throw new Error('Failed to start the server process.');
+	if (clusterPlan.workers > 1)
+		console.log(
+			`[absolutejs] ${clusterPlan.workers} workers sharing the port`
+		);
 
 	// Publish the production server to the global registry so `absolute ps`
 	// can see/stop it. The child is `bun run <bundle>`; killing this parent
@@ -346,12 +383,18 @@ const runPreparedServer = async ({
 			),
 			entry: serverEntry
 		});
-		try {
-			serverProcess.kill();
-		} catch {
-			/* process already exited */
+		/* Every worker, not just the first. Each one drains its own
+		 * in-flight requests (see src/core/gracefulShutdown.ts), so this
+		 * waits for all of them — signalling one and exiting would make
+		 * clustering silently undo the draining. */
+		for (const worker of workers) {
+			try {
+				worker.kill();
+			} catch {
+				/* process already exited */
+			}
 		}
-		await serverProcess.exited;
+		await Promise.all(workers.map((worker) => worker.exited));
 		if (scripts) await stopDatabase(scripts);
 		process.exit(exitCode);
 	};
@@ -366,10 +409,12 @@ const runPreparedServer = async ({
 	 * (the framework's integration runs stranded a dozen, 2026-11-02).
 	 * `exit` listeners run synchronously on any exit, process.exit included. */
 	process.on('exit', () => {
-		try {
-			serverProcess.kill();
-		} catch {
-			/* already exited */
+		for (const worker of workers) {
+			try {
+				worker.kill();
+			} catch {
+				/* already exited */
+			}
 		}
 	});
 
@@ -466,6 +511,7 @@ export const start = async (
 		return runPreparedServer({
 			absoluteVersion,
 			bundleDurationMs: 0,
+			cluster: buildConfig.cluster,
 			configPath,
 			frameworks,
 			outdir,
@@ -802,6 +848,7 @@ export const start = async (
 	return runPreparedServer({
 		absoluteVersion,
 		bundleDurationMs,
+		cluster: buildConfig.cluster,
 		configPath,
 		frameworks,
 		outdir,

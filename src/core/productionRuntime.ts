@@ -42,6 +42,7 @@ const RUNTIME_KEYS = [
 	 * only. */
 	'basePath',
 	'basePathShared',
+	'cluster',
 	'emberDirectory',
 	'health',
 	'htmlDirectory',

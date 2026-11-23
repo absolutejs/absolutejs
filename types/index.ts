@@ -9,6 +9,7 @@ export * from './fileRoutes';
 export * from './client';
 export * from './fonts';
 export * from './i18n';
+export * from './cluster';
 export * from './errorReport';
 export * from './health';
 export * from './image';

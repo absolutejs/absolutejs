@@ -1,6 +1,7 @@
 import { build } from '../src/core/build';
 import { devBuild } from '../src/core/devBuild';
 import type { BuildConfig as BunBuildConfig } from 'bun';
+import type { ClusterConfig } from './cluster';
 import type { FileRoutesConfig } from './fileRoutes';
 import type { FontsConfig } from './fonts';
 import type { HealthConfig } from './health';
@@ -762,6 +763,20 @@ export type BaseBuildConfig = {
 	 *  say so. The health endpoints are never limited — a 429 to a
 	 *  readiness probe takes the process out of rotation. See
 	 *  docs/RATE_LIMITING.md. */
+	/** Run several server processes sharing one port, so requests use more
+	 *  than one core. Off by default.
+	 *
+	 *      cluster: true              // one worker per CPU core
+	 *      cluster: { workers: 4 }
+	 *
+	 *  Linux only, and it says so rather than pretending: clustering rides
+	 *  SO_REUSEPORT, which load-balances on Linux and does not on macOS,
+	 *  where one socket would take every connection. On anything else this
+	 *  runs a single process and prints why.
+	 *
+	 *  Per-process state is divided between workers — rate-limit counters,
+	 *  the vitals summary, caches. See docs/CLUSTERING.md. */
+	cluster?: boolean | ClusterConfig;
 	rateLimit?: RateLimitConfig;
 	/** Finish the requests already in flight before the process exits.
 	 *

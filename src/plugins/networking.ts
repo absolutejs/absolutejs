@@ -218,6 +218,11 @@ export const networking = <A extends AnyElysia>(app: A) => {
 	// plain bind — and with it the loud EADDRINUSE that `strictPort` and
 	// the CLI's port probe rely on.
 	const parentHandoff = parentOwnsDevPort();
+	/* A production cluster worker: `absolute start` set this because it
+	 * spawned more than one. Every worker binds the same port and the
+	 * kernel spreads connections across them — on Linux. See
+	 * src/core/clusterPlan.ts for why it is not enabled anywhere else. */
+	const clusterWorker = process.env.ABSOLUTE_CLUSTER_WORKER !== undefined;
 
 	markBoot('listen() called');
 	// The framework's own server and what listening starts (the entry
@@ -231,7 +236,7 @@ export const networking = <A extends AnyElysia>(app: A) => {
 			hostname: host,
 			idleTimeout: httpIdleTimeout,
 			port: port,
-			...(parentHandoff ? { reusePort: true } : {}),
+			...(parentHandoff || clusterWorker ? { reusePort: true } : {}),
 			// With TLS, clients that offer h2 through ALPN get HTTP/2, so module
 			// fetches multiplex over one connection instead of HTTP/1.1's six.
 			// The HMR WebSocket still connects: browsers open it as a separate
