@@ -5,6 +5,22 @@
 		{
 			"changes": [
 				{
+					"detail": "`cluster: true` runs one server process per CPU core, or `cluster: { workers: n }` for a specific count; `absolute start` spawns them and each binds the same port, letting the kernel spread connections. Measured on oven/bun:1.4.4 with a CPU-bound handler, four workers took 3,245 req/s to 11,077 — a 3.4x gain, split almost perfectly at 10891/11236/11253/11107. Off by default: a framework should not fork a project's server because it can. Linux only, and it says so at startup rather than pretending: clustering rides SO_REUSEPORT, which load-balances on Linux and does NOT on macOS, where it is a handoff primitive — the same probe there gave one worker 10,850 requests and the other three ZERO, with no throughput gain at all. On anything but Linux this runs a single process and prints the reason. That is not conservatism about spawning idle processes; it is that per-process state would otherwise be divided by N in production and not divided at all where it was tested, so a rate limit checked on a Mac would be four times looser once deployed. The same caveat applies to clustering generally and the docs say so: rate-limit counters, the vitals summary and anything else held in memory belong to one worker, which is what shared counting (the rest of plan item 5.9) still has to settle. Shutdown signals every worker and waits for all of them, so each drains its own in-flight requests rather than clustering silently undoing beta.324. Other platforms are excluded for want of evidence — only linux and darwin were measured. See docs/CLUSTERING.md.",
+					"kind": "added",
+					"summary": "Run several server processes sharing one port",
+					"symbols": [
+						"BaseBuildConfig",
+						"ClusterConfig",
+						"ClusterPlan"
+					]
+				}
+			],
+			"date": "2026-11-23",
+			"version": "0.20.0-beta.325"
+		},
+		{
+			"changes": [
+				{
 					"detail": "Measured first, because the plan item describes a feature and what was underneath it is a defect: a request 300ms into 1500ms of work, interrupted by SIGTERM, reaches the client as ECONNREFUSED — not a 502, not a truncated body, the connection is gone. That happened on every deploy, scale-down and rollout, for every request in flight. A production server now finishes them first, then exits 143, the conventional code for a signalled process, so nothing downstream reads a clean shutdown as a crash. Readiness reports `shutting-down` from the moment the signal arrives, separately from and before the registered checks, because no amount of healthy dependencies changes the fact that the process is leaving; liveness deliberately stays `ok`, since a failing liveness probe gets the process KILLED, which is the opposite of draining it. `readinessGraceMs` exists because the first version of this did not have it and needed it: refusing new connections is the first thing a drain does, so a probe arriving just after the flip got a connection error rather than the clean 503 — measured as `connection refused`, with the flip in place and working, which made it unobservable over HTTP and left a balancer learning from failed connections. With an 800ms window the same probe reads `unready`. It defaults to 0 because the right value is the balancer's own deregistration interval, which the framework cannot know, and because a default wait would slow every Ctrl+C for a benefit only an orchestrated deployment sees; SIGINT ignores it outright, being an operator at a terminal rather than a rollout. Taking a signal at all is the exception this earns — `flushAccessLogOnExit` still refuses to, and for the reason stated there: a listener suppresses the default terminate, so whoever installs one must exit the process. So the deadline is armed before the drain is awaited and unref'd so it can never hold the process open, a stop that throws still exits, and a second signal exits at once rather than making someone reach for SIGKILL. Production only — dev servers restart constantly under HMR and the dev CLI already owns that lifecycle. `shutdown: false` opts out. See docs/GRACEFUL_SHUTDOWN.md.",
 					"kind": "added",
 					"summary": "Production servers drain in-flight requests before exiting",
