@@ -1,4 +1,7 @@
 import { createHash } from 'node:crypto';
+import { modulePreloadLinkHeader } from '../build/modulePreload';
+import { modulePreloadsFor } from './modulePreloadRegistry';
+import { getPageEntry } from './requestContext';
 import {
 	chosenHtmlEncoding,
 	compressHtml,
@@ -72,9 +75,36 @@ export const withPageCacheHeaders = async (
 	 * covers the ETag hash and the compression for all of them — the work
 	 * after the render that a render-only trace would attribute to
 	 * nothing. */
+	/* Set before the cache path so it reaches BOTH kinds of response. A
+	 * streamed page is the one that needs it most — its bytes start
+	 * flowing immediately, so its headers are the earliest chance the
+	 * browser gets to learn what the entry will import. */
+	addModulePreloadLinks(response);
+
 	return withRenderSpan('render.response', { phase: 'response' }, () =>
 		cachedPageResponse(response, request, options)
 	);
+};
+
+/* `Link: </chunk.js>; rel=modulepreload` rather than markup.
+ *
+ * A browser discovers a module graph by walking it, so the nine modules a
+ * page's entry imports (measured on the example app) are not requested
+ * until the entry has been fetched and parsed — two round trips after the
+ * HTML. The header starts them with the response itself, and reaches a
+ * streamed page, whose markup does not exist yet when its headers are
+ * sent.
+ *
+ * It is also the shape a 103 Early Hints response would carry, so if
+ * `Bun.serve` ever grows one this moves rather than being rewritten.
+ * Today it cannot: a `Response` must have a status of 101 or 200-599, so
+ * an informational response is not expressible — only `node:http` can
+ * send one, and that is not the server underneath here. */
+const addModulePreloadLinks = (response: Response) => {
+	if (response.headers.has('link')) return;
+	const preloads = modulePreloadsFor(getPageEntry());
+	if (preloads.length === 0) return;
+	response.headers.set('link', modulePreloadLinkHeader(preloads));
 };
 
 const cachedPageResponse = async (

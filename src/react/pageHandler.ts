@@ -15,7 +15,8 @@ import { getCurrentRouteRegistrationCallsite } from '../core/devRouteRegistratio
 import {
 	devBuildErrorResponse,
 	getCurrentAbsoluteRequest,
-	resolveDeferredPageAssets
+	resolveDeferredPageAssets,
+	setPageEntry
 } from '../core/requestContext';
 import {
 	ABSOLUTE_MOBILE_PAGE_PROTOCOL_VERSION,
@@ -210,6 +211,10 @@ const renderReactPageRequest = async <
 			// real runtime isn't ready yet. This buffering function captures
 			// all registrations, then replays them when the runtime is set up.
 			const refreshSetup = buildRefreshSetup();
+
+			/* Recorded where the entry is known: a streamed page sends its
+			 * headers long before this markup exists. */
+			setPageEntry(withBasePath(resolvedIndex));
 
 			const stream = await renderToReadableStream(element, {
 				// Under a base path the browser reaches the entry through it.

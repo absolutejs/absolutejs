@@ -3,6 +3,7 @@ import {
 	nonceSvelteHeadStyles,
 	readCspNonce
 } from '../utils/cspNonceRef';
+import { setPageEntry } from '../core/requestContext';
 import type { Component, ComponentProps } from 'svelte';
 import { DEFAULT_CHUNK_SIZE } from '../constants';
 import { escapeScriptContent } from '../utils/escapeScriptContent';
@@ -109,8 +110,10 @@ export const renderToReadableStream = async <
 				.join('') +
 			bootstrapModules
 				.map(
-					(src) =>
+					(src) => (
+						setPageEntry(src),
 						`<script${nonceAttr} type="module" src="${src}"></script>`
+					)
 				)
 				.join('');
 		const encoder = new TextEncoder();

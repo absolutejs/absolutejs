@@ -17,6 +17,11 @@ type AbsoluteRequestStore = {
 	/** Manifest keys `asset()` could not resolve during this request, in
 	 *  call order. Dev only — the page handlers use them to find which
 	 *  page to build on demand. */
+	/** The client entry this page will load, recorded by whichever
+	 *  framework handler resolved it. Read on the way out to preload the
+	 *  modules that entry imports — see `src/build/modulePreload.ts` for
+	 *  why the browser cannot discover them in time on its own. */
+	pageEntry?: string;
 	missingAssets?: string[];
 };
 type AbsoluteRequestStorage = AsyncLocalStorage<AbsoluteRequestStore>;
@@ -178,6 +183,9 @@ export const getMissingAssets = () => {
 
 	return missing ? [...missing] : [];
 };
+/** The client entry recorded for this request, if a page handler ran. */
+export const getPageEntry = () => getRequestStorage()?.getStore()?.pageEntry;
+
 export const recordMissingAsset = (name: string) => {
 	const store = getRequestStorage()?.getStore();
 	if (!store) return;
@@ -217,6 +225,15 @@ export const resolveDeferredPageAssets = async () => {
 export const setDevPageWarmer = (warmer: DevPageWarmer | undefined) => {
 	Reflect.set(globalThis, PAGE_WARMER_KEY, warmer);
 };
+/** Records the client entry this page will load. Called where each
+ *  framework resolves its index, which is the only place that knows it
+ *  before the response starts — a streamed page has already sent its
+ *  headers by the time the markup exists. */
+export const setPageEntry = (entry: string) => {
+	const store = getRequestStorage()?.getStore();
+	if (store) store.pageEntry = entry;
+};
+
 export const withDeferredStylesheets = (
 	head: string,
 	assets: DeferredPageAssets | null

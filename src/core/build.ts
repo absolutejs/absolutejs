@@ -4079,6 +4079,34 @@ const buildUnlocked = async ({
 		JSON.stringify(manifest, null, '\t')
 	);
 
+	/* What each client entry will import, so a page can preload it.
+	 *
+	 * Computed here because it needs the finished manifest: the bundler's
+	 * chunking decides the graph, and a specifier in the source does not
+	 * say which chunk it lands in. A browser discovers that graph by
+	 * walking it, so the modules an entry needs are round trips behind the
+	 * HTML — measured on the example app, a React page's entry pulls in
+	 * nine, none of which the page preloaded. */
+	const { generateModulePreloadMap } = await import('../build/modulePreload');
+	/* The manifest holds two kinds of value, which is easy to miss and was
+	 * missed here first: a client entry is already a PUBLIC URL
+	 * (`/.absolutejs/generated/react/indexes/Page.hash.js`), while a
+	 * server output is an absolute filesystem path. Walking the former as
+	 * though it were a path reads nothing and produces an empty map,
+	 * which is exactly what the first version of this did. */
+	const clientEntries = [...new Set(Object.values(manifest))].filter(
+		(value) => value.endsWith('.js') && !value.startsWith(buildPath)
+	);
+	writeFileSync(
+		join(buildPath, 'modulepreload.json'),
+		JSON.stringify(
+			generateModulePreloadMap(
+				buildPath,
+				clientEntries.map((url) => join(buildPath, url))
+			)
+		)
+	);
+
 	// Every file the server pass wrote, so production static serving can
 	// keep them off the public routes (serverOnlyStaticFiles.ts). Their
 	// layout varies by framework and project shape, so the build lists

@@ -37,7 +37,7 @@ const SERVER_ONLY_PATTERNS = [
 	// angular/vendor/server, …
 	/^\/(?:angular|ember|react|svelte|vue)\/(?:vendor\/)?server\//,
 	/^\/conventions\//,
-	/^\/(?:absolute-runtime|blur-placeholders|build-outputs|conventions|manifest|server-outputs|spa-routes)\.json(?:\.br|\.gz)?$/,
+	/^\/(?:absolute-runtime|blur-placeholders|build-outputs|conventions|manifest|modulepreload|server-outputs|spa-routes)\.json(?:\.br|\.gz)?$/,
 	// Source maps: client maps are moved to a private directory by the
 	// build (`sourcemaps: 'external'`); the server bundle's map stays local.
 	/\.map$/,
