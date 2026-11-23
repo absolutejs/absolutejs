@@ -25,6 +25,7 @@ import { getFrameworkGeneratedDir } from '../utils/generatedDir';
 import { isAngularZoneMode } from '../angular/zoneRuntime';
 import { downlevelAsyncForZone } from './downlevelAsyncForZone';
 import { withNavigationAutoEnable } from './navigationAutoEnable';
+import { aotCacheKey, readAotCache, writeAotCache } from './angularAotCache';
 import type { StylePreprocessorConfig } from '../../types/build';
 
 type SyncReadFile = (fileName: string) => string | undefined;
@@ -880,7 +881,14 @@ export const compileAngularFiles = async (
 		filesVisited: aotResourceTransformStats.filesVisited,
 		transformedFiles: aotResourceTransformStats.transformedFiles
 	});
+	/* Every file the compiler actually reads, recorded so the AOT cache can
+	 * re-check exactly this set next time. Both hooks are needed: project
+	 * sources arrive through `getSourceFile` below and never reach
+	 * `readFile` at all, so recording only here would key the cache on
+	 * node_modules and serve stale output for a changed component. */
+	const programFiles = new Set<string>();
 	host.readFile = (fileName: string) => {
+		programFiles.add(resolve(fileName));
 		const source = originalReadFile
 			? originalReadFile.call(host, fileName)
 			: undefined;
@@ -898,6 +906,7 @@ export const compileAngularFiles = async (
 		languageVersion: TS.ScriptTarget,
 		onError?: (message: string) => void
 	) => {
+		programFiles.add(resolve(fileName));
 		const source = transformedSources.get(resolve(fileName));
 		if (source) {
 			return ts.createSourceFile(fileName, source, languageVersion, true);
@@ -910,6 +919,45 @@ export const compileAngularFiles = async (
 			onError
 		);
 	};
+
+	/* The cache is consulted here rather than at the top of the function
+	 * because the key needs `transformedSources`: the compiler is handed
+	 * resource-inlined sources, so a key taken from disk contents would not
+	 * change when a template did. */
+	const optionsFingerprint = safeStableStringify({
+		options,
+		stylePreprocessors: stylePreprocessors ?? null,
+		tsLibDir
+	});
+	const cacheKey = aotCacheKey({
+		entryPoints: inputPaths,
+		optionsFingerprint,
+		transformedSources
+	});
+	const cachedOutputs = await traceAngularPhase('aot/cache-lookup', () =>
+		readAotCache(cacheKey, transformedSources)
+	);
+	if (cachedOutputs) {
+		host.readFile = originalReadFile;
+		host.getSourceFile = originalGetSourceFileForCompile;
+		const cachedTargets = cachedOutputs.map(({ path }) =>
+			join(outDir, path)
+		);
+		await traceAngularPhase(
+			'aot/cache-write-output',
+			() =>
+				Promise.all(
+					cachedOutputs.map(async ({ content, path }) => {
+						const target = join(outDir, path);
+						await fs.mkdir(dirname(target), { recursive: true });
+						await writeTextFileAtomically(target, content);
+					})
+				),
+			{ outputs: cachedOutputs.length }
+		);
+
+		return cachedTargets;
+	}
 
 	let diagnostics: readonly TS.Diagnostic[] | undefined;
 	try {
@@ -1015,6 +1063,21 @@ export const compileAngularFiles = async (
 				})
 			),
 		{ outputs: entries.length }
+	);
+
+	await traceAngularPhase(
+		'aot/cache-store',
+		() =>
+			writeAotCache(
+				cacheKey,
+				programFiles,
+				transformedSources,
+				entries.map(({ content, target }) => ({
+					content,
+					path: relative(outDir, target)
+				}))
+			),
+		{ files: programFiles.size, outputs: entries.length }
 	);
 
 	return await traceAngularPhase(
