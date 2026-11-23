@@ -3,6 +3,7 @@ import { devBuild } from '../src/core/devBuild';
 import type { BuildConfig as BunBuildConfig } from 'bun';
 import type { FileRoutesConfig } from './fileRoutes';
 import type { FontsConfig } from './fonts';
+import type { HealthConfig } from './health';
 import type { ImageConfig } from './image';
 import type { LinksConfig } from './links';
 import type { LoggingConfig } from './logging';
@@ -748,6 +749,11 @@ export type BaseBuildConfig = {
 	/** Opt-in Core Web Vitals reporting (LCP, INP, CLS, FCP, TTFB) from real
 	 *  visits. See docs/WEB_VITALS.md. */
 	vitals?: VitalsConfig;
+	/** Liveness and readiness endpoints, on by default at
+	 *  `/__absolute/live` and `/__absolute/ready`. `false` removes them;
+	 *  an object renames the paths, turns on per-check details or changes
+	 *  the per-check timeout. See docs/HEALTH.md. */
+	health?: boolean | HealthConfig;
 	/** Opt-in per-request logging with a correlation id.
 	 *
 	 *      logging: { requests: 'json' }

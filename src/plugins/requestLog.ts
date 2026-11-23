@@ -22,6 +22,10 @@ import type { AccessLogFormat, LoggingConfig } from '../../types/logging';
 
 const DEFAULT_STATUS = 200;
 
+/* Where the framework's own endpoints live: health probes, the vitals
+ * collector, the dev request inspector. */
+const INTERNAL_PREFIX = '/__absolute/';
+
 const started = new WeakMap<Request, number>();
 
 const formatOf = (requests: LoggingConfig['requests']) => {
@@ -54,6 +58,7 @@ export const requestLog = (logging: LoggingConfig | undefined) => {
 	const format = formatOf(logging.requests);
 	const header = logging.requestIdHeader;
 	const echo = logging.echoRequestId !== false;
+	const logInternal = logging.logInternalRequests === true;
 	/* Batched by default: a write per request costs 15.8µs against 4.7µs
 	 * batched, measured in accessLogSink.ts. */
 	const sink = createAccessLogSink({
@@ -74,10 +79,18 @@ export const requestLog = (logging: LoggingConfig | undefined) => {
 		.onAfterResponse(({ request, set }) => {
 			const begin = started.get(request);
 			started.delete(request);
+			const path = pathOf(request.url);
+			/* Framework-internal traffic is not the app's traffic. A
+			 * readiness probe every two seconds is 43,200 lines a day that
+			 * say nothing about anyone using the site, and it would arrive
+			 * the moment someone turned on the access log — the dev request
+			 * inspector skips the same prefix for the same reason.
+			 * `logInternal` keeps it available for debugging a probe. */
+			if (!logInternal && path.startsWith(INTERNAL_PREFIX)) return;
 			const record: AccessLogRecord = {
 				durationMs: begin === undefined ? 0 : performance.now() - begin,
 				method: request.method,
-				path: pathOf(request.url),
+				path,
 				requestId: getCurrentRequestId(header) ?? '',
 				size: byteSize(set.headers['content-length']),
 				status:
