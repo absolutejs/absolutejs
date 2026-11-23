@@ -139,6 +139,15 @@ checks your app registers with `registerHealthCheck('database', …)` and
 answering 503 when one fails. Probing a page instead gets a healthy process
 restarted when one page breaks. See [docs/HEALTH.md](docs/HEALTH.md).
 
+### Render tracing
+
+`registerTracer(tracerOrNoop(provider, 'app'))` emits OpenTelemetry spans
+for a page render and for the ETag-and-compression phase after it, with the
+framework, page and matched route pattern as attributes. No dependency on
+`@absolutejs/telemetry` or `@opentelemetry/api` — the tracer type is a
+structural subset of both — and no measurable cost with none registered.
+See [docs/TRACING.md](docs/TRACING.md).
+
 ### Error reporting
 
 `onServerError((report) => …)` is notified of every server-side render

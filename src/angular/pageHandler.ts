@@ -64,6 +64,8 @@ import {
 	isProductionRuntime
 } from '../utils/runtimeMode';
 import { reportServerError } from '../core/errorReporter';
+import { ABS_RENDER_ATTRS, withRenderSpan } from '../core/renderTracing';
+import type { RenderSpan } from '../../types/tracing';
 
 type AngularPageRenderOptions = StreamingSlotEnhancerOptions & {
 	collectStreamingSlots?: boolean;
@@ -369,6 +371,16 @@ setSsrContextGetter(() => angularSsrContext.getStore());
 
 export const handleAngularPageRequest = async <Page = unknown>(
 	input: AngularPageRequestInput<Page>
+) =>
+	withRenderSpan(
+		'render.page',
+		{ framework: 'angular', phase: 'page' },
+		(span) => renderAngularPageRequest(input, span)
+	);
+
+const renderAngularPageRequest = async <Page = unknown>(
+	input: AngularPageRequestInput<Page>,
+	span: RenderSpan
 ) => {
 	const requestId = `angular_${Date.now()}_${Math.random().toString(BASE_36_RADIX).substring(2, RANDOM_ID_END_INDEX)}`;
 	const request = input.request ?? getCurrentAbsoluteRequest();
@@ -399,6 +411,10 @@ export const handleAngularPageRequest = async <Page = unknown>(
 			? deferredAssets.lookup(`${deferredAssets.name}Index`)
 			: input.indexPath;
 	const pageName = deferredAssets?.name ?? derivePageName(deferredPagePath);
+	/* Named on the span once it is known: the span opens before the
+	 * manifest and the page are resolved, which is work worth having inside
+	 * it. */
+	if (pageName !== '') span.setAttribute(ABS_RENDER_ATTRS.page, pageName);
 	if (deferredPagePath === '' || deferredIndexPath === '') {
 		const missingName = pageName || 'Page';
 		throw new Error(

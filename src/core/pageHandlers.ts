@@ -27,6 +27,7 @@ import {
 import { ssrErrorPage } from '../utils/ssrErrorPage';
 import { nonceStaticHtml, withHtmxStyleNonce } from './staticHtmlNonce';
 import { reportServerError } from './errorReporter';
+import { withRenderSpan } from './renderTracing';
 
 export type StaticPageRequestOptions = StreamingSlotEnhancerOptions;
 
@@ -164,11 +165,20 @@ export const handleHTMLPageRequest = async (
 	);
 	if (mobileResponse) return mobileResponse;
 
-	try {
-		return await renderHTMLPage(pagePath, options);
-	} catch (error) {
-		return renderStaticPageError('html', pagePath, error);
-	}
+	return withRenderSpan(
+		'render.page',
+		{ framework: 'html', page: derivePageName(pagePath), phase: 'page' },
+		async () => {
+			try {
+				return await renderHTMLPage(pagePath, options);
+			} catch (error) {
+				/* Reported and rendered as the error convention, so the
+				 * span is not failed: the visitor got a page, and the
+				 * error reporter is what carries the failure. */
+				return renderStaticPageError('html', pagePath, error);
+			}
+		}
+	);
 };
 
 const renderHTMXPage = async (pagePath: string) => {
@@ -200,9 +210,15 @@ export const handleHTMXPageRequest = async (
 	);
 	if (mobileResponse) return mobileResponse;
 
-	try {
-		return await renderHTMXPage(pagePath);
-	} catch (error) {
-		return renderStaticPageError('htmx', pagePath, error);
-	}
+	return withRenderSpan(
+		'render.page',
+		{ framework: 'htmx', page: derivePageName(pagePath), phase: 'page' },
+		async () => {
+			try {
+				return await renderHTMXPage(pagePath);
+			} catch (error) {
+				return renderStaticPageError('htmx', pagePath, error);
+			}
+		}
+	);
 };

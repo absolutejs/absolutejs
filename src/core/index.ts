@@ -6,6 +6,7 @@ export * from './prepare';
 export * from './requestContext';
 export { registerHealthCheck } from './healthChecks';
 export { onServerError } from './errorReporter';
+export { ABS_RENDER_ATTRS, registerTracer } from './renderTracing';
 export * from './renderIslandMarkup';
 export * from './responseEnhancers';
 export * from './staticFileRoute';
