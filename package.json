@@ -610,7 +610,7 @@
 			]
 		}
 	},
-	"version": "0.20.0-beta.319",
+	"version": "0.20.0-beta.320",
 	"workspaces": [
 		"tests/fixtures/*",
 		"tests/fixtures/_packages/*"

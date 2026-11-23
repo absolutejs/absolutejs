@@ -1395,6 +1395,7 @@ const buildUnlocked = async ({
 						buildPath,
 						config: vitals,
 						generatedRoot,
+						isDev,
 						write: !isIncremental
 					})
 				)
