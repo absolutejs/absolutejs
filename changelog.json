@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "`absolute build --profile` traced every phase of a production build except the vendor passes, which were not instrumented at all — so the one tool the framework ships for answering `where does my build go` was blind to the largest single cost in a cold build. Measured on the example app with the phases added: on a cold build (no `.absolutejs/cache`) the Angular client and server vendors cost 787ms and 762ms, run concurrently, against a traced total of 2,653ms — roughly 30% of the build, previously invisible. React, Vue and Svelte vendors are 19ms, 9ms and 9ms, so the cost is Angular and nothing else. Warm, the same two drop to 144ms and 107ms. Nothing about the build changes; `tracePhase` is a no-op unless `ABSOLUTE_BUILD_TRACE` is set, which `--profile` does.",
+					"kind": "added",
+					"summary": "The production vendor passes appear in the build profile"
+				}
+			],
+			"date": "2026-11-23",
+			"version": "0.20.0-beta.322"
+		},
+		{
+			"changes": [
+				{
 					"detail": "The static error page is a fallback: it renders error.html for a thrown page route only when the app has no error handling of its own, which `src/core/appErrorHooks.ts` worked out by walking Elysia's `~hookChain` as an untyped structure. Two things were wrong with that walk, found by reading Elysia's declarations rather than guessing at the shape. `refs` was followed as if it held chain nodes; it is declared `boolean`, so that branch was dead code resting on a wrong assumption. And `ChainNode` is a union whose second variant links through `combine`, `over`, `callback` and `inner`, none of which were followed — a node of that kind could hide an app's error hook, and the fallback would then take over an app that does handle its own errors. Measured across eight real compositions (plain use before and after, array use, nested plugins, scoped `as('global')`, guard, group, the runtime used twice) the walker agreed with an exhaustive walk every time and no combine node appeared, so the gap was latent rather than live; it is handled now because it is declared. The reliance itself does not go away: there is no public API for this, and the one alternative design was measured and rejected — letting Elysia produce its default error response and replacing it in `mapResponse` cannot work, because `response` arrives `undefined` there whether the app returned its own 500 or nothing handled the throw, which are exactly the two cases that have to be told apart. What changes is that the reliance is now pinned at compile time: the property name is held by `satisfies keyof AnyElysia`, the node type comes from the instance type rather than being restated, and each link key is checked against the variant it belongs to. Renaming the property or a link key was verified to fail `typecheck`, so an Elysia upgrade that moves this breaks the build instead of quietly standing the fallback down. Tests additionally pin that a hook scoped to a `guard` or a `group` does not count as app-wide handling, and that Elysia stops at the first error hook returning a response — the assumption the whole fallback rests on.",
 					"kind": "changed",
 					"summary": "The app error-hook check is pinned to Elysia’s declared types instead of guessed structure"
