@@ -63,6 +63,30 @@ this process being removed from rotation.
 An app that registered no checks is ready. Answering 503 because a feature
 is unused would take every default deployment out of rotation.
 
+### A probe does not cost a check
+
+Readiness is an unauthenticated GET that runs whatever you registered, so
+without care it is an amplifier: measured with a check doing one 2ms query,
+**500 concurrent probes produced 500 invocations in 37ms.**
+
+Two things bound that. A report is reused for `cacheMs` (default 1000), and
+concurrent probes share one run rather than each starting their own — the
+TTL alone would not help, since requests arriving together all miss a cache
+nothing has filled yet. The same 500 probes now cost **one** invocation.
+
+An orchestrator probing every 2-5s never sees a cached answer, which is the
+point: this collapses floods, not probes. Raising `cacheMs` makes a real
+outage take longer to show; `cacheMs: 0` runs every check on every probe.
+
+Registering or removing a check invalidates a cached report, because a
+report describes the set of checks it ran — otherwise a process that
+answers a probe before registering its database check would report `ok` for
+a second on the strength of having had no checks.
+
+Rate limiting is deliberately **not** used here: a 429 to a readiness probe
+is a failed probe, and a failed probe takes the process out of rotation. See
+[rate limiting](RATE_LIMITING.md).
+
 ## Options
 
 ```ts

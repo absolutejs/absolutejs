@@ -22,7 +22,8 @@ import { installAngularZoneRuntime } from '../angular/zoneRuntime';
 import { setIconVersionResolver } from '../utils/iconVersion';
 import { setCurrentIslandManifest } from './islandPageContext';
 import { absoluteRequestContext } from './requestContext';
-import { health } from '../plugins/health';
+import { health, resolveHealthConfig } from '../plugins/health';
+import { rateLimit } from '../plugins/rateLimit';
 import { requestLog } from '../plugins/requestLog';
 import { hasForeignErrorHook } from './appErrorHooks';
 import { formActionRuntime } from './formActionFlash';
@@ -514,6 +515,13 @@ const prepareDev = async (
 		.use(requestInspector)
 		.use(absoluteRequestContext)
 		.use(requestLog(config.logging))
+		.use(
+			rateLimit({
+				config: config.rateLimit,
+				exemptPaths: healthPaths(config),
+				vitalsPath: await resolveVitalsPath(config, true)
+			})
+		)
 		.use(health(config.health))
 		// Renders and clears form-action results (formActionFlash.ts).
 		.use(formActionRuntime())
@@ -612,6 +620,29 @@ const loadMobileCompatibilityPlugin = async (buildDir: string) => {
 	const options = await loadAbsoluteMobileMaterializedBundle(root);
 
 	return createAbsoluteMobileCompatibilityDispatcher(options);
+};
+
+/* The health endpoints' paths, which a global rate limit must not cover:
+ * refusing a readiness probe is how a burst of probes becomes an outage. */
+const healthPaths = (config: BuildConfig) => {
+	if (config.health === false) return [];
+	const { liveness, readiness } = resolveHealthConfig(config.health);
+
+	return [liveness, readiness];
+};
+
+/* The vitals endpoint's path when this app serves one, so the rate
+ * limiter can protect it by default. Mirrors `loadVitalsPlugin`'s own
+ * enablement test: off, disabled for this mode, or posting to another
+ * origin all mean there is nothing here to limit. */
+const resolveVitalsPath = async (config: BuildConfig, isDev: boolean) => {
+	const { isVitalsEnabled, resolveVitalsConfig } =
+		await import('../build/vitals');
+	if (!config.vitals || !isVitalsEnabled(config.vitals, isDev))
+		return undefined;
+	const { endpoint } = resolveVitalsConfig(config.vitals);
+
+	return endpoint.startsWith('/') ? endpoint : undefined;
 };
 
 /* The built-in web vitals endpoint, when `vitals` is on for this mode and
@@ -1024,6 +1055,13 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 		absolutejs
 			.use(absoluteRequestContext)
 			.use(requestLog(config.logging))
+			.use(
+				rateLimit({
+					config: config.rateLimit,
+					exemptPaths: healthPaths(config),
+					vitalsPath: await resolveVitalsPath(config, false)
+				})
+			)
 			.use(health(config.health))
 			// Renders and clears form-action results (formActionFlash.ts).
 			.use(formActionRuntime())
@@ -1058,6 +1096,13 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 	absolutejs
 		.use(absoluteRequestContext)
 		.use(requestLog(config.logging))
+		.use(
+			rateLimit({
+				config: config.rateLimit,
+				exemptPaths: healthPaths(config),
+				vitalsPath: await resolveVitalsPath(config, isDev)
+			})
+		)
 		.use(health(config.health))
 		// Renders and clears form-action results (formActionFlash.ts).
 		.use(formActionRuntime())

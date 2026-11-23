@@ -5,6 +5,30 @@
 		{
 			"changes": [
 				{
+					"detail": "`rateLimit: { limit, rules }` refuses with `429`, `Retry-After` and the IETF `RateLimit-*` headers from `onRequest`, so a refused request never reaches a handler — not doing the work being the point. Nothing was rate limited before, anywhere. What is limited is deliberate: app routes only when `limit` or a rule says so, since a framework that starts refusing a project's traffic at a number it picked is worse than one that does nothing; the vitals endpoint by default at 60 a minute per client, because it is an unauthenticated POST sink the framework mounts on the app's behalf and a real page sends one batch per load; and the health endpoints never by a global limit, because a 429 to a readiness probe is a failed probe and a failed readiness probe takes the process out of rotation — a limit there turns a burst of probes into the outage it was meant to prevent. A test caught the first version doing exactly that, since a global limit covers every path no rule names. A rule naming a health path still applies: a project that means to limit its own probes may. Requests are counted by connection address (`server.requestIP`), not `x-forwarded-for`: a client that chooses its own key has no limit, so a fresh header value per request would be a fresh allowance per request. `trustProxy: true` opts in and belongs only behind a proxy that sets it — the opposite default from `isHttpsRequest`, which may read its header freely because spoofing that can only turn `Secure` on, whereas spoofing this would turn enforcement off. The bucket store is capped (`maxKeys`, default 10000) and evicts the least recently seen, because an attacker picks the keys and an unbounded map would make the limiter the memory-exhaustion vector it exists to prevent; eviction is by last request rather than first insert, so a client still sending traffic keeps its bucket instead of earning a fresh allowance. Counting is per process: two instances behind a load balancer each allow the configured rate, which is what clustering (plan item 5.9) has to settle. See `docs/RATE_LIMITING.md`.",
+					"kind": "added",
+					"summary": "Rate limiting, counted by connection address with a bounded store",
+					"symbols": [
+						"BaseBuildConfig",
+						"RateLimitConfig",
+						"RateLimitRule"
+					]
+				},
+				{
+					"detail": "The readiness endpoint added in beta.315 ran every app-registered check on every request, and it is an unauthenticated GET — so it was an amplifier pointed at whatever the app registered. Measured with a check doing one 2ms database query: 500 concurrent probes produced 500 invocations in 37ms. A report is now reused for `cacheMs` (default 1000) and concurrent probes share one run rather than each starting their own; the TTL alone would not have helped, since requests arriving together all miss a cache nothing has filled yet. The same 500 probes now cost one invocation. An orchestrator probing every 2-5s never sees a cached answer, which is the point — this collapses floods, not probes — and `cacheMs: 0` restores a run per probe. Registering or removing a check invalidates a cached report, because a report describes the set of checks it ran: otherwise a process that answers a probe before registering its database check would report `ok` for a second on the strength of having had no checks. Rate limiting is deliberately not the tool here, since refusing a readiness probe takes the process out of rotation.",
+					"kind": "fixed",
+					"summary": "A readiness probe no longer costs a check run per request",
+					"symbols": [
+						"HealthConfig"
+					]
+				}
+			],
+			"date": "2026-11-23",
+			"version": "0.20.0-beta.318"
+		},
+		{
+			"changes": [
+				{
 					"detail": "`registerTracer(tracer)` emits OpenTelemetry spans for serving a page: `render.page` around each framework's handler, and `render.response` around the ETag hash and compression inside it — work after the render that a render-only trace would attribute to nothing, and which every framework funnels through one chokepoint. Nothing timed a render at request time before: `@elysia/server-timing` is dev-only and times Elysia's lifecycle hooks rather than the render, and `ABSOLUTE_BUILD_TRACE` times the build, so \"which page is slow in production, and in which phase\" had no answer. The framework takes no dependency on `@absolutejs/telemetry` or `@opentelemetry/api`: the tracer type is a structural subset of both, so `tracerOrNoop(provider, 'app')` from the package an app already has, or a tracer from `@opentelemetry/api`, both fit — and a test pins that compatibility against a copy of the published signatures, so a change here that a real tracer could not satisfy fails to compile. With no tracer registered the wrapper calls straight through; measured over 2000 static-page renders, 0.053ms per render either way, which is not distinguishable from the render it wraps. Attributes are `abs.render.framework`, `abs.render.page`, `abs.render.phase` and `abs.render.route` — the matched route PATTERN (`/blog/:slug`), since a dynamic route renders many pages and the URL would be one row per post. On the names: `@absolutejs/telemetry` pins `ABS_ATTRS` so one query resolves spans from sync, queue and runtime together, and that is where these belong; it has none for rendering today, so they are defined here in one file in that package's style, as `ABS_RENDER_ATTRS`, to be folded into it. Nothing else emits spans about rendering a page, so there is nothing to collide with, and no existing `ABS_ATTRS` name fits a render, so none is reused or shadowed. A render that throws records the exception, marks the span's status an error, and re-throws, so the error convention and the error reporter behave exactly as before. See `docs/TRACING.md`.",
 					"kind": "added",
 					"summary": "OpenTelemetry spans for render phases, on a tracer the app supplies",

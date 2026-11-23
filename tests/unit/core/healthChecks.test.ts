@@ -178,3 +178,82 @@ describe('registerHealthCheck', () => {
 		expect((await runHealthChecks(TIMEOUT_MS)).ok).toBe(true);
 	});
 });
+
+/* Readiness is an unauthenticated GET that runs whatever the app
+ * registered, so without these it is an amplifier: measured on a check
+ * doing one 2ms query, 500 concurrent probes produced 500 invocations in
+ * 37ms. With them, the same 500 probes cost one invocation.
+ *
+ * Rate limiting is the wrong tool here — a 429 to a readiness probe is a
+ * failed probe, and a failed readiness probe takes the process out of
+ * rotation — so the cost is bounded instead of the traffic. */
+describe('the report is not recomputed per probe', () => {
+	test('concurrent probes share one run', async () => {
+		let calls = 0;
+		registerHealthCheck('database', async () => {
+			calls += 1;
+			await Bun.sleep(5);
+		});
+
+		const reports = await Promise.all(
+			Array.from({ length: 50 }, () => runHealthChecks(TIMEOUT_MS))
+		);
+
+		expect(calls).toBe(1);
+		expect(reports.every((report) => report.ok)).toBe(true);
+	});
+
+	test('a report younger than the cache window is reused', async () => {
+		let calls = 0;
+		registerHealthCheck('database', () => {
+			calls += 1;
+		});
+
+		await runHealthChecks(TIMEOUT_MS);
+		await runHealthChecks(TIMEOUT_MS);
+		await runHealthChecks(TIMEOUT_MS);
+
+		expect(calls).toBe(1);
+	});
+
+	/* An orchestrator probing every 2-5s never sees a cached answer, which
+	 * is the point: the cache collapses floods, not probes. */
+	test('a report older than the window is recomputed', async () => {
+		let calls = 0;
+		registerHealthCheck('database', () => {
+			calls += 1;
+		});
+
+		await runHealthChecks(TIMEOUT_MS, 10);
+		await Bun.sleep(25);
+		await runHealthChecks(TIMEOUT_MS, 10);
+
+		expect(calls).toBe(2);
+	});
+
+	test('cacheMs 0 runs every check on every probe', async () => {
+		let calls = 0;
+		registerHealthCheck('database', () => {
+			calls += 1;
+		});
+
+		await runHealthChecks(TIMEOUT_MS, 0);
+		await runHealthChecks(TIMEOUT_MS, 0);
+
+		expect(calls).toBe(2);
+	});
+
+	/* A cached report describes the set of checks it ran, so changing the
+	 * set has to invalidate it — otherwise a process that answers a probe
+	 * before registering its database check reports `ok` on the strength
+	 * of having had no checks. */
+	test('registering a check invalidates a cached report', async () => {
+		await runHealthChecks(TIMEOUT_MS);
+
+		expect((await runHealthChecks(TIMEOUT_MS)).ok).toBe(true);
+
+		registerHealthCheck('database', () => false);
+
+		expect((await runHealthChecks(TIMEOUT_MS)).ok).toBe(false);
+	});
+});
