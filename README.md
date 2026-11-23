@@ -139,6 +139,18 @@ checks your app registers with `registerHealthCheck('database', …)` and
 answering 503 when one fails. Probing a page instead gets a healthy process
 restarted when one page breaks. See [docs/HEALTH.md](docs/HEALTH.md).
 
+### Error reporting
+
+`onServerError((report) => …)` is notified of every server-side render
+error — which framework, whether the response had already started
+streaming, and the request id the access log line carries. Previously these
+went to `console.error` and nowhere else. Hand them to
+[`@absolutejs/errors`](https://www.npmjs.com/package/@absolutejs/errors),
+the ecosystem's exception capture, or anywhere else; a page handler catches
+its own render failure to serve `error.html`, so an Elysia-level `onError`
+never sees these. See
+[docs/ERROR_REPORTING.md](docs/ERROR_REPORTING.md).
+
 ### Request logging
 
 `logging: { requests: 'json' }` writes one line per request — method, path,

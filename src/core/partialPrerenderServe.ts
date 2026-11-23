@@ -5,6 +5,7 @@ import {
 import { collectPartialHoles } from './partialPrerender';
 import { servePrerenderedPage } from './prerenderNonce';
 import { runWithAbsoluteRequest } from './requestContext';
+import { reportServerError } from './errorReporter';
 
 /* Partial prerendering: the serving half.
  *
@@ -125,6 +126,9 @@ const streamHoles = async (
 			'[partial prerender] rendering the holes failed; the shell keeps its fallbacks:',
 			error
 		);
+		/* `hole`, not `page`: the shell was served and the fallbacks stand,
+		 * so the visitor has a usable page. A degradation, not a failure. */
+		reportServerError({ error, kind: 'hole' });
 
 		return [];
 	});

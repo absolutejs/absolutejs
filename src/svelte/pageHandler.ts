@@ -40,6 +40,7 @@ import {
 } from '../utils/resolveConvention';
 import { BROWSER_TRANSLATION_BASELINE_SCRIPT } from '../core/browserTranslation';
 import { createSvelteRouterSsr } from './routerSsr';
+import { reportServerError } from '../core/errorReporter';
 
 type GenericSvelteComponent = SvelteComponent<Record<string, unknown>>;
 type ResolvedSveltePage = {
@@ -320,6 +321,7 @@ export const handleSveltePageRequest = async <
 		});
 	} catch (error) {
 		console.error('[SSR] Svelte render error:', error);
+		reportServerError({ error, framework: 'svelte', kind: 'page' });
 
 		const pageName = derivePageName(resolvedPagePath);
 		const conventionResponse = await renderConventionError(

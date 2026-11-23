@@ -38,6 +38,7 @@ import { ssrErrorPage } from '../utils/ssrErrorPage';
 import { renderSpaNotFound } from '../utils/spaRouteManifest';
 import { renderConventionError } from '../utils/resolveConvention';
 import { BROWSER_TRANSLATION_BASELINE_SCRIPT } from '../core/browserTranslation';
+import { reportServerError } from '../core/errorReporter';
 
 type ReactPageRenderOptions = StreamingSlotEnhancerOptions & {
 	/** Collect `<SuspenseSlot>` / `<StreamSlot>` registrations during the
@@ -204,6 +205,14 @@ export const handleReactPageRequest = async <
 				nonce: readCspNonce(),
 				onError(error: unknown) {
 					console.error('[SSR] React streaming error:', error);
+					/* `stream`, not `page`: the first byte is already sent,
+					 * so the visitor has a partial page and the status code
+					 * cannot say so. */
+					reportServerError({
+						error,
+						framework: 'react',
+						kind: 'stream'
+					});
 				}
 			});
 			const htmlStream = insertAfterHeadOpen(
@@ -249,6 +258,7 @@ export const handleReactPageRequest = async <
 		});
 	} catch (error) {
 		console.error('[SSR] React render error:', error);
+		reportServerError({ error, framework: 'react', kind: 'page' });
 
 		const conventionResponse = await renderConventionError(
 			'react',

@@ -17,7 +17,10 @@ import {
 	flushAccessLogOnExit
 } from '../core/accessLogSink';
 import { getCurrentRequestId } from '../core/requestContext';
-import { REQUEST_ID_RESPONSE_HEADER } from '../core/requestId';
+import {
+	REQUEST_ID_RESPONSE_HEADER,
+	setRequestIdHeader
+} from '../core/requestId';
 import type { AccessLogFormat, LoggingConfig } from '../../types/logging';
 
 const DEFAULT_STATUS = 200;
@@ -56,7 +59,9 @@ export const requestLog = (logging: LoggingConfig | undefined) => {
 		return new Elysia({ name: 'absolutejs-request-log-disabled' });
 
 	const format = formatOf(logging.requests);
-	const header = logging.requestIdHeader;
+	/* Once, for every caller: an error report asks for the id during the
+	 * request and this plugin asks after it, and they have to agree. */
+	setRequestIdHeader(logging.requestIdHeader);
 	const echo = logging.echoRequestId !== false;
 	const logInternal = logging.logInternalRequests === true;
 	/* Batched by default: a write per request costs 15.8µs against 4.7µs
@@ -74,7 +79,7 @@ export const requestLog = (logging: LoggingConfig | undefined) => {
 			 * is exactly the request whose id someone will want to quote. */
 			if (echo)
 				set.headers[REQUEST_ID_RESPONSE_HEADER] =
-					getCurrentRequestId(header) ?? '';
+					getCurrentRequestId() ?? '';
 		})
 		.onAfterResponse(({ request, set }) => {
 			const begin = started.get(request);
@@ -91,7 +96,7 @@ export const requestLog = (logging: LoggingConfig | undefined) => {
 				durationMs: begin === undefined ? 0 : performance.now() - begin,
 				method: request.method,
 				path,
-				requestId: getCurrentRequestId(header) ?? '',
+				requestId: getCurrentRequestId() ?? '',
 				size: byteSize(set.headers['content-length']),
 				status:
 					typeof set.status === 'number' ? set.status : DEFAULT_STATUS

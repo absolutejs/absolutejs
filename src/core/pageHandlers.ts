@@ -26,6 +26,7 @@ import {
 } from '../utils/resolveConvention';
 import { ssrErrorPage } from '../utils/ssrErrorPage';
 import { nonceStaticHtml, withHtmxStyleNonce } from './staticHtmlNonce';
+import { reportServerError } from './errorReporter';
 
 export type StaticPageRequestOptions = StreamingSlotEnhancerOptions;
 
@@ -114,6 +115,12 @@ const renderStaticPageError = async (
 	error: unknown
 ) => {
 	console.error(`[SSR] ${framework.toUpperCase()} page error:`, error);
+	reportServerError({
+		error,
+		framework,
+		kind: 'page',
+		page: derivePageName(pagePath)
+	});
 	const conventionResponse = await renderConventionError(
 		framework,
 		derivePageName(pagePath),
