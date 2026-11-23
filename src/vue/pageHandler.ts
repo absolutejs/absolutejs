@@ -60,6 +60,8 @@ import {
 	throwServerDataFailure
 } from './serverDataPayload';
 import { reportServerError } from '../core/errorReporter';
+import { ABS_RENDER_ATTRS, withRenderSpan } from '../core/renderTracing';
+import type { RenderSpan } from '../../types/tracing';
 
 type VuePageRenderOptions = StreamingSlotEnhancerOptions & {
 	collectStreamingSlots?: boolean;
@@ -183,6 +185,14 @@ const getSsrOnlyHmrShim = async () => {
 
 export const handleVuePageRequest = async <Component extends VueComponent>(
 	input: VuePageRequestInput<Component>
+) =>
+	withRenderSpan('render.page', { framework: 'vue', phase: 'page' }, (span) =>
+		renderVuePageRequest(input, span)
+	);
+
+const renderVuePageRequest = async <Component extends VueComponent>(
+	input: VuePageRequestInput<Component>,
+	span: RenderSpan
 ) => {
 	const passedPageComponent = input.Page;
 	const request = input.request ?? getCurrentAbsoluteRequest();
@@ -208,6 +218,10 @@ export const handleVuePageRequest = async <Component extends VueComponent>(
 			: input.indexPath;
 	const resolvedOptions = input;
 	const pageName = deferredAssets?.name ?? derivePageName(resolvedPagePath);
+	/* Named on the span once it is known: the span opens before the
+	 * manifest and the page are resolved, which is work worth having inside
+	 * it. */
+	if (pageName !== '') span.setAttribute(ABS_RENDER_ATTRS.page, pageName);
 	const pageId = input.__absoluteMobile?.pageId ?? pageName;
 	const currentContract =
 		input.__absoluteMobile?.contract ??

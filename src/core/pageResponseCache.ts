@@ -5,6 +5,7 @@ import {
 	taggedWithEncoding
 } from './compressHtmlResponse';
 import { HTML_CONTENT_TYPE } from '../constants';
+import { withRenderSpan } from './renderTracing';
 
 // The SPA cache policy, applied to every framework's HTML page response.
 //
@@ -67,6 +68,20 @@ export const withPageCacheHeaders = async (
 	const contentType = response.headers.get('content-type') ?? '';
 	if (!contentType.includes(HTML_MEDIA_TYPE)) return response;
 
+	/* Every framework's HTML response funnels through here, so one span
+	 * covers the ETag hash and the compression for all of them — the work
+	 * after the render that a render-only trace would attribute to
+	 * nothing. */
+	return withRenderSpan('render.response', { phase: 'response' }, () =>
+		cachedPageResponse(response, request, options)
+	);
+};
+
+const cachedPageResponse = async (
+	response: Response,
+	request: Request | undefined,
+	options: PageCacheOptions | undefined
+) => {
 	const isStreaming = response.headers.get(STREAMING_PAGE_HEADER) === '1';
 
 	// Streaming (or bodyless) responses: no-cache only, strip the marker —

@@ -41,6 +41,8 @@ import {
 import { BROWSER_TRANSLATION_BASELINE_SCRIPT } from '../core/browserTranslation';
 import { createSvelteRouterSsr } from './routerSsr';
 import { reportServerError } from '../core/errorReporter';
+import { ABS_RENDER_ATTRS, withRenderSpan } from '../core/renderTracing';
+import type { RenderSpan } from '../../types/tracing';
 
 type GenericSvelteComponent = SvelteComponent<Record<string, unknown>>;
 type ResolvedSveltePage = {
@@ -112,6 +114,18 @@ export const handleSveltePageRequest = async <
 	Component extends SvelteComponent<never>
 >(
 	input: SveltePageRequestInput<Component>
+) =>
+	withRenderSpan(
+		'render.page',
+		{ framework: 'svelte', phase: 'page' },
+		(span) => renderSveltePageRequest(input, span)
+	);
+
+const renderSveltePageRequest = async <
+	Component extends SvelteComponent<never>
+>(
+	input: SveltePageRequestInput<Component>,
+	span: RenderSpan
 ) => {
 	// Dev on-demand pages: `asset()` returned `''` for a page that has not
 	// been built yet. Build it now and re-read the manifest; otherwise fall
@@ -153,6 +167,7 @@ export const handleSveltePageRequest = async <
 			: userProps;
 	const pageId =
 		input.__absoluteMobile?.pageId ?? derivePageName(resolvedPagePath);
+	span.setAttribute(ABS_RENDER_ATTRS.page, derivePageName(resolvedPagePath));
 	const currentContract =
 		input.__absoluteMobile?.contract ??
 		`svelte:${pageId}:${ABSOLUTE_MOBILE_PAGE_PROTOCOL_VERSION}`;

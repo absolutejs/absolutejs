@@ -19,6 +19,7 @@ export * from './manifest';
 export * from './routeMap';
 export * from './messages';
 export * from './telemetry';
+export * from './tracing';
 export * from './tool';
 export * from './typeGuards';
 export * from './jsonLd';

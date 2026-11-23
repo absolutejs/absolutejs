@@ -39,6 +39,8 @@ import { renderSpaNotFound } from '../utils/spaRouteManifest';
 import { renderConventionError } from '../utils/resolveConvention';
 import { BROWSER_TRANSLATION_BASELINE_SCRIPT } from '../core/browserTranslation';
 import { reportServerError } from '../core/errorReporter';
+import { ABS_RENDER_ATTRS, withRenderSpan } from '../core/renderTracing';
+import type { RenderSpan } from '../../types/tracing';
 
 type ReactPageRenderOptions = StreamingSlotEnhancerOptions & {
 	/** Collect `<SuspenseSlot>` / `<StreamSlot>` registrations during the
@@ -99,6 +101,18 @@ export const handleReactPageRequest = async <
 	Props extends Record<string, unknown> = Record<never, never>
 >(
 	input: ReactPageRequestInput<Props>
+) =>
+	withRenderSpan(
+		'render.page',
+		{ framework: 'react', phase: 'page' },
+		(span) => renderReactPageRequest(input, span)
+	);
+
+const renderReactPageRequest = async <
+	Props extends Record<string, unknown> = Record<never, never>
+>(
+	input: ReactPageRequestInput<Props>,
+	span: RenderSpan
 ) => {
 	const { Page } = input;
 	// Dev on-demand pages: `asset()` returned `''` for an index that has
@@ -125,6 +139,10 @@ export const handleReactPageRequest = async <
 			? withRequestUrl(userProps, requestPathname)
 			: userProps;
 	const pageName = Page.name || Page.displayName || '';
+	/* Named on the span once it is known: the span opens before the
+	 * manifest and the page are resolved, which is work worth having inside
+	 * it. */
+	if (pageName !== '') span.setAttribute(ABS_RENDER_ATTRS.page, pageName);
 	if (resolvedIndex === '') {
 		throw new Error(
 			`Asset "${deferredAssets?.name || pageName || 'Page'}Index" not found in manifest.`
