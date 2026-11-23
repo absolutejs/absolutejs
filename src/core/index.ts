@@ -5,6 +5,7 @@ export * from './pageHandlers';
 export * from './prepare';
 export * from './requestContext';
 export { registerHealthCheck } from './healthChecks';
+export { onServerError } from './errorReporter';
 export * from './renderIslandMarkup';
 export * from './responseEnhancers';
 export * from './staticFileRoute';

@@ -5,6 +5,23 @@
 		{
 			"changes": [
 				{
+					"detail": "`onServerError((report) => …)` is notified of every server-side error the framework catches: each framework's page render, React's and Vue's streaming paths, static and HTMX pages, a failed partial-prerender hole, and a file route's `load`. Before this they went to `console.error` and nowhere else, which on a server is a line in a log nobody reads — the error was known to the process and to no one. The intended sink is `@absolutejs/errors`, the ecosystem's exception capture, whose `captureException` suits a reporter exactly since capturing an error can never itself fail; a reporter is a plain function, so anywhere else works too. An Elysia-level error hook is not an alternative: each page handler catches its own render failure in order to serve the error convention and returns a 500, so the error never propagates as an Elysia error and `onError` never fires — these nine sites are the inside of those catches. The report carries the error, which framework, the page, the method and path, and the request's correlation id, so a captured issue lines up with the access log line for the same request and with the id a visitor can quote from the response header. The query string is deliberately left out: it can carry a session token or an email, and the path says which route failed. `kind` distinguishes failures that are not interchangeable — `page` threw before anything was sent and the visitor got an error page; `stream` threw after the first byte, so the visitor has a partial page and no status code can say so; `hole` is a partial-prerender slot whose fallback stands, a degradation rather than a failure; `load` is a file route's loader. `console.error` still happens, because a framework that goes quiet once a reporter is registered has traded one blind spot for another. A reporter runs inside the `catch` already handling a failed render, so it is isolated three ways: a throw is caught and the remaining reporters still run, so the visitor still gets the error page; a returned promise is not awaited, only its rejection caught, so an error page never waits on a round trip; and a reporter's own failure goes to the terminal rather than back through the reporters, which is how a reporter that always throws would otherwise write a stack overflow. Also fixed on the way: `logging.requestIdHeader` was read only by the access log, so with a configured header an error report during the request would have minted an id under the default name and the log line after it would have reused that minted id — adopting the proxy's id in neither. The configured name now has one home that every caller reads. Browser errors and source-map symbolication are not a gap here to fill later: they belong to `@absolutejs/beacon` and `@absolutejs/errors`'s ingest, which have them. See `docs/ERROR_REPORTING.md`.",
+					"kind": "added",
+					"summary": "An error-reporter hook for server-side render errors",
+					"symbols": [
+						"ServerErrorKind",
+						"ServerErrorReport",
+						"ServerErrorReporter",
+						"onServerError"
+					]
+				}
+			],
+			"date": "2026-11-23",
+			"version": "0.20.0-beta.316"
+		},
+		{
+			"changes": [
+				{
 					"detail": "The access log added in beta.314 now skips the framework's own `/__absolute/*` traffic — the new health endpoints, the vitals collector, the dev request inspector. A readiness probe every two seconds is 43,200 lines a day that say nothing about anyone using the site, and they would have arrived the moment someone turned the log on; the dev request inspector already skipped the same prefix for the same reason. The request id is still assigned and echoed on those responses, so a misbehaving probe can still be correlated. `logging: { logInternalRequests: true }` logs them when that is what you are debugging.",
 					"kind": "changed",
 					"summary": "The access log skips framework-internal endpoints",

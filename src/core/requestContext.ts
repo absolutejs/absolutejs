@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { Elysia } from 'elysia';
 import { buildErrorPage } from '../utils/ssrErrorPage';
-import { DEFAULT_REQUEST_ID_HEADER, requestIdFor } from './requestId';
+import { requestIdFor, requestIdHeader } from './requestId';
 
 type AbsoluteRequestStore = {
 	request: Request;
@@ -82,9 +82,7 @@ export const getCurrentAbsoluteRoute = (request?: Request) => {
  *  Memoized per request, so the id in a log line, the one on the response
  *  header and the one an error report quotes are the same string however
  *  many times it is asked for. `header` is only read the first time. */
-export const getCurrentRequestId = (
-	header: string = DEFAULT_REQUEST_ID_HEADER
-) => {
+export const getCurrentRequestId = (header: string = requestIdHeader()) => {
 	const store = getRequestStorage()?.getStore();
 	if (!store) return undefined;
 	store.requestId ??= requestIdFor(store.request, header);

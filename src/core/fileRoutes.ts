@@ -9,6 +9,7 @@ import { renderConventionError } from '../utils/resolveConvention';
 import { logWarn } from '../utils/logger';
 import { ssrErrorPage } from '../utils/ssrErrorPage';
 import { withPageCacheHeaders } from './pageResponseCache';
+import { reportServerError } from './errorReporter';
 
 /* `fileRoutes()` — serve the routes of the generated route module (see
  * docs/FILE_ROUTER_PLAN.md). Each route becomes a real Elysia GET route, so
@@ -136,6 +137,7 @@ const toFileRouteContext = (
 
 const renderLoadError = async (route: FileRouteDefinition, error: unknown) => {
 	console.error(`[file-routes] load failed for ${route.source}:`, error);
+	reportServerError({ error, kind: 'load', page: route.source });
 	const conventionResponse = await renderConventionError(
 		route.framework,
 		route.name,

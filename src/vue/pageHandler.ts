@@ -59,6 +59,7 @@ import {
 	serializeServerDataScript,
 	throwServerDataFailure
 } from './serverDataPayload';
+import { reportServerError } from '../core/errorReporter';
 
 type VuePageRenderOptions = StreamingSlotEnhancerOptions & {
 	collectStreamingSlots?: boolean;
@@ -509,6 +510,11 @@ export const handleVuePageRequest = async <Component extends VueComponent>(
 									'[SSR] Vue streaming render error:',
 									err
 								);
+								reportServerError({
+									error: err,
+									framework: 'vue',
+									kind: 'stream'
+								});
 								void reader.cancel(err).catch(() => undefined);
 								controller.error(err);
 							});
@@ -541,6 +547,7 @@ export const handleVuePageRequest = async <Component extends VueComponent>(
 		});
 	} catch (error) {
 		console.error('[SSR] Vue render error:', error);
+		reportServerError({ error, framework: 'vue', kind: 'page' });
 
 		const conventionResponse = await renderConventionError(
 			'vue',

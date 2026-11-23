@@ -63,6 +63,7 @@ import {
 	isDevelopmentRuntime,
 	isProductionRuntime
 } from '../utils/runtimeMode';
+import { reportServerError } from '../core/errorReporter';
 
 type AngularPageRenderOptions = StreamingSlotEnhancerOptions & {
 	collectStreamingSlots?: boolean;
@@ -646,6 +647,7 @@ export const handleAngularPageRequest = async <Page = unknown>(
 			return withPageCacheHeaders(pageResponse, request);
 		} catch (error) {
 			console.error('[SSR] Angular render error:', error);
+			reportServerError({ error, framework: 'angular', kind: 'page' });
 
 			const conventionResponse = await renderConventionError(
 				'angular',

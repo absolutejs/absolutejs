@@ -62,6 +62,27 @@ export const requestIdFor = (
 	header: string = DEFAULT_REQUEST_ID_HEADER
 ) => usableRequestId(request.headers.get(header)) ?? newRequestId();
 
+/* The header this app adopts ids from, set once at boot from
+ * `logging.requestIdHeader`.
+ *
+ * It has to be reachable from more than the access log. The id is
+ * memoized per request by whoever asks first, and an error report asks
+ * during the request while the log line asks after it — so if the error
+ * path used the default name while the config said `x-amzn-trace-id`, the
+ * report would mint a fresh id, the log line would reuse that minted one,
+ * and the proxy's id would be adopted by neither. One place to read the
+ * name means every caller agrees. */
+let configuredHeader: string = DEFAULT_REQUEST_ID_HEADER;
+
+/** The configured inbound header name. */
+export const requestIdHeader = () => configuredHeader;
+
+/** Set at boot. `undefined` restores the default, so a runtime rebuilt in
+ *  place without logging configured does not keep the old name. */
+export const setRequestIdHeader = (header: string | undefined) => {
+	configuredHeader = header ?? DEFAULT_REQUEST_ID_HEADER;
+};
+
 /** An inbound header value if it is usable as an id, else null.
  *
  *  Only the first value of a comma-separated list is considered: a chain of
