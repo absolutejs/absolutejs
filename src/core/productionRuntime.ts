@@ -54,6 +54,11 @@ const RUNTIME_KEYS = [
 	'publicDirectory',
 	'rateLimit',
 	'reactDirectory',
+	/* Graceful shutdown is a production concern, and this list is the
+	 * production config: leaving it out would mean draining worked in dev
+	 * and silently did nothing where it matters, which is exactly how
+	 * `basePath` and `logging` were lost. */
+	'shutdown',
 	'static',
 	'svelteDirectory',
 	'telemetry',

@@ -5,6 +5,10 @@ import {
 	registerHealthCheck
 } from '../../../src/core/healthChecks';
 import { health } from '../../../src/plugins/health';
+import {
+	beginShutdown,
+	clearShutdownState
+} from '../../../src/core/shutdownState';
 import type { HealthConfig } from '../../../types/health';
 
 /* The endpoints an orchestrator probes.
@@ -136,5 +140,35 @@ describe('readiness', () => {
 
 		expect(result.status).toBe(503);
 		expect(result.body.checks[0]?.error).toBe('timed out');
+	});
+});
+
+describe('while the process is shutting down', () => {
+	afterEach(() => {
+		clearShutdownState();
+	});
+
+	/* What takes the process out of rotation. It is reported separately
+	 * from the checks and before them, because no amount of healthy
+	 * dependencies changes the fact that this process is going away. */
+	test('readiness reports shutting-down, whatever the checks say', async () => {
+		registerHealthCheck('everything-fine', () => true);
+		beginShutdown();
+		const result = await get(appWith(), '/__absolute/ready');
+
+		expect(result.status).toBe(503);
+		expect(result.body.status).toBe('shutting-down');
+	});
+
+	/* The asymmetry that matters: a FAILING LIVENESS probe gets the
+	 * process killed, which is the opposite of draining it. Liveness
+	 * answers the question "is this process running", and during a drain
+	 * it still is. */
+	test('liveness stays ok, so the drain is not cut short by a restart', async () => {
+		beginShutdown();
+		const result = await get(appWith(), '/__absolute/live');
+
+		expect(result.status).toBe(200);
+		expect(result.body.status).toBe('ok');
 	});
 });

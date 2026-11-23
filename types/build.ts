@@ -8,6 +8,7 @@ import type { ImageConfig } from './image';
 import type { LinksConfig } from './links';
 import type { LoggingConfig } from './logging';
 import type { RateLimitConfig } from './rateLimit';
+import type { ShutdownConfig } from './shutdown';
 import type { SitemapConfig } from './sitemap';
 import type { VitalsSummaryConfig } from './vitals';
 import type { SizeBudgets } from '../src/utils/sizeBudgets';
@@ -762,6 +763,17 @@ export type BaseBuildConfig = {
 	 *  readiness probe takes the process out of rotation. See
 	 *  docs/RATE_LIMITING.md. */
 	rateLimit?: RateLimitConfig;
+	/** Finish the requests already in flight before the process exits.
+	 *
+	 *  On by default in production. Without it a request interrupted by
+	 *  SIGTERM reaches the client as a connection error, which happens on
+	 *  every deploy and scale-down. Readiness starts reporting
+	 *  `shutting-down` the moment the signal arrives, so a load balancer
+	 *  takes the process out of rotation while the drain runs.
+	 *
+	 *  `shutdown: false` restores the old behaviour — the process stops
+	 *  the instant it is signalled. See docs/GRACEFUL_SHUTDOWN.md. */
+	shutdown?: boolean | ShutdownConfig;
 	/** Opt-in per-request logging with a correlation id.
 	 *
 	 *      logging: { requests: 'json' }

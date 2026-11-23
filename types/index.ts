@@ -27,6 +27,7 @@ export * from './typeGuards';
 export * from './jsonLd';
 export * from './metadata';
 export * from './packageJson';
+export * from './shutdown';
 export * from './sitemap';
 export * from './websocket';
 export * from './formAction';

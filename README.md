@@ -139,6 +139,17 @@ checks your app registers with `registerHealthCheck('database', …)` and
 answering 503 when one fails. Probing a page instead gets a healthy process
 restarted when one page breaks. See [docs/HEALTH.md](docs/HEALTH.md).
 
+### Graceful shutdown
+
+A production server finishes the requests already in flight before it
+exits. Without it, a request interrupted by `SIGTERM` reaches the client as
+a connection error — on every deploy, every scale-down and every rollout.
+Readiness reports `shutting-down` the moment the signal arrives, so a load
+balancer stops sending new work; liveness deliberately stays `ok`, since a
+failing liveness probe would get the process killed mid-drain. On by
+default. If you run behind a load balancer, set `readinessGraceMs`. See
+[docs/GRACEFUL_SHUTDOWN.md](docs/GRACEFUL_SHUTDOWN.md).
+
 ### Rate limiting
 
 `rateLimit: { limit: 300, rules: [{ limit: 10, path: '/api/upload' }] }`

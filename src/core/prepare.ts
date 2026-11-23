@@ -25,6 +25,7 @@ import { absoluteRequestContext } from './requestContext';
 import { health, resolveHealthConfig } from '../plugins/health';
 import { rateLimit } from '../plugins/rateLimit';
 import { requestLog } from '../plugins/requestLog';
+import { shutdown } from '../plugins/shutdown';
 import { hasForeignErrorHook } from './appErrorHooks';
 import { formActionRuntime } from './formActionFlash';
 import { formActionMacro, type FormActionsPlugin } from './formActions';
@@ -1102,6 +1103,7 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 			.use(generatedAssetsPlugin)
 			.use(await loadVitalsPlugin(config, false))
 			.use(createLoadingIndicatorPlugin())
+			.use(shutdown(config.shutdown))
 			.use(createStaticErrorPlugin(() => absolutejs))
 			.use(createNotFoundPlugin());
 		await withOpenApi(absolutejs, config, process.cwd(), false);
@@ -1143,6 +1145,7 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 		.use(generatedAssetsPlugin)
 		.use(await loadVitalsPlugin(config, false))
 		.use(createLoadingIndicatorPlugin())
+		.use(shutdown(config.shutdown))
 		.use(createStaticErrorPlugin(() => absolutejs))
 		.use(createNotFoundPlugin());
 	await withOpenApi(absolutejs, config, process.cwd(), false);
