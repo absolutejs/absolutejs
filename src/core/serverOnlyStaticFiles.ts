@@ -41,7 +41,15 @@ const SERVER_ONLY_PATTERNS = [
 	// Source maps: client maps are moved to a private directory by the
 	// build (`sourcemaps: 'external'`); the server bundle's map stays local.
 	/\.map$/,
-	/\.node$/
+	/\.node$/,
+	/* Build traces (`ABSOLUTE_BUILD_TRACE`). These were served: probing a
+	 * production server for `/.absolute-trace/build-trace-<stamp>.json`
+	 * returned 200 and 11 KB of the build's phase timeline, including the
+	 * absolute path of every compiled source file — so the developer's
+	 * username and project layout, published by a build flag whose purpose
+	 * is local diagnosis. The server never reads them back; they are
+	 * written for a human. */
+	/^\/\.absolute-trace\//
 ];
 
 const escapeRegExp = (value: string) =>
@@ -73,6 +81,26 @@ const serverOutputsPattern = (buildDir: string) => {
 		`^/(?:${outputs.map(escapeRegExp).join('|')})(?:\\.br|\\.gz|\\.map)?$`
 	);
 };
+
+/** Whether a build-directory file is one only the server may read, for a
+ *  caller with no static plugin to ask — `absolute export`, which has to
+ *  reach the same verdict without a server to enforce it.
+ *
+ *  A regular expression is tested against the file's leading-slash path,
+ *  which is what the plugin matches. A string pattern is matched against
+ *  whole path segments rather than as a substring, so `.env` withholds
+ *  `/.env` and `/config/.env` without also withholding a legitimately
+ *  public `/.env-example.txt`. */
+export const isServerOnlyBuildFile =
+	(patterns: readonly (string | RegExp)[]) => (path: string) => {
+		const segments = path.split('/');
+
+		return patterns.some((pattern) =>
+			typeof pattern === 'string'
+				? segments.includes(pattern)
+				: pattern.test(path)
+		);
+	};
 
 /** Static-plugin ignore patterns for a production build directory.
  *  `serverBundle` is the running server's entry file (`Bun.main` under

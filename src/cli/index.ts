@@ -60,6 +60,9 @@ const printUsage = (write: (line: string) => void) => {
 		'  compile [entry] [--outdir dir] [--outfile path] Compile standalone executable'
 	);
 	write(
+		'  export [entry] [--to dir] [--outdir dir] [--flat] [--precompressed] [--json] Build, pre-render and assemble a directory for a static host'
+	);
+	write(
 		'  mobile <init|sync|assets|inspect|ci|pair|remotes|doctor|test> Manage Capacitor apps and the experimental Expo hybrid shell'
 	);
 	write(
@@ -251,6 +254,10 @@ if (command === 'dev') {
 	const serverEntry = positionalArgs[0] ?? DEFAULT_SERVER_ENTRY;
 	const { start } = await import('./scripts/start');
 	await start(serverEntry, outdir, configPath, { prepareOnly: true });
+} else if (command === 'export') {
+	sendTelemetryEvent('cli:command', { command });
+	const { runExport } = await import('./scripts/export');
+	await runExport(args);
 } else if (command === 'build') {
 	sendTelemetryEvent('cli:command', { command });
 	const outdir = parseNamedArg('--outdir');

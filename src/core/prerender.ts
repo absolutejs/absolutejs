@@ -328,6 +328,23 @@ export const prerender = async (
 		routes: new Map()
 	};
 
+	/* A crawl discovers routes by following links from `/`, and every step
+	 * of it swallows a failure so that one bad page cannot stop the pass.
+	 * That made the total failure silent: when `/` itself did not answer
+	 * with HTML the crawl returned an empty list, and this reported a
+	 * successful pre-render of zero pages. Found by exporting the example
+	 * app while another project held the port the pre-render server was
+	 * given — the harness polled the stranger, called it ready, and
+	 * produced a site with no pages and no error. */
+	if (staticConfig.routes === 'all' && routes.length === 0) {
+		result.failures.push({
+			reason: `crawling found no pages — ${baseUrl}/ did not answer with HTML`,
+			route: '/'
+		});
+
+		return result;
+	}
+
 	await routes.reduce(
 		(chain, route) =>
 			chain.then(() =>
@@ -367,11 +384,20 @@ const isCompleteHtml = (html: string) =>
 	!/^(?:\uFEFF)?\s*<!doctype\s+html\b/i.test(html) ||
 	/<\/html>\s*$/i.test(html);
 
-/** Poll the server until it responds or startup timeout elapses */
-const waitForServerReady = async (port: number) => {
+/** Poll the server until it responds or startup timeout elapses.
+ *
+ *  `isAlive` stops the poll the moment the child is gone. Without it a
+ *  server that died on startup — `EADDRINUSE` is the common one — was
+ *  waited out for the full timeout and then reported as "failed to start"
+ *  with no reason, when its stderr had said exactly what happened
+ *  immediately. */
+const waitForServerReady = async (port: number, isAlive: () => boolean) => {
 	const deadline = performance.now() + getStartupTimeoutMs();
 	const pollServer = async () => {
 		if (performance.now() >= deadline) {
+			return false;
+		}
+		if (!isAlive()) {
 			return false;
 		}
 		if (await probePrerenderServer(port)) {
@@ -477,7 +503,10 @@ export const prerenderWithServer = async (
 	captureStreamOutput(serverProcess.stdout, serverOutput);
 	captureStreamOutput(serverProcess.stderr, serverOutput);
 
-	const ready = await waitForServerReady(port);
+	const ready = await waitForServerReady(
+		port,
+		() => serverProcess.exitCode === null
+	);
 
 	if (!ready) {
 		serverProcess.kill();
