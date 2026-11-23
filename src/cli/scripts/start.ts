@@ -1,6 +1,7 @@
 import { env } from 'bun';
 import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
+import type { StaticConfig } from '../../../types/build';
 import type { DbScripts } from '../../../types/cli';
 import {
 	DEFAULT_PORT,
@@ -177,6 +178,20 @@ const jsxDevRuntimeCompatPath = resolveJsxDevRuntimeCompatPath();
 type StartOptions = {
 	prebuilt?: boolean;
 	prepareOnly?: boolean;
+	/** Leave `config.static` unrendered. Set by `absolute export`, which
+	 *  runs the pre-render itself over the routes it is exporting, so the
+	 *  pass happens once rather than twice. */
+	skipPrerender?: boolean;
+};
+
+/** What a prepare-only run produced, for a caller that has to do something
+ *  with the build rather than serve it. */
+export type PreparedBuild = {
+	absoluteVersion: string;
+	/** The bundled server, runnable for a pre-render pass. */
+	outputPath: string;
+	resolvedOutdir: string;
+	staticConfig: StaticConfig | undefined;
 };
 
 type RunPreparedServerOptions = {
@@ -758,7 +773,7 @@ export const start = async (
 	});
 
 	// ── Pre-render static pages (if configured) ─────────────────────
-	if (buildConfig.static) {
+	if (buildConfig.static && options.skipPrerender !== true) {
 		await prerenderStaticPages(
 			outputPath,
 			port + 1,
@@ -774,8 +789,14 @@ export const start = async (
 			durationMs: Math.round(totalDuration),
 			entry: serverEntry
 		});
+		const prepared: PreparedBuild = {
+			absoluteVersion,
+			outputPath,
+			resolvedOutdir,
+			staticConfig: buildConfig.static
+		};
 
-		return undefined;
+		return prepared;
 	}
 
 	return runPreparedServer({

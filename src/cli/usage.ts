@@ -59,6 +59,13 @@ const COMMAND_FLAGS: Readonly<
 		'--ios-device': 'value',
 		'--no-mobile': 'boolean'
 	},
+	export: {
+		'--flat': 'boolean',
+		'--json': 'boolean',
+		'--outdir': 'value',
+		'--precompressed': 'boolean',
+		'--to': 'value'
+	},
 	info: {},
 	links: {},
 	migrate: {
