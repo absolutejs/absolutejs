@@ -5,6 +5,16 @@
 		{
 			"changes": [
 				{
+					"kind": "added",
+					"summary": "Report Elysia 2 migrations with --target elysia-2, --check, --json and --apply"
+				}
+			],
+			"date": "2026-11-23",
+			"version": "0.20.0-beta.310"
+		},
+		{
+			"changes": [
+				{
 					"detail": "A dev server or reverse proxy can complete a normal WebSocket closure while the page stays open. The HMR client now reconnects in that case, checks the server snapshot and resumes delivery without a manual refresh.",
 					"kind": "fixed",
 					"summary": "hot reload reconnects after a clean server socket closure"

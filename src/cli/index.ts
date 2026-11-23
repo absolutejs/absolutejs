@@ -414,7 +414,16 @@ if (command === 'dev') {
 } else if (command === 'migrate') {
 	sendTelemetryEvent('cli:command', { command });
 	const { migrate } = await import('./scripts/migrate');
-	migrate(parseNamedArg('--path'), args.includes('--apply'));
+	const target = parseNamedArg('--target');
+	if (target === 'elysia-2') {
+		const { migrateElysia2 } = await import('./scripts/migrateElysia2');
+		migrateElysia2(parseNamedArg('--path') ?? process.cwd(), args);
+	} else if (target || args.includes('--json') || args.includes('--check')) {
+		console.error(
+			'Supported migration target: --target elysia-2 [--check] [--json] [--apply]'
+		);
+		process.exitCode = 2;
+	} else migrate(parseNamedArg('--path'), args.includes('--apply'));
 } else if (command === 'mkcert') {
 	sendTelemetryEvent('cli:command', { command });
 	const { setupMkcert } = await import('../dev/devCert');
