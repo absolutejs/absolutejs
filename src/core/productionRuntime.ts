@@ -27,11 +27,27 @@ const RUNTIME_KEYS = [
 	'angularDirectory',
 	'assetsDirectory',
 	'astroDirectory',
+	/* `basePath` and `basePathShared` were missing, and the omission was
+	 * invisible: `prepare()` copies them into `ABSOLUTE_BASE_PATH` /
+	 * `ABSOLUTE_BASE_PATH_SHARED` (a few lines after it loads the config),
+	 * and `getBasePath()` reads nothing else. In dev that config is
+	 * absolute.config.ts, so a base path worked; in production it is this
+	 * file, so the key was dropped and the prefix silently disappeared.
+	 *
+	 * Measured on the example app with `basePath: '/portal'`: the
+	 * production build served pages with no import map and no prefixed
+	 * module URLs, and the same build with `ABSOLUTE_BASE_PATH=/portal` in
+	 * the environment served both. A subpath deployment configured the
+	 * documented way therefore worked in dev and broke in production
+	 * only. */
+	'basePath',
+	'basePathShared',
 	'emberDirectory',
 	'htmlDirectory',
 	'htmxDirectory',
 	'images',
 	'islands',
+	'logging',
 	'mobile',
 	'openapi',
 	'publicDirectory',

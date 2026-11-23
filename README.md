@@ -131,6 +131,16 @@ every command and the global flags; these are the ones reached for most:
 `--config <path>` works on every command that reads one, and
 `absolute --version` prints the installed version.
 
+### Request logging
+
+`logging: { requests: 'json' }` writes one line per request — method, path,
+status, duration and a correlation id — as JSON for a log pipeline, or
+`'text'` for a terminal. An inbound `x-request-id` is adopted so a trace
+spans the proxy and this process, and `getCurrentRequestId()` returns the
+current request's id anywhere inside it. Off by default; batched, which
+costs about 2.5% of throughput rather than 12%. See
+[docs/LOGGING.md](docs/LOGGING.md).
+
 ### Benchmarks and regression gates
 
 `absolute bench` measures what this project costs — bundle size and build

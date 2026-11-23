@@ -5,6 +5,7 @@ import type { FileRoutesConfig } from './fileRoutes';
 import type { FontsConfig } from './fonts';
 import type { ImageConfig } from './image';
 import type { LinksConfig } from './links';
+import type { LoggingConfig } from './logging';
 import type { SitemapConfig } from './sitemap';
 import type { SizeBudgets } from '../src/utils/sizeBudgets';
 import type { BenchConfig } from './bench';
@@ -747,6 +748,13 @@ export type BaseBuildConfig = {
 	/** Opt-in Core Web Vitals reporting (LCP, INP, CLS, FCP, TTFB) from real
 	 *  visits. See docs/WEB_VITALS.md. */
 	vitals?: VitalsConfig;
+	/** Opt-in per-request logging with a correlation id.
+	 *
+	 *      logging: { requests: 'json' }
+	 *
+	 *  Off by default: writing to a project's stdout uninvited is not the
+	 *  framework's call. See docs/LOGGING.md. */
+	logging?: LoggingConfig;
 	// Sitemap generation — auto-discovers page routes on server start
 	sitemap?: SitemapConfig;
 	/** Opt-in file-system routing: route files under each framework

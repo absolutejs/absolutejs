@@ -5,6 +5,28 @@
 		{
 			"changes": [
 				{
+					"detail": "`basePath` and `basePathShared` in `absolute.config.ts` did nothing on a production server. A production server does not import the config — it reads `absolute-runtime.json`, which the build writes from an explicit allowlist of keys — and neither key was on that list. `prepare()` copies them into `ABSOLUTE_BASE_PATH` and `ABSOLUTE_BASE_PATH_SHARED` right after loading the config, and `getBasePath()` reads nothing else, so in dev (where the config is the real file) a base path worked and in production it silently disappeared. Measured on the example app with `basePath: '/portal'`: the production build served pages with no import map and no prefixed module URLs, while the same build with `ABSOLUTE_BASE_PATH=/portal` in the environment served both — so a subpath deployment configured the documented way worked in dev and broke in production only. Found while wiring `logging` through the same allowlist. The existing test for that file could not have caught it: it asserts a hand-written list of keys, written by the same hand that left these out, so it now covers the base path explicitly with the symptom recorded.",
+					"kind": "fixed",
+					"summary": "A configured basePath reaches the production server"
+				},
+				{
+					"detail": "`logging: { requests: 'json' }` writes one line per request — method, path, status, duration, response size and a correlation id — as JSON for a log pipeline or `'text'` for a terminal. Off by default: writing to a project's stdout uninvited is not the framework's call. There was no access log at all before this, so in production a request left no trace; the dev-only request inspector keeps a ring buffer for a running dev server, which answers a different question. An inbound `x-request-id` is adopted so a trace spans the proxy and this process, and only a request without one gets a new UUID; the id is echoed on the response, including on a 404 and a 500, because it is set on the way in rather than by a handler. `getCurrentRequestId()` returns it anywhere inside a request and computes it on first use, so a project that never asks never pays. An inbound id is adopted only when it already looks like one and is replaced with a fresh UUID otherwise — not escaped and kept, since an id that no longer matches what the proxy recorded correlates with nothing. Newline forgery turned out to be unreachable and is documented as such rather than defended twice: `new Request()` refuses CR, LF and NUL, and the HTTP parser ends a header value at the CRLF. What does arrive intact is ANSI escapes, quotes, tabs and 10 KB of padding, which is what the validation is for. Lines are batched because the write is the whole cost: on a bare route at 134,480 req/s, a write per line costs 15.8µs per request and batching 256 lines or 50ms costs 4.7µs, while formatting costs 0.18µs and the UUID 0.03µs. On the example app's React page that is 15,725 req/s unbatched against 17,355 batched, from 17,801 with logging off — 12% against 2.5%. The buffer is flushed on every normal exit, and `flushEachLine: true` trades the throughput back for losing nothing when a process is killed. Enabling a log deliberately installs no SIGINT or SIGTERM handler: a listener there suppresses the default terminate, so it would have to exit the process itself and would preempt an app's own shutdown. See `docs/LOGGING.md`.",
+					"kind": "added",
+					"summary": "Per-request access logging with a correlation id, batched by default",
+					"symbols": [
+						"AccessLogFormat",
+						"BaseBuildConfig",
+						"LoggingConfig",
+						"getCurrentRequestId"
+					]
+				}
+			],
+			"date": "2026-11-23",
+			"version": "0.20.0-beta.314"
+		},
+		{
+			"changes": [
+				{
 					"detail": "A production server served `/.absolute-trace/build-trace-<stamp>.json`: 200 and 11 KB of the build's phase timings, including the absolute path of every compiled source file — so the developer's username and project layout, published by a flag (`ABSOLUTE_BUILD_TRACE`) whose purpose is local diagnosis. The build directory is also the static asset root in production, and these files were in neither the server-only pattern list nor anything else that withholds them. The server never reads them back; they are written for a human. They are now withheld like the bundled server and the runtime manifests, which also means they stay out of a static export.",
 					"kind": "fixed",
 					"summary": "Build traces are no longer served from the build directory"
