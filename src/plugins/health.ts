@@ -17,6 +17,7 @@
 
 import { Elysia } from 'elysia';
 import { runHealthChecks } from '../core/healthChecks';
+import { isShuttingDown } from '../core/shutdownState';
 import type { HealthConfig } from '../../types/health';
 
 const NO_STORE = {
@@ -48,6 +49,19 @@ export const health = (config: boolean | HealthConfig | undefined) => {
 			 * healthy server every time its database hiccuped. */
 			.get(liveness, () => json({ status: 'ok' }))
 			.get(readiness, async () => {
+				/* Reported before the checks are even run, and separately
+				 * from them: the process is going away, which no amount of
+				 * healthy dependencies changes. This is what takes it out
+				 * of rotation while the requests already in flight finish
+				 * — see src/core/gracefulShutdown.ts for why the order
+				 * matters. */
+				if (isShuttingDown())
+					return json(
+						details
+							? { checks: [], status: 'shutting-down' }
+							: { status: 'shutting-down' },
+						SERVICE_UNAVAILABLE
+					);
 				const report = await runHealthChecks(timeoutMs, cacheMs);
 				if (report.ok)
 					return json(
