@@ -1,6 +1,12 @@
 <script lang="ts">
 	import type { Metadata, RobotsDirective } from '../../../types/metadata';
 	import { applyIconVersion, iconMimeType } from '../../utils/iconVersion';
+	// Relative, and the build copies the module (and the marker it
+	// imports) into dist/ beside the component — the same arrangement as
+	// iconVersion below. A published subpath would not resolve when an app
+	// is built from this repo's own source, where there is no installed
+	// package to resolve it against.
+	import { scriptTag } from '../../utils/scriptAttributes';
 
 	export let title: Metadata['title'] = 'AbsoluteJS';
 	export let description: Metadata['description'] =
@@ -15,6 +21,7 @@
 	export let twitter: Metadata['twitter'] = undefined;
 	export let robots: Metadata['robots'] = undefined;
 	export let meta: Metadata['meta'] = undefined;
+	export let scripts: Metadata['scripts'] = undefined;
 
 	const robotsContent = (r: RobotsDirective) => {
 		const directives: string[] = [];
@@ -196,5 +203,15 @@
 
 	{#each cssPaths as path}
 		<link rel="stylesheet" href={path} type="text/css" />
+	{/each}
+
+	<!-- Third-party tags last, after the page's own stylesheets. Rendered
+	     as markup rather than as elements: a `<script>` written as a Svelte
+	     element would be claimed during hydration and, for a lazily added
+	     one, created client-side — and the request nonce is applied to
+	     these server-side (utils/cspNonceRef.ts) since a component
+	     compiled in the user's project cannot read it. -->
+	{#each scripts ?? [] as script}
+		{@html scriptTag(script)}
 	{/each}
 </svelte:head>

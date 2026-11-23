@@ -11,17 +11,29 @@ export const nonceAttr = (nonce: string | undefined = readCspNonce()) =>
 	nonce ? ` nonce="${nonce}"` : '';
 
 /** Adds the nonce to the <style id="svelte-…"> tags Svelte renders into the
- *  head for components compiled with injected CSS. Only those: a <style>
- *  that arrived through {@html} stays without one. */
+ *  head for components compiled with injected CSS, and to the third-party
+ *  <script data-absolute-script> tags `<Head scripts={…}>` renders there.
+ *  Only those: a <style> that arrived through {@html} stays without one.
+ *
+ *  The script half is here rather than in the component because a Svelte
+ *  component compiles in the user's project and cannot read this process's
+ *  nonce. Without it a third-party tag on a Svelte page is rendered and
+ *  then refused by the page's own policy — which looks exactly like the
+ *  script being broken. */
 export const nonceSvelteHeadStyles = (
 	head: string,
 	nonce: string | undefined = readCspNonce()
 ) =>
 	nonce
-		? head.replace(
-				/<style(?=\s+id="svelte-[^"]*")(?![^>]*\snonce=)/g,
-				`<style nonce="${nonce}"`
-			)
+		? head
+				.replace(
+					/<style(?=\s+id="svelte-[^"]*")(?![^>]*\snonce=)/g,
+					`<style nonce="${nonce}"`
+				)
+				.replace(
+					/<script(?=[^>]*\sdata-absolute-script[=\s>])(?![^>]*\snonce=)/g,
+					`<script nonce="${nonce}"`
+				)
 		: head;
 
 export const readCspNonce = () => {

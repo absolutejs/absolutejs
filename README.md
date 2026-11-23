@@ -160,6 +160,19 @@ health endpoints are never limited by a global limit — a 429 to a readiness
 probe takes the process out of rotation. See
 [docs/RATE_LIMITING.md](docs/RATE_LIMITING.md).
 
+### Third-party scripts
+
+`<Script src="https://plausible.io/js/script.js" />` (React), or
+`scripts: [{ src: … }]` on any page's head, loads a third-party tag with a
+strategy — `beforeInteractive`, `afterInteractive` (deferred, the default)
+or `lazyOnload`, added after the window loads. Each tag carries an
+identity, so it runs ONCE however the visitor moves: a soft navigation
+recreates the incoming page's scripts, and before this a tag two pages
+shared re-ran on every navigation — measured, an analytics counter reading
+1, then 2, then 3. Angular reaches a script only through the head, because
+its template compiler drops a `<script>` element silently. See
+[docs/THIRD_PARTY_SCRIPTS.md](docs/THIRD_PARTY_SCRIPTS.md).
+
 ### Render tracing
 
 `registerTracer(tracerOrNoop(provider, 'app'))` emits OpenTelemetry spans

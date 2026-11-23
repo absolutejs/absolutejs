@@ -38,6 +38,11 @@ import type {
 } from '../../types/navigation';
 import { disposeIslandsIn } from './islandDisposers';
 import { consumePrefetch } from './prefetch';
+import {
+	keepRunningScripts,
+	liveScriptsByIdentity,
+	reusableScript
+} from './scriptReuse';
 
 /* Shared by every bundle copy of this module (each framework's client pass
  * bundles its own), and read by the Svelte `<Link>` to decide whether a
@@ -837,9 +842,20 @@ const createScript = (nav: Runtime, pending: PendingScript) => {
 const runScript = async (
 	nav: Runtime,
 	pending: PendingScript,
-	islandState: IslandStateRef
+	islandState: IslandStateRef,
+	live: Map<string, HTMLScriptElement>
 ) => {
 	if (!pending.placeholder.isConnected) return;
+	/* A third-party script the live document is already running is moved
+	 * into the new page rather than recreated, which would run it again.
+	 * See client/scriptReuse.ts for why this is keyed on an identity
+	 * marker and not on `src`. */
+	const running = reusableScript(live, pending.source);
+	if (running !== undefined) {
+		pending.placeholder.replaceWith(running);
+
+		return;
+	}
 	const script = createScript(nav, pending);
 	const loaded = script.src ? loadEvent(script) : Promise.resolve();
 	pending.placeholder.replaceWith(script);
@@ -854,14 +870,18 @@ const clearPageGlobals = () => {
 
 /* In document order, one at a time: an inline script that sets
  * `__INITIAL_PROPS__` has to run before the module that hydrates with it. */
-const runScripts = (nav: Runtime, scripts: PendingScript[]) => {
+const runScripts = (
+	nav: Runtime,
+	scripts: PendingScript[],
+	live: Map<string, HTMLScriptElement>
+) => {
 	const islandState: IslandStateRef = {
 		live: islandStateOf(Reflect.get(globalThis, ISLAND_STATE_GLOBAL))
 	};
 
 	return scripts.reduce<Promise<void>>(
 		(previous, pending) =>
-			previous.then(() => runScript(nav, pending, islandState)),
+			previous.then(() => runScript(nav, pending, islandState, live)),
 		Promise.resolve()
 	);
 };
@@ -985,6 +1005,10 @@ const swapDocument = async (
 	isStale: () => boolean
 ) => {
 	const scripts = extractScripts(loaded);
+	/* Before the head is swapped, which discards the live nodes: a
+	 * third-party script the incoming page also carries is carried over
+	 * from here rather than recreated. */
+	const liveScripts = liveScriptsByIdentity(document);
 	// Before the preload moves the stylesheet links out of the parsed head.
 	const headNodes = Array.from(loaded.document.head.childNodes);
 	const media = await preloadStylesheets(loaded);
@@ -1025,7 +1049,15 @@ const swapDocument = async (
 	};
 	await runSwap(nav, swap);
 	const focusMoved = resetFocus();
-	await runScripts(nav, scripts);
+	/* Before the incoming page's scripts run, not after: a `lazyOnload`
+	 * bootstrap checks the document for its tag on a timer, and
+	 * `runScripts` awaits each module's load event — so appending
+	 * afterwards lost that race and the script was added twice. */
+	keepRunningScripts(
+		liveScripts,
+		scripts.map((pending) => pending.source)
+	);
+	await runScripts(nav, scripts, liveScripts);
 	/* Before waiting, not after: nothing on a page with no framework app
 	 * will ever register a teardown hook, and `waitForPageReady` spends
 	 * the whole poll deadline finding that out. Marked after it, a static

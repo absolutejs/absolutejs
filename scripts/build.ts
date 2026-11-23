@@ -602,6 +602,21 @@ const build = async () => {
 		join('src', 'utils', 'iconVersion.ts'),
 		join(DIST, 'utils', 'iconVersion.ts')
 	);
+	/* Head.svelte also imports ../../utils/scriptAttributes for its
+	 * `scripts` prop, and that module imports ../client/scriptMarker. Both
+	 * ship as source for the same reason iconVersion does: the component is
+	 * compiled in the consumer's build, so every path it names has to exist
+	 * under dist/. Miss either one and the published component fails to
+	 * resolve in a project while building fine here. */
+	await cp(
+		join('src', 'utils', 'scriptAttributes.ts'),
+		join(DIST, 'utils', 'scriptAttributes.ts')
+	);
+	await mkdir(join(DIST, 'client'), { recursive: true });
+	await cp(
+		join('src', 'client', 'scriptMarker.ts'),
+		join(DIST, 'client', 'scriptMarker.ts')
+	);
 	await copyPublishedSvelteRouterSources();
 	await mkdir(join(DIST, 'vue', 'components'), { recursive: true });
 	const vueFiles = await readdir('src/vue/components');

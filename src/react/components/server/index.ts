@@ -10,6 +10,6 @@ export { Image } from '../Image';
 export { JsonLd } from '../JsonLd';
 export { SuspenseSlot } from '../SuspenseSlot';
 export { StreamSlot } from '../StreamSlot';
-export { Link, usePrefetch } from '../client';
+export { Link, Script, usePrefetch } from '../client';
 export type { LinkProps, UsePrefetchOptions } from '../client';
 export type { PrefetchKind, PrefetchMode } from '../../../../types/prefetch';

@@ -2,6 +2,7 @@ export { CsrfField } from '../CsrfField';
 export { Head } from '../Head';
 export { Image } from '../Image';
 export { JsonLd } from '../JsonLd';
+export { Script } from '../Script';
 export { SuspenseSlot } from '../SuspenseSlot.browser';
 export { StreamSlot } from '../StreamSlot.browser';
 export { Link } from '../../router/Link';

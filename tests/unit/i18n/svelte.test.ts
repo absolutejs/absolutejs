@@ -18,6 +18,10 @@ const ICON_VERSION = resolve(
 	import.meta.dir,
 	'../../../src/utils/iconVersion.ts'
 );
+const SCRIPT_ATTRIBUTES = resolve(
+	import.meta.dir,
+	'../../../src/utils/scriptAttributes.ts'
+);
 // Inside the repo so the compiled modules resolve `svelte` from node_modules.
 const directory = mkdtempSync(
 	join(resolve(import.meta.dir, '../../..'), '.svelte-i18n-')
@@ -52,6 +56,10 @@ const compileTo = (source: string, name: string) => {
 		js.code
 			.replace("'./Child.svelte'", "'./Child.js'")
 			.replace("'../../utils/iconVersion'", JSON.stringify(ICON_VERSION))
+			.replace(
+				"'../../utils/scriptAttributes'",
+				JSON.stringify(SCRIPT_ATTRIBUTES)
+			)
 	);
 };
 

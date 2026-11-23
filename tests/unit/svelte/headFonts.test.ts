@@ -14,13 +14,20 @@ const ICON_VERSION = resolve(
 	import.meta.dir,
 	'../../../src/utils/iconVersion.ts'
 );
+const SCRIPT_ATTRIBUTES = resolve(
+	import.meta.dir,
+	'../../../src/utils/scriptAttributes.ts'
+);
 // Inside the repo so the compiled module resolves `svelte` from node_modules.
 const directory = mkdtempSync(
 	join(resolve(import.meta.dir, '../../..'), '.svelte-head-')
 );
 
-/* Compiles the source component for SSR, pointing its one relative import
- * at the source tree so the compiled module can live in a temp dir. */
+/* Compiles the source component for SSR, pointing its relative imports at
+ * the source tree so the compiled module can live in a temp dir. Adding an
+ * import to the component without adding it here fails these tests, which
+ * is the point: the published component ships as source, so every path it
+ * names has to exist beside it in dist/ too. */
 const loadHead = async () => {
 	const { js } = compile(readFileSync(SOURCE, 'utf8'), {
 		filename: 'Head.svelte',
@@ -29,10 +36,12 @@ const loadHead = async () => {
 	const modulePath = join(directory, 'Head.js');
 	writeFileSync(
 		modulePath,
-		js.code.replace(
-			"'../../utils/iconVersion'",
-			JSON.stringify(ICON_VERSION)
-		)
+		js.code
+			.replace("'../../utils/iconVersion'", JSON.stringify(ICON_VERSION))
+			.replace(
+				"'../../utils/scriptAttributes'",
+				JSON.stringify(SCRIPT_ATTRIBUTES)
+			)
 	);
 	const loaded: { default: Component<Metadata> } = await import(modulePath);
 

@@ -6,6 +6,7 @@
  * re-export them: a React Server Components build turns them into client references
  * instead of evaluating them against React's server build, which has no
  * createContext. */
+export { Script } from './Script';
 export { Link } from '../router/Link';
 export type { LinkProps } from '../router/Link';
 export { usePrefetch } from '../hooks/usePrefetch';

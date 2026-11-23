@@ -28,6 +28,7 @@ export * from './typeGuards';
 export * from './jsonLd';
 export * from './metadata';
 export * from './packageJson';
+export * from './script';
 export * from './shutdown';
 export * from './sitemap';
 export * from './websocket';
