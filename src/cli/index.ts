@@ -136,6 +136,9 @@ const printUsage = (write: (line: string) => void) => {
 	write(
 		'  bun-patch [status|install|remove|reset] Bun with the React Fast Refresh fix (oven-sh/bun#32919)'
 	);
+	write(
+		'  scan          Check source exposure, dependencies and registry images'
+	);
 	write('  telemetry     Manage anonymous telemetry');
 	write(
 		'  tunnel-relay  Run the public reverse-tunnel relay (for webhook dev)'
@@ -168,7 +171,11 @@ if (command !== undefined && VERSION_FLAGS.has(command)) {
 }
 /* `absolute <command> --help` is the command's own help request, not an
  * argument for it to parse. */
-if (command !== undefined && args.some((arg) => HELP_FLAGS.has(arg))) {
+if (
+	command !== undefined &&
+	command !== 'scan' &&
+	args.some((arg) => HELP_FLAGS.has(arg))
+) {
 	printUsage(console.log);
 	process.exit(0);
 }
@@ -411,6 +418,9 @@ if (command === 'dev') {
 	sendTelemetryEvent('cli:command', { command });
 	const { links } = await import('./scripts/links');
 	await links(parseNamedArg('--config'));
+} else if (command === 'scan') {
+	const { runScanCli } = await import('@absolutejs/vulnerabilities/scan/cli');
+	process.exitCode = await runScanCli(args);
 } else if (command === 'migrate') {
 	sendTelemetryEvent('cli:command', { command });
 	const { migrate } = await import('./scripts/migrate');
