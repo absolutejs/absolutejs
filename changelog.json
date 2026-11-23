@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "`absolute bench` put Angular SSR at roughly an eighth of Svelte, which needed either a fix or an explanation. It is an explanation, now measured and written down in `docs/SSR_THROUGHPUT.md`. Bare Angular — its own `bootstrapApplication` plus `renderApplication`, no AbsoluteJS code — renders a trivial component in 1.259ms, so the framework's 1.5ms p50 sits about 0.24ms above Angular's own floor, and that covers HTTP, routing, the ETag hash, cookies and compression. Scaling the template showed why the floor is where it is: 0 nodes costs 1.290ms and 2000 nodes 2.155ms, so rendering runs at about 0.43ms per 1000 DOM nodes and 96% of a realistic 200-node page is fixed per-request setup rather than rendering. Nothing in the Angular wrapper is reclaimable; the gap is Angular's SSR model, which builds an application per request by design. One finding was actionable as a guard rather than a change: `provideRouter` costs 0.184ms, about 14% of the floor, while forty ordinary DI tokens cost nothing measurable. AbsoluteJS already injects the router only into pages that export `routes`, and an existing test covers that positive direction, but nothing asserted the negative one — so making the injection unconditional, which would remove a branch, would have silently cost every Angular page 14% with no test failing. There is now a test for the absence, verified to fail when the condition is removed.",
+					"kind": "internal",
+					"summary": "Angular SSR throughput is measured and explained, with a guard on the router-injection condition"
+				}
+			],
+			"date": "2026-11-23",
+			"version": "0.20.0-beta.312"
+		},
+		{
+			"changes": [
+				{
 					"kind": "added",
 					"summary": "Run absolute scan to check project source, locked dependencies and registry images before publishing."
 				}
