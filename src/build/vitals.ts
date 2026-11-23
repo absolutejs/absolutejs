@@ -1,5 +1,7 @@
+import { existsSync } from 'node:fs';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
+import { VITAL_THRESHOLDS } from '../core/vitalsStore';
 import type { VitalsConfig } from '../../types/build';
 import type { ResolvedVitalsSummary } from '../../types/vitals';
 
@@ -70,19 +72,51 @@ export const resolveVitalsConfig = (config: VitalsConfig) => {
 	};
 };
 
+/* The overlay is dev-only, so with it off this template produces exactly
+ * what it produced before: `overlay` is undefined, the mount is absent and
+ * the guard below collapses to `if (sampled)`. */
 const reporterSource = (
 	webVitalsModule: string,
 	endpoint: string,
-	sampleRate: number
+	sampleRate: number,
+	overlay:
+		| {
+				module: string;
+				summaryPath: string | undefined;
+				thresholds: string;
+		  }
+		| undefined
 ) => `import { onCLS, onFCP, onINP, onLCP, onTTFB } from ${JSON.stringify(webVitalsModule)};
-
+${
+	overlay === undefined
+		? ''
+		: `import { mountVitalsOverlay } from ${JSON.stringify(overlay.module)};`
+}
 const endpoint = ${JSON.stringify(endpoint)};
-if (Math.random() < ${sampleRate}) {
+/* sampleRate governs what is SENT. In dev the overlay also wants to show a
+ * load that was not sampled — an overlay that is blank on three reloads out
+ * of four is not a tool — so collection runs either way and flush is what
+ * checks. */
+const sampled = Math.random() < ${sampleRate};
+${
+	overlay === undefined
+		? 'const overlay = undefined;'
+		: `const overlay = mountVitalsOverlay({
+	route: location.pathname,
+	sampled,
+	summaryPath: ${JSON.stringify(overlay.summaryPath)},
+	/* VITAL_THRESHOLDS, so the overlay bands a value exactly as the
+	 * summary endpoint does rather than keeping its own copy. */
+	thresholds: ${overlay.thresholds}
+});`
+}
+if (sampled || overlay !== undefined) {
 	const route = location.pathname;
 	const pending = new Map();
 	let navigationType;
 	const queue = (metric) => {
 		navigationType = metric.navigationType;
+		if (overlay !== undefined) overlay.report(metric);
 		pending.set(metric.name, {
 			delta: metric.delta,
 			id: metric.id,
@@ -93,7 +127,7 @@ if (Math.random() < ${sampleRate}) {
 		});
 	};
 	const flush = () => {
-		if (pending.size === 0) return;
+		if (!sampled || pending.size === 0) return;
 		const body = JSON.stringify({ metrics: [...pending.values()], navigationType, route });
 		pending.clear();
 		const sent =
@@ -140,15 +174,32 @@ export const injectVitalsReporterHtml = (html: string) => {
 
 export type VitalsBuildArtifacts = { banner: string };
 
+/* Source checkouts and published packages both colocate the dev client one
+ * directory above this module (`src/build` -> `src/dev`, `dist/build` ->
+ * `dist/dev`), the same resolution `generateReactIndexes` uses for the
+ * error overlay. Windows separators would break the import specifier the
+ * generated entry carries, so they are normalised. */
+const overlayModulePath = () => {
+	const fromPackage = resolve(import.meta.dir, '../dev/client');
+	const dir = existsSync(fromPackage)
+		? fromPackage
+		: resolve(import.meta.dir, './dev/client');
+
+	return join(dir, 'vitalsOverlay.ts').replace(/\\/gu, '/');
+};
+
 export const materializeVitalsReporter = async ({
 	buildPath,
 	config,
 	generatedRoot,
+	isDev = false,
 	write = true
 }: {
 	buildPath: string;
 	config: VitalsConfig;
 	generatedRoot: string;
+	/** Dev builds get the overlay bundled in; production builds never do. */
+	isDev?: boolean;
 	/** Incremental builds reuse the reporter from the full build. */
 	write?: boolean;
 }) => {
@@ -163,7 +214,14 @@ export const materializeVitalsReporter = async ({
 		reporterSource(
 			Bun.resolveSync('web-vitals', import.meta.dir),
 			endpoint,
-			sampleRate
+			sampleRate,
+			isDev
+				? {
+						module: overlayModulePath(),
+						summaryPath: resolveVitalsSummary(config, true)?.path,
+						thresholds: JSON.stringify(VITAL_THRESHOLDS)
+					}
+				: undefined
 		)
 	);
 	const outdir = join(buildPath, '__absolute', 'vitals');

@@ -132,6 +132,43 @@ for auth, or on a port your proxy doesn't expose. If you'd rather expose
 nothing, leave it off and use `onVital` — it feeds a metrics backend without
 serving anything.
 
+### The dev overlay
+
+With `vitals.dev` on, dev pages carry a small badge in the bottom-left
+corner that fills in as each metric lands:
+
+```
+TTFB 84ms  FCP 940ms  LCP 3.12s  CLS 0.042  INP 264ms   ×
+```
+
+Each value is coloured by the band it falls in — and by the *same*
+thresholds the summary endpoint uses, which are compiled into the badge from
+one table rather than restated in the browser. An overlay calling a value
+good while the summary calls it poor would be worse than no overlay.
+
+A badge rather than a panel you open, because the numbers arrive at
+different times: TTFB immediately, LCP when the largest paint settles, CLS
+whenever something moves, INP not until you interact. A panel you have to
+open is one you open after the interesting moment has passed.
+
+Click it to expand. You then get this load beside the route's p75 from the
+summary endpoint, the sample count behind that p75, and the thresholds each
+colour came from — so a slow reload can be told apart from a slow route. It
+polls every 5s while expanded and not at all while collapsed, and remembers
+whether it was open. `×` hides it until you open a new tab (`sessionStorage`,
+so it is never a decision you can't undo).
+
+**Collection and reporting come apart in dev.** `sampleRate` decides what is
+POSTed; the overlay shows the load either way, because a badge that is blank
+on three reloads out of four is not a tool. When a load won't be reported it
+says `· not sampled`, so a quiet reporter is never mistaken for a fast page.
+
+With `summary` off the badge still shows this load, and the expanded view
+says why the p75 column is empty.
+
+None of this reaches a production bundle: the overlay is imported by the
+generated reporter only for dev builds.
+
 ### What it is not
 
 **Per process, in memory, since this process started.** Nothing is
