@@ -322,6 +322,133 @@ describe('formatSvelteDiagnostics', () => {
 	});
 });
 
+/* svelte-check reports accessibility findings as WARNINGS, which is why
+ * they were invisible: `--threshold error` dropped them and the parser
+ * dropped them again. */
+const a11yWarning = (
+	code: string,
+	message: string,
+	file = '/project/src/svelte/Home.svelte'
+) =>
+	`1794717769312 ${JSON.stringify({
+		code,
+		end: { character: 1, line: 4 },
+		filename: file,
+		message,
+		source: 'svelte',
+		start: { character: 1, line: 4 },
+		type: 'WARNING'
+	})}`;
+
+const MISSING_ALT = a11yWarning(
+	'a11y_missing_attribute',
+	'`<img>` element should have an alt attribute\nhttps://svelte.dev/e/a11y_missing_attribute'
+);
+const OTHER_WARNING = a11yWarning(
+	'state_referenced_locally',
+	'This reference only captures the initial value'
+);
+
+describe('accessibility warnings', () => {
+	test('are collected, and other warnings are not', () => {
+		const { accessibility, diagnostics } = parseSvelteCheckOutput(
+			svelteCheckOutput(MISSING_ALT, OTHER_WARNING)
+		);
+
+		expect(accessibility.map((entry) => entry.code)).toEqual([
+			'a11y_missing_attribute'
+		]);
+		/* Errors are what fails a typecheck, and a warning is not one. */
+		expect(diagnostics).toEqual([]);
+	});
+
+	/* The whole point: a project with accessibility warnings and no type
+	 * errors still passes. A warning that fails a build is an error by
+	 * another name, and adopting this version would turn a green project
+	 * red on code it had not changed. */
+	test('are reported without being counted as something that failed', () => {
+		const report = svelteCheckReport(
+			svelteCheckOutput(MISSING_ALT),
+			new Set(),
+			readSource,
+			CWD
+		);
+
+		expect(report.remaining).toBe(0);
+		expect(report.accessibilityOutput.replace(ANSI, '')).toContain(
+			'1 accessibility warning'
+		);
+		expect(report.accessibilityOutput.replace(ANSI, '')).toContain(
+			'src/svelte/Home.svelte:5:2'
+		);
+	});
+
+	test('say which rule they came from', () => {
+		const report = svelteCheckReport(
+			svelteCheckOutput(MISSING_ALT),
+			new Set(),
+			readSource,
+			CWD
+		);
+
+		expect(report.accessibilityOutput).toContain('a11y_missing_attribute');
+	});
+
+	/* The message carries a docs URL on a second line; one finding per
+	 * line keeps the list scannable. */
+	test('are one line each', () => {
+		const report = svelteCheckReport(
+			svelteCheckOutput(MISSING_ALT),
+			new Set(),
+			readSource,
+			CWD
+		);
+		const body = report.accessibilityOutput
+			.replace(ANSI, '')
+			.split('\n')
+			.slice(1);
+
+		expect(body).toHaveLength(1);
+		expect(body[0]).not.toContain('https://');
+	});
+
+	test('nothing is reported when there are none', () => {
+		const report = svelteCheckReport(
+			svelteCheckOutput(OTHER_WARNING),
+			new Set(),
+			readSource,
+			CWD
+		);
+
+		expect(report.accessibilityOutput).toBe('');
+	});
+
+	/* svelte-check hands back a path already relativised against
+	 * something else — `../../../../../users/you/project/src/…` — and on a
+	 * case-insensitive filesystem it lowercases it too, so a plain
+	 * `relative()` returns a climb out of the project instead of the path
+	 * the developer typed. */
+	test('a path svelte-check mangled is shown as the project sees it', () => {
+		const report = svelteCheckReport(
+			svelteCheckOutput(
+				a11yWarning(
+					'a11y_missing_attribute',
+					'needs an alt',
+					'../../../../../project/src/svelte/Home.svelte'
+				)
+			),
+			new Set(),
+			readSource,
+			CWD
+		);
+
+		expect(report.accessibilityOutput.replace(ANSI, '')).toContain(
+			'src/svelte/Home.svelte'
+		);
+		expect(report.accessibilityOutput).not.toContain('../../..');
+	});
+});
+
 describe('svelteCheckReport', () => {
 	test('drops what the plain checker reported, keeps the rest', () => {
 		const report = svelteCheckReport(
