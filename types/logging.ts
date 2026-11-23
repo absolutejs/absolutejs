@@ -24,6 +24,12 @@ export type LoggingConfig = {
 	 *  or 256 lines, which are the lines someone investigating that death
 	 *  would want. Set this when that matters more than the throughput. */
 	flushEachLine?: boolean;
+	/** Log the framework's own `/__absolute/*` traffic too — health
+	 *  probes, the vitals collector, the dev request inspector. Default
+	 *  `false`: a readiness probe every two seconds is 43,200 lines a day
+	 *  that say nothing about anyone using the site. Turn it on to debug a
+	 *  probe. */
+	logInternalRequests?: boolean;
 	/** The inbound header to adopt an id from. Default `x-request-id`;
 	 *  `x-amzn-trace-id` on AWS, `x-cloud-trace-context` on Google Cloud.
 	 *  A value that does not look like an id is replaced rather than

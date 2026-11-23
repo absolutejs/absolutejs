@@ -4,6 +4,7 @@ export * from './islands';
 export * from './pageHandlers';
 export * from './prepare';
 export * from './requestContext';
+export { registerHealthCheck } from './healthChecks';
 export * from './renderIslandMarkup';
 export * from './responseEnhancers';
 export * from './staticFileRoute';

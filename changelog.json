@@ -5,6 +5,33 @@
 		{
 			"changes": [
 				{
+					"detail": "The access log added in beta.314 now skips the framework's own `/__absolute/*` traffic — the new health endpoints, the vitals collector, the dev request inspector. A readiness probe every two seconds is 43,200 lines a day that say nothing about anyone using the site, and they would have arrived the moment someone turned the log on; the dev request inspector already skipped the same prefix for the same reason. The request id is still assigned and echoed on those responses, so a misbehaving probe can still be correlated. `logging: { logInternalRequests: true }` logs them when that is what you are debugging.",
+					"kind": "changed",
+					"summary": "The access log skips framework-internal endpoints",
+					"symbols": [
+						"LoggingConfig"
+					]
+				},
+				{
+					"detail": "`GET /__absolute/live` and `GET /__absolute/ready` are on by default with no configuration (roadmap item 10): liveness answers without running any check, readiness runs every check the app registered with `registerHealthCheck(name, check)` and answers 503 when one fails. Both send `cache-control: no-store`, because a cached 200 from a readiness probe is a readiness probe that has stopped working. There was no health endpoint before, so the only thing left to probe was a page — which is wrong in three ways beyond cost: a 200 means that page rendered, so one broken page gets a healthy process restarted; an app with no `/` route answers 404 and reads as dead; and liveness and readiness collapse into one answer, so a process that cannot reach its database keeps taking traffic. Measured in one run against the example app's production build, a probe is also 6.3× cheaper: 125,095 req/s at a p50 of 0.050ms against 22,164 at 0.315ms for the root page. A check returns `false` or throws to report a dependency as unusable, and cannot take the probe down with it: each is raced against `timeoutMs` (default 2000) and reported as `timed out` rather than hanging the endpoint until the orchestrator's own timeout fires and blames something else; a throw or rejection becomes that check's named error instead of a 500 the orchestrator reads as unhealthy by accident; and checks run concurrently, so a probe costs the slowest rather than the sum. An app with no checks is ready, since answering 503 for an unused feature would take every default deployment out of rotation. Registering a name twice replaces it, so a module re-evaluated by dev HMR does not accumulate duplicates. Per-check names, durations and errors are withheld unless `health: { details: true }`: the endpoints are reachable by anyone who can reach the app, and the names of your dependencies are information you may not want to publish. `health: false` removes both. See `docs/HEALTH.md`.",
+					"kind": "added",
+					"summary": "Liveness and readiness endpoints, with registrable checks",
+					"symbols": [
+						"BaseBuildConfig",
+						"HealthCheck",
+						"HealthCheckResult",
+						"HealthConfig",
+						"HealthReport",
+						"registerHealthCheck"
+					]
+				}
+			],
+			"date": "2026-11-23",
+			"version": "0.20.0-beta.315"
+		},
+		{
+			"changes": [
+				{
 					"detail": "`basePath` and `basePathShared` in `absolute.config.ts` did nothing on a production server. A production server does not import the config — it reads `absolute-runtime.json`, which the build writes from an explicit allowlist of keys — and neither key was on that list. `prepare()` copies them into `ABSOLUTE_BASE_PATH` and `ABSOLUTE_BASE_PATH_SHARED` right after loading the config, and `getBasePath()` reads nothing else, so in dev (where the config is the real file) a base path worked and in production it silently disappeared. Measured on the example app with `basePath: '/portal'`: the production build served pages with no import map and no prefixed module URLs, while the same build with `ABSOLUTE_BASE_PATH=/portal` in the environment served both — so a subpath deployment configured the documented way worked in dev and broke in production only. Found while wiring `logging` through the same allowlist. The existing test for that file could not have caught it: it asserts a hand-written list of keys, written by the same hand that left these out, so it now covers the base path explicitly with the symptom recorded.",
 					"kind": "fixed",
 					"summary": "A configured basePath reaches the production server"

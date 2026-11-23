@@ -22,6 +22,7 @@ import { installAngularZoneRuntime } from '../angular/zoneRuntime';
 import { setIconVersionResolver } from '../utils/iconVersion';
 import { setCurrentIslandManifest } from './islandPageContext';
 import { absoluteRequestContext } from './requestContext';
+import { health } from '../plugins/health';
 import { requestLog } from '../plugins/requestLog';
 import { hasForeignErrorHook } from './appErrorHooks';
 import { formActionRuntime } from './formActionFlash';
@@ -513,6 +514,7 @@ const prepareDev = async (
 		.use(requestInspector)
 		.use(absoluteRequestContext)
 		.use(requestLog(config.logging))
+		.use(health(config.health))
 		// Renders and clears form-action results (formActionFlash.ts).
 		.use(formActionRuntime())
 		// Server-Timing per lifecycle phase (dev only) — powers the per-phase
@@ -1022,6 +1024,7 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 		absolutejs
 			.use(absoluteRequestContext)
 			.use(requestLog(config.logging))
+			.use(health(config.health))
 			// Renders and clears form-action results (formActionFlash.ts).
 			.use(formActionRuntime())
 			.use(mobileAssociationPlugin)
@@ -1055,6 +1058,7 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 	absolutejs
 		.use(absoluteRequestContext)
 		.use(requestLog(config.logging))
+		.use(health(config.health))
 		// Renders and clears form-action results (formActionFlash.ts).
 		.use(formActionRuntime())
 		.use(mobileAssociationPlugin)

@@ -131,6 +131,14 @@ every command and the global flags; these are the ones reached for most:
 `--config <path>` works on every command that reads one, and
 `absolute --version` prints the installed version.
 
+### Health checks
+
+`GET /__absolute/live` and `GET /__absolute/ready` are on by default with no
+configuration — liveness without running any check, readiness running the
+checks your app registers with `registerHealthCheck('database', …)` and
+answering 503 when one fails. Probing a page instead gets a healthy process
+restarted when one page breaks. See [docs/HEALTH.md](docs/HEALTH.md).
+
 ### Request logging
 
 `logging: { requests: 'json' }` writes one line per request — method, path,
