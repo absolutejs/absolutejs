@@ -21,6 +21,7 @@ import {
 	devBuildErrorResponse,
 	getCurrentAbsoluteRequest,
 	resolveDeferredPageAssets,
+	setPageEntry,
 	withDeferredStylesheets
 } from '../core/requestContext';
 import type { AbsoluteMobileBuildPageMetadata } from '../mobile/buildMetadata';
@@ -427,6 +428,10 @@ const renderVuePageRequest = async <Component extends VueComponent>(
 				const teleports =
 					ssrContext.teleports?.[ABSOLUTE_TELEPORT_TARGET] ?? '';
 				const teleportHost = `<div id="${ABSOLUTE_TELEPORT_TARGET_ID}">${teleports}</div>`;
+				/* Recorded where the entry is known, so the response can
+				 * carry preloads for what it will import. */
+				if (clientMode !== 'none' && resolvedIndexPath !== undefined)
+					setPageEntry(resolvedIndexPath);
 
 				return clientMode === 'none'
 					? `</div>${teleportHost}${ssrOnlyHmrShim}</body></html>`

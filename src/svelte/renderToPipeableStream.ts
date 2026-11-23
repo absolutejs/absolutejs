@@ -3,6 +3,7 @@ import {
 	nonceSvelteHeadStyles,
 	readCspNonce
 } from '../utils/cspNonceRef';
+import { setPageEntry } from '../core/requestContext';
 import { Readable } from 'node:stream';
 import type { Component, ComponentProps } from 'svelte';
 import { render } from 'svelte/server';
@@ -69,8 +70,10 @@ export const renderToPipeableStream = <
 				(src) => `<script${nonceAttr} src="${src}"></script>`
 			),
 			...bootstrapModules.map(
-				(src) =>
+				(src) => (
+					setPageEntry(src),
 					`<script${nonceAttr} type="module" src="${src}"></script>`
+				)
 			)
 		]
 			.filter(Boolean)

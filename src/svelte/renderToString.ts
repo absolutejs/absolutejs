@@ -3,6 +3,7 @@ import {
 	nonceSvelteHeadStyles,
 	readCspNonce
 } from '../utils/cspNonceRef';
+import { setPageEntry } from '../core/requestContext';
 import type { Component, ComponentProps } from 'svelte';
 import { render } from 'svelte/server';
 import { escapeScriptContent } from '../utils/escapeScriptContent';
@@ -62,8 +63,10 @@ export const renderToString = <Comp extends Component<Record<string, unknown>>>(
 				(src) => `<script${nonceAttr} src="${src}"></script>`
 			),
 			...bootstrapModules.map(
-				(src) =>
+				(src) => (
+					setPageEntry(src),
 					`<script${nonceAttr} type="module" src="${src}"></script>`
+				)
 			)
 		]
 			.filter(Boolean)
