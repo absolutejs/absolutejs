@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "Angular AOT was the largest cost in a production build that nothing cached: `aot/perform-compilation` is ~744ms of a ~2.3s build on the example app, while the Angular linker and resource caches (which already persist across production builds, contrary to plan item 5.19's note that caches are dev-only) only cover the vendor passes. A hit now takes `aot/compile-files` from ~977ms to ~200ms and skips `perform-compilation` entirely. The compile is one program over every entry point, not file by file, so the unit is the whole emit — all of it or none. What makes it safe to key is that the program reads 609 files on this app, 603 of them in `node_modules`, and hashing every one costs 16ms against the 744ms saved: a 46x margin, so the cache validates against the complete set the compiler actually read rather than a guessed subset. The file list cannot be known before compiling, so it is recorded during a compile and re-checked next time, which is sound because any file newly pulled into the program must be imported by one already in it, whose content therefore changed. The subtlety a naive version gets wrong is that the compiler never reads project sources from disk — it is handed copies with `templateUrl` and `styleUrls` already inlined — so a key built from disk contents would not move when a template changed and the cache would serve a component compiled against the old HTML; hashing the effective content the compiler is handed folds template and style changes in automatically. Verified by changing an external template, a component `.ts`, a non-entry project file and a `node_modules` declaration, and confirming each forces a recompile; cached output was also checked byte-identical to an uncached build. Compiler options, the TypeScript lib directory, the style-preprocessor config and the lockfile are in the key. Everything fails open — a corrupt entry, a truncated write, a missing file or an unknown format version is a miss and a normal compile, never a build failure — and entries are renamed into place so a build that dies midway leaves nothing half-written. `ABSOLUTE_AOT_CACHE=0` disables it. A fresh checkout has no cache and is unchanged; this is for repeat builds and for CI that restores `.absolutejs/cache`. See docs/BUILD_CACHE.md.",
+					"kind": "added",
+					"summary": "Angular AOT output is cached between production builds"
+				}
+			],
+			"date": "2026-11-23",
+			"version": "0.20.0-beta.323"
+		},
+		{
+			"changes": [
+				{
 					"detail": "`absolute build --profile` traced every phase of a production build except the vendor passes, which were not instrumented at all — so the one tool the framework ships for answering `where does my build go` was blind to the largest single cost in a cold build. Measured on the example app with the phases added: on a cold build (no `.absolutejs/cache`) the Angular client and server vendors cost 787ms and 762ms, run concurrently, against a traced total of 2,653ms — roughly 30% of the build, previously invisible. React, Vue and Svelte vendors are 19ms, 9ms and 9ms, so the cost is Angular and nothing else. Warm, the same two drop to 144ms and 107ms. Nothing about the build changes; `tracePhase` is a no-op unless `ABSOLUTE_BUILD_TRACE` is set, which `--profile` does.",
 					"kind": "added",
 					"summary": "The production vendor passes appear in the build profile"
