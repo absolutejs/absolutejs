@@ -99,4 +99,70 @@ describe('hasForeignErrorHook', () => {
 		);
 		expect(hasForeignErrorHook(app, runtime)).toBe(false);
 	});
+
+	/* Scoped to some routes is not the same as handling errors. A `guard`
+	 * or `group` hook does not run for a page route outside it, so counting
+	 * it would stand the fallback down for routes nothing else covers. */
+	test('an onError scoped to a guard does not count app-wide', async () => {
+		const { app, runtime } = await startedChain((rt) =>
+			new Elysia()
+				.use(rt)
+				.guard({}, (guarded) => guarded.onError(() => 'guarded'))
+				.get('/', () => 'ok')
+		);
+		expect(hasForeignErrorHook(app, runtime)).toBe(false);
+	});
+
+	test('an onError scoped to a group does not count app-wide', async () => {
+		const { app, runtime } = await startedChain((rt) =>
+			new Elysia()
+				.use(rt)
+				.group('/admin', (group) =>
+					group.onError(() => 'grouped').get('/x', () => 'ok')
+				)
+				.get('/', () => 'ok')
+		);
+		expect(hasForeignErrorHook(app, runtime)).toBe(false);
+	});
+
+	/* The runtime plugin used twice must not read as the app having its
+	 * own handler: every hook found still belongs to the runtime. */
+	test('false when the runtime is used more than once', async () => {
+		const { app, runtime } = await startedChain((rt) =>
+			new Elysia()
+				.use(rt)
+				.use(rt)
+				.get('/', () => 'ok')
+		);
+		expect(hasForeignErrorHook(app, runtime)).toBe(false);
+	});
+});
+
+/* The reason this file reaches into Elysia at all, recorded so the reliance
+ * is a decision rather than an accident. `createStaticErrorPlugin` has to
+ * know whether anything else will handle a thrown route, and Elysia stops
+ * at the first global error hook that returns a response — so a hook
+ * registered after `.use(absolutejs)` would never run. */
+describe('the assumption this all rests on', () => {
+	test('Elysia stops at the first error hook that returns a response', async () => {
+		const ran: string[] = [];
+		const app = new Elysia()
+			.onError('global', () => {
+				ran.push('first');
+
+				return new Response('first', { status: 500 });
+			})
+			.onError('global', () => {
+				ran.push('second');
+
+				return new Response('second', { status: 500 });
+			})
+			.get('/boom', () => {
+				throw new Error('x');
+			});
+		const response = await app.handle(new Request('http://app.test/boom'));
+
+		expect(await response.text()).toBe('first');
+		expect(ran).toEqual(['first']);
+	});
 });
