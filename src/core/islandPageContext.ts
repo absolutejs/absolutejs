@@ -2,6 +2,8 @@ import { escapeScriptContent } from '../utils/escapeScriptContent';
 import { nonceAttr } from '../utils/cspNonceRef';
 import { isProductionRuntime } from '../utils/runtimeMode';
 import { logWarn } from '../utils/logger';
+import { blurPlaceholdersForHtml } from '../build/blurPlaceholders';
+import { currentBlurPlaceholders } from './blurRegistry';
 import {
 	getIslandBootstrapPath,
 	getIslandStyleManifestEntries,
@@ -186,6 +188,13 @@ const buildIslandsHeadMarkup = (
 ) => {
 	const styleLinks = buildIslandStyleLinks(manifest, html);
 	const manifestScript = `<script${nonceAttr()}>window.__ABSOLUTE_MANIFEST__ = ${escapeScriptContent(JSON.stringify(toBrowserManifest(manifest)))}</script>`;
+	/* Only the blurs this page's own images need. The browser manifest
+	 * above ships the whole app's entries; doing that here would put 255
+	 * bytes times every image in the project into every page, for images
+	 * most pages never show. Written to the same global the components
+	 * read on the server, so hydration recomputes the same style instead
+	 * of stripping the placeholder the server just painted. */
+	const blurScript = blurScriptFor(html);
 	// The island runtime waits for a React page's root before it hydrates
 	// any island (see startIslands in client/islandRuntime.ts).
 	const hostAssignment = host
@@ -200,7 +209,7 @@ const buildIslandsHeadMarkup = (
 		? `<script${nonceAttr()} type="module" src="${bootstrapPath}"></script>`
 		: '';
 
-	return `${styleLinks}${manifestScript}${islandStateScript}${reactHookScript}${bootstrapScript}`;
+	return `${styleLinks}${manifestScript}${blurScript}${islandStateScript}${reactHookScript}${bootstrapScript}`;
 };
 
 const injectHeadMarkup = (html: string, markup: string) => {
@@ -530,6 +539,16 @@ const pipeStreamWithIslandMarkerDetection = (
 
 export const htmlContainsIslands = (html: string) =>
 	html.includes(ISLAND_MARKER);
+/* The blurs this page's images need, assigned straight onto the symbol the
+ * lookup reads, so no client bootstrap module is required for it. */
+const blurScriptFor = (html: string | undefined) => {
+	if (html === undefined) return '';
+	const used = blurPlaceholdersForHtml(html, currentBlurPlaceholders());
+	if (Object.keys(used).length === 0) return '';
+
+	return `<script${nonceAttr()}>globalThis[Symbol.for('absolutejs.blurPlaceholders')] = ${escapeScriptContent(JSON.stringify(used))}</script>`;
+};
+
 export const injectIslandPageContext = (
 	html: string,
 	options?: { hasIslands?: boolean }

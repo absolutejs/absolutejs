@@ -1,5 +1,6 @@
 import type { ImageProps } from '../../../types/image';
 import {
+	blurPlaceholderFor,
 	DEFAULT_QUALITY,
 	buildOptimizedUrl,
 	generateBlurSvg,
@@ -25,7 +26,8 @@ const resolveSource = (
 const resolveBlurBackground = (
 	hasBlur: boolean,
 	placeholder: ImageProps['placeholder'],
-	blurDataURL: ImageProps['blurDataURL']
+	blurDataURL: ImageProps['blurDataURL'],
+	src: ImageProps['src']
 ) => {
 	if (!hasBlur) return undefined;
 
@@ -39,7 +41,12 @@ const resolveBlurBackground = (
 
 	if (blurDataURL) return generateBlurSvg(blurDataURL);
 
-	return undefined;
+	/* The generated placeholder for a build-time image. Without this,
+	 * `placeholder="blur"` on its own resolved to nothing and the prop
+	 * silently did nothing. */
+	const generated = blurPlaceholderFor(src);
+
+	return generated === undefined ? undefined : generateBlurSvg(generated);
 };
 
 export const Image = ({
@@ -97,7 +104,8 @@ export const Image = ({
 	const blurBackground = resolveBlurBackground(
 		hasBlur,
 		placeholder,
-		blurDataURL
+		blurDataURL,
+		src
 	);
 
 	// ── Styles ──────────────────────────────────────────────────

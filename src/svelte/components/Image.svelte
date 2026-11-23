@@ -2,6 +2,7 @@
 	import type { ImageProps } from '../../../types/image';
 	import {
 		DEFAULT_QUALITY,
+		blurPlaceholderFor,
 		buildOptimizedUrl,
 		generateBlurSvg,
 		generateSrcSet
@@ -68,6 +69,11 @@
 			return generateBlurSvg(placeholder);
 		}
 		if (blurDataURL) return generateBlurSvg(blurDataURL);
+
+		/* The generated placeholder for a build-time image. */
+		const generated = blurPlaceholderFor(src);
+
+		return generated === undefined ? undefined : generateBlurSvg(generated);
 		return undefined;
 	});
 

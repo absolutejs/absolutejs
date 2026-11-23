@@ -65,7 +65,12 @@ export type ImageProps = {
 	priority?: boolean;
 	/** Placeholder while loading: "blur" uses blurDataURL, "empty" shows nothing, or pass a data URI */
 	placeholder?: 'blur' | 'empty' | string;
-	/** Base64 blur placeholder data URI (auto-generated for build-time images) */
+	/** Base64 blur placeholder data URI.
+	 *
+	 *  Generated at build time for images under the assets and public
+	 *  directories, so `placeholder="blur"` works without passing one.
+	 *  Set it yourself for an image the build never saw — a remote URL, or
+	 *  one chosen at runtime. See docs/IMAGE_BLUR_PLACEHOLDERS.md. */
 	blurDataURL?: string;
 	/** CSS class name */
 	className?: string;

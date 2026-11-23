@@ -1,5 +1,6 @@
 import { computed, defineComponent, h, ref } from 'vue';
 import {
+	blurPlaceholderFor,
 	DEFAULT_QUALITY,
 	buildOptimizedUrl,
 	generateBlurSvg,
@@ -151,7 +152,12 @@ export const Image = defineComponent({
 			}
 			if (props.blurDataURL) return generateBlurSvg(props.blurDataURL);
 
-			return undefined;
+			/* The generated placeholder for a build-time image. */
+			const generated = blurPlaceholderFor(props.src);
+
+			return generated === undefined
+				? undefined
+				: generateBlurSvg(generated);
 		});
 
 		const imgStyle = computed(() => {
