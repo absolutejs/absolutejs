@@ -1017,3 +1017,9 @@ deployment slots. Without it, the archive defaults to `.absolutejs/client-assets
 relative to the runtime working directory. Keep the archive outside ephemeral
 release directories. Tabs older than the retained window still need an explicit
 update/reload recovery flow; never silently reload unsaved user input.
+
+Run `absolute migrate --target elysia-2` to locate legacy Elysia calls in a
+project. Use `--path <directory>` to select the project and `--json` for file,
+line and message data. `--check` exits with status 1 when findings remain.
+`--apply` updates locally traced Elysia scope literals and reports remaining
+calls for signature review. Run the project typecheck after applying changes.
