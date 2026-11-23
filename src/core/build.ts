@@ -2586,7 +2586,9 @@ const buildUnlocked = async ({
 	if (!hmr && usesReactClient) {
 		const { buildReactVendor, computeVendorPaths } =
 			await import('../build/buildReactVendor');
-		await buildReactVendor(buildPath, { production: !isDev });
+		await tracePhase('vendor/react', () =>
+			buildReactVendor(buildPath, { production: !isDev })
+		);
 		vendorPaths = computeVendorPaths();
 		setDevVendorPaths(vendorPaths);
 	}
@@ -2647,16 +2649,20 @@ const buildUnlocked = async ({
 		setAngularServerVendorPaths(angularServerVendorPaths);
 
 		await Promise.all([
-			buildAngularVendor(
-				buildPath,
-				angularSourceDirs,
-				/* linkerJitMode */ false,
-				[]
+			tracePhase('vendor/angular-client', () =>
+				buildAngularVendor(
+					buildPath,
+					angularSourceDirs,
+					/* linkerJitMode */ false,
+					[]
+				)
 			),
-			buildAngularServerVendor(
-				buildPath,
-				angularSourceDirs,
-				/* linkerJitMode */ false
+			tracePhase('vendor/angular-server', () =>
+				buildAngularServerVendor(
+					buildPath,
+					angularSourceDirs,
+					/* linkerJitMode */ false
+				)
 			)
 		]);
 
@@ -2678,7 +2684,7 @@ const buildUnlocked = async ({
 	if (!hmr && vueDir) {
 		const { buildVueVendor, computeVueVendorPaths } =
 			await import('../build/buildVueVendor');
-		await buildVueVendor(buildPath);
+		await tracePhase('vendor/vue', () => buildVueVendor(buildPath));
 		vueVendorPaths = computeVueVendorPaths();
 		setVueVendorPaths(vueVendorPaths);
 	}
@@ -2696,7 +2702,7 @@ const buildUnlocked = async ({
 	if (!hmr && svelteDir) {
 		const { buildSvelteVendor, computeSvelteVendorPaths } =
 			await import('../build/buildSvelteVendor');
-		await buildSvelteVendor(buildPath);
+		await tracePhase('vendor/svelte', () => buildSvelteVendor(buildPath));
 		svelteVendorPaths = computeSvelteVendorPaths();
 		setSvelteVendorPaths(svelteVendorPaths);
 	}
