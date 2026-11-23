@@ -675,9 +675,19 @@ vitals: {
 ```
 
 Every page then loads a small reporter that sends one batch per page, with
-its route, to `POST /__absolute/vitals`. Nothing is stored by default; receive
-the metrics with `onVital((report) => …)`. Off by default, and off in dev
-unless `dev: true`. See [docs/WEB_VITALS.md](docs/WEB_VITALS.md).
+its route, to `POST /__absolute/vitals`. Those reports are aggregated into
+per-route 75th percentiles — the statistic Core Web Vitals is assessed at —
+and served as JSON:
+
+```
+GET /__absolute/vitals/summary
+```
+
+On in dev; off in production unless `summary: true`, because it is an
+unauthenticated read of every route that reported and how slow it is. For a
+real metrics backend, `onVital((report) => …)` receives every metric and
+exposes nothing. `vitals` is off by default, and off in dev unless
+`dev: true`. See [docs/WEB_VITALS.md](docs/WEB_VITALS.md).
 
 ### Installable PWA and offline Sync
 

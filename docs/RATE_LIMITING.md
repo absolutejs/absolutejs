@@ -23,6 +23,7 @@ handler — not doing the work is the point.
 | --- | --- |
 | App routes | Only when `limit` or a `rule` says so |
 | The vitals endpoint | **Limited by default** (60/minute per client) when mounted |
+| The vitals summary | **Limited by default** (600/minute per client) when mounted |
 | The health endpoints | **Never** by a global `limit` |
 
 **App routes are opt-in** because a framework that starts refusing a
@@ -34,6 +35,14 @@ the framework mounts on the app's behalf: leaving it open is the
 framework's omission rather than the project's choice. A real page sends
 one batch per load, so 60 a minute is generous for a browser and useless as
 an amplifier. An explicit rule for that path replaces the default.
+
+**The vitals summary gets a rule of its own**, and not because it deserves
+a looser one. Its default path sits *under* the batch endpoint's path, so
+longest-prefix matching would otherwise hand it the batch rule — and
+something polling the numbers once a second would both exhaust the 60/minute
+meant for page loads and share a bucket with them, so reading the summary
+would start refusing the reports that fill it. Reading a histogram already
+in memory is cheap, so 600/minute is a ceiling rather than a budget.
 
 **The health endpoints are held out of a global `limit`** — see below.
 

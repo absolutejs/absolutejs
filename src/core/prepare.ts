@@ -519,7 +519,8 @@ const prepareDev = async (
 			rateLimit({
 				config: config.rateLimit,
 				exemptPaths: healthPaths(config),
-				vitalsPath: await resolveVitalsPath(config, true)
+				vitalsPath: await resolveVitalsPath(config, true),
+				vitalsSummaryPath: await resolveVitalsSummaryPath(config, true)
 			})
 		)
 		.use(health(config.health))
@@ -645,18 +646,39 @@ const resolveVitalsPath = async (config: BuildConfig, isDev: boolean) => {
 	return endpoint.startsWith('/') ? endpoint : undefined;
 };
 
+/* The summary endpoint's path when this app serves one. Nothing when the
+ * batches post to another origin: the aggregation is of what arrives here,
+ * so a summary alongside a remote endpoint would be permanently empty, and
+ * an empty report reads as "the site is fast" rather than "nothing is being
+ * measured here". */
+const resolveVitalsSummaryPath = async (
+	config: BuildConfig,
+	isDev: boolean
+) => {
+	const path = await resolveVitalsPath(config, isDev);
+	if (path === undefined || !config.vitals) return undefined;
+	const { resolveVitalsSummary } = await import('../build/vitals');
+
+	return resolveVitalsSummary(config.vitals, isDev)?.path;
+};
+
 /* The built-in web vitals endpoint, when `vitals` is on for this mode and
  * its endpoint is a path on this server (see src/build/vitals.ts). */
 const loadVitalsPlugin = async (config: BuildConfig, isDev: boolean) => {
-	const [{ isVitalsEnabled, resolveVitalsConfig }, { createVitalsPlugin }] =
-		await Promise.all([import('../build/vitals'), import('./vitals')]);
+	const [
+		{ isVitalsEnabled, resolveVitalsConfig, resolveVitalsSummary },
+		{ createVitalsPlugin }
+	] = await Promise.all([import('../build/vitals'), import('./vitals')]);
 	if (!config.vitals || !isVitalsEnabled(config.vitals, isDev))
 		return new Elysia({ name: 'absolutejs-vitals-disabled' });
 	const { endpoint } = resolveVitalsConfig(config.vitals);
+	if (!endpoint.startsWith('/'))
+		return new Elysia({ name: 'absolutejs-vitals-remote' });
 
-	return endpoint.startsWith('/')
-		? createVitalsPlugin(endpoint)
-		: new Elysia({ name: 'absolutejs-vitals-remote' });
+	return createVitalsPlugin({
+		path: endpoint,
+		summary: resolveVitalsSummary(config.vitals, isDev)
+	});
 };
 
 const createNotFoundPlugin = () =>
@@ -1059,7 +1081,11 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 				rateLimit({
 					config: config.rateLimit,
 					exemptPaths: healthPaths(config),
-					vitalsPath: await resolveVitalsPath(config, false)
+					vitalsPath: await resolveVitalsPath(config, false),
+					vitalsSummaryPath: await resolveVitalsSummaryPath(
+						config,
+						false
+					)
 				})
 			)
 			.use(health(config.health))
@@ -1100,7 +1126,8 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 			rateLimit({
 				config: config.rateLimit,
 				exemptPaths: healthPaths(config),
-				vitalsPath: await resolveVitalsPath(config, isDev)
+				vitalsPath: await resolveVitalsPath(config, isDev),
+				vitalsSummaryPath: await resolveVitalsSummaryPath(config, isDev)
 			})
 		)
 		.use(health(config.health))
