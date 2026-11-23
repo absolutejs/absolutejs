@@ -99,3 +99,40 @@ export const generateSrcSet = (
 		.map((sizeWidth) => `${urlFor(sizeWidth)} ${sizeWidth}w`)
 		.join(', ');
 };
+
+/* The blur a page was given for an image, looked up by `src`.
+ *
+ * Isomorphic on purpose: the same component renders on the server and then
+ * hydrates, so if only the server could resolve a blur the client would
+ * recompute the style without it and strip the placeholder it had just
+ * painted. The server fills this from the build's generated map; the page
+ * carries the entries it used to the browser (see
+ * `src/build/blurPlaceholders.ts` for why it is only the entries it used).
+ *
+ * Behind a `Symbol.for` on `globalThis` like the health and vitals
+ * registries, for the same reason: the app bundle and the framework
+ * runtime can be separate module copies and both have to see one map. */
+const BLUR_PLACEHOLDERS_KEY = Symbol.for('absolutejs.blurPlaceholders');
+
+/** The generated blur for `src`, or undefined when there is none — an
+ *  image added at runtime, a remote URL, a format not worth blurring. */
+export const blurPlaceholderFor = (src: string | undefined) => {
+	if (src === undefined || src.length === 0) return undefined;
+	const map: unknown = Reflect.get(globalThis, BLUR_PLACEHOLDERS_KEY);
+	if (typeof map !== 'object' || map === null) return undefined;
+	const direct = Reflect.get(map, src);
+	if (typeof direct === 'string') return direct;
+	/* An optimized `src` points at the image endpoint with the original in
+	 * a query parameter, so the raw path is not the key. */
+	for (const [path, dataUrl] of Object.entries(map)) {
+		if (typeof dataUrl !== 'string') continue;
+		if (src.includes(path) || src.includes(encodeURIComponent(path)))
+			return dataUrl;
+	}
+
+	return undefined;
+};
+
+export const setBlurPlaceholders = (placeholders: Record<string, string>) => {
+	Reflect.set(globalThis, BLUR_PLACEHOLDERS_KEY, placeholders);
+};

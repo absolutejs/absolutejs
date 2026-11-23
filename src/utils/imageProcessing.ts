@@ -511,3 +511,5 @@ export const writeToCache = (
 
 	writeFileSync(metaPath, JSON.stringify(meta));
 };
+
+export { blurPlaceholderFor, setBlurPlaceholders } from './imageClient';

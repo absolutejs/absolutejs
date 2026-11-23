@@ -2,6 +2,7 @@ import { Component, computed, input, signal } from '@angular/core';
 import { NgStyle } from '@angular/common';
 import {
 	DEFAULT_QUALITY,
+	blurPlaceholderFor,
 	buildOptimizedUrl,
 	generateBlurSvg,
 	generateSrcSet
@@ -10,7 +11,8 @@ import {
 /** Resolve the blur background CSS value from placeholder config */
 const resolveBlurBg = (
 	placeholderValue: string,
-	blurDataUrl: string | undefined
+	blurDataUrl: string | undefined,
+	src: string | undefined
 ) => {
 	if (
 		typeof placeholderValue === 'string' &&
@@ -22,7 +24,12 @@ const resolveBlurBg = (
 
 	if (blurDataUrl) return generateBlurSvg(blurDataUrl);
 
-	return undefined;
+	/* The generated placeholder for a build-time image. Without this,
+	 * `placeholder="blur"` on its own resolved to nothing and the input
+	 * silently did nothing. */
+	const generated = blurPlaceholderFor(src);
+
+	return generated === undefined ? undefined : generateBlurSvg(generated);
 };
 
 @Component({
@@ -172,7 +179,7 @@ export class ImageComponent {
 					(this.placeholder() ?? '').startsWith('data:')));
 
 		const blurValue = hasBlur
-			? resolveBlurBg(this.placeholder(), this.blurDataURL())
+			? resolveBlurBg(this.placeholder(), this.blurDataURL(), this.src())
 			: undefined;
 
 		if (blurValue) {
