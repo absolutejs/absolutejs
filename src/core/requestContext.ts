@@ -1,9 +1,16 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { Elysia } from 'elysia';
 import { buildErrorPage } from '../utils/ssrErrorPage';
+import { DEFAULT_REQUEST_ID_HEADER, requestIdFor } from './requestId';
 
 type AbsoluteRequestStore = {
 	request: Request;
+	/** This request's correlation id, computed on first use. Nothing
+	 *  computes it up front: `onRequest` runs for every request and most
+	 *  requests never ask, so reading a header and minting a UUID there
+	 *  would be a cost on the hot path paid by everyone for a feature that
+	 *  is opt-in. */
+	requestId?: string;
 	/** Route pattern Elysia matched for this request (e.g. `/portal/*`).
 	 *  Set before the handler runs, for dynamic routes only. */
 	route?: string;
@@ -68,6 +75,21 @@ export const getCurrentAbsoluteRoute = (request?: Request) => {
 	if (request && store.request !== request) return undefined;
 
 	return store.route;
+};
+/** This request's correlation id — the inbound one when a proxy sent a
+ *  usable one, else a new one — or undefined outside a request.
+ *
+ *  Memoized per request, so the id in a log line, the one on the response
+ *  header and the one an error report quotes are the same string however
+ *  many times it is asked for. `header` is only read the first time. */
+export const getCurrentRequestId = (
+	header: string = DEFAULT_REQUEST_ID_HEADER
+) => {
+	const store = getRequestStorage()?.getStore();
+	if (!store) return undefined;
+	store.requestId ??= requestIdFor(store.request, header);
+
+	return store.requestId;
 };
 export const runWithAbsoluteRequest = <Result>(
 	request: Request,
