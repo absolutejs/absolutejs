@@ -160,6 +160,18 @@ health endpoints are never limited by a global limit — a 429 to a readiness
 probe takes the process out of rotation. See
 [docs/RATE_LIMITING.md](docs/RATE_LIMITING.md).
 
+### What a bundle is made of
+
+`absolute analyze --modules` breaks a build down by the modules inside it,
+and `--treemap sizes.html` writes the same data as a self-contained SVG
+treemap. The category totals it already printed answer "how big" and never
+"of what": the first run of this on the example app found
+`@angular/compiler` at 462 KB, 68% of everything shipped to a browser.
+Bytes are attributed from sourcemaps — 96.9% of a 3.9 MB bundle across
+1,325 sources, with the bundler's own glue reported as unmapped rather
+than quietly dropped. Needs `sourcemaps: 'external'`, and says so when
+there are none. See [docs/BUNDLE_TREEMAP.md](docs/BUNDLE_TREEMAP.md).
+
 ### Typed environment variables
 
 `defineEnv({ PORT: Type.Number({ default: 3000 }) })` returns a typed,

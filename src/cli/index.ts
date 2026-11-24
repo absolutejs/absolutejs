@@ -81,7 +81,7 @@ const printUsage = (write: (line: string) => void) => {
 		'  add <framework> [--no-install] Add a framework (deps, config, starter page)'
 	);
 	write(
-		'  analyze [--save] [--json] [--check] Bundle sizes, a diff against a saved baseline, or the size budgets in your config as a gate'
+		'  analyze [--save] [--json] [--check] [--modules] [--treemap FILE] Bundle sizes, a diff against a saved baseline, the size budgets in your config as a gate, or which modules a bundle is made of'
 	);
 	write(
 		'  bench [--save] [--json] [--check] Build time, bundle size and render throughput, against a committed baseline'
