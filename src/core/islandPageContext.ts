@@ -5,6 +5,11 @@ import { logWarn } from '../utils/logger';
 import { blurPlaceholdersForHtml } from '../build/blurPlaceholders';
 import { currentBlurPlaceholders } from './blurRegistry';
 import {
+	isServerDataCollector,
+	serializeServerDataScript
+} from '../vue/serverDataPayload';
+import { peekVueIslandServerData } from './requestContext';
+import {
 	getIslandBootstrapPath,
 	getIslandStyleManifestEntries,
 	getIslandStyleManifestKey
@@ -208,8 +213,25 @@ const buildIslandsHeadMarkup = (
 	const bootstrapScript = bootstrapPath
 		? `<script${nonceAttr()} type="module" src="${bootstrapPath}"></script>`
 		: '';
+	/* `useServerData` results from Vue islands rendered on this page.
+	 * Written to the same global a Vue PAGE writes, because the browser
+	 * build of the hook reads exactly one place — so an island on a React
+	 * or HTML page hydrates with its data instead of fetching it again.
+	 * Empty for a page with no Vue islands, or none that load data. */
+	const vueIslandDataScript = vueIslandServerDataScript();
 
-	return `${styleLinks}${manifestScript}${blurScript}${islandStateScript}${reactHookScript}${bootstrapScript}`;
+	return `${styleLinks}${manifestScript}${blurScript}${islandStateScript}${vueIslandDataScript}${reactHookScript}${bootstrapScript}`;
+};
+
+/* Reads what the island renders collected for this request. A Vue page
+ * serializes its own payload in its page handler; this is the island
+ * path, which had none. */
+const vueIslandServerDataScript = () => {
+	const collector = peekVueIslandServerData();
+
+	return isServerDataCollector(collector)
+		? serializeServerDataScript(collector)
+		: '';
 };
 
 const injectHeadMarkup = (html: string, markup: string) => {
