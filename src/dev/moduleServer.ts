@@ -1191,6 +1191,34 @@ const compileVueStyles = async (
 };
 
 // Compile .vue SFC files to client JS using @vue/compiler-sfc.
+/* What each Vue file's served module last contained, and whether the change
+ * that produced it touched the script.
+ *
+ * `rerender()` swaps only the render function and keeps the instance's
+ * `setup()` result, which preserves state for a template edit. After a
+ * script edit the new template reads bindings that old setup never
+ * returned: a newly imported component (`$setup.NewButton`), a new ref or
+ * function, all `undefined`, so the update rendered nothing or threw.
+ * A script change has to `reload()`, re-running setup.
+ *
+ * Kept per file content rather than per request, so every client fetching
+ * the same version (a second tab, a reload) gets the same instruction. */
+type ServedVueVersion = { reload: boolean; script: string; source: string };
+const servedVueVersions = new Map<string, ServedVueVersion>();
+
+const vueUpdateNeedsReload = (
+	filePath: string,
+	source: string,
+	script: string
+) => {
+	const previous = servedVueVersions.get(filePath);
+	if (previous?.source === source) return previous.reload;
+	const reload = previous !== undefined && previous.script !== script;
+	servedVueVersions.set(filePath, { reload, script, source });
+
+	return reload;
+};
+
 const transformVueFile = async (
 	filePath: string,
 	projectRoot: string,
@@ -1218,6 +1246,11 @@ const transformVueFile = async (
 	// post-hydration.
 	const componentId = toKebab(fileName);
 	const { descriptor } = vueCompiler.parse(raw, { filename: filePath });
+	const reloadOnUpdate = vueUpdateNeedsReload(
+		filePath,
+		raw,
+		`${descriptor.script?.content ?? ''}\u0000${descriptor.scriptSetup?.content ?? ''}`
+	);
 
 	// Template-only components (no `<script>` or `<script setup>`) are
 	// valid Vue SFCs. compileScript throws on them, so synthesize a
@@ -1266,10 +1299,9 @@ const transformVueFile = async (
 	// _ctx: any). Run through the TS transpiler to strip those.
 	code = tsTranspiler.transformSync(code);
 
-	// Inject Vue HMR — use rerender() to preserve reactive state.
-	// rerender() only swaps the render function (like React Fast Refresh).
-	// reload() would reset state by re-running setup().
-	code = injectVueHmr(code, filePath, projectRoot, vueDir);
+	// Inject Vue HMR: rerender() keeps state for a template or style edit;
+	// a script edit reloads (servedVueVersions above says why).
+	code = injectVueHmr(code, filePath, projectRoot, vueDir, reloadOnUpdate);
 
 	return rewriteImports(code, filePath, projectRoot, rewriter);
 };
@@ -1279,7 +1311,8 @@ const injectVueHmr = (
 	code: string,
 	filePath: string,
 	projectRoot: string,
-	vueDir?: string
+	vueDir: string | undefined,
+	reloadOnUpdate: boolean
 ) => {
 	const hmrBase = vueDir ? resolve(vueDir) : projectRoot;
 	const hmrId = relative(hmrBase, filePath)
@@ -1291,7 +1324,9 @@ const injectVueHmr = (
 		`__hmr_comp__.__hmrId = ${JSON.stringify(hmrId)};`,
 		`if (typeof __VUE_HMR_RUNTIME__ !== "undefined") {`,
 		`  __VUE_HMR_RUNTIME__.createRecord(${JSON.stringify(hmrId)}, __hmr_comp__);`,
-		`  __VUE_HMR_RUNTIME__.rerender(${JSON.stringify(hmrId)}, __hmr_comp__.render);`,
+		reloadOnUpdate
+			? `  __VUE_HMR_RUNTIME__.reload(${JSON.stringify(hmrId)}, __hmr_comp__);`
+			: `  __VUE_HMR_RUNTIME__.rerender(${JSON.stringify(hmrId)}, __hmr_comp__.render);`,
 		`}`,
 		'export default __hmr_comp__;'
 	].join('\n');
