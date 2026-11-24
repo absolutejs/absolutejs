@@ -426,6 +426,18 @@ export type PostCSSConfig =
 			config?: string;
 	  };
 
+/** Vendor prefixing, done by `autoprefixer` when the project has it
+ *  installed. `false` turns it off. */
+export type AutoprefixerConfig =
+	| false
+	| {
+			/** A browserslist query naming the browsers the app supports.
+			 *  Left out, the project's own browserslist config is used
+			 *  (`browserslist` in package.json, or `.browserslistrc`), and
+			 *  `defaults` if there is none. */
+			browsers?: string | string[];
+	  };
+
 export type StylePreprocessorConfig = {
 	/**
 	 * Import aliases for preprocessor imports, e.g. { "@styles/*": "src/styles/*" }.
@@ -437,6 +449,7 @@ export type StylePreprocessorConfig = {
 	less?: LessPreprocessorOptions;
 	postcss?: PostCSSConfig;
 	stylus?: StylusPreprocessorOptions;
+	autoprefixer?: AutoprefixerConfig;
 };
 
 export type TailwindConfig = {
@@ -646,6 +659,20 @@ export type BaseBuildConfig = {
 	stylesConfig?: string | StylesConfig;
 	stylePreprocessors?: StylePreprocessorConfig;
 	postcss?: PostCSSConfig;
+	/**
+	 * The browsers the app supports, as a browserslist query — for
+	 * example `'defaults'` or `['last 2 versions', 'not dead']`. Decides
+	 * which vendor prefixes are added to stylesheets.
+	 *
+	 * Prefixing runs when `autoprefixer` (with `postcss`) is installed
+	 * in the project; without it this has no effect and CSS is emitted
+	 * as written. Left out, the project's own browserslist config
+	 * applies, then `defaults`.
+	 */
+	browsers?: string | string[];
+	/** `false` turns vendor prefixing off even when `autoprefixer` is
+	 *  installed. */
+	autoprefixer?: boolean;
 	tailwind?: TailwindConfig;
 	/**
 	 * Bun build options applied to Absolute's app output build passes.

@@ -1,4 +1,5 @@
 import { getNodeEnv } from '../utils/runtimeMode';
+import { logWarn } from '../utils/logger';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
@@ -377,13 +378,33 @@ const getStylusOptions = (
 	config: StylePreprocessorConfig | undefined
 ): StylusPreprocessorOptions => config?.stylus ?? {};
 
+type BrowserTargetConfig = {
+	autoprefixer?: boolean;
+	browsers?: string | string[];
+};
+
+const toAutoprefixerConfig = (targets: BrowserTargetConfig | undefined) => {
+	if (targets?.autoprefixer === false) return false;
+	if (targets?.browsers === undefined) return undefined;
+
+	return { browsers: targets.browsers };
+};
+
 export const createStyleTransformConfig = (
 	stylePreprocessors?: StylePreprocessorConfig,
-	postcss?: PostCSSConfig
-): StylePreprocessorConfig | undefined =>
-	postcss === undefined
-		? stylePreprocessors
-		: { ...(stylePreprocessors ?? {}), postcss };
+	postcss?: PostCSSConfig,
+	targets?: BrowserTargetConfig
+): StylePreprocessorConfig | undefined => {
+	const autoprefixer = toAutoprefixerConfig(targets);
+	if (postcss === undefined && autoprefixer === undefined)
+		return stylePreprocessors;
+
+	return {
+		...(stylePreprocessors ?? {}),
+		...(postcss === undefined ? {} : { postcss }),
+		...(autoprefixer === undefined ? {} : { autoprefixer })
+	};
+};
 
 const withAdditionalData = (
 	contents: string,
@@ -479,33 +500,199 @@ const resolvePostcssConfig = async (
 	};
 };
 
+/* ---- default vendor prefixing --------------------------------------
+ *
+ * Bun's CSS bundler lowers modern SYNTAX — nesting, `oklch()`, range
+ * media queries, `color-mix()` — but adds no vendor prefixes, and has no
+ * setting for which browsers to target. `user-select`, `backdrop-filter`,
+ * `mask-image`, `text-size-adjust` and `hyphens` all came out bare, and
+ * some Safari versions only understand the `-webkit-` forms.
+ *
+ * `autoprefixer` is an OPTIONAL peer, like sass, less and postcss: when a
+ * project has it, prefixing is on by default; when it does not, nothing
+ * changes. A hard dependency would have cost every install about 6MB
+ * (4.2MB of it browser data) and made postcss mandatory, for a feature
+ * some projects do not want.
+ *
+ * It is cheap where it runs. Measured: 146ms once per process, almost
+ * all of it loading the module; then 0.75ms for the example app's 13
+ * stylesheets and 4.4ms for a 109KB one. */
+type AutoprefixerFactory = (options?: {
+	overrideBrowserslist?: string | string[];
+	remove?: boolean;
+}) => unknown;
+
+let autoprefixerFactory: AutoprefixerFactory | null | undefined;
+
+const loadAutoprefixer = () => {
+	if (autoprefixerFactory !== undefined) return autoprefixerFactory;
+	try {
+		const mod = normalizePostcssModule(
+			requireOptionalPeerSync<unknown>('autoprefixer')
+		);
+		autoprefixerFactory =
+			typeof mod === 'function' ? (mod as AutoprefixerFactory) : null;
+	} catch {
+		autoprefixerFactory = null;
+	}
+
+	return autoprefixerFactory;
+};
+
+const prefixerByTargets = new Map<string, unknown>();
+
+const isAutoprefixerPlugin = (plugin: unknown) =>
+	(typeof plugin === 'object' || typeof plugin === 'function') &&
+	plugin !== null &&
+	Reflect.get(plugin, 'postcssPlugin') === 'autoprefixer';
+
+/* Properties that some browsers in a normal support range only
+ * understand prefixed. Used for ONE thing: telling a project that has no
+ * prefixer installed that its CSS would have been changed by one. */
+const PREFIX_PRONE_PROPERTIES = [
+	'user-select',
+	'backdrop-filter',
+	'mask-image',
+	'text-size-adjust',
+	'hyphens',
+	'box-decoration-break',
+	'print-color-adjust'
+];
+
+const findUnprefixedProperty = (css: string) =>
+	PREFIX_PRONE_PROPERTIES.find(
+		(property) =>
+			new RegExp(`(?:^|[;{\\s])${property}\\s*:`).test(css) &&
+			!css.includes(`-webkit-${property}`)
+	);
+
+let missingPrefixerNoted = false;
+
+/* Said once per process, and only when it would have mattered: the
+ * project wrote a property that needs a prefix somewhere and nothing is
+ * installed to add it. Without this, "on when installed" would mean a
+ * project that never heard of the option ships unprefixed CSS silently. */
+const noteMissingPrefixer = (css: string, filePath: string) => {
+	if (missingPrefixerNoted) return;
+	const property = findUnprefixedProperty(css);
+	if (property === undefined) return;
+	missingPrefixerNoted = true;
+	logWarn(
+		`${relative(process.cwd(), filePath)} uses \`${property}\`, which some browsers only understand with a vendor prefix. Install \`autoprefixer\` and \`postcss\` to have prefixes added at build time, or set \`autoprefixer: false\` in absolute.config.ts to silence this.`
+	);
+};
+
+/** The prefixer to run after the project's own PostCSS plugins, or
+ *  `null` when it is off, not installed, or already among them. */
+const resolveDefaultPrefixer = (
+	config: StylePreprocessorConfig | undefined,
+	userPlugins: unknown[],
+	css: string,
+	filePath: string
+) => {
+	const setting = config?.autoprefixer;
+	if (setting === false) return null;
+	if (userPlugins.some(isAutoprefixerPlugin)) return null;
+
+	const factory = loadAutoprefixer();
+	if (factory === null) {
+		noteMissingPrefixer(css, filePath);
+
+		return null;
+	}
+
+	const browsers = setting?.browsers;
+	const key = JSON.stringify(browsers ?? null);
+	const cached = prefixerByTargets.get(key);
+	if (cached !== undefined) return cached;
+
+	/* Add-only. Left to its default, autoprefixer also DELETES prefixes
+	 * it judges outdated for the target browsers — it removed a
+	 * hand-written `-webkit-backdrop-filter` from the example app. For
+	 * something that is on without being asked for, taking out what the
+	 * author wrote is the wrong way to be wrong. */
+	const plugin = factory({
+		remove: false,
+		...(browsers === undefined ? {} : { overrideBrowserslist: browsers })
+	});
+	prefixerByTargets.set(key, plugin);
+
+	return plugin;
+};
+
+/** For tests: forget whether `autoprefixer` was found and what was said. */
+export const resetAutoprefixerState = (
+	factory?: AutoprefixerFactory | null
+) => {
+	autoprefixerFactory = factory;
+	prefixerByTargets.clear();
+	missingPrefixerNoted = false;
+};
+
+type PostcssModule = typeof import('postcss') & {
+	default?: typeof import('postcss');
+};
+
 const runPostcss = async (
 	css: string,
 	filePath: string,
 	config: StylePreprocessorConfig | undefined
 ) => {
 	const postcssConfig = await resolvePostcssConfig(config);
-	if (!postcssConfig) return css;
+	const userPlugins = postcssConfig?.plugins ?? [];
+	const prefixer = resolveDefaultPrefixer(config, userPlugins, css, filePath);
+	if (!postcssConfig && prefixer === null) return css;
 
-	let postcssModule: typeof import('postcss') & {
-		default?: typeof import('postcss');
-	};
+	let postcssModule: PostcssModule;
 	try {
-		postcssModule =
-			await importOptionalPeer<typeof postcssModule>('postcss');
+		postcssModule = await importOptionalPeer<PostcssModule>('postcss');
 	} catch {
-		throw missingDependencyError('postcss', filePath);
+		/* The project asked for PostCSS and does not have it: an error,
+		 * as before. Only the default prefixer wanting it is not — a
+		 * missing peer must not fail a build that never configured one. */
+		if (postcssConfig) throw missingDependencyError('postcss', filePath);
+
+		return css;
 	}
 	const postcss = postcssModule.default ?? postcssModule;
+	const plugins =
+		prefixer === null ? userPlugins : [...userPlugins, prefixer];
 	const result = await postcss(
-		postcssConfig.plugins as import('postcss').AcceptedPlugin[]
+		plugins as import('postcss').AcceptedPlugin[]
 	).process(css, {
 		from: filePath,
 		map: false,
-		...postcssConfig.options
+		...(postcssConfig?.options ?? {})
 	});
 
 	return result.css;
+};
+
+/* The synchronous compile path has no PostCSS — a project's plugins may
+ * be async — but the prefixer is a synchronous plugin, so it can run
+ * here. It has to: this path compiles Angular component styles during
+ * fast HMR, and leaving it out would mean prefixes in a production build
+ * that the same component did not have in dev. */
+const runPrefixerSync = (
+	css: string,
+	filePath: string,
+	config: StylePreprocessorConfig | undefined
+) => {
+	const prefixer = resolveDefaultPrefixer(config, [], css, filePath);
+	if (prefixer === null) return css;
+
+	let postcssModule: PostcssModule;
+	try {
+		postcssModule = requireOptionalPeerSync<PostcssModule>('postcss');
+	} catch {
+		return css;
+	}
+	const postcss = postcssModule.default ?? postcssModule;
+
+	return postcss([prefixer as import('postcss').AcceptedPlugin]).process(
+		css,
+		{ from: filePath, map: false }
+	).css;
 };
 
 const createSassImporter = (
@@ -1113,7 +1300,7 @@ const resolveCssImportsSync = (
 	});
 };
 
-export const compileStyleFileIfNeededSync = (
+const compileStyleFileSyncUnprefixed = (
 	filePath: string,
 	config?: StylePreprocessorConfig
 ) => {
@@ -1188,6 +1375,16 @@ export const compileStyleFileIfNeededSync = (
 		new Set([filePath])
 	);
 };
+
+export const compileStyleFileIfNeededSync = (
+	filePath: string,
+	config?: StylePreprocessorConfig
+) =>
+	runPrefixerSync(
+		compileStyleFileSyncUnprefixed(filePath, config),
+		filePath,
+		config
+	);
 
 export const getCssOutputExtension = (filePath: string) =>
 	isPreprocessableStylePath(filePath) ? '.css' : extname(filePath);

@@ -9,6 +9,8 @@ import type {
 const RESERVED_TOP_LEVEL_KEYS = new Set([
 	'assetsDirectory',
 	'astroDirectory',
+	'autoprefixer',
+	'browsers',
 	'buildDirectory',
 	'bunBuild',
 	'command',

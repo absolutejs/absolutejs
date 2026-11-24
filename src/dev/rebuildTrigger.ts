@@ -114,7 +114,10 @@ const runSequentially = <Item>(
 	);
 
 const getStyleTransformConfig = (config: BuildConfig) =>
-	createStyleTransformConfig(config.stylePreprocessors, config.postcss);
+	createStyleTransformConfig(config.stylePreprocessors, config.postcss, {
+		autoprefixer: config.autoprefixer,
+		browsers: config.browsers
+	});
 
 /* When a fast path handles a file change, the full build doesn't run, so
    Tailwind never gets a chance to rescan source files. If the changed file

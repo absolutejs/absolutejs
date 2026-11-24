@@ -376,6 +376,7 @@
 		"@expo/code-signing-certificates": "0.0.6",
 		"@libsql/client": ">=0.15.0 <1",
 		"@vue/compiler-sfc": "^3.5.27",
+		"autoprefixer": "^10.4.0",
 		"elysia": "^2.0.0-rc.0",
 		"less": "^4.6.0",
 		"mssql": ">=11.0.0 <13",
@@ -450,6 +451,9 @@
 			"optional": true
 		},
 		"@vue/compiler-sfc": {
+			"optional": true
+		},
+		"autoprefixer": {
 			"optional": true
 		},
 		"less": {
@@ -610,7 +614,7 @@
 			]
 		}
 	},
-	"version": "0.20.0-beta.348",
+	"version": "0.20.0-beta.349",
 	"workspaces": [
 		"tests/fixtures/*",
 		"tests/fixtures/_packages/*"

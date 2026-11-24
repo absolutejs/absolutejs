@@ -5,6 +5,22 @@
 		{
 			"changes": [
 				{
+					"detail": "Bun's CSS bundler lowers modern SYNTAX — nesting, `oklch()`, range media queries, `color-mix()` — but adds no vendor prefixes and has no setting for which browsers to target, so `user-select`, `backdrop-filter`, `mask-image`, `text-size-adjust` and `hyphens` all shipped bare, and some Safari versions only understand the `-webkit-` forms. Stylesheets are now prefixed by default WHEN the project has `autoprefixer` installed (`bun add -d autoprefixer postcss`), and a new `browsers` key takes a browserslist query to say which browsers the app supports; without `autoprefixer` nothing changes. It is an optional peer, like sass, less and postcss, and that was decided on measurement rather than assumed: prefixing costs 146ms once per process (almost all module loading), then 0.75ms for the example app's 13 stylesheets and 4.4ms for a 109KB one — so time was never the objection. Install size was: about 5.3MB, 4.2MB of it browser data, and always-on prefixing would have made `postcss` mandatory too. It covers every stylesheet the build compiles — plain CSS, Sass, Less, Stylus, CSS modules and the component styles of Angular, Svelte and Vue — and runs after the project's own PostCSS plugins, standing down if those already include `autoprefixer`. Two decisions worth knowing. It is ADD-ONLY: left to its default autoprefixer also deletes prefixes it judges outdated for the targets, and it removed a hand-written `-webkit-backdrop-filter` from the example app; something that runs without being asked for should not take out what the author wrote. And it runs in the synchronous compile path too, which compiles Angular component styles during fast HMR — without that a component would have prefixes in production that it did not have in dev. Because \"on when installed\" would otherwise mean a project that never heard of the option ships unprefixed CSS silently, the build says so once, naming the property and the file, when no prefixer is installed and a stylesheet uses a property that needs one; `autoprefixer: false` turns prefixing and that note off. See docs/AUTOPREFIXING.md.",
+					"kind": "added",
+					"summary": "Vendor prefixes by default when autoprefixer is installed, and a `browsers` target",
+					"symbols": [
+						"AutoprefixerConfig",
+						"BaseBuildConfig",
+						"StylePreprocessorConfig"
+					]
+				}
+			],
+			"date": "2026-11-24",
+			"version": "0.20.0-beta.349"
+		},
+		{
+			"changes": [
+				{
 					"detail": "With the timer wait gone (beta.347), a CPU profile of the production server under load showed where the remaining 0.23ms of an Angular request went, and three pieces of it were this framework's rather than Angular's. The largest: a ROUTER BUILT FOR PAGES WITH NO ROUTES, 13.5% of server CPU. The server watches the Angular router so a guard's redirect becomes an HTTP redirect, and it found the router with `inject(Router, { optional: true })` — which does not mean \"only if this page has one\". `Router` is `providedIn: 'root'`, so asking for it BUILDS one, with its location and history state manager, on every request; it also quietly undid the build's own rule of wiring the router only into pages that export `routes`. The watcher now asks for `ROUTES` first, which has no root factory and so exists only when `provideRouter` ran. Second, locating `@angular/router` resolved a vendor path with an `existsSync` in it and then dynamically imported it on every request, for an answer that cannot change under a running production server; it is now done once. Third, each of five injected scripts was its own search-and-copy of the whole document though all land in the same place in the same order; they are joined and inserted once. Steady load at eight connections, median of three runs: 4,343 to 5,154 requests a second, 0.230ms to 0.194ms of CPU per request. A guard redirect on a routed page still becomes a 302, which a test now covers alongside one asserting a route-less page never has a router asked for. What remains is Angular's own per-request work. Parsing the page shell on every request (12% of CPU) was measured and deliberately NOT taken: a pre-parsed clone is reachable through public API and renders byte-identically 20-35 microseconds faster, but a clone does not carry the request's URL, so server code reading `document.location` would see the wrong address. See docs/ANGULAR_SSR_HANDOFF.md.",
 					"kind": "changed",
 					"summary": "Angular pages use 16% less server CPU: no router built for route-less pages"
