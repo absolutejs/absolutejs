@@ -5,7 +5,12 @@ import { pathToFileURL } from 'node:url';
 import { describe, expect, test } from 'bun:test';
 import { createSSRApp } from 'vue';
 import { renderToString } from 'vue/server-renderer';
-import { clearVueHmrCaches, compileVue } from '../../../src/build/compileVue';
+import {
+	clearVueHmrCaches,
+	compileVue,
+	VUE_DEV_HYDRATION_UNWATCH,
+	VUE_DEV_HYDRATION_WATCH
+} from '../../../src/build/compileVue';
 import { projectFixtureDir } from '../../helpers/projectFixtureDir';
 import { required } from '../../helpers/required';
 
@@ -411,11 +416,14 @@ export const routes = defineRoutes([
 			};
 
 			const development = await indexOf(true);
-			// Collected from Vue's warnings, chained after any app handler...
-			expect(development).toContain('app.config.warnHandler = function');
-			expect(development).toContain(
-				'if (appWarnHandler) appWarnHandler('
-			);
+			// Read from the console while hydrating, never replacing Vue's
+			// handler (which would stringify the mismatching node)...
+			expect(development).not.toContain('warnHandler');
+			expect(development).toContain('console.warn = function (...parts)');
+			// ...stopped in the mount's finally, whatever mount did...
+			expect(
+				development.indexOf('console.warn = pageConsoleWarn;')
+			).toBeGreaterThan(development.indexOf('} finally {'));
 			// ...and handed to the overlay once the page has mounted.
 			expect(development).toContain('"absolute:dev-error"');
 			expect(development.indexOf('app.mount("#root")')).toBeLessThan(
@@ -427,11 +435,61 @@ export const routes = defineRoutes([
 			).not.toThrow();
 
 			const production = await indexOf(false);
-			expect(production).not.toContain('warnHandler');
+			expect(production).not.toContain('pageConsoleWarn');
 			expect(production).not.toContain('absolute:dev-error');
 		} finally {
 			await rm(root, { force: true, recursive: true });
 		}
+	});
+
+	test('the hydration watch keeps the live node for the console and describes it for the overlay', () => {
+		const consoleCalls: unknown[][] = [];
+		const fakeConsole: Pick<Console, 'warn'> = {
+			warn: (...parts: unknown[]) => {
+				consoleCalls.push(parts);
+			}
+		};
+		const element: Record<string, string | number> = {
+			className: 'ai-widget is-expanded',
+			id: '',
+			nodeType: 1,
+			tagName: 'DIV'
+		};
+		const comment: Record<string, string | number> = {
+			data: 'v-if',
+			nodeType: 8
+		};
+		const run = new Function(
+			'console',
+			'element',
+			'comment',
+			[
+				'const shouldHydrate = true;',
+				...VUE_DEV_HYDRATION_WATCH,
+				'  const watching = console.warn;',
+				'  try {',
+				'    console.warn("[Vue warn]: Hydration node mismatch:\\n- rendered on server:", comment, "\\n- expected on client:", element);',
+				'    console.warn("[Vue warn]: something else");',
+				'  } finally {',
+				...VUE_DEV_HYDRATION_UNWATCH,
+				'  }',
+				'  return { hydrationWarnings, restored: console.warn !== watching };'
+			].join('\n')
+		);
+
+		const { hydrationWarnings, restored } = run(
+			fakeConsole,
+			element,
+			comment
+		);
+
+		expect(hydrationWarnings).toEqual([
+			'Hydration node mismatch:\n- rendered on server: <!--v-if--> \n- expected on client: <div.ai-widget.is-expanded>'
+		]);
+		// The console still received the node itself, for devtools.
+		expect(consoleCalls[0]?.[3]).toBe(element);
+		expect(consoleCalls).toHaveLength(2);
+		expect(restored).toBe(true);
 	});
 
 	test('compiles pages whose only script block is a plain <script>', async () => {
