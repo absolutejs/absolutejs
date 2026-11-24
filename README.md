@@ -160,6 +160,19 @@ health endpoints are never limited by a global limit — a 429 to a readiness
 probe takes the process out of rotation. See
 [docs/RATE_LIMITING.md](docs/RATE_LIMITING.md).
 
+### Typed environment variables
+
+`defineEnv({ PORT: Type.Number({ default: 3000 }) })` returns a typed,
+frozen object and stops the process at startup with a table — not a stack
+trace — when a variable is missing or the wrong type, printing a
+secret-looking name as `set` rather than its value. `absolute env` now
+lists what the project DECLARES (type, default, optional) alongside what it
+reads with `getEnv()`, and `--check` fails on a variable set to the wrong
+thing rather than only on an absent one. Two things were broken before
+this: a schema naming a string format could never pass, because TypeBox
+registers no format validators and fails closed, and `absolute env` could
+not see a schema at all. See [docs/TYPED_ENV.md](docs/TYPED_ENV.md).
+
 ### Third-party scripts
 
 `<Script src="https://plausible.io/js/script.js" />` (React), or
