@@ -16,6 +16,8 @@ globalThis.Headers = nativeHeaders;
 afterAll(() => GlobalRegistrator.unregister());
 
 import {
+	DEV_TOOLBAR_OPT_OUT,
+	devToolbarWanted,
 	installDevToolbar,
 	islandFacts
 } from '../../../src/dev/client/devToolbar';
@@ -156,5 +158,35 @@ describe('mounting', () => {
 				.querySelector(HOST)
 				?.getAttribute('data-absolute-navigation')
 		).toBe('off');
+	});
+});
+
+describe('where it does not belong', () => {
+	test('a page that opts out gets no toolbar', () => {
+		document.getElementById('absolute-dev-toolbar')?.remove();
+		document.documentElement.setAttribute(DEV_TOOLBAR_OPT_OUT, 'off');
+		installDevToolbar();
+		expect(document.querySelector(HOST)).toBeNull();
+		document.documentElement.removeAttribute(DEV_TOOLBAR_OPT_OUT);
+	});
+
+	test('a framed page (an editor preview) gets none; the top page does', () => {
+		const framed = {
+			document,
+			self: {},
+			top: {}
+		} as unknown as Window;
+		const crossOrigin = Object.defineProperty(
+			{ document, self: {} },
+			'top',
+			{
+				get: () => {
+					throw new Error('cross-origin');
+				}
+			}
+		) as unknown as Window;
+		expect(devToolbarWanted(framed)).toBe(false);
+		expect(devToolbarWanted(crossOrigin)).toBe(false);
+		expect(devToolbarWanted(window)).toBe(true);
 	});
 });
