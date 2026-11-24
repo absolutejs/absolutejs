@@ -430,7 +430,8 @@ const prepareDev = async (
 		projectRoot: process.cwd(),
 		stylePreprocessors: createStyleTransformConfig(
 			config.stylePreprocessors,
-			config.postcss
+			config.postcss,
+			{ autoprefixer: config.autoprefixer, browsers: config.browsers }
 		),
 		vendorPaths: allVendorPaths
 	});

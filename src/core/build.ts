@@ -1057,6 +1057,8 @@ const buildUnlocked = async ({
 	stylesConfig,
 	stylePreprocessors,
 	postcss,
+	browsers,
+	autoprefixer,
 	tailwind,
 	bunBuild: bunBuildConfig,
 	clientBoundary,
@@ -1208,7 +1210,8 @@ const buildUnlocked = async ({
 	const isIncremental = incrementalFiles && incrementalFiles.length > 0;
 	const styleTransformConfig = createStyleTransformConfig(
 		stylePreprocessors,
-		postcss
+		postcss,
+		{ autoprefixer, browsers }
 	);
 	const stylePreprocessorPlugin =
 		createStylePreprocessorPlugin(styleTransformConfig);
