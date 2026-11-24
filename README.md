@@ -160,6 +160,19 @@ health endpoints are never limited by a global limit — a 429 to a readiness
 probe takes the process out of rotation. See
 [docs/RATE_LIMITING.md](docs/RATE_LIMITING.md).
 
+### A render that hangs still answers
+
+`rendering: { timeout: 30000 }` (the default) bounds a page render. Without
+it a React Suspense boundary that never resolves streams its shell and then
+nothing — measured on a real server, the request never completed and the
+document had no closing tag, until Bun's `idleTimeout` reaped the socket
+_with no error_ four minutes later. With the budget the same page answered
+in 1.6s with a complete document and the boundary's fallback in place,
+because React treats an abort properly: it flushes each pending boundary's
+fallback and closes. Set `false` to leave renders unbounded. Streaming
+slots are bounded separately, five seconds per slot. See
+[docs/RENDER_TIMEOUT.md](docs/RENDER_TIMEOUT.md).
+
 ### A dev toolbar that knows about islands
 
 While `absolute dev` runs, a pill in the corner opens a panel showing what

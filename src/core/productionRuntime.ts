@@ -55,6 +55,11 @@ const RUNTIME_KEYS = [
 	'publicDirectory',
 	'rateLimit',
 	'reactDirectory',
+	/* The render budget is a production concern above all — a hung render
+	 * in dev is a tab someone closes, in production it is a socket held
+	 * until Bun reaps it silently. Leaving it out would be the same
+	 * mistake `basePath`, `logging` and `shutdown` each made here. */
+	'rendering',
 	/* Graceful shutdown is a production concern, and this list is the
 	 * production config: leaving it out would mean draining worked in dev
 	 * and silently did nothing where it matters, which is exactly how
