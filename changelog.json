@@ -10,7 +10,8 @@
 					"summary": "Islands can hydrate on interaction, or only while a media query matches",
 					"symbols": [
 						"IslandHydrate",
-						"RuntimeIslandRenderProps"
+						"RuntimeIslandRenderProps",
+						"renderIslandResult"
 					]
 				}
 			],
