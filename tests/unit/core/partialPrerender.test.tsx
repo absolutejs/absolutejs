@@ -344,10 +344,15 @@ describe('Svelte partial prerendering', () => {
 		expect(html).toContain('svelte greeting loading');
 		expect(html).toContain('svelte await loading');
 		expect(html).not.toContain('svelte hello');
-		expect(readPartialHoles(filePath)).toEqual([
-			'svelte-greeting',
-			'absolute-svelte-await-0'
-		]);
+		const holes = readPartialHoles(filePath);
+
+		/* The await-slot id carries a hash of the component's path, so two
+		 * components cannot share one hole; the shell records whatever id
+		 * the lowering produced, and what matters here is that both holes
+		 * are recorded in order. */
+		expect(holes[0]).toBe('svelte-greeting');
+		expect(holes[1]).toMatch(/^absolute-svelte-await-[a-z\d]+-0$/u);
+		expect(holes).toHaveLength(2);
 
 		const ada = await readTimed(
 			(await serve(app, filePath, 'user=ada')).response

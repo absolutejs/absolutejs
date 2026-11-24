@@ -63,7 +63,9 @@ describe('lowerSvelteAwaitSlotSyntax', () => {
 
 		expect(lowered.transformed).toBe(true);
 		expect(lowered.code).toContain('AbsoluteAwaitSlot');
-		expect(lowered.code).toContain('id="absolute-svelte-await-0"');
+		/* The id ends in the block's index; what precedes it identifies the
+		 * FILE, so two components cannot produce the same id. */
+		expect(lowered.code).toMatch(/id="absolute-svelte-await-[a-z\d]+-0"/u);
 		expect(lowered.code).toContain(
 			'fallbackHtml={`<p${__absoluteAwaitHtml.scope()}>Loading...</p>`}'
 		);
@@ -173,12 +175,93 @@ describe('lowerSvelteAwaitSlotSyntax', () => {
 		const lowered = lowerSvelteAwaitSlotSyntax(source);
 
 		expect(lowered.transformed).toBe(true);
-		expect(lowered.code).toContain(
-			'<AbsoluteAwaitSlot id="absolute-svelte-await-0" dynamic fallbackHtml'
+		expect(lowered.code).toMatch(
+			/<AbsoluteAwaitSlot id="absolute-svelte-await-[a-z\d]+-0" dynamic fallbackHtml/u
 		);
-		expect(lowered.code).toContain(
-			'<AbsoluteAwaitSlot id="absolute-svelte-await-1" fallbackHtml'
+		expect(lowered.code).toMatch(
+			/<AbsoluteAwaitSlot id="absolute-svelte-await-[a-z\d]+-1" fallbackHtml/u
 		);
 		expect(lowered.code).not.toContain('absolute:stream');
+	});
+});
+
+describe('slot ids across components', () => {
+	const streamed = `<!-- absolute:stream -->
+{#await load()}
+	<p>loading</p>
+{:then value}
+	<p>{value}</p>
+{/await}
+`;
+	const idsIn = (code: string) =>
+		[...code.matchAll(/absolute-svelte-await-[a-z\d-]+/gu)].map(
+			(match) => match[0]
+		);
+
+	/* The index restarts at zero in every file, so before this two
+	 * components that each streamed one `{#await}` both produced
+	 * `absolute-svelte-await-0` — measured by lowering two files and
+	 * reading the ids back. A slot id is how a streamed chunk finds its
+	 * placeholder, so on a page rendering both, the second chunk's
+	 * content could land in the first component's hole. */
+	test('two components do not share an id', () => {
+		const first = lowerSvelteAwaitSlotSyntax(streamed, '/app/Alpha.svelte');
+		const second = lowerSvelteAwaitSlotSyntax(streamed, '/app/Beta.svelte');
+
+		expect(idsIn(first.code)[0]).not.toBe(idsIn(second.code)[0]);
+	});
+
+	/* Deterministic, because the server writes the id into markup and the
+	 * client matches it: a random id would differ between the two and
+	 * match nothing. */
+	test('the same file lowers to the same id twice', () => {
+		expect(
+			idsIn(
+				lowerSvelteAwaitSlotSyntax(streamed, '/app/Alpha.svelte').code
+			)
+		).toEqual(
+			idsIn(
+				lowerSvelteAwaitSlotSyntax(streamed, '/app/Alpha.svelte').code
+			)
+		);
+	});
+
+	/* The id has to survive a build from a different checkout and from
+	 * Windows, where the same component arrives with backslashes. */
+	test('a windows path gives the same id as a posix one', () => {
+		expect(
+			idsIn(
+				lowerSvelteAwaitSlotSyntax(streamed, 'app/pages/Alpha.svelte')
+					.code
+			)
+		).toEqual(
+			idsIn(
+				lowerSvelteAwaitSlotSyntax(streamed, 'app\\pages\\Alpha.svelte')
+					.code
+			)
+		);
+	});
+
+	test('blocks within one file still differ', () => {
+		const lowered = lowerSvelteAwaitSlotSyntax(
+			`${streamed}${streamed}`,
+			'/app/Alpha.svelte'
+		);
+		const [first, second] = idsIn(lowered.code);
+
+		expect(first).not.toBe(second);
+	});
+
+	/* A component lowered without a path still needs an id, and still
+	 * must not collide with a file that has one. */
+	test('a component with no path gets a stable id of its own', () => {
+		const [anonymous] = idsIn(lowerSvelteAwaitSlotSyntax(streamed).code);
+
+		expect(anonymous).toBe('absolute-svelte-await-anon-0');
+		expect(anonymous).not.toBe(
+			idsIn(
+				lowerSvelteAwaitSlotSyntax(streamed, '/app/Alpha.svelte').code
+			)[0]
+		);
 	});
 });
