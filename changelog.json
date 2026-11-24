@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "The dev toolbar (beta.335) mounted on every page in dev, including a page shown inside a frame. In an editor's live preview it floated over the site as though it were part of it. It no longer mounts inside a frame, where the host is already the dev tool. A page that is not an app under development (an editor's own interface built with the framework) can turn it off with `<html data-absolute-dev-toolbar=\"off\">`.",
+					"kind": "fixed",
+					"summary": "The dev toolbar stays out of framed previews, and a page can turn it off"
+				}
+			],
+			"date": "2026-11-24",
+			"version": "0.20.0-beta.342"
+		},
+		{
+			"changes": [
+				{
 					"detail": "`useServerData` reads its collector off Vue's SSR context, and only `src/vue/pageHandler.ts` ever created one. A Vue island rendered anywhere else — on a React page, a Svelte page, a static HTML page — therefore had no collector, and the hook does the correct thing in that case, which is to leave its state pending so the server markup matches what the browser starts with. The cost is paid at runtime: the island paints its loading state, then the browser fetches data the server already had in hand, a round trip after hydration. The island render path now creates a collector too, one per request and shared by every Vue island on the page, and passes it on Vue's SSR context so `renderToString` prefetches. Verified at each layer rather than assumed: a component rendered with a collector on the context produces `from server` instead of `pending`; the same component rendered through `renderIslandMarkup` inside a request does too, and outside a request still renders pending rather than throwing; and the payload reaches the document through the island page context. It goes to `window.__ABSOLUTE_SERVER_DATA__`, the SAME global a Vue page writes, because the browser build of the hook reads exactly one place — so the client needed no change at all, which is the part of this that could have gone wrong quietly. A page with no Vue islands, or none that load data, gains nothing: the collector is created on first use and the page context only asks, never creates.",
 					"kind": "fixed",
 					"summary": "A Vue island outside a Vue page loads its data on the server"

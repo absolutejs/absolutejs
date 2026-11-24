@@ -229,8 +229,31 @@ const host = () => {
 
 /** Mounts the toolbar. Safe to call repeatedly: a second call re-renders
  *  the existing one rather than adding another. */
+/* Where the toolbar does not belong. Inside a frame the page is being shown
+ * by something else -- an editor's live preview, a design tool -- and that
+ * host is already the dev tool; a pill floating over its preview reads as
+ * part of the site. And a page can say it is not an app under development
+ * at all (an editor's own interface, built with the framework) with
+ * `<html data-absolute-dev-toolbar="off">`. */
+export const DEV_TOOLBAR_OPT_OUT = 'data-absolute-dev-toolbar';
+
+export const devToolbarWanted = (target: Window = window) => {
+	if (
+		target.document.documentElement.getAttribute(DEV_TOOLBAR_OPT_OUT) ===
+		'off'
+	)
+		return false;
+	try {
+		return target.self === target.top;
+	} catch {
+		// A cross-origin parent: framed all the same.
+		return false;
+	}
+};
+
 export const installDevToolbar = () => {
 	if (typeof document === 'undefined') return;
+	if (!devToolbarWanted()) return;
 	const element = host();
 	const root = element.shadowRoot ?? element.attachShadow({ mode: 'open' });
 	/* A soft navigation re-runs the incoming page's module entries under a
