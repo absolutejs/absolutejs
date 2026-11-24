@@ -912,6 +912,40 @@ const compileVueFileUncached = async (
 	return result;
 };
 
+/* Development only: a hydration mismatch shown on the error overlay
+ * rather than left as a console warning. Vue recovers from one by
+ * replacing the server's nodes, so the page usually still looks right in
+ * development while the cause ships: a teleport whose content the server
+ * could not place, state read from `window` or storage during render, a
+ * time or random value. In production Vue's own `logMismatchError` still
+ * reaches the app's error reporting.
+ *
+ * Collected through `app.config.warnHandler` (dev builds of Vue route
+ * every hydration warning through it), chained after `setupApp` so an
+ * app's own handler still runs. */
+const VUE_DEV_HYDRATION_WATCH = [
+	'  const hydrationWarnings = [];',
+	'  if (shouldHydrate) {',
+	'    const appWarnHandler = app.config.warnHandler;',
+	'    app.config.warnHandler = function (message, instance, trace) {',
+	'      if (/^Hydration /.test(message)) hydrationWarnings.push(message + (trace ? "\\n" + trace : ""));',
+	'      if (appWarnHandler) appWarnHandler(message, instance, trace);',
+	'      else console.warn("[Vue warn]: " + message + (trace ? "\\n" + trace : ""));',
+	'    };',
+	'  }'
+];
+
+const VUE_DEV_HYDRATION_REPORT = [
+	'  if (hydrationWarnings.length > 0) {',
+	'    window.dispatchEvent(new CustomEvent("absolute:dev-error", { detail: {',
+	'      framework: "vue",',
+	'      kind: "runtime",',
+	"      message: \"Hydration mismatch: the browser's first render differs from the server's HTML, so Vue replaced the server's markup. Usually one of: reading window, document, localStorage or a cookie during render (move it into onMounted, or hand it over with transferState); a <Teleport> into an element of the page (teleport to body or #absolute-teleports); a time, random value or id that differs between the two renders.\",",
+	'      stack: hydrationWarnings.slice(0, 5).join("\\n\\n")',
+	'    } }));',
+	'  }'
+];
+
 export const compileVue = async (
 	entryPoints: string[],
 	vueRootDir: string,
@@ -1134,11 +1168,13 @@ export const compileVue = async (
 						'  const restoreBrowserTranslation = shouldHydrate',
 						'    ? prepareBrowserTranslationHydration(document.querySelector("#root"))',
 						'    : () => undefined;',
+						...(isDev ? VUE_DEV_HYDRATION_WATCH : []),
 						'  try {',
 						'    app.mount("#root");',
 						'  } finally {',
 						'    restoreBrowserTranslation();',
 						'  }',
+						...(isDev ? VUE_DEV_HYDRATION_REPORT : []),
 						'}',
 						'const absolutePageReady = bootstrapApp();',
 						'',

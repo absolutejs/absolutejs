@@ -181,6 +181,27 @@ window.addEventListener('error', (evt) => {
 	});
 });
 
+/* A problem the page's own code found and wants on the overlay, such as
+ * a Vue hydration mismatch (build/compileVue.ts): it is not thrown, so
+ * the listeners above never see it. */
+window.addEventListener('absolute:dev-error', (evt) => {
+	if (!(evt instanceof CustomEvent)) return;
+	const { detail }: { detail: unknown } = evt;
+	if (!detail || typeof detail !== 'object') return;
+	const message = Reflect.get(detail, 'message');
+	const stack = Reflect.get(detail, 'stack');
+	const framework = Reflect.get(detail, 'framework');
+	showErrorOverlay({
+		framework:
+			typeof framework === 'string'
+				? framework
+				: detectCurrentFramework() || undefined,
+		kind: 'runtime',
+		message: typeof message === 'string' ? message : 'Runtime error',
+		stack: typeof stack === 'string' ? stack : undefined
+	});
+});
+
 window.addEventListener('unhandledrejection', (evt) => {
 	if (!evt.reason) return;
 	const isErr = evt.reason instanceof Error;

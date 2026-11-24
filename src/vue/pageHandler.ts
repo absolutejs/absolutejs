@@ -50,8 +50,10 @@ import {
 import { readHeadStylesheets, readHeadTitle } from '../core/routeAssets';
 import { resolveGeneratedVueModulePath } from './resolveGeneratedVueModulePath';
 import {
-	ABSOLUTE_TELEPORT_TARGET,
-	ABSOLUTE_TELEPORT_TARGET_ID
+	ABSOLUTE_TELEPORT_TARGET_ID,
+	BODY_TELEPORT_TARGET,
+	reportUnplaceableTeleports,
+	sortTeleports
 } from './teleports';
 import { BROWSER_TRANSLATION_BASELINE_SCRIPT } from '../core/browserTranslation';
 import {
@@ -348,8 +350,9 @@ const renderVuePageRequest = async <Component extends VueComponent>(
 
 			const resolvedPage = await resolvePageComponent();
 			const { createSSRApp } = await import('vue');
-			const { renderToString, renderToWebStream } =
-				await import('vue/server-renderer');
+			const { renderToString, renderToWebStream } = await import(
+				'vue/server-renderer'
+			);
 
 			// Match the generated client entry exactly: both sides must use the
 			// page component itself as the app root. Wrapping it in an extra server-
@@ -428,7 +431,8 @@ const renderVuePageRequest = async <Component extends VueComponent>(
 			// renderers do: without them a screen reader announces every
 			// page in the browser's default language and an RTL locale
 			// renders left to right.
-			const head = `<!DOCTYPE html><html${htmlLangAttributes()}>${resolvedHeadTag}<body><div id="root">`;
+			const documentStart = `<!DOCTYPE html><html${htmlLangAttributes()}>${resolvedHeadTag}<body>`;
+			const head = `${documentStart}<div id="root">`;
 			const ssrOnlyHmrShim =
 				clientMode === 'none' && isDevelopmentRuntime()
 					? await getSsrOnlyHmrShim()
@@ -438,9 +442,13 @@ const renderVuePageRequest = async <Component extends VueComponent>(
 				// Vue collects SSR Teleport output separately from the page stream.
 				// A dedicated target outside #root gives hydration an unambiguous
 				// first anchor while preserving streaming for the page body.
-				const teleports =
-					ssrContext.teleports?.[ABSOLUTE_TELEPORT_TARGET] ?? '';
-				const teleportHost = `<div id="${ABSOLUTE_TELEPORT_TARGET_ID}">${teleports}</div>`;
+				const teleports = sortTeleports(ssrContext.teleports);
+				reportUnplaceableTeleports(
+					pageName,
+					teleports.unplaceable,
+					'element'
+				);
+				const teleportHost = `<div id="${ABSOLUTE_TELEPORT_TARGET_ID}">${teleports.framework}</div>`;
 				/* Recorded where the entry is known, so the response can
 				 * carry preloads for what it will import. */
 				if (clientMode !== 'none' && resolvedIndexPath !== undefined)
@@ -497,11 +505,14 @@ const renderVuePageRequest = async <Component extends VueComponent>(
 				resolvedOptions?.collectStreamingSlots === true;
 			if (!streamThisPage) {
 				const body = await renderToString(app, ssrContext);
+				// `<Teleport to="body">` content goes first in <body>, where
+				// hydration looks for it (teleports.ts).
+				const bodyTeleports = sortTeleports(ssrContext.teleports).body;
 				// The whole document is at hand: link exactly the islands
 				// it renders, and inject the manifest and bootstrap that
 				// hydrate them.
 				const html = injectIslandPageContext(
-					`${head}${body}${buildTail()}`,
+					`${documentStart}${bodyTeleports}<div id="root">${body}${buildTail()}`,
 					{ hasIslands: resolvedPage.hasIslands ? true : undefined }
 				);
 
@@ -516,6 +527,16 @@ const renderVuePageRequest = async <Component extends VueComponent>(
 			const bodyStream = renderToWebStream(app, ssrContext);
 			const { firstChunk, reader } = await primeVueStream(bodyStream);
 
+			/* The start of <body> is sent before the render finishes, so
+			 * `<Teleport to="body">` content has nowhere to go. */
+			const reportStreamedBodyTeleports = () => {
+				if (sortTeleports(ssrContext.teleports).body !== '')
+					reportUnplaceableTeleports(
+						pageName,
+						[BODY_TELEPORT_TARGET],
+						'streaming'
+					);
+			};
 			const stream = new ReadableStream({
 				start(controller) {
 					controller.enqueue(head);
@@ -523,6 +544,7 @@ const renderVuePageRequest = async <Component extends VueComponent>(
 						controller.enqueue(firstChunk.value);
 					}
 					if (firstChunk.done) {
+						reportStreamedBodyTeleports();
 						controller.enqueue(buildTail());
 						controller.close();
 
@@ -533,7 +555,8 @@ const renderVuePageRequest = async <Component extends VueComponent>(
 							.read()
 							.then(({ done, value }) =>
 								done
-									? (controller.enqueue(buildTail()),
+									? (reportStreamedBodyTeleports(),
+										controller.enqueue(buildTail()),
 										controller.close())
 									: (controller.enqueue(value), pumpLoop())
 							)

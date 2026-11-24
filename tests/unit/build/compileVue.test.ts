@@ -368,6 +368,50 @@ export const routes = defineRoutes([
 		}
 	});
 
+	test('a hydration mismatch reaches the error overlay in development, and only there', async () => {
+		const root = await mkdtemp(join(tmpdir(), 'absolutejs-compile-vue-'));
+		const pagePath = join(root, 'Account.vue');
+
+		try {
+			await writeTempFile(
+				pagePath,
+				`<template><h1>Account</h1></template>`
+			);
+			const indexOf = async (isDev: boolean) => {
+				const { vueIndexPaths } = await compileVue(
+					[pagePath],
+					root,
+					isDev
+				);
+				const indexPath = vueIndexPaths.find((path) =>
+					path.endsWith('Account.js')
+				);
+
+				return indexPath ? Bun.file(indexPath).text() : '';
+			};
+
+			const development = await indexOf(true);
+			// Collected from Vue's warnings, chained after any app handler...
+			expect(development).toContain('app.config.warnHandler = function');
+			expect(development).toContain('if (appWarnHandler) appWarnHandler(');
+			// ...and handed to the overlay once the page has mounted.
+			expect(development).toContain('"absolute:dev-error"');
+			expect(development.indexOf('app.mount("#root")')).toBeLessThan(
+				development.indexOf('"absolute:dev-error"')
+			);
+			// The generated entry still parses.
+			expect(() =>
+				new Bun.Transpiler({ loader: 'js' }).scan(development)
+			).not.toThrow();
+
+			const production = await indexOf(false);
+			expect(production).not.toContain('warnHandler');
+			expect(production).not.toContain('absolute:dev-error');
+		} finally {
+			await rm(root, { force: true, recursive: true });
+		}
+	});
+
 	test('compiles pages whose only script block is a plain <script>', async () => {
 		const root = await projectFixtureDir('compile-vue-plain-script-');
 		const pages: Record<string, string> = {

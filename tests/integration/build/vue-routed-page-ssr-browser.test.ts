@@ -54,8 +54,11 @@ export const routes = defineRoutes([
 </script>
 
 <script setup lang="ts">
-import { onMounted } from 'vue';
-import { RouterView } from 'vue-router';
+import { onMounted, ref } from 'vue';
+import { RouterLink, RouterView, useRoute } from 'vue-router';
+
+const route = useRoute();
+const menuOpen = ref(false);
 
 onMounted(() => {
 	(window as unknown as Record<string, unknown>).__vueShellHydrated = true;
@@ -64,9 +67,19 @@ onMounted(() => {
 
 <template>
 	<div id="shell" data-ssr="server">
+		<RouterLink id="to-about" to="/shell/about">About</RouterLink>
 		<RouterView />
 		<RouterView name="side" />
 	</div>
+	<!-- A menu teleported to <body> that shows the current route, so every
+	     navigation updates the teleport: the shape of a portal's account
+	     menu, and the update that threw when its content was missing from
+	     the server HTML. -->
+	<Teleport to="body">
+		<button id="teleported-menu" :data-route="route.path" @click="menuOpen = !menuOpen">
+			menu {{ menuOpen ? 'open' : 'closed' }} at {{ route.path }}
+		</button>
+	</Teleport>
 </template>
 `;
 
@@ -315,6 +328,68 @@ describe('the client hydrates that HTML', () => {
 			await page.waitForSelector('#about-text', { timeout: 10_000 });
 
 			expect(await page.locator('#home-route').count()).toBe(0);
+		});
+	}, 180_000);
+});
+
+/* `<Teleport to="body">` on a routed page. Vue collects a teleport's
+ * markup apart from the page and hydration looks for it as the target's
+ * FIRST children; the server used to write only the framework's own
+ * target, so body content was missing, hydration matched the teleport
+ * against the page's own markup, and the next navigation threw inside
+ * Vue ("Cannot read properties of null (reading 'emitsOptions')"),
+ * leaving the previous route on screen. */
+describe('a teleport to <body> on a routed page', () => {
+	test('is in the server HTML, first in <body>', async () => {
+		const html = await (await fetch(`${baseUrl()}/shell`)).text();
+		const body = html.slice(html.indexOf('<body'));
+
+		expect(body).toContain('id="teleported-menu"');
+		expect(body.indexOf('id="teleported-menu"')).toBeLessThan(
+			body.indexOf('<div id="root"')
+		);
+	});
+
+	test('hydrates, stays interactive, and survives navigation', async () => {
+		await withPage('/shell', async (page, errors) => {
+			await page.waitForFunction(
+				() => Reflect.get(window, '__vueShellHydrated') === true,
+				undefined,
+				{ timeout: 20_000 }
+			);
+			expect(await page.locator('#teleported-menu').count()).toBe(1);
+			await page.click('#teleported-menu');
+			await page.waitForFunction(
+				() =>
+					document
+						.getElementById('teleported-menu')
+						?.textContent?.includes('open') === true &&
+					!document
+						.getElementById('teleported-menu')
+						?.textContent?.includes('closed'),
+				undefined,
+				{ timeout: 10_000 }
+			);
+
+			// The navigation that used to throw and leave the old route up.
+			await page.click('#to-about');
+			await page.waitForSelector('#about-text', { timeout: 10_000 });
+			expect(await page.locator('#home-route').count()).toBe(0);
+			expect(
+				await page.getAttribute('#teleported-menu', 'data-route')
+			).toBe('/shell/about');
+			// The page's own markup was not replaced by mismatch recovery.
+			expect(
+				await page.evaluate(() =>
+					Boolean(
+						Reflect.get(
+							document.getElementById('shell') ?? {},
+							'__fromServer'
+						)
+					)
+				)
+			).toBe(true);
+			expect(errors).toEqual([]);
 		});
 	}, 180_000);
 });
