@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "`absolute scan` runs `@absolutejs/vulnerabilities` 0.17.4: text files of several MB (a generated search index, generated data, an SVG with an embedded image) are scanned instead of being left unread, which made the whole scan incomplete.",
+					"kind": "fixed",
+					"summary": "`absolute scan` reads text files of several MB instead of stopping incomplete"
+				}
+			],
+			"date": "2026-11-24",
+			"version": "0.20.0-beta.351"
+		},
+		{
+			"changes": [
+				{
 					"detail": "`generateHeadElement` builds a page's `<head>` as a string, and it interpolated almost everything it was given without escaping: the title, the description, the canonical URL, every Open Graph and Twitter value, custom `meta` names and contents, preload and stylesheet paths, the icon and the font name. Only the `hreflang` links were escaped. Most of that text is not written by the developer — a product name becomes the title, a post's summary the description, a slug the canonical URL — so text in a title could close the element and continue as markup, and a double quote in any attribute value closed the attribute. An application that put stored or user-supplied text into page metadata was exposed to cross-site scripting through it. The description was the widest case, because it is repeated into the Open Graph and Twitter tags when those are on. All 33 interpolations are now escaped: `<`, `>` and `&` in the title, and those plus `\"` in attribute values. This affects pages whose head is built by this function — HTML, HTMX, Vue and Angular pages; the React and Svelte `Head` components escape through their own templating and were not affected. One deliberate choice: an `&` that already begins a character reference is left alone. Until now the only way to get a safe title was to escape it by hand, and re-escaping would turn every `&amp;` on such a site into a visible `&amp;amp;`; a reference left in place decodes to a character and never to markup, so leaving it is safe. Plain metadata is emitted exactly as before. Applications that pass untrusted text into `generateHeadElement` should upgrade.",
 					"kind": "security",
 					"summary": "Page metadata is escaped in the generated head, closing a cross-site scripting hole"
