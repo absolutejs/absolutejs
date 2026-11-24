@@ -1,5 +1,10 @@
 export type AngularDeps = {
 	APP_BASE_HREF: typeof import('@angular/common').APP_BASE_HREF;
+	/** With `PlatformState`, lets a render hand its HTML back the moment
+	 *  it is serialized rather than after Angular's platform teardown —
+	 *  see `renderAngularApp`. Optional: without them the render simply
+	 *  waits for `renderApplication`, as it always did. */
+	BEFORE_APP_SERIALIZED?: typeof import('@angular/platform-server').BEFORE_APP_SERIALIZED;
 	bootstrapApplication: typeof import('@angular/platform-browser').bootstrapApplication;
 	Component: typeof import('@angular/core').Component;
 	DomSanitizer: typeof import('@angular/platform-browser').DomSanitizer;
@@ -7,6 +12,7 @@ export type AngularDeps = {
 	inject: typeof import('@angular/core').inject;
 	InjectionToken: typeof import('@angular/core').InjectionToken;
 	NgComponentOutlet: typeof import('@angular/common').NgComponentOutlet;
+	PlatformState?: typeof import('@angular/platform-server').PlatformState;
 	provideClientHydration: typeof import('@angular/platform-browser').provideClientHydration;
 	/** Replays events a visitor fired before hydration finished. Passed to
 	 *  `provideClientHydration` on both the server and the client. */

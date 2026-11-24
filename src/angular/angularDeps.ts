@@ -72,6 +72,7 @@ const loadAngularDeps = async () => {
 
 	return {
 		APP_BASE_HREF: common.APP_BASE_HREF,
+		BEFORE_APP_SERIALIZED: platformServer.BEFORE_APP_SERIALIZED,
 		bootstrapApplication: platformBrowser.bootstrapApplication,
 		Component: core.Component,
 		CSP_NONCE: core.CSP_NONCE,
@@ -80,6 +81,7 @@ const loadAngularDeps = async () => {
 		inject: core.inject,
 		InjectionToken: core.InjectionToken,
 		NgComponentOutlet: common.NgComponentOutlet,
+		PlatformState: platformServer.PlatformState,
 		provideClientHydration: platformBrowser.provideClientHydration,
 		provideServerRendering: platformServer.provideServerRendering,
 		provideZoneChangeDetection: core.provideZoneChangeDetection,

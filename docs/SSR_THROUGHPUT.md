@@ -7,6 +7,30 @@ Written because `absolute bench` produced the project's first
 per-framework numbers and Angular stood out by roughly 8x. That needed
 either a fix or an explanation, and it turned out to be an explanation.
 
+## Correction (beta.347): most of Angular's "floor" was a timer
+
+This document concluded that Angular's 1.26 ms floor was fixed
+per-request setup — Angular's SSR model, with none of it this
+framework's to reclaim. **That attribution was wrong.** About 1.14 ms of
+the floor was `renderApplication` awaiting a `setTimeout(0)` to tear the
+platform down *after* the HTML was already complete. The real work in a
+render is about 0.14 ms.
+
+The measurement here was accurate; the reading of it was not. A fixed
+cost that does not grow with the template looked like setup, and nothing
+in a single-connection latency figure distinguishes work from waiting.
+What does distinguish them is load: Angular got six times faster as
+concurrency rose on one thread, which work cannot do.
+
+The framework now returns the HTML as soon as it is serialized —
+`docs/ANGULAR_SSR_HANDOFF.md` has the mechanism and the numbers (575 →
+2,627 req/s at one connection). The table and the Angular sections
+below are kept as written, as the record of what was measured before.
+The router figure (`provideRouter` at 0.184 ms) has not been re-measured,
+but against a 0.14 ms render it is no longer 14% of the cost — it is
+larger than the render, so the guard that keeps it off pages without
+routes matters more than this document says.
+
 ## The numbers
 
 `absolute bench` against the example app, concurrency 8, production mode,

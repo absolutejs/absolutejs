@@ -140,6 +140,58 @@ export const injectSsrScripts = (
 
 	return result;
 };
+/* `renderApplication` finishes the HTML and then, in a `finally`, awaits
+ * `asyncDestroyPlatform` — a `setTimeout(0)` — before returning the
+ * string. The page is complete and waits out a timer tick for a teardown
+ * that cannot change it.
+ *
+ * A timer tick is not free: a bare `setTimeout(0)` hop measures 1.14ms
+ * here, against 0.14ms of actual rendering work. So nine tenths of an
+ * Angular render was idle — 1.360ms per render sequentially where the
+ * work is 0.085ms — which is why Angular pages served 575 requests a
+ * second at one connection while React, Vue and Svelte served 11,000 to
+ * 16,000, and why Angular alone got FASTER per request as concurrency
+ * rose: on one thread, only waiting can overlap.
+ *
+ * So the HTML is handed back the moment it exists. `BEFORE_APP_SERIALIZED`
+ * callbacks run immediately before `PlatformState.renderToString()`, the
+ * single call that produces the document — after hydration annotation
+ * and after every other callback has settled, since they are all invoked
+ * before any is awaited. Wrapping that one method on this request's own
+ * `PlatformState` resolves a promise with exactly the string
+ * `renderApplication` is about to return.
+ *
+ * All of it is public API, and it fails toward today's behaviour: the
+ * hand-off is raced against `renderApplication` itself, so if a future
+ * Angular stops calling the wrapped method the race is simply won by the
+ * slow path. Teardown still runs — one tick later, off the response
+ * path — so `ngOnDestroy` and `DestroyRef` callbacks fire as before. */
+const createHtmlHandoff = (deps: AngularDeps) => {
+	const { BEFORE_APP_SERIALIZED: token, PlatformState: State } = deps;
+	if (token === undefined || State === undefined) return null;
+
+	const { promise, resolve } = Promise.withResolvers<string>();
+	const provider: Provider = {
+		multi: true,
+		provide: token,
+		useFactory: () => {
+			const state = deps.inject(State);
+
+			return () => {
+				const serialize = state.renderToString.bind(state);
+				state.renderToString = () => {
+					const html = serialize();
+					resolve(html);
+
+					return html;
+				};
+			};
+		}
+	};
+
+	return { html: promise, provider };
+};
+
 export const renderAngularApp = async (
 	deps: AngularDeps,
 	PageComponent: Type<unknown>,
@@ -153,20 +205,34 @@ export const renderAngularApp = async (
 	const cspProviders = nonce
 		? [{ provide: deps.CSP_NONCE, useValue: nonce }]
 		: [];
+	const handoff = createHtmlHandoff(deps);
+	const handoffProviders = handoff === null ? [] : [handoff.provider];
 	const bootstrap = (context: BootstrapContext) =>
 		deps.bootstrapApplication(
 			PageComponent,
-			{ providers: [...providers, ...cspProviders] },
+			{
+				providers: [...providers, ...cspProviders, ...handoffProviders]
+			},
 			context
 		);
 
-	return withSuppressedAngularDevLogs(() =>
-		deps.renderApplication(bootstrap, {
+	return withSuppressedAngularDevLogs(() => {
+		const rendered = deps.renderApplication(bootstrap, {
 			document,
 			platformProviders: [],
 			url
-		})
-	);
+		});
+		if (handoff === null) return rendered;
+
+		/* A render that fails never reaches the serializer, so the race
+		 * is won by `rendered` rejecting and the caller sees the error
+		 * exactly as before. Nothing can reject AFTER the hand-off:
+		 * Angular's teardown runs inside its own timer callback, so a
+		 * throwing `ngOnDestroy` surfaces as an uncaught exception there
+		 * and leaves `renderApplication` pending forever. That used to
+		 * hang the request; the page is now already delivered. */
+		return Promise.race([handoff.html, rendered]);
+	});
 };
 /* Angular logs "Angular is running in development mode." on every
  * `bootstrapApplication`, which on a server is once per request. It has
