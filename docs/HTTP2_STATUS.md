@@ -48,6 +48,13 @@ fails if `http2: true` is removed.
 Next: measure the gain on a remote dev host (a Studio workspace), where the
 six-connection limit actually bites.
 
+## Production (0.20.0-beta.359)
+
+HTTP/2 was reachable in development only, because it rode on the dev
+certificate. A production server now serves it whenever it terminates TLS
+itself (`tls` in the config, or `ABSOLUTE_TLS_CERT` / `ABSOLUTE_TLS_KEY`),
+including a compiled binary. See [docs/PRODUCTION_TLS.md](./PRODUCTION_TLS.md).
+
 ## HTTP/3 is tracked separately
 
 See [docs/HTTP3_STATUS.md](./HTTP3_STATUS.md). HTTP/2 was the transformative

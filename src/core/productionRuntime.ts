@@ -67,6 +67,11 @@ const RUNTIME_KEYS = [
 	'static',
 	'svelteDirectory',
 	'telemetry',
+	/* Paths, never contents: the certificate and key stay where the
+	 * deployment keeps them and are read when the server starts. Left out
+	 * of this list, `tls` would work from absolute.config.ts in a test
+	 * and be dropped from the built config — the same way `basePath` was. */
+	'tls',
 	'vitals',
 	'vueDirectory'
 ] as const satisfies readonly (keyof BuildConfig)[];

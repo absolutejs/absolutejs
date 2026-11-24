@@ -15,6 +15,7 @@ import { runDeferredBootTasks } from '../dev/bootLifecycle';
 import { adoptListeningApp, swapApp } from '../dev/hot/appLifecycle';
 import { runUntracked, wrapServeOptions } from '../dev/hotResources';
 import { loadDevCert } from '../dev/devCert';
+import { loadProductionTls } from '../runtime/productionTls';
 import {
 	parentOwnsDevPort,
 	releaseEarlyListener,
@@ -24,6 +25,7 @@ import {
 	registerInstance,
 	resolveProjectName
 } from '../utils/instanceRegistry';
+import { logWarn } from '../utils/logger';
 import { getLocalIPAddress } from '../utils/networking';
 import { startupBanner } from '../utils/startupBanner';
 import { logBootTimeline, markBoot } from '../utils/bootTimeline';
@@ -45,19 +47,48 @@ if (hostFlag) {
 }
 if (host === '0.0.0.0' || host === '::') localIP = getLocalIPAddress();
 
-// TLS is enabled via ABSOLUTE_HTTPS env var set by the config loader
-const loadTls = () => {
-	if (env.NODE_ENV !== 'development') return undefined;
+/* Development: the local certificate, switched on by ABSOLUTE_HTTPS (set
+ * from `dev.https`), and a failure to load it leaves the dev server on
+ * HTTP as it always has.
+ *
+ * Production: the certificate the `tls` config or ABSOLUTE_TLS_* names
+ * (src/runtime/productionTls.ts), and a failure to load it THROWS — a
+ * production server that falls back to plain HTTP looks up and is
+ * serving in the clear.
+ *
+ * Read when `networking()` is called, not when this module is imported:
+ * `prepare()` is what copies the config into the environment, and it
+ * runs between the two. */
+const loadDevTls = () => {
 	if (env.ABSOLUTE_HTTPS !== 'true') return undefined;
 
 	try {
-		return loadDevCert();
+		const loaded = loadDevCert();
+		if (!loaded) return undefined;
+		const { cert, key } = loaded;
+
+		// With TLS, clients that offer h2 through ALPN get HTTP/2, so module
+		// fetches multiplex over one connection instead of HTTP/1.1's six.
+		// The HMR WebSocket still connects: browsers open it as a separate
+		// HTTP/1.1 connection on the same port when the server does not
+		// offer WebSockets over HTTP/2 (RFC 8441).
+		return { http2: true, tls: { cert, key } };
 	} catch {
 		return undefined;
 	}
 };
-const tls = loadTls();
-const protocol = tls ? 'https' : 'http';
+
+const loadTls = () => {
+	if (env.NODE_ENV === 'development') return loadDevTls();
+	/* The server `absolute start` and `absolute compile` run for a moment
+	 * to render static pages: fetched over plain HTTP on localhost, by
+	 * the build, and gone before anything is deployed. */
+	if (env.ABSOLUTE_PRERENDER === '1') return undefined;
+	const production = loadProductionTls();
+	if (production?.warning) logWarn(production.warning);
+
+	return production?.serve;
+};
 // Resolve the HTTP idleTimeout (seconds) passed to Bun.serve. Bun's default is
 // 10s, which silently reaps long-lived/streaming responses (SSE, AI turns, long
 // polls). We default high (DEFAULT_HTTP_IDLE_TIMEOUT_SECONDS) and let a consumer
@@ -87,7 +118,7 @@ const httpIdleTimeout = resolveHttpIdleTimeout();
 // (ABSOLUTE_INSTANCE_MANAGED) — this branch is the catch-all for servers
 // started outside the CLI: a manually-run `bun server.ts` or any standalone
 // process. registerInstance handles its own exit cleanup.
-const selfRegisterInstance = () => {
+const selfRegisterInstance = (protocol: string) => {
 	if (env.ABSOLUTE_INSTANCE_MANAGED === '1') return;
 
 	registerInstance({
@@ -224,6 +255,9 @@ export const networking = <A extends AnyElysia>(app: A) => {
 	 * src/core/clusterPlan.ts for why it is not enabled anywhere else. */
 	const clusterWorker = process.env.ABSOLUTE_CLUSTER_WORKER !== undefined;
 
+	const tls = loadTls();
+	const protocol = tls ? 'https' : 'http';
+
 	markBoot('listen() called');
 	// The framework's own server and what listening starts (the entry
 	// watcher, signal handlers, boot tasks): never owned by the top-level
@@ -237,25 +271,12 @@ export const networking = <A extends AnyElysia>(app: A) => {
 			idleTimeout: httpIdleTimeout,
 			port: port,
 			...(parentHandoff || clusterWorker ? { reusePort: true } : {}),
-			// With TLS, clients that offer h2 through ALPN get HTTP/2, so module
-			// fetches multiplex over one connection instead of HTTP/1.1's six.
-			// The HMR WebSocket still connects: browsers open it as a separate
-			// HTTP/1.1 connection on the same port when the server does not
-			// offer WebSockets over HTTP/2 (RFC 8441).
-			...(tls
-				? {
-						http2: true,
-						tls: {
-							cert: tls.cert,
-							key: tls.key
-						}
-					}
-				: {})
+			...tls
 		},
 		() => {
 			markBoot('server listening');
 			if (parentHandoff) signalParentPortHandoff(Number(port));
-			selfRegisterInstance();
+			selfRegisterInstance(protocol);
 			// The port is serving real traffic now — flush boot work that
 			// was deferred off the critical path (module prewarm, etc.).
 			runUntracked(() => runDeferredBootTasks());
