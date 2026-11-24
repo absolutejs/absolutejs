@@ -65,27 +65,65 @@ const buildRedirectEventHandler = (
 	};
 };
 
-export const buildRouterRedirectProviders = async (
-	deps: AngularDeps,
-	responseInit: ResponseInit | undefined
-) => {
-	let routerModule: AngularRouterModule;
-
+const importRouterModule = async () => {
 	try {
 		// §1.1 — bare specifier in dev shares Bun's module cache.
 		const spec = isProductionRuntime()
 			? resolveAngularRuntimePath('@angular/router')
 			: '@angular/router';
-		routerModule = await import(spec);
+		const routerModule: AngularRouterModule = await import(spec);
+
+		return routerModule;
 	} catch {
-		return [];
+		return null;
 	}
+};
+
+/* In production the vendor file cannot change under a running server, so
+ * the lookup is done once. It used to run per request: a path resolution
+ * with an `existsSync` in it, then a dynamic import — a filesystem call
+ * and a module-registry lookup on every Angular page, for an answer that
+ * is always the same. Dev keeps asking, because a rebuild can replace
+ * the module there. */
+let productionRouterModule: ReturnType<typeof importRouterModule> | undefined;
+
+const loadRouterModule = () => {
+	if (!isProductionRuntime()) return importRouterModule();
+	productionRouterModule ??= importRouterModule();
+
+	return productionRouterModule;
+};
+
+export const buildRouterRedirectProviders = async (
+	deps: AngularDeps,
+	responseInit: ResponseInit | undefined
+) => {
+	const routerModule = await loadRouterModule();
+	if (routerModule === null) return [];
 
 	return [
 		{
 			multi: true,
 			provide: deps.ENVIRONMENT_INITIALIZER,
 			useValue: () => {
+				/* `inject(Router, { optional: true })` does NOT mean "only
+				 * if the page has a router". `Router` is `providedIn:
+				 * 'root'`, so asking for it BUILDS one — router, location,
+				 * history state manager — on every request, including on
+				 * pages with no routes at all. Profiled on the example
+				 * app's route-less Angular page: 13.5% of the server's CPU.
+				 * It also quietly undid the build's own rule of only
+				 * wiring the router into pages that export `routes`.
+				 *
+				 * `ROUTES` has no root factory: it exists only when
+				 * `provideRouter` (or `RouterModule.forRoot`) ran. So it
+				 * answers the real question — did this page set up
+				 * routing — without constructing anything. */
+				const routes = deps.inject(routerModule.ROUTES, {
+					optional: true
+				});
+				if (routes === null) return;
+
 				const router = deps.inject(routerModule.Router, {
 					optional: true
 				});

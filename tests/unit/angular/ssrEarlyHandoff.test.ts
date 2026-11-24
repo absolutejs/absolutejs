@@ -1,11 +1,12 @@
 import '@angular/compiler';
-import { APP_BASE_HREF, DOCUMENT, NgComponentOutlet } from '@angular/common';
+import { DOCUMENT } from '@angular/common';
 import * as core from '@angular/core';
 import * as platformBrowser from '@angular/platform-browser';
 import * as platformServer from '@angular/platform-server';
 import { describe, expect, test } from 'bun:test';
 import type { AngularDeps } from '../../../types/angular';
 import { renderAngularApp } from '../../../src/angular/ssrRender';
+import { realAngularDeps } from './realAngularDeps';
 
 /* `renderApplication` finishes the HTML and then awaits a `setTimeout(0)`
  * before returning it, to tear the platform down. A timer hop costs
@@ -18,32 +19,7 @@ import { renderAngularApp } from '../../../src/angular/ssrRender';
  * HTML comes back before teardown has run, it is the same HTML, and
  * teardown still happens. */
 
-const deps: AngularDeps = {
-	APP_BASE_HREF,
-	BEFORE_APP_SERIALIZED: platformServer.BEFORE_APP_SERIALIZED,
-	bootstrapApplication: platformBrowser.bootstrapApplication,
-	Component: core.Component,
-	CSP_NONCE: core.CSP_NONCE,
-	DomSanitizer: platformBrowser.DomSanitizer,
-	ENVIRONMENT_INITIALIZER: core.ENVIRONMENT_INITIALIZER,
-	inject: core.inject,
-	InjectionToken: core.InjectionToken,
-	NgComponentOutlet,
-	PlatformState: platformServer.PlatformState,
-	provideClientHydration: platformBrowser.provideClientHydration,
-	provideServerRendering: platformServer.provideServerRendering,
-	provideZoneChangeDetection: core.provideZoneChangeDetection,
-	provideZonelessChangeDetection: core.provideZonelessChangeDetection,
-	reflectComponentType: core.reflectComponentType,
-	renderApplication: platformServer.renderApplication,
-	REQUEST: core.REQUEST,
-	REQUEST_CONTEXT: core.REQUEST_CONTEXT,
-	RESPONSE_INIT: core.RESPONSE_INIT,
-	Sanitizer: core.Sanitizer,
-	SecurityContext: core.SecurityContext,
-	withEventReplay: platformBrowser.withEventReplay,
-	withHttpTransferCacheOptions: platformBrowser.withHttpTransferCacheOptions
-};
+const deps = realAngularDeps;
 
 /* What a build of Angular without the two tokens looks like — the
  * compiled-app stub, or a future release that moved them. */
