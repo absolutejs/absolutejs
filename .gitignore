@@ -75,3 +75,7 @@ CLAUDE.md
 
 # Build directory lock held by scripts/build.ts
 .absolute-build.lock/
+
+# `sourcemaps: 'external'` moves production client maps here, out of the
+# served build. They carry original source, so they are not for committing.
+/sourcemaps

@@ -1,11 +1,19 @@
 import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { join, relative, resolve } from 'node:path';
 import { loadConfig } from '../../utils/loadConfig';
 import { formatBytes } from '../../utils/formatBytes';
 import { colors, padLine } from '../tuiPrimitives';
 import { evaluateBudgets, type SizeBudgets } from '../../utils/sizeBudgets';
+import { groupModules } from './moduleSizes';
+import {
+	printModuleReport,
+	readBundleReports,
+	sourcemapHint,
+	treemapHtml
+} from './treemap';
 
 const BASELINE_FILE = '.absolute-size-baseline.json';
+const TREEMAP_FILE = 'absolute-treemap.html';
 const TOP_CHANGES = 12;
 const CATEGORY_WIDTH = 16;
 const SIZE_WIDTH = 12;
@@ -59,10 +67,10 @@ const fileSize = (path: string) => {
  * a web path must not be allowed to match something at the filesystem
  * root by coincidence. */
 const resolveManifestValue = (manifestDir: string, value: string) => {
-	const relative = join(manifestDir, value.replace(/^\//, ''));
-	if (existsSync(relative)) return relative;
+	const underBuild = join(manifestDir, value.replace(/^\//, ''));
+	if (existsSync(underBuild)) return underBuild;
 
-	return existsSync(value) ? value : relative;
+	return existsSync(value) ? value : underBuild;
 };
 
 const readSizes = (manifestDir: string) => {
@@ -254,6 +262,38 @@ const runCheck = (sizes: Record<string, number>, budgets: SizeBudgets) => {
 		process.exitCode = 1;
 };
 
+/* The module-level report, and optionally the same data as a treemap
+ * written to a file. Separate from the category report rather than
+ * replacing it: one says whether the build got bigger, the other says
+ * which dependency did it. */
+const runModules = async (buildPath: string, treemapPath?: string) => {
+	/* `sourcemaps: 'external'` moves the maps here, keyed by basename, and
+	 * strips the comment that would point at them. */
+	const { bundles, scanned } = readBundleReports(
+		buildPath,
+		join(process.cwd(), 'sourcemaps')
+	);
+	if (bundles.length === 0) {
+		process.stdout.write(sourcemapHint(buildPath, scanned));
+
+		return;
+	}
+	printModuleReport(buildPath, bundles, scanned);
+	if (treemapPath === undefined) return;
+	const groups = groupModules(bundles.flatMap((one) => one.modules));
+	const target = resolve(process.cwd(), treemapPath);
+	await Bun.write(
+		target,
+		treemapHtml(
+			groups,
+			`${relative(process.cwd(), buildPath) || '.'} modules`
+		)
+	);
+	process.stdout.write(
+		`\n${colors.green}\u2713${colors.reset} Treemap written to ${relative(process.cwd(), target)}\n`
+	);
+};
+
 export const runAnalyze = async (args: string[]) => {
 	const cwd = process.cwd();
 	const configIndex = args.indexOf('--config');
@@ -292,6 +332,21 @@ export const runAnalyze = async (args: string[]) => {
 
 	if (args.includes('--check')) {
 		runCheck(sizes, config.sizeBudgets ?? {});
+
+		return;
+	}
+
+	/* `--modules` answers what a bundle is made OF, which the category
+	 * totals above cannot: a 400KB page that should be 90KB is a question
+	 * about one dependency, and `Pages 412 KB` never names it. */
+	const treemapIndex = args.indexOf('--treemap');
+	if (args.includes('--modules') || treemapIndex >= 0) {
+		await runModules(
+			resolve(cwd, outdir ?? 'build'),
+			treemapIndex >= 0
+				? (args[treemapIndex + 1] ?? TREEMAP_FILE)
+				: undefined
+		);
 
 		return;
 	}

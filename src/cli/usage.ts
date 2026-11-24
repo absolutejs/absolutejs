@@ -42,8 +42,10 @@ const COMMAND_FLAGS: Readonly<
 	analyze: {
 		'--check': 'boolean',
 		'--json': 'boolean',
+		'--modules': 'boolean',
 		'--outdir': 'value',
-		'--save': 'boolean'
+		'--save': 'boolean',
+		'--treemap': 'value'
 	},
 	bench: {
 		'--check': 'boolean',
