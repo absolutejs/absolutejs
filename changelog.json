@@ -5,6 +5,25 @@
 		{
 			"changes": [
 				{
+					"detail": "Vue recovers from a hydration mismatch by replacing the server's nodes, so in development the page usually still looks right while the cause ships, and the only sign was a console warning. In development a Vue page now collects Vue's hydration warnings (through `app.config.warnHandler`, chained after any handler a `setupApp` hook installs) and shows them on the error overlay after mount, with the usual causes: reading `window`, storage or a cookie during render, a teleport into an element of the page, a time or random value. Production is unchanged; Vue's own error still reaches the app's error reporting.",
+					"kind": "added",
+					"summary": "A Vue hydration mismatch shows on the development error overlay"
+				},
+				{
+					"detail": "Vue collects a `<Teleport>`'s server markup apart from the page, and hydration looks for it as the target's first children. The page handler wrote only the framework's own `#absolute-teleports` target, so on a server-rendered page (every routed page since beta.244) the content of `<Teleport to=\"body\">` was missing from the HTML. Hydration then matched the teleport against the page's own markup: the teleported elements never appeared, mismatch recovery replaced server markup (a blank page in some cases), and the next update to the teleport threw inside Vue (\"Cannot read properties of null (reading 'emitsOptions')\"), so a router navigation left the previous route on screen. Body teleports are now written directly after `<body>`, before `#root`. A teleport into an element of the page itself cannot hydrate (Vue does not support it either) and is now reported once per page and target with what to do, instead of being dropped silently; so is a body teleport on a `streaming: true` page, whose `<body>` start is sent before the render finishes.",
+					"kind": "fixed",
+					"summary": "`<Teleport to=\"body\">` is server-rendered where hydration looks for it",
+					"symbols": [
+						"handleVuePageRequest"
+					]
+				}
+			],
+			"date": "2026-11-24",
+			"version": "0.20.0-beta.357"
+		},
+		{
+			"changes": [
+				{
 					"detail": "`absolute typecheck` leaves the build output out of the program, and did it by leaving out every directory named `build`. Source in `src/build/`, `tests/build/` or any other directory of that name was never checked, and the command reported a pass. It now leaves out the directory the config says the build goes to (`buildDirectory`, `build` by default; each service's own in a workspace) and checks every other directory whatever it is called. A project with source in a directory named `build` may see type errors it was not shown before; they were always there. Build output kept somewhere other than the configured directory, such as a fixture app's own `build/`, is no longer left out for you: add it to `exclude` in tsconfig.json. In this repository the old rule hid 107 test files, 25 type errors and one `@ts-expect-error` that had never held; those are fixed.",
 					"kind": "fixed",
 					"summary": "`absolute typecheck` checks source in directories named `build` instead of skipping them"
