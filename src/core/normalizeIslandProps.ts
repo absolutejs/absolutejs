@@ -1,4 +1,4 @@
-import type { IslandFramework, IslandHydrate } from '../../types/island';
+import type { IslandFramework, IslandHydrateMode } from '../../types/island';
 
 /* `<Island>` (Vue/Svelte/React/Angular component form) historically took
    `props` as an object, while `<absolute-island>` (custom-element form
@@ -16,7 +16,7 @@ const ISLAND_FRAMEWORKS: readonly IslandFramework[] = [
 	'ember'
 ];
 
-const ISLAND_HYDRATE_MODES: readonly IslandHydrate[] = [
+const ISLAND_HYDRATE_MODES: readonly IslandHydrateMode[] = [
 	'load',
 	'idle',
 	'visible',
@@ -26,7 +26,7 @@ const ISLAND_HYDRATE_MODES: readonly IslandHydrate[] = [
 const isIslandFramework = (value: string): value is IslandFramework =>
 	ISLAND_FRAMEWORKS.some((framework) => framework === value);
 
-const isIslandHydrate = (value: string): value is IslandHydrate =>
+const isIslandHydrate = (value: string): value is IslandHydrateMode =>
 	ISLAND_HYDRATE_MODES.some((mode) => mode === value);
 
 type RawIslandProps = {

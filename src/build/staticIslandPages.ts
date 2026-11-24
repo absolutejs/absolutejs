@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import type {
 	IslandFramework,
-	IslandHydrate,
+	IslandHydrateMode,
 	IslandRegistryInput,
 	RuntimeIslandRenderProps
 } from '../../types/island';
@@ -31,7 +31,7 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 const isIslandFramework = (value: string): value is IslandFramework =>
 	islandFrameworks.some((framework) => framework === value);
 
-const isIslandHydrationMode = (value: string): value is IslandHydrate =>
+const isIslandHydrationMode = (value: string): value is IslandHydrateMode =>
 	islandHydrationModes.some((mode) => mode === value);
 
 type HTMLAttributeMap = Map<string, string>;

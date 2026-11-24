@@ -684,9 +684,24 @@ Then place islands in a page with `<absolute-island>` (or the `<island>` alias):
 Islands are server-rendered at build time. With `islands.registry` set, the
 build also generates an islands bootstrap, and `handleHTMLPageRequest` /
 `handleHTMXPageRequest` inject it into any page that contains islands. Each
-island's code loads only when that island hydrates. `hydrate` is `load` (the
-default), `idle`, `visible` (when scrolled into view) or `none` (server HTML
-only, never hydrated).
+island's code loads only when that island hydrates:
+
+| `hydrate`                         | when                                                     |
+| --------------------------------- | -------------------------------------------------------- |
+| `load` (default)                  | as soon as the runtime sees it                           |
+| `idle`                            | on an idle callback                                      |
+| `visible`                         | when it scrolls into view                                |
+| `interaction`                     | on the first pointer, touch, focus or key press on it    |
+| `{ media: '(min-width: 48rem)' }` | while the query matches, and later if it starts matching |
+| `none`                            | never — server HTML only                                 |
+
+`interaction` is for something heavy nobody has reached for yet — a date
+picker, a rich editor, a map — where `visible` already pays the moment it
+scrolls past. `media` is for a widget that belongs to one layout and not
+another, where `visible` pays for it even on the layout that hides it; it
+hydrates later if the window crosses the breakpoint, rather than only
+checking at first paint. A `hydrate` value that is none of these hydrates
+immediately and says so in dev, instead of silently behaving like `load`.
 
 To run your own client code, point `islands.bootstrap` at a file that calls
 `startIslands`. The file can have any name, and it replaces the generated one:

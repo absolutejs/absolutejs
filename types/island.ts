@@ -1,6 +1,27 @@
 export type IslandFramework = 'react' | 'svelte' | 'vue' | 'angular' | 'ember';
 
-export type IslandHydrate = 'load' | 'idle' | 'visible' | 'none';
+/** When an island hydrates.
+ *
+ *  - `load` (default) — as soon as the runtime sees it.
+ *  - `idle` — on an idle callback, so it waits for a quiet main thread.
+ *  - `visible` — when it scrolls into view.
+ *  - `interaction` — on the first pointer, touch, focus or key press on
+ *    the island itself. For something heavy that only matters once
+ *    someone reaches for it: a date picker, a rich editor, a map.
+ *  - `{ media: '(min-width: 48rem)' }` — only while the query matches,
+ *    and it hydrates later if the query starts matching. For a widget
+ *    that exists on one layout and not another, where `visible` would
+ *    still pay for it on the layout that hides it.
+ *  - `none` — never; server markup only. */
+export type IslandHydrate =
+	Exclude<IslandHydrateMode, 'media'> | { media: string };
+
+/** What `data-hydrate` holds in the markup: one plain word, `media`
+ *  included, whose query travels beside it in `data-hydrate-media`.
+ *  Separate from `IslandHydrate` because an attribute is always a string
+ *  while an author writes `{ media: '…' }`. */
+export type IslandHydrateMode =
+	'idle' | 'interaction' | 'load' | 'media' | 'none' | 'visible';
 
 export type AngularIslandComponent = abstract new (...args: never[]) => object;
 
@@ -150,7 +171,11 @@ export type IslandRegistryProps<
 export type RuntimeIslandRenderProps = {
 	component: string;
 	framework: IslandFramework;
-	hydrate?: IslandHydrate;
+	/* Either form: this shape is built from authored props in one path
+	 * and from parsed markup in another, where `media` has already been
+	 * split from its query. The authored API below stays stricter, so
+	 * nobody can ask for `media` without saying which. */
+	hydrate?: IslandHydrate | IslandHydrateMode;
 	/** Keep this island across a cross-framework soft navigation: a page
 	 *  that renders an island with the same key gets the live one, with its
 	 *  DOM and its state, instead of a fresh copy. The island keeps

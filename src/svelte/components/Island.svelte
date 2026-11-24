@@ -11,6 +11,14 @@
 
 <script lang="ts">
 	import type { RuntimeIslandRenderProps } from '../../../types/island';
+	// Relative, and copied into dist/ by the build: this component ships
+	// as source and compiles in the user's project, so it cannot import
+	// core/islandMarkupAttributes.ts — and writing the media split twice is
+	// how a Svelte island would quietly hydrate where a React one waits.
+	import {
+		hydrateMediaOf,
+		hydrateModeOf
+	} from '../../core/islandHydrateMode';
 
 	let {
 		component,
@@ -39,7 +47,15 @@
 					][])),
 			['data-component', runtimeProps.component],
 			['data-framework', runtimeProps.framework],
-			['data-hydrate', runtimeProps.hydrate ?? 'load'],
+			['data-hydrate', hydrateModeOf(runtimeProps.hydrate)],
+			...(hydrateMediaOf(runtimeProps.hydrate) === undefined
+				? []
+				: ([
+						[
+							'data-hydrate-media',
+							hydrateMediaOf(runtimeProps.hydrate) ?? ''
+						]
+					] as [string, string][])),
 			['data-island', 'true'],
 			['data-props', JSON.stringify(runtimeProps.props ?? {})]
 		];

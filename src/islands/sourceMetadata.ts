@@ -1,9 +1,11 @@
-import type { IslandFramework, IslandHydrate } from '../../types/island';
+import type { IslandFramework, IslandHydrateMode } from '../../types/island';
 
 export type PageIslandUsage = {
 	component: string;
 	framework: IslandFramework;
-	hydrate?: IslandHydrate;
+	/* A scanner reads the attribute, so this is the markup's word and
+	 * not the authored union. */
+	hydrate?: IslandHydrateMode;
 	source?: string;
 };
 
@@ -14,7 +16,7 @@ const islandFrameworks: IslandFramework[] = [
 	'angular'
 ];
 
-const islandHydrationModes: IslandHydrate[] = [
+const islandHydrationModes: IslandHydrateMode[] = [
 	'load',
 	'idle',
 	'visible',
@@ -24,7 +26,7 @@ const islandHydrationModes: IslandHydrate[] = [
 const isIslandFramework = (value: string): value is IslandFramework =>
 	islandFrameworks.some((framework) => framework === value);
 
-const isIslandHydrate = (value: string): value is IslandHydrate =>
+const isIslandHydrate = (value: string): value is IslandHydrateMode =>
 	islandHydrationModes.some((hydrate) => hydrate === value);
 
 const parseIslandTagAttributes = (attributeString: string) => {

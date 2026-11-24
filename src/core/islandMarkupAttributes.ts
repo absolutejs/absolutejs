@@ -1,4 +1,5 @@
 import type { RuntimeIslandRenderProps } from '../../types/island';
+import { hydrateMediaOf, hydrateModeOf } from './islandHydrateMode';
 import { serializeIslandProps } from './islands';
 
 type IslandMarkerAttributes = {
@@ -6,6 +7,11 @@ type IslandMarkerAttributes = {
 	'data-component': string;
 	'data-framework': string;
 	'data-hydrate': string;
+	/** The query for `{ media: … }`. A second attribute rather than an
+	 *  encoded value in `data-hydrate`, so the runtime keeps reading one
+	 *  plain word there and a media query — which contains colons,
+	 *  parentheses and spaces — never has to survive a parse. */
+	'data-hydrate-media'?: string;
 	'data-island': 'true';
 	'data-island-id'?: string;
 	'data-props': string;
@@ -26,7 +32,10 @@ export const getIslandMarkerAttributes = (
 		: { 'data-absolute-persist': props.persist }),
 	'data-component': props.component,
 	'data-framework': props.framework,
-	'data-hydrate': props.hydrate ?? 'load',
+	'data-hydrate': hydrateModeOf(props.hydrate),
+	...(hydrateMediaOf(props.hydrate) === undefined
+		? {}
+		: { 'data-hydrate-media': hydrateMediaOf(props.hydrate) }),
 	'data-island': 'true',
 	...(islandId ? { 'data-island-id': islandId } : {}),
 	'data-props': serializeIslandProps(props.props)
