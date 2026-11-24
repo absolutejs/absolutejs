@@ -5,6 +5,26 @@
 		{
 			"changes": [
 				{
+					"detail": "`astroDirectory` was declared on the build config, reserved as a top-level key and copied into the production runtime, and read by nothing: no scanner, builder or compiler, because there is no Astro adapter. Setting it type-checked and did nothing. It is removed from all three places. A config typed as `BuildConfig` that still sets it now gets a type error; delete the key, nothing else changes. A config passed through `defineConfig` is unaffected, because `defineConfig` accepts keys it does not know.",
+					"kind": "breaking",
+					"migration": {
+						"instruction": "Delete `astroDirectory` from absolute.config.ts. It was never read, so nothing else changes.",
+						"manual": true
+					},
+					"summary": "The `astroDirectory` config key, which nothing ever read, is removed",
+					"symbols": [
+						"BaseBuildConfig",
+						"AbsoluteServiceConfig",
+						"BuildConfig"
+					]
+				}
+			],
+			"date": "2026-11-24",
+			"version": "0.20.0-beta.354"
+		},
+		{
+			"changes": [
+				{
 					"detail": "The test that the access log sink arms one timer for a burst of lines slept 15ms twice against a 20ms timer, leaving 5ms for the first sleep to overrun. On a loaded CI runner it did, and the test failed on commits that had not touched it. It now counts the timers the sink arms instead of waiting on a clock. No behaviour changes.",
 					"kind": "internal",
 					"summary": "A timing-dependent access log test no longer fails at random in CI"

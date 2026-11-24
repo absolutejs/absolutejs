@@ -26,7 +26,6 @@ const PRODUCTION_RUNTIME_VERSION = 1;
 const RUNTIME_KEYS = [
 	'angularDirectory',
 	'assetsDirectory',
-	'astroDirectory',
 	/* `basePath` and `basePathShared` were missing, and the omission was
 	 * invisible: `prepare()` copies them into `ABSOLUTE_BASE_PATH` /
 	 * `ABSOLUTE_BASE_PATH_SHARED` (a few lines after it loads the config),
