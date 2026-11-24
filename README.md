@@ -160,6 +160,18 @@ health endpoints are never limited by a global limit — a 429 to a readiness
 probe takes the process out of rotation. See
 [docs/RATE_LIMITING.md](docs/RATE_LIMITING.md).
 
+### A dev toolbar that knows about islands
+
+While `absolute dev` runs, a pill in the corner opens a panel showing what
+the page is made of: which framework rendered it, and every island with
+its component, framework, hydrate strategy and persist key — the one view
+React DevTools and Vue DevTools structurally cannot give you, since each
+sees only its own framework. Plus recent HMR updates with their files and
+durations, and the routes and requests `absolute routes` and
+`absolute inspect` read. `shift`+`alt`+`D` toggles it. Dev only; a
+production build does not include it. See
+[docs/dev/dev-toolbar.md](docs/dev/dev-toolbar.md).
+
 ### What a bundle is made of
 
 `absolute analyze --modules` breaks a build down by the modules inside it,

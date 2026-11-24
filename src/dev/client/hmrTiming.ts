@@ -126,8 +126,21 @@ type SendHmrTimingOptions = {
 	kind?: HMRApplyKind;
 	outcome?: HMRApplyOutcome;
 	serverMs?: number;
+	source?: string;
 	updateId?: number;
 };
+
+/* The dev toolbar's HMR panel re-renders when an update lands. A listener
+ * set rather than a poll: the panel is open while someone edits files, and
+ * polling a buffer that changes a few times a minute is the wrong shape. */
+const applyListeners = new Set<() => void>();
+
+/* The file an update came from, set once where messages arrive rather
+ * than threaded through the dozen places that report a timing. A timing
+ * with no file is hard to attribute when several land together, and
+ * passing it explicitly at every call site would have meant touching
+ * twelve of them for one column. */
+let currentSource: string | undefined;
 
 export const sendAbsoluteHmrTiming = (options: SendHmrTimingOptions) => {
 	const clientMs = Math.round(performance.now() - options.clientStart);
@@ -138,6 +151,9 @@ export const sendAbsoluteHmrTiming = (options: SendHmrTimingOptions) => {
 		kind: options.kind,
 		outcome: options.outcome ?? 'applied',
 		serverMs,
+		...((options.source ?? currentSource) === undefined
+			? {}
+			: { source: options.source ?? currentSource }),
 		target: absoluteHmrClientTarget(),
 		updateId: options.updateId
 	} satisfies NonNullable<Window['__ABS_HMR_LAST_APPLY__']>;
@@ -148,6 +164,17 @@ export const sendAbsoluteHmrTiming = (options: SendHmrTimingOptions) => {
 		applies.splice(0, applies.length - MAX_RETAINED_HMR_APPLIES);
 	}
 	persistHmrApplies(applies);
+	for (const listener of applyListeners) listener();
 	if (!window.__HMR_WS__) return;
 	window.__HMR_WS__.send(JSON.stringify({ ...timing, type: 'hmr-timing' }));
+};
+
+export const setCurrentHmrSource = (source: string | undefined) => {
+	currentSource = source;
+};
+
+export const subscribeHmrApplies = (listener: () => void) => {
+	applyListeners.add(listener);
+
+	return () => applyListeners.delete(listener);
 };

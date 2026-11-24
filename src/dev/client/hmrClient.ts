@@ -15,10 +15,12 @@ import { captureServerDOM } from './domTracker';
 import {
 	absoluteHmrClientTarget,
 	restoreAbsoluteHmrApply,
-	sendAbsoluteHmrTiming
+	sendAbsoluteHmrTiming,
+	setCurrentHmrSource
 } from './hmrTiming';
 import { hideErrorOverlay, showErrorOverlay } from './errorOverlay';
 import { installAbsoluteNativeSyncDevtools } from './syncDevtools';
+import { installDevToolbar } from './devToolbar';
 import {
 	dispatchAngularComponentRemount,
 	dispatchAngularComponentUpdate
@@ -103,6 +105,10 @@ const removeNativeSyncDevtools =
 	hmrClientTarget === 'web'
 		? () => undefined
 		: installAbsoluteNativeSyncDevtools();
+
+/* The dev toolbar, on web only: a native shell has no page to inspect in
+ * this sense, and nowhere sensible to put a floating pill. */
+if (hmrClientTarget === 'web') installDevToolbar();
 
 /* Lightweight "server disconnected" banner, shown while the socket is
  * down (a dropped network or a restarting server) and the client reconnects.
@@ -248,6 +254,9 @@ const handleStylesheetUpdate = (message: HMRMessage) => {
 			kind: 'css',
 			outcome: applied ? 'applied' : 'failed',
 			serverMs: message.data.serverDuration,
+			...(message.data.primarySource === undefined
+				? {}
+				: { source: message.data.primarySource }),
 			updateId: message.timestamp
 		})
 	);
@@ -484,6 +493,17 @@ const connectHmrSocket = () => {
 		} catch {
 			return;
 		}
+
+		/* Before anything is applied: every timing this update produces
+		 * belongs to this file.
+		 *
+		 * BOTH names, because the server uses both: a React update carries
+		 * `primarySource` and an HTML one carries `sourceFile`. The server's
+		 * own reader does the same (dev/webSocket.ts), and reading only the
+		 * first left the file column empty for every HTML and CSS update. */
+		const source: unknown =
+			message?.data?.primarySource ?? message?.data?.sourceFile;
+		setCurrentHmrSource(typeof source === 'string' ? source : undefined);
 
 		if (message?.type === 'manifest' && receivedSnapshot(message)) {
 			// The server restarted or sent updates while this page was
