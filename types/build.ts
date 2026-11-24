@@ -834,6 +834,19 @@ export type BaseBuildConfig = {
 	//   - `'inline'` — inline maps in production too (exposes source; debugging).
 	//   - `false` / unset — no production maps (the default).
 	sourcemaps?: 'external' | 'inline' | boolean;
+	/** How long a page render may take before it is cut off. Default
+	 *  30000ms; `false` leaves a render unbounded.
+	 *
+	 *  Without a bound, a render that never finishes never answers: a
+	 *  Suspense boundary that never resolves streams its shell and then
+	 *  nothing, until Bun's `idleTimeout` reaps the socket with no error.
+	 *  An abort instead sends the page with its fallback in place. */
+	rendering?: RenderingConfig;
+};
+
+export type RenderingConfig = {
+	/** Milliseconds, or `false` for no limit. */
+	timeout?: number | false;
 };
 
 export type OpenApiConfig = {

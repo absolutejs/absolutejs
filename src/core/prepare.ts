@@ -1,4 +1,5 @@
 import { CLIENT_MODULE_PREFIX } from '../dev/clientModuleHmr';
+import { setRenderTimeout } from './renderTimeout';
 import { createHash } from 'node:crypto';
 import {
 	clientModuleManifestKey,
@@ -485,6 +486,10 @@ const prepareDev = async (
 	stepStartedAt = performance.now();
 	setBootPhase('load runtime metadata');
 	if (result.conventions) setConventions(result.conventions);
+	/* Set from the config on every boot, dev and production alike: a
+	 * render budget that applied in one and not the other would be worse
+	 * than none, since the case it exists for only happens in production. */
+	setRenderTimeout(config.rendering?.timeout);
 	setCurrentIslandManifest(result.manifest, buildDir);
 	if (config.islands?.registry) {
 		setCurrentIslandRegistry(

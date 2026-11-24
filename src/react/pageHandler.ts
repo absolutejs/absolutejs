@@ -38,6 +38,7 @@ import {
 import { ssrErrorPage } from '../utils/ssrErrorPage';
 import { renderSpaNotFound } from '../utils/spaRouteManifest';
 import { renderConventionError } from '../utils/resolveConvention';
+import { createRenderAbort } from '../core/renderTimeout';
 import { BROWSER_TRANSLATION_BASELINE_SCRIPT } from '../core/browserTranslation';
 import { reportServerError } from '../core/errorReporter';
 import { ABS_RENDER_ATTRS, withRenderSpan } from '../core/renderTracing';
@@ -216,6 +217,12 @@ const renderReactPageRequest = async <
 			 * headers long before this markup exists. */
 			setPageEntry(withBasePath(resolvedIndex));
 
+			/* A render that never finishes otherwise never answers: the
+			 * shell streams and then nothing, until Bun's idleTimeout
+			 * reaps the socket without an error. Aborting instead makes
+			 * React flush each pending boundary's fallback and close, so
+			 * the visitor gets the page showing its loading state. */
+			const abort = createRenderAbort();
 			const stream = await renderToReadableStream(element, {
 				// Under a base path the browser reaches the entry through it.
 				bootstrapModules: [withBasePath(resolvedIndex)],
@@ -226,6 +233,7 @@ const renderReactPageRequest = async <
 				// React writes this nonce on its bootstrap and streaming
 				// scripts when secureHeaders() is on.
 				nonce: readCspNonce(),
+				...(abort === undefined ? {} : { signal: abort.signal }),
 				onError(error: unknown) {
 					console.error('[SSR] React streaming error:', error);
 					/* `stream`, not `page`: the first byte is already sent,
@@ -238,6 +246,14 @@ const renderReactPageRequest = async <
 					});
 				}
 			});
+			/* The budget covers the render, not the transfer: once the
+			 * stream has finished the timer has nothing left to cut off,
+			 * and leaving it armed would abort a controller nobody reads
+			 * while holding a timer per in-flight page. */
+			void stream.allReady.then(
+				() => abort?.done(),
+				() => abort?.done()
+			);
 			const htmlStream = insertAfterHeadOpen(
 				injectIslandPageContextStream(stream, {
 					host: 'react'
