@@ -1,5 +1,5 @@
 import { getAngularDeps } from './angularDeps';
-import { withSuppressedAngularDevLogs } from './ssrRender';
+import { renderAngularApp } from './ssrRender';
 import { getSsrContextId } from '../utils/registerClientScript';
 import { readPageNonce } from '../dev/client/cspNonce';
 
@@ -288,20 +288,15 @@ export const renderAngularIslandToHtml = async <
 		{ provide: propsToken, useValue: props }
 	];
 	const document = `<!DOCTYPE html><html><body><${selector}></${selector}></body></html>`;
-	const html = await withSuppressedAngularDevLogs(() =>
-		deps.renderApplication(
-			(context) =>
-				deps.bootstrapApplication(
-					WrapperComponent,
-					{ providers },
-					context
-				),
-			{
-				document,
-				platformProviders: [],
-				url: '/'
-			}
-		)
+	/* Through the shared render so an island gets the early hand-off
+	 * too: each one otherwise waited out its own timer tick, and a page
+	 * renders its islands one after another. */
+	const html = await renderAngularApp(
+		deps,
+		WrapperComponent,
+		providers,
+		document,
+		'/'
 	);
 	const islandHtml = extractAngularIslandRoot(html, selector);
 	requestCache?.set(renderCacheKey, islandHtml);
