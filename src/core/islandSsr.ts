@@ -66,7 +66,13 @@ export const renderSvelteIslandToHtml = <Props extends Record<string, unknown>>(
 	});
 export const renderVueIslandToHtml = <Props extends Record<string, unknown>>(
 	component: import('vue').Component<Props>,
-	props: Props
+	props: Props,
+	/* `useServerData` reads its collector off the SSR context. Without
+	 * one — which is every island rendered outside a Vue page — the hook
+	 * leaves its state pending and the browser fetches after hydration,
+	 * so the island paints its loading state first and the data arrives a
+	 * round trip later. */
+	ssrContext?: Record<string, unknown>
 ) =>
 	import('vue').then(({ createSSRApp, h: createVueVNode }) => {
 		const app = createSSRApp({
@@ -74,6 +80,6 @@ export const renderVueIslandToHtml = <Props extends Record<string, unknown>>(
 		});
 
 		return import('vue/server-renderer').then(({ renderToString }) =>
-			renderToString(app)
+			renderToString(app, ssrContext)
 		);
 	});

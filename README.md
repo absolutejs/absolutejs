@@ -160,6 +160,17 @@ health endpoints are never limited by a global limit — a 429 to a readiness
 probe takes the process out of rotation. See
 [docs/RATE_LIMITING.md](docs/RATE_LIMITING.md).
 
+### Vue islands fetch their data on the server
+
+`useServerData` reads its collector off Vue's SSR context, and only the Vue
+_page_ handler ever created one — so a Vue island on a React, Svelte or HTML
+page rendered its pending state and the browser fetched after hydration: a
+loading flash, and a round trip for data the server already had. Islands now
+get a collector of their own, one per request and shared by every Vue island
+on the page, and their results are written to the same
+`window.__ABSOLUTE_SERVER_DATA__` a Vue page writes — so the browser build of
+the hook needed no change at all. A page with no Vue islands writes nothing.
+
 ### Angular pages keep their scroll position
 
 A page that exports `routes` gets a router configured with

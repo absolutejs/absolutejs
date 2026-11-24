@@ -10,6 +10,11 @@ import {
 	renderVueIslandToHtml
 } from './islandSsr';
 import { compileAngularServerModule } from './angularServerModule';
+import {
+	createServerDataCollector,
+	SERVER_DATA_CONTEXT_KEY
+} from '../vue/serverDataPayload';
+import { getVueIslandServerData } from './requestContext';
 import { compileSvelteServerModule } from './svelteServerModule';
 import { compileVueServerModule } from './vueServerModule';
 import {
@@ -278,7 +283,17 @@ export const renderIslandResult = async <T extends IslandRegistryInput>(
 			);
 		}
 		const component = await resolveVueServerIslandComponent(entry);
-		const html = await renderVueIslandToHtml(component, props.props);
+		/* One collector per request, shared by every Vue island on the
+		 * page: they land in a single payload, keyed the same way a Vue
+		 * page's own `useServerData` results are. */
+		const collector = getVueIslandServerData(createServerDataCollector);
+		const html = await renderVueIslandToHtml(
+			component,
+			props.props,
+			collector === undefined
+				? undefined
+				: { [SERVER_DATA_CONTEXT_KEY]: collector }
+		);
 
 		return { attributes, html };
 	}

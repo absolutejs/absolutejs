@@ -23,6 +23,12 @@ type AbsoluteRequestStore = {
 	 *  why the browser cannot discover them in time on its own. */
 	pageEntry?: string;
 	missingAssets?: string[];
+	/** `useServerData` results from Vue ISLANDS rendered during this
+	 *  request. A Vue page has its own collector; an island on a React,
+	 *  Svelte or HTML page had none, so its data was never prefetched on
+	 *  the server. Collected here because several islands share one page
+	 *  and one payload. */
+	vueIslandServerData?: unknown;
 };
 type AbsoluteRequestStorage = AsyncLocalStorage<AbsoluteRequestStore>;
 
@@ -185,6 +191,23 @@ export const getMissingAssets = () => {
 };
 /** The client entry recorded for this request, if a page handler ran. */
 export const getPageEntry = () => getRequestStorage()?.getStore()?.pageEntry;
+
+/** The request's Vue island collector, created on first use. Returns
+ *  undefined outside a request, where there is nothing to attach a
+ *  payload to anyway. */
+export const getVueIslandServerData = (create: () => unknown) => {
+	const store = getRequestStorage()?.getStore();
+	if (!store) return undefined;
+	store.vueIslandServerData ??= create();
+
+	return store.vueIslandServerData;
+};
+
+/** The request's Vue island collector if one was created, without
+ *  creating it: the page context asks on every page, and a page with no
+ *  Vue islands should not grow one. */
+export const peekVueIslandServerData = () =>
+	getRequestStorage()?.getStore()?.vueIslandServerData;
 
 export const recordMissingAsset = (name: string) => {
 	const store = getRequestStorage()?.getStore();

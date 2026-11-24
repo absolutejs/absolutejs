@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "`useServerData` reads its collector off Vue's SSR context, and only `src/vue/pageHandler.ts` ever created one. A Vue island rendered anywhere else — on a React page, a Svelte page, a static HTML page — therefore had no collector, and the hook does the correct thing in that case, which is to leave its state pending so the server markup matches what the browser starts with. The cost is paid at runtime: the island paints its loading state, then the browser fetches data the server already had in hand, a round trip after hydration. The island render path now creates a collector too, one per request and shared by every Vue island on the page, and passes it on Vue's SSR context so `renderToString` prefetches. Verified at each layer rather than assumed: a component rendered with a collector on the context produces `from server` instead of `pending`; the same component rendered through `renderIslandMarkup` inside a request does too, and outside a request still renders pending rather than throwing; and the payload reaches the document through the island page context. It goes to `window.__ABSOLUTE_SERVER_DATA__`, the SAME global a Vue page writes, because the browser build of the hook reads exactly one place — so the client needed no change at all, which is the part of this that could have gone wrong quietly. A page with no Vue islands, or none that load data, gains nothing: the collector is created on first use and the page context only asks, never creates.",
+					"kind": "fixed",
+					"summary": "A Vue island outside a Vue page loads its data on the server"
+				}
+			],
+			"date": "2026-11-24",
+			"version": "0.20.0-beta.341"
+		},
+		{
+			"changes": [
+				{
 					"detail": "An Angular page that exports `routes` gets a router the build wires up, and that router had `withComponentInputBinding`, `withViewTransitions` and a navigation error handler but no scrolling configuration at all. Angular restores no scroll position and ignores a `#fragment` unless told to, so an in-page navigation landed wherever the previous view happened to be scrolled to. Measured in a browser on a routed page: scroll to 1500, navigate to another route, go back — the position was 0. It is now 1500, verified on the same page with the feature turned off and on. This mattered more here than in a plain Angular app, because the framework's own cross-framework navigation layer has always restored scroll: an Angular page was the one place inside an AbsoluteJS app where going back lost your place. `withInMemoryScrolling({ anchorScrolling: \"enabled\", scrollPositionRestoration: \"enabled\" })` is injected by default and `angular: { router: { scrollRestoration: false } }` turns it off, for an app that manages scrolling itself and would otherwise be fighting the router. Preloading is the other half and is deliberately NOT symmetric: `{ preloading: 'all' }` adds `withPreloading(PreloadAllModules)`, and it stays opt-in because preloading every lazy route spends bandwidth on code a visitor may never reach, which is a choice an app should make rather than inherit. The anchor-scrolling half is part of the same Angular feature flag and is enabled with it, but only the scroll restoration was verified in a browser.",
 					"kind": "added",
 					"summary": "Angular pages restore scroll position, and can preload lazy routes",
