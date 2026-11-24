@@ -16,7 +16,7 @@ test.each(['html', 'htmx'])('unrelated incremental builds retain compiled %s scr
   await writeFile(join(html, 'pages', 'Home.html'), '<html><head><link rel="stylesheet" href="../../styles/theme.css"></head><body><script src="../scripts/counter.ts"></script></body></html>');
   const config = {cwd:root, ...(framework === 'html' ? {htmlDirectory:html} : {htmxDirectory:html}), buildDirectory:join(root,'build'),stylesConfig:styles,options:{throwOnError:true}};
   const initial = await build(config);
-  if (!initial) throw new Error('Initial build failed');
+  if (!initial?.manifest) throw new Error('Initial build failed');
   const page = initial.manifest.Home;
   if (!page) throw new Error('HTML page missing');
   const before = await readFile(page, 'utf8');

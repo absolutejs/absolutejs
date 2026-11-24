@@ -1,6 +1,7 @@
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, test } from 'bun:test';
+import type { Root } from 'postcss';
 import { compileTailwind } from '../../../src/build/compileTailwind';
 
 describe('compileTailwind', () => {
@@ -57,7 +58,7 @@ describe('compileTailwind', () => {
 					plugins: [
 						{
 							postcssPlugin: 'absolute-test-tailwind-postcss',
-							Once(root) {
+							Once(root: Root) {
 								root.append({
 									prop: '--absolute-tailwind-postcss',
 									value: '1'

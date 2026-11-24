@@ -139,7 +139,12 @@ export function Frame({ children, title }: { children: ReactNode; title: string 
 		fetch: async (request) => {
 			const { pathname } = new URL(request.url);
 			if (extname(pathname) === '')
-				return handleReactPageRequest({ index: entryPath, Page, request });
+				return handleReactPageRequest({
+					index: entryPath,
+					Page,
+					props: {},
+					request
+				});
 			const filePath = join(buildDir, pathname);
 			if (!existsSync(filePath)) return new Response(null, { status: 404 });
 			const source = await readFile(filePath, 'utf-8');

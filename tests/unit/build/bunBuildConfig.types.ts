@@ -1,5 +1,8 @@
 import { defineConfig } from '../../../src/utils/defineConfig';
-import type { BunBuildConfigOverride } from '../../../types/build';
+import type {
+	BuildConfig,
+	BunBuildConfigOverride
+} from '../../../types/build';
 
 const validOverride: BunBuildConfigOverride = {
 	minify: {
@@ -88,7 +91,12 @@ const invalidTargetOverride: BunBuildConfigOverride = {
 	target: 'browser'
 };
 
-const invalidOutdirConfig = defineConfig({
+/* Typed as `BuildConfig`, not passed to `defineConfig`: `defineConfig`
+ * infers its argument, so it sees unknown keys at the top level only and
+ * a nested one like this passes it. This pin was written against
+ * `defineConfig` and never held; nobody knew, because nothing in this
+ * directory was type-checked. The build drops the key either way. */
+const invalidOutdirConfig: BuildConfig = {
 	entry: 'src/backend/server.ts',
 	reactDirectory: 'src/react',
 	bunBuild: {
@@ -97,7 +105,7 @@ const invalidOutdirConfig = defineConfig({
 			outdir: 'custom'
 		}
 	}
-});
+};
 
 void validSingleServiceConfig;
 void validWorkspaceConfig;

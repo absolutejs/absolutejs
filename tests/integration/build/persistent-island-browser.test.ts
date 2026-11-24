@@ -226,7 +226,6 @@ const createApp = (
 			return handleSveltePageRequest({
 				indexPath: manifest.PersistSvelteIndex ?? '',
 				pagePath: manifest.PersistSvelte ?? '',
-				props: {},
 				request
 			});
 		if (pathname === '/vue')
@@ -240,7 +239,6 @@ const createApp = (
 			return handleSveltePageRequest({
 				indexPath: manifest.PersistPlainIndex ?? '',
 				pagePath: manifest.PersistPlain ?? '',
-				props: {},
 				request
 			});
 		if (extname(pathname) === '')

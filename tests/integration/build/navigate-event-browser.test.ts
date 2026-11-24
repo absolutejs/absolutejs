@@ -152,7 +152,6 @@ const createApp = (
 			return handleSveltePageRequest({
 				indexPath: manifest.NavEventSvelteIndex ?? '',
 				pagePath: manifest.NavEventSvelte ?? '',
-				props: {},
 				request
 			});
 		if (extname(pathname) === '')

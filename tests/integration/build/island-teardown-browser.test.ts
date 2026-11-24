@@ -163,7 +163,6 @@ const createApp = (
 			return handleSveltePageRequest({
 				indexPath: manifest.PlainPageIndex ?? '',
 				pagePath: manifest.PlainPage ?? '',
-				props: {},
 				request
 			});
 		}
