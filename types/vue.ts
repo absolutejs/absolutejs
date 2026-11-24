@@ -30,6 +30,18 @@ export type VueSetupAppContext = {
 	/** Server-only. Mark the current SPA route as unmatched so the page
 	 *  handler returns the project's not-found convention with HTTP 404. */
 	setNotFound: () => void;
+	/** Hand the browser a snapshot of app-level state once the server has
+	 *  rendered. The snapshot is taken AFTER the render, not when it is
+	 *  registered: a store has its values then, and serializing at
+	 *  registration time would capture an empty one every time.
+	 *
+	 *  A no-op in the browser, so one isomorphic `setupApp` can call it
+	 *  without branching. */
+	transferState: (key: string, snapshot: () => unknown) => void;
+	/** The snapshot the server transferred under `key`, or `undefined`
+	 *  when there is none — on the server, and on a page the browser
+	 *  loaded without one. */
+	restoredState: (key: string) => unknown;
 };
 
 export type VueSetupApp = (

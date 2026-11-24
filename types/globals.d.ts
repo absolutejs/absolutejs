@@ -192,6 +192,10 @@ declare global {
 			string,
 			import('./vue').ServerDataEntry
 		>;
+		/** App-level state a Vue page's `setupApp` handed over with
+		 *  `transferState`, read back by `restoredState` before mount —
+		 *  a Pinia store's values, most often. */
+		__ABSOLUTE_APP_STATE__?: Record<string, unknown>;
 		__ABSOLUTE_PAGE_RENDER_MODE__?: 'client' | 'hydrate';
 		__ABS_REACT_REMOUNT__?: (module: Record<string, unknown>) => void;
 		__REACT_COMPONENT_KEY__?: string;

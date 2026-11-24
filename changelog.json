@@ -5,6 +5,20 @@
 		{
 			"changes": [
 				{
+					"detail": "A Vue page's `setupApp` hook runs on both sides, so a project could already install Pinia and have it work on each side separately. What it could not do is get the STATE across: Pinia fills its stores during the server render, the browser creates a fresh instance, and every store resets on mount — the visitor sees the server's values and then a flash as hydration replaces them with empty ones, and anything the client refetches is work the server already did. The `setupApp` context gains `transferState(key, () => value)` and `restoredState(key)`, so `ctx.transferState('pinia', () => pinia.state.value)` on the server and `pinia.state.value = ctx.restoredState('pinia')` on the client carry it over. A CHANNEL rather than Pinia support, because the framework does not depend on Pinia and should not, and the same two calls serve any store a project brings. The snapshot is a FUNCTION read after the render rather than a value read at registration, which is the part that would have been easy to get wrong invisibly: a store is empty when `setupApp` runs and full once the render has, so taking the value at registration would transfer an empty store every time while looking like it worked. Both members exist on both sides — `transferState` is a no-op in the browser and `restoredState` returns undefined on the server — so an isomorphic hook never has to branch on `isServer` for their sake. State that cannot be carried is dropped with an error naming the key rather than failing the page: by then the render has already succeeded, and turning a rendered page into a 500 over one unserializable value is the wrong trade. A test caught one real bug in that path: `JSON.stringify` RETURNS undefined for a function rather than throwing, so the first version emitted `{\"key\":undefined}` — not a syntax error, so the transfer would have silently carried nothing and still looked like it worked. A page that transfers nothing writes no script. Scope: pages. A Vue island has no `setupApp` hook, being a component rather than an app, and its server data goes through `useServerData`. See docs/VUE_APP_STATE.md.",
+					"kind": "added",
+					"summary": "Vue pages can carry app state, Pinia included, across hydration",
+					"symbols": [
+						"VueSetupAppContext"
+					]
+				}
+			],
+			"date": "2026-11-24",
+			"version": "0.20.0-beta.343"
+		},
+		{
+			"changes": [
+				{
 					"detail": "The dev toolbar (beta.335) mounted on every page in dev, including a page shown inside a frame. In an editor's live preview it floated over the site as though it were part of it. It no longer mounts inside a frame, where the host is already the dev tool. A page that is not an app under development (an editor's own interface built with the framework) can turn it off with `<html data-absolute-dev-toolbar=\"off\">`.",
 					"kind": "fixed",
 					"summary": "The dev toolbar stays out of framed previews, and a page can turn it off"
