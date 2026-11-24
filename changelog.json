@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "In `absolute dev`, every Vue hot update was applied with `__VUE_HMR_RUNTIME__.rerender()`, which swaps only the render function and keeps the instance's old `setup()` result. After an edit to `<script>` or `<script setup>` the new template read bindings the old setup never returned: a newly imported component, ref or function was `undefined`, so Vue warned \"Invalid vnode type when creating vnode: undefined\" and the added element never appeared until the page was reloaded. A component created while dev runs and imported by one the page renders was the common case. A script edit now updates with `reload()`, re-running setup; a template or style edit still rerenders and keeps state. The choice is recorded per file version, so every open tab gets the same instruction.",
+					"kind": "fixed",
+					"summary": "A Vue script edit in dev re-runs setup, so a newly imported component or binding appears without a reload"
+				}
+			],
+			"date": "2026-11-24",
+			"version": "0.20.0-beta.361"
+		},
+		{
+			"changes": [
+				{
 					"detail": "beta.357 collected Vue hydration warnings for the development overlay through `app.config.warnHandler`. Vue hands a handler the message with every node already turned into \"[object HTMLDivElement]\", and installing one stops Vue writing the warning to the console, so the live element was lost from both. The page now reads the warnings from `console.warn` while it hydrates and passes each call through untouched: the console keeps the mismatching node to inspect, and the overlay shows it as `<div.ai-widget>` or `<!--v-if-->`. The watch ends in the mount's `finally`. A page whose `setupApp` installs its own `warnHandler` receives the warnings there, as Vue intends.",
 					"kind": "fixed",
 					"summary": "The development hydration overlay names the mismatching element, and the console keeps it"
