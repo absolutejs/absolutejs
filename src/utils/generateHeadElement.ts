@@ -11,6 +11,30 @@ import { nonceAttr, readCspNonce } from './cspNonceRef';
 import { scriptTag } from './scriptAttributes';
 import { serializeJsonLd } from './jsonLd';
 
+/* Everything a page passes as metadata ends up inside this string, and
+ * most of it is not written by the developer: a product name becomes the
+ * title, a post's summary the description, a slug the canonical URL.
+ * None of it was escaped: text in a title could close the element and
+ * continue as markup, and a double quote in any attribute value closed
+ * the attribute. Only the `hreflang` links were escaped.
+ *
+ * An `&` that already begins a character reference is left alone. Until
+ * now the only way to get a safe title was to escape it by hand, and
+ * re-escaping those would turn every `&amp;` on such a site into a
+ * visible `&amp;amp;`. Leaving a reference in place is safe: inside an
+ * attribute value or a title it decodes to a character, never to
+ * markup. */
+const BARE_AMPERSAND = /&(?!(?:[a-zA-Z][a-zA-Z0-9]*|#\d+|#[xX][0-9a-fA-F]+);)/g;
+
+const escapeText = (value: string) =>
+	value
+		.replace(BARE_AMPERSAND, '&amp;')
+		.replace(/</g, '&lt;')
+		.replace(/>/g, '&gt;');
+
+const escapeAttribute = (value: string | number) =>
+	escapeText(String(value)).replace(/"/g, '&quot;');
+
 const renderRobotsContent = (robots: RobotsDirective) => {
 	const directives: string[] = [];
 	if (robots.index === false) directives.push('noindex');
@@ -41,35 +65,46 @@ const renderOpenGraphTags = (
 	const ogTitle = openGraph.title ?? title;
 	const ogDescription = openGraph.description ?? description;
 
-	if (ogTitle) tags.push(`<meta property="og:title" content="${ogTitle}">`);
+	if (ogTitle)
+		tags.push(
+			`<meta property="og:title" content="${escapeAttribute(ogTitle)}">`
+		);
 	if (ogDescription)
 		tags.push(
-			`<meta property="og:description" content="${ogDescription}">`
+			`<meta property="og:description" content="${escapeAttribute(ogDescription)}">`
 		);
 	if (openGraph.url)
-		tags.push(`<meta property="og:url" content="${openGraph.url}">`);
+		tags.push(
+			`<meta property="og:url" content="${escapeAttribute(openGraph.url)}">`
+		);
 	if (openGraph.image)
-		tags.push(`<meta property="og:image" content="${openGraph.image}">`);
+		tags.push(
+			`<meta property="og:image" content="${escapeAttribute(openGraph.image)}">`
+		);
 	if (openGraph.imageAlt)
 		tags.push(
-			`<meta property="og:image:alt" content="${openGraph.imageAlt}">`
+			`<meta property="og:image:alt" content="${escapeAttribute(openGraph.imageAlt)}">`
 		);
 	if (openGraph.imageWidth)
 		tags.push(
-			`<meta property="og:image:width" content="${openGraph.imageWidth}">`
+			`<meta property="og:image:width" content="${escapeAttribute(openGraph.imageWidth)}">`
 		);
 	if (openGraph.imageHeight)
 		tags.push(
-			`<meta property="og:image:height" content="${openGraph.imageHeight}">`
+			`<meta property="og:image:height" content="${escapeAttribute(openGraph.imageHeight)}">`
 		);
 	if (openGraph.type)
-		tags.push(`<meta property="og:type" content="${openGraph.type}">`);
+		tags.push(
+			`<meta property="og:type" content="${escapeAttribute(openGraph.type)}">`
+		);
 	if (openGraph.siteName)
 		tags.push(
-			`<meta property="og:site_name" content="${openGraph.siteName}">`
+			`<meta property="og:site_name" content="${escapeAttribute(openGraph.siteName)}">`
 		);
 	if (openGraph.locale)
-		tags.push(`<meta property="og:locale" content="${openGraph.locale}">`);
+		tags.push(
+			`<meta property="og:locale" content="${escapeAttribute(openGraph.locale)}">`
+		);
 
 	return tags;
 };
@@ -86,23 +121,33 @@ const renderTwitterTags = (
 	const twitterDescription = twitter.description ?? description;
 
 	if (twitter.card)
-		tags.push(`<meta name="twitter:card" content="${twitter.card}">`);
+		tags.push(
+			`<meta name="twitter:card" content="${escapeAttribute(twitter.card)}">`
+		);
 	if (twitterTitle)
-		tags.push(`<meta name="twitter:title" content="${twitterTitle}">`);
+		tags.push(
+			`<meta name="twitter:title" content="${escapeAttribute(twitterTitle)}">`
+		);
 	if (twitterDescription)
 		tags.push(
-			`<meta name="twitter:description" content="${twitterDescription}">`
+			`<meta name="twitter:description" content="${escapeAttribute(twitterDescription)}">`
 		);
 	if (twitter.image)
-		tags.push(`<meta name="twitter:image" content="${twitter.image}">`);
+		tags.push(
+			`<meta name="twitter:image" content="${escapeAttribute(twitter.image)}">`
+		);
 	if (twitter.imageAlt)
 		tags.push(
-			`<meta name="twitter:image:alt" content="${twitter.imageAlt}">`
+			`<meta name="twitter:image:alt" content="${escapeAttribute(twitter.imageAlt)}">`
 		);
 	if (twitter.site)
-		tags.push(`<meta name="twitter:site" content="${twitter.site}">`);
+		tags.push(
+			`<meta name="twitter:site" content="${escapeAttribute(twitter.site)}">`
+		);
 	if (twitter.creator)
-		tags.push(`<meta name="twitter:creator" content="${twitter.creator}">`);
+		tags.push(
+			`<meta name="twitter:creator" content="${escapeAttribute(twitter.creator)}">`
+		);
 
 	return tags;
 };
@@ -114,16 +159,14 @@ const renderMetaTag = (tag: {
 	content: string;
 }) => {
 	if (tag.property)
-		return `<meta property="${tag.property}" content="${tag.content}">`;
+		return `<meta property="${escapeAttribute(tag.property)}" content="${escapeAttribute(tag.content)}">`;
 	if (tag.httpEquiv)
-		return `<meta http-equiv="${tag.httpEquiv}" content="${tag.content}">`;
-	if (tag.name) return `<meta name="${tag.name}" content="${tag.content}">`;
+		return `<meta http-equiv="${escapeAttribute(tag.httpEquiv)}" content="${escapeAttribute(tag.content)}">`;
+	if (tag.name)
+		return `<meta name="${escapeAttribute(tag.name)}" content="${escapeAttribute(tag.content)}">`;
 
 	return undefined;
 };
-
-const escapeAttribute = (value: string) =>
-	value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
 
 /** `<link rel="alternate" hreflang>` tags for a page's localized versions. */
 const renderAlternateLinks = (alternates: AlternateLink[] = []) =>
@@ -135,13 +178,15 @@ const renderAlternateLinks = (alternates: AlternateLink[] = []) =>
 const renderPreloadLink = (preload: PreloadLink) => {
 	const rel = preload.module ? 'modulepreload' : 'preload';
 	const asAttribute =
-		!preload.module && preload.as ? ` as="${preload.as}"` : '';
+		!preload.module && preload.as
+			? ` as="${escapeAttribute(preload.as)}"`
+			: '';
 	const crossoriginAttribute =
 		preload.crossorigin !== undefined
-			? ` crossorigin="${preload.crossorigin}"`
+			? ` crossorigin="${escapeAttribute(preload.crossorigin)}"`
 			: '';
 
-	return `<link rel="${rel}" href="${preload.href}"${asAttribute}${crossoriginAttribute}>`;
+	return `<link rel="${escapeAttribute(rel)}" href="${escapeAttribute(preload.href)}"${asAttribute}${crossoriginAttribute}>`;
 };
 
 export const generateHeadElement = ({
@@ -165,13 +210,15 @@ export const generateHeadElement = ({
 	const tags: string[] = [
 		'<meta charset="UTF-8">',
 		'<meta name="viewport" content="width=device-width, initial-scale=1.0">',
-		`<title>${title}</title>`,
-		`<meta name="description" content="${description}">`,
-		`<link rel="icon" href="${applyIconVersion(icon)}" type="${iconMimeType(icon)}">`
+		`<title>${escapeText(title)}</title>`,
+		`<meta name="description" content="${escapeAttribute(description)}">`,
+		`<link rel="icon" href="${escapeAttribute(applyIconVersion(icon))}" type="${escapeAttribute(iconMimeType(icon))}">`
 	];
 
 	if (canonical) {
-		tags.push(`<link rel="canonical" href="${canonical}">`);
+		tags.push(
+			`<link rel="canonical" href="${escapeAttribute(canonical)}">`
+		);
 	}
 
 	tags.push(...renderAlternateLinks(alternates));
@@ -182,7 +229,9 @@ export const generateHeadElement = ({
 	const robotsContent = robots ? renderRobotsContent(robots) : '';
 
 	if (robotsContent) {
-		tags.push(`<meta name="robots" content="${robotsContent}">`);
+		tags.push(
+			`<meta name="robots" content="${escapeAttribute(robotsContent)}">`
+		);
 	}
 
 	const renderedMeta = (meta ?? [])
@@ -195,7 +244,7 @@ export const generateHeadElement = ({
 		tags.push(
 			`<link rel="preconnect" href="https://fonts.googleapis.com">`,
 			`<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>`,
-			`<link href="https://fonts.googleapis.com/css2?family=${font}:wght@100..900&display=swap" rel="stylesheet">`
+			`<link href="https://fonts.googleapis.com/css2?family=${escapeAttribute(font)}:wght@100..900&amp;display=swap" rel="stylesheet">`
 		);
 	}
 
@@ -220,7 +269,9 @@ export const generateHeadElement = ({
 	const cssPaths = cssPath ? [cssPath].flat() : [];
 
 	for (const path of cssPaths) {
-		tags.push(`<link rel="stylesheet" href="${path}" type="text/css">`);
+		tags.push(
+			`<link rel="stylesheet" href="${escapeAttribute(path)}" type="text/css">`
+		);
 	}
 
 	if (jsonLd) {

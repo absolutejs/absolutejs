@@ -113,3 +113,131 @@ describe('generateHeadElement preload + speculation rules', () => {
 		expect(head).not.toContain('speculationrules');
 	});
 });
+
+/* Everything a page passes as metadata ends up inside this string, and
+ * most of it is not written by the developer: a product name becomes the
+ * title, a post's summary the description, a slug the canonical URL. None
+ * of it was escaped — only the `hreflang` links were.
+ *
+ * These parse the output rather than search it for a substring, because
+ * "the payload text is absent" and "the payload did not become markup"
+ * are different claims and only the second one is the point. */
+describe('metadata that is not the developer’s own text', () => {
+	const elementsOf = (head: string, tag: string) =>
+		[...head.matchAll(new RegExp(`<${tag}(\\s[^>]*)?>`, 'giu'))].map(
+			(match) => match[0]
+		);
+
+	test('a title cannot close its element and open another', () => {
+		const head = generateHeadElement({
+			title: 'Shoes</title><script>alert(1)</script>'
+		});
+
+		expect(elementsOf(head, 'script')).toHaveLength(0);
+		expect(head.match(/<\/title>/gu)).toHaveLength(1);
+		expect(head).toContain(
+			'<title>Shoes&lt;/title&gt;&lt;script&gt;alert(1)&lt;/script&gt;</title>'
+		);
+	});
+
+	/* The description is repeated into Open Graph and Twitter tags when
+	 * those are on, so one unescaped value was three ways out. */
+	test('a quote in a description stays inside its attribute', () => {
+		const head = generateHeadElement({
+			description: 'Size 9" wide" onload="alert(2)',
+			openGraph: {},
+			twitter: {}
+		});
+		const metas = elementsOf(head, 'meta').filter((meta) =>
+			meta.includes('Size 9')
+		);
+
+		expect(metas).toHaveLength(3);
+		for (const meta of metas) {
+			expect(meta).toContain(
+				'content="Size 9&quot; wide&quot; onload=&quot;alert(2)"'
+			);
+			// exactly the two attributes it should have, and no third
+			expect(meta).toMatch(
+				/^<meta (?:name|property)="[^"]*" content="[^"]*">$/u
+			);
+		}
+	});
+
+	test('a URL cannot break out of href', () => {
+		const head = generateHeadElement({
+			canonical: 'https://x.test/p?q="><script>alert(3)</script>'
+		});
+
+		expect(elementsOf(head, 'script')).toHaveLength(0);
+		expect(head).toContain(
+			'href="https://x.test/p?q=&quot;&gt;&lt;script&gt;alert(3)&lt;/script&gt;"'
+		);
+	});
+
+	test.each([
+		['openGraph.title', { openGraph: { title: 'a"><script>x</script>' } }],
+		['openGraph.image', { openGraph: { image: 'a"><script>x</script>' } }],
+		['twitter.site', { twitter: { site: 'a"><script>x</script>' } }],
+		[
+			'meta content',
+			{ meta: [{ content: 'a"><script>x</script>', name: 'author' }] }
+		],
+		[
+			'meta name',
+			{ meta: [{ content: 'ok', name: 'a"><script>x</script>' }] }
+		],
+		['cssPath', { cssPath: 'a"><script>x</script>' }],
+		['icon', { icon: 'a"><script>x</script>' }],
+		['font', { font: 'a"><script>x</script>' }],
+		['preload href', { preload: [{ href: 'a"><script>x</script>' }] }]
+	])('%s cannot inject markup', (_label, metadata) => {
+		expect(
+			elementsOf(generateHeadElement(metadata), 'script')
+		).toHaveLength(0);
+	});
+
+	test('an ampersand in ordinary text is escaped', () => {
+		const head = generateHeadElement({
+			canonical: 'https://x.test/?a=1&b=2',
+			title: 'Fish & Chips'
+		});
+
+		expect(head).toContain('<title>Fish &amp; Chips</title>');
+		expect(head).toContain('href="https://x.test/?a=1&amp;b=2"');
+	});
+
+	/* Until now the only way to get a safe title was to escape it by
+	 * hand. Re-escaping those would turn every `&amp;` on such a site
+	 * into a visible `&amp;amp;`. A reference left in place decodes to a
+	 * character and never to markup, so leaving it is safe. */
+	test('text that was already escaped by hand is not escaped twice', () => {
+		const head = generateHeadElement({
+			description: 'A &quot;quoted&quot; &#8212; &#x2014; thing',
+			title: 'Tom &amp; Jerry &copy; 2026'
+		});
+
+		expect(head).toContain('<title>Tom &amp; Jerry &copy; 2026</title>');
+		expect(head).toContain(
+			'content="A &quot;quoted&quot; &#8212; &#x2014; thing"'
+		);
+		expect(head).not.toContain('&amp;amp;');
+		expect(head).not.toContain('&amp;quot;');
+	});
+
+	test('plain metadata comes out exactly as before', () => {
+		const head = generateHeadElement({
+			canonical: 'https://x.test/pricing',
+			description: 'Plans and pricing',
+			title: 'Pricing'
+		});
+
+		expect(head).toContain('<title>Pricing</title>');
+		expect(head).toContain(
+			'<meta name="description" content="Plans and pricing">'
+		);
+		expect(head).toContain(
+			'<link rel="canonical" href="https://x.test/pricing">'
+		);
+	});
+});
