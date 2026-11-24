@@ -152,6 +152,7 @@ const withBuildLock = async (action: () => Promise<void>) => {
 
 const SERVER_ENTRY_POINTS = [
 	'src/runtime/clientAssetArchive.ts',
+	'src/runtime/productionTls.ts',
 	'src/index.ts',
 	'src/build.ts',
 	// Published as `@absolutejs/absolute/server-only`. Its own entry point,

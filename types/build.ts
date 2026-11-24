@@ -426,6 +426,29 @@ export type PostCSSConfig =
 			config?: string;
 	  };
 
+/** HTTPS terminated by the production server itself. Paths to PEM files,
+ *  read when the server starts; a relative path is resolved from the
+ *  directory the server is started in. Each has an environment variable
+ *  that takes precedence, so one build can run with different
+ *  certificates: `ABSOLUTE_TLS_CERT`, `ABSOLUTE_TLS_KEY`,
+ *  `ABSOLUTE_TLS_CA`, `ABSOLUTE_TLS_HTTP2`. A passphrase for an encrypted
+ *  key is `ABSOLUTE_TLS_PASSPHRASE` only — it does not belong in a file
+ *  that is committed.
+ *
+ *  Development is unaffected: `dev.https` and its local certificate.
+ *  See docs/PRODUCTION_TLS.md. */
+export type TlsConfig = {
+	/** The certificate, with any intermediates after it (a "full chain"). */
+	cert: string;
+	/** The private key that belongs to `cert`. */
+	key: string;
+	/** A CA bundle to use instead of the system's, for a private CA. */
+	ca?: string;
+	/** HTTP/2 for clients that ask for it; everyone else gets HTTP/1.1 on
+	 *  the same port. On unless set to `false`. */
+	http2?: boolean;
+};
+
 /** Vendor prefixing, done by `autoprefixer` when the project has it
  *  installed. `false` turns it off. */
 export type AutoprefixerConfig =
@@ -818,6 +841,16 @@ export type BaseBuildConfig = {
 	 *  `shutdown: false` restores the old behaviour — the process stops
 	 *  the instant it is signalled. See docs/GRACEFUL_SHUTDOWN.md. */
 	shutdown?: boolean | ShutdownConfig;
+	/** Serve HTTPS, and HTTP/2, from the production server itself.
+	 *
+	 *      tls: { cert: '/etc/ssl/site/fullchain.pem', key: '/etc/ssl/site/privkey.pem' }
+	 *
+	 *  Off by default, and not needed behind a proxy or load balancer that
+	 *  terminates TLS. With it, `absolute start`, `bun server.js` and a
+	 *  compiled binary all listen on HTTPS; a certificate that cannot be
+	 *  used stops the server at startup instead of leaving it on plain
+	 *  HTTP. See docs/PRODUCTION_TLS.md. */
+	tls?: TlsConfig;
 	/** Opt-in per-request logging with a correlation id.
 	 *
 	 *      logging: { requests: 'json' }

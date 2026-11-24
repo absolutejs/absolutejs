@@ -72,6 +72,7 @@ export const CONFIG_KEYS = [
 	'svelteDirectory',
 	'tailwind',
 	'telemetry',
+	'tls',
 	'visibility',
 	'vitals',
 	'vueDirectory'

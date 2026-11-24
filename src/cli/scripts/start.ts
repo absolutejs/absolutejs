@@ -200,6 +200,8 @@ type RunPreparedServerOptions = {
 	absoluteVersion: string;
 	bundleDurationMs: number;
 	cluster?: boolean | ClusterConfig;
+	/** Whether the config asks the server to terminate TLS itself. */
+	https?: boolean;
 	configPath?: string;
 	frameworks: string[];
 	outdir?: string;
@@ -266,6 +268,7 @@ const runPreparedServer = async ({
 	cluster,
 	configPath,
 	frameworks,
+	https = false,
 	outdir,
 	outputPath,
 	port,
@@ -363,7 +366,10 @@ const runPreparedServer = async ({
 		cwd: process.cwd(),
 		frameworks,
 		host: env.ABSOLUTE_HOST ?? env.HOST ?? 'localhost',
-		https: env.ABSOLUTE_HTTPS === 'true',
+		https:
+			env.ABSOLUTE_HTTPS === 'true' ||
+			env.ABSOLUTE_TLS_CERT !== undefined ||
+			https,
 		logFile: null,
 		name: resolveProjectName(process.cwd()),
 		pid: process.pid,
@@ -514,6 +520,7 @@ export const start = async (
 			cluster: buildConfig.cluster,
 			configPath,
 			frameworks,
+			https: buildConfig.tls !== undefined,
 			outdir,
 			outputPath,
 			port,
@@ -851,6 +858,7 @@ export const start = async (
 		cluster: buildConfig.cluster,
 		configPath,
 		frameworks,
+		https: buildConfig.tls !== undefined,
 		outdir,
 		outputPath,
 		port,

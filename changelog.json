@@ -5,6 +5,21 @@
 		{
 			"changes": [
 				{
+					"detail": "TLS and HTTP/2 were both tied to `NODE_ENV === \"development\"`: `networking()` loaded the dev certificate and nothing else, and HTTP/2 rode on it, so a production server could do neither and every deployment needed a proxy in front. A new `tls` config key takes paths to a PEM certificate and key (`tls: { cert, key }`, optional `ca`, `http2: false` to turn HTTP/2 off), and `ABSOLUTE_TLS_CERT`, `ABSOLUTE_TLS_KEY`, `ABSOLUTE_TLS_CA` and `ABSOLUTE_TLS_HTTP2` override it, so one build runs with a different certificate per deployment and the environment alone is enough. `absolute start`, `bun server.js` and a compiled binary all listen on HTTPS with it; a client that asks for HTTP/2 gets it and everyone else gets HTTP/1.1 on the same port. It FAILS rather than falls back: a missing file, a key that does not belong to the certificate, a file that is not a key and a wrong passphrase each stop the server at startup with the reason, instead of leaving it up on plain HTTP. An expired or soon-to-expire certificate is a warning. The config and the built `absolute-runtime.json` hold paths only, and a passphrase is `ABSOLUTE_TLS_PASSPHRASE` only. Measured on Bun 1.4.4: `server.reload()` does not swap a certificate, so a renewed one is picked up on restart. Not included: an HTTP-to-HTTPS redirect listener, HTTP/2 without TLS, and certificate issuance. Development is unchanged (`dev.https`), and the server the build runs to render static pages stays on plain HTTP. See docs/PRODUCTION_TLS.md.",
+					"kind": "added",
+					"summary": "Production servers can terminate HTTPS and serve HTTP/2 themselves, with a `tls` config key",
+					"symbols": [
+						"TlsConfig",
+						"BaseBuildConfig"
+					]
+				}
+			],
+			"date": "2026-11-24",
+			"version": "0.20.0-beta.359"
+		},
+		{
+			"changes": [
+				{
 					"detail": "`absolute prettier` left the build output alone by ignoring every directory named `build`, so source in `src/build/` or `tests/build/` was never formatted or checked and the command reported a pass. It now ignores the directory the config says the build goes to (`buildDirectory`, `build` by default; each service's own in a workspace), the same rule `absolute typecheck` got in beta.356, and the two share one definition. `absolute fmt` was never affected: it reads only the project's `.prettierignore`. A project that formats with `absolute prettier --check` and has source in a directory named `build` may see files reported that were skipped before.",
 					"kind": "fixed",
 					"summary": "`absolute prettier` formats source in directories named `build` instead of skipping them"

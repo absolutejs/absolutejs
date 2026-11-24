@@ -919,6 +919,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { buildGlobalWSHandler } from "elysia/ws";
 import { createClientAssetArchive } from ${JSON.stringify([resolve(import.meta.dir, '../../runtime/clientAssetArchive.ts'), resolve(import.meta.dir, '../runtime/clientAssetArchive.js')].find((path) => existsSync(path)))};
 
+import { loadProductionTls } from ${JSON.stringify([resolve(import.meta.dir, '../../runtime/productionTls.ts'), resolve(import.meta.dir, '../runtime/productionTls.js')].find((path) => existsSync(path)))};
+
 const SERVER_MODULE = (runtimeDir: string) => import(pathToFileURL(join(runtimeDir, ${JSON.stringify(serverBundleName)})).href);
 const RUNTIME_BUILD_ID = ${JSON.stringify(runtimeBuildId)};
 const RUNTIME_CONFIG_SOURCE = ${JSON.stringify(runtimeConfigSource)};
@@ -1151,9 +1153,29 @@ try {
 	console.error("[compile] Client asset retention unavailable:", error);
 }
 
+// HTTPS from the binary itself: the \`tls\` config it was built with, or
+// ABSOLUTE_TLS_CERT / ABSOLUTE_TLS_KEY at run time. Read here, before the
+// runtime changes directory, so a relative path means what it did where
+// the binary was started. A certificate that cannot be used throws, and
+// the binary exits instead of serving plain HTTP.
+const loadTlsOrExit = () => {
+	try {
+		return loadProductionTls(JSON.parse(RUNTIME_CONFIG_SOURCE).tls);
+	} catch (error) {
+		// Said and exited non-zero by hand: the safety net above keeps the
+		// process alive through an uncaught error, and a supervisor has to
+		// see this one as a failed start.
+		console.error("[absolutejs] " + (error instanceof Error ? error.message : String(error)));
+		process.exit(1);
+	}
+};
+const productionTls = loadTlsOrExit();
+if (productionTls?.warning) console.warn("[absolutejs] " + productionTls.warning);
+
 const server = Bun.serve({
 	port,
 	idleTimeout,
+	...(productionTls?.serve ?? {}),
 	// Registering Elysia's WebSocket dispatcher here (plus assigning app.server in
 	// resolveRuntimeFetch) is what makes .ws() routes work in a compiled server —
 	// without it, every upgrade request falls through to the 404 below.
@@ -1258,7 +1280,7 @@ const pageCount = Object.keys(PAGES).length;
 console.log(\`
   \\x1b[36m\\x1b[1mABSOLUTEJS\\x1b[0m \\x1b[2mv${version}\\x1b[0m  \\x1b[2mcompiled executable\\x1b[0m
 
-  \\x1b[32m➜\\x1b[0m  \\x1b[1mLocal:\\x1b[0m   http://localhost:\${server.port}/
+  \\x1b[32m➜\\x1b[0m  \\x1b[1mLocal:\\x1b[0m   \${productionTls ? "https" : "http"}://localhost:\${server.port}/
 
   \\x1b[2m\${pageCount} pre-rendered pages, \${assetCount} embedded assets, runtime fallback\\x1b[0m
 \`);

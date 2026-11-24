@@ -18,6 +18,7 @@ import { HTTP_STATUS_INTERNAL_SERVER_ERROR } from '../constants';
 import { withOpenApi } from '../plugins/openApiPlugin';
 import { withTelemetry } from '../plugins/telemetryPlugin';
 import { loadConfig } from '../utils/loadConfig';
+import { publishTlsConfig } from '../runtime/productionTls';
 import { readProductionRuntime } from './productionRuntime';
 import { installAngularZoneRuntime } from '../angular/zoneRuntime';
 import { setIconVersionResolver } from '../utils/iconVersion';
@@ -846,6 +847,8 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 		config.basePathShared
 	)
 		process.env.ABSOLUTE_BASE_PATH_SHARED = config.basePathShared.join(',');
+	// `networking()` reads TLS from the environment, and it runs after this.
+	if (!isDev) publishTlsConfig(config.tls);
 	// Angular zone.js mode must patch the process before the app listens.
 	if (config.angular?.changeDetection === 'zone')
 		await installAngularZoneRuntime();
