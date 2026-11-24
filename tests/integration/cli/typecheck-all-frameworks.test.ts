@@ -101,10 +101,31 @@ export const about = () =>
 	);
 };
 
-const typecheck = async () => {
+/* bun check prints a diagnostic in a different shape when it finds itself
+ * under a coding agent, and it decides that from the environment. So the
+ * environment is set here rather than inherited: inherited, this file
+ * passed for a person and failed for an agent running the same commit. */
+const AGENT_MARKERS = ['AGENT', 'AI_AGENT', 'CLAUDECODE', 'REPL_ID'];
+
+const checkerEnvironment = (underAgent: boolean) => {
+	const inherited = Object.fromEntries(
+		Object.entries(process.env).filter(
+			([name]) => !AGENT_MARKERS.includes(name)
+		)
+	);
+
+	return {
+		...inherited,
+		...(underAgent ? { CLAUDECODE: '1' } : {}),
+		FORCE_COLOR: '0',
+		TELEMETRY_OFF: '1'
+	};
+};
+
+const typecheck = async (underAgent = false) => {
 	const proc = Bun.spawn([process.execPath, CLI_PATH, 'typecheck'], {
 		cwd: projectRoot,
-		env: { ...process.env, FORCE_COLOR: '0', TELEMETRY_OFF: '1' },
+		env: checkerEnvironment(underAgent),
 		stderr: 'pipe',
 		stdout: 'pipe'
 	});
@@ -132,6 +153,22 @@ const sections = (output: string) => {
 
 	return found;
 };
+
+/* The Svelte page-prop error in the server file, in either shape:
+ *   src/server.ts(11,12): error TS2322: Type 'number' is not …
+ *   <error file="src/server.ts" line="11" column="12" code="TS2322">
+ *   Type 'number' is not … */
+const SERVER_PROP_ERROR = new RegExp(
+	[
+		String.raw`src\/server\.ts\(\d+,\d+\): error TS2322: `,
+		String.raw`<error file="src\/server\.ts" line="\d+" column="\d+" code="TS2322">\s*`
+	]
+		.map(
+			(position) =>
+				`${position}Type 'number' is not assignable to type 'string'`
+		)
+		.join('|')
+);
 
 beforeAll(async () => {
 	await ensureDistBuild();
@@ -199,46 +236,51 @@ afterAll(async () => {
 });
 
 describe('absolute typecheck: React, Svelte, Vue and Angular together', () => {
-	test('a wrong prop in each framework is reported under its own checker', async () => {
-		await writeSources(true);
-		const { exitCode, output } = await typecheck();
-		const reported = sections(output);
-		const plain = reported.get(PLAIN) ?? '';
-		const vue = reported.get(VUE) ?? '';
-		const svelte = reported.get('svelte-check') ?? '';
-		const angular = reported.get(ANGULAR) ?? '';
+	test.each([
+		['in a plain shell', false],
+		['under a coding agent', true]
+	])(
+		'a wrong prop in each framework is reported under its own checker, %s',
+		async (_where, underAgent) => {
+			await writeSources(true);
+			const { exitCode, output } = await typecheck(underAgent);
+			const reported = sections(output);
+			const plain = reported.get(PLAIN) ?? '';
+			const vue = reported.get(VUE) ?? '';
+			const svelte = reported.get('svelte-check') ?? '';
+			const angular = reported.get(ANGULAR) ?? '';
 
-		expect(exitCode).not.toBe(0);
-		expect([...reported.keys()].sort()).toEqual(
-			[PLAIN, VUE, 'svelte-check', ANGULAR].sort()
-		);
+			expect(exitCode).not.toBe(0);
+			expect([...reported.keys()].sort()).toEqual(
+				[PLAIN, VUE, 'svelte-check', ANGULAR].sort()
+			);
 
-		// React: plain TypeScript, reported once, by the plain checker.
-		expect(plain).toContain('src/react/pages/Home.tsx');
-		expect(vue).not.toContain('Home.tsx');
-		// Svelte page props in a server file (the generated declarations),
-		// and a wrong prop inside a component (svelte-check).
-		expect(plain).toMatch(
-			/src\/server\.ts\(\d+,\d+\): error TS2322: Type 'number' is not assignable to type 'string'/
-		);
-		expect(svelte).toContain('src/svelte/pages/Pricing.svelte');
-		expect(svelte).toContain(
-			"Type 'string' is not assignable to type 'number'"
-		);
-		// Vue page props in a server file: only the Vue checker sees them.
-		expect(vue).toContain('src/server.ts');
-		expect(vue).toContain(
-			"Type 'string' is not assignable to type 'number'"
-		);
-		expect(vue.match(/TS\d+/g)).toHaveLength(1);
-		// Angular template bindings.
-		expect(angular).toContain('home.component.ts');
-		expect(angular).toContain('TS2322');
+			// React: plain TypeScript, reported once, by the plain checker.
+			expect(plain).toContain('src/react/pages/Home.tsx');
+			expect(vue).not.toContain('Home.tsx');
+			// Svelte page props in a server file (the generated declarations),
+			// and a wrong prop inside a component (svelte-check).
+			expect(plain).toMatch(SERVER_PROP_ERROR);
+			expect(svelte).toContain('src/svelte/pages/Pricing.svelte');
+			expect(svelte).toContain(
+				"Type 'string' is not assignable to type 'number'"
+			);
+			// Vue page props in a server file: only the Vue checker sees them.
+			expect(vue).toContain('src/server.ts');
+			expect(vue).toContain(
+				"Type 'string' is not assignable to type 'number'"
+			);
+			expect(vue.match(/TS\d+/g)).toHaveLength(1);
+			// Angular template bindings.
+			expect(angular).toContain('home.component.ts');
+			expect(angular).toContain('TS2322');
 
-		expect(output).toContain(
-			`Typecheck failed: ${[PLAIN, VUE, 'svelte-check', ANGULAR].join(', ')}`
-		);
-	}, 300_000);
+			expect(output).toContain(
+				`Typecheck failed: ${[PLAIN, VUE, 'svelte-check', ANGULAR].join(', ')}`
+			);
+		},
+		300_000
+	);
 
 	test('the same project with correct props passes', async () => {
 		await writeSources(false);
