@@ -1747,7 +1747,30 @@ const hoistExportPastDecorators = (source: string) => {
  *  Uses ts.transpileModule() instead of Angular AOT performCompilation().
  *  Inlines templateUrl → template and styleUrls → styles from disk.
  *  Recursively transpiles all local imports so Bun's bundler can resolve them.
- *  ~50-100ms for a tree of ~10 files vs ~500-700ms for AOT. */
+ *
+ *  Re-measured on this repository, because the numbers this comment used
+ *  to quote ("~50-100ms for a tree of ~10 files vs ~500-700ms for AOT")
+ *  were wrong in both directions once the AOT cache landed in beta.323.
+ *  Per EDIT — one file changed, which is what a dev tick does:
+ *
+ *    tree size      AOT        JIT
+ *    5 components   515 ms     1 ms
+ *    25 components  637 ms     3 ms
+ *    50 components  743 ms     4 ms
+ *
+ *  Unchanged, with the cache warm, AOT is 43-59 ms; cold it is 1.1-1.4 s.
+ *  The warm number is the one that misleads: dev never re-compiles an
+ *  UNCHANGED tree, and the moment a file changes the cache cannot help,
+ *  because AOT has no per-file path — it compiles a PROGRAM.
+ *
+ *  That is the real reason for the split, and it is not only speed: the
+ *  per-component HMR path (`compileAngularFileJIT`, 8-56 ms of server
+ *  work plus 5-13 ms to apply in the browser) exists because a single
+ *  file can be compiled on its own. AOT cannot do that, so adopting it
+ *  in dev would cost the tier-0 remount path as well as the time.
+ *
+ *  The cost of the split is that a bug can live in one compiler and not
+ *  the other. tests/unit/angular/jitAotParity.test.ts is that seam. */
 /* Matches the sentinel-bracketed providers block that `compileAngular`'s
  * injection step appends to page server outputs. Non-global on purpose —
  * a shared global regex is stateful across `exec` calls. */
@@ -2342,9 +2365,10 @@ export const compileAngular = async (
 				stylePreprocessors
 			);
 
-		// Angular HMR Runtime Layer (Level 3) — Use JIT compilation for dev/HMR builds.
-		// JIT uses ts.transpileModule() with template/style inlining (~50-100ms)
-		// instead of AOT performCompilation() (~500-700ms).
+		// Angular HMR Runtime Layer (Level 3) — Use JIT compilation for dev/HMR
+		// builds. Measured per edit: 1-4 ms (JIT) against 515-743 ms (AOT),
+		// which does not shrink with the AOT cache because a changed file
+		// invalidates the program. See compileAngularFileJIT above.
 		let outputs = hmr
 			? await traceAngularPhase('jit/compile-entry', compileEntry, {
 					entry: resolvedEntry
