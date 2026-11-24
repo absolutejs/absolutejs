@@ -589,6 +589,9 @@ export type BaseBuildConfig = {
 		/** `'zone'` opts every Angular page into zone.js change detection
 		 *  (zone.js must be installed in the app). Defaults to `'zoneless'`. */
 		changeDetection?: AngularChangeDetection;
+		/** How the router the build wires up for a page that exports
+		 *  `routes` behaves. */
+		router?: AngularRouterConfig;
 		providers?: ReadonlyArray<
 			| import('@angular/core').Provider
 			| import('@angular/core').EnvironmentProviders
@@ -842,6 +845,22 @@ export type BaseBuildConfig = {
 	 *  nothing, until Bun's `idleTimeout` reaps the socket with no error.
 	 *  An abort instead sends the page with its fallback in place. */
 	rendering?: RenderingConfig;
+};
+
+export type AngularRouterConfig = {
+	/** Restore the scroll position on back and forward, and scroll to a
+	 *  `#fragment` after navigation. On by default.
+	 *
+	 *  Angular's router does neither on its own, so an in-page navigation
+	 *  landed wherever the previous page happened to be scrolled to — a
+	 *  behaviour this framework's own cross-framework navigation layer
+	 *  has always got right, which made Angular pages the odd ones out. */
+	scrollRestoration?: boolean;
+	/** `'all'` preloads every lazy route after the first render;
+	 *  `'none'` (the default) loads one when it is navigated to.
+	 *  Preloading everything spends bandwidth a visitor may never use, so
+	 *  it is opt-in. */
+	preloading?: 'all' | 'none';
 };
 
 export type RenderingConfig = {
