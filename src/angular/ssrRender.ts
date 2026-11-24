@@ -10,6 +10,7 @@ import {
 import { browserTranslationBaselineTag } from '../core/browserTranslation';
 import { buildAbsoluteHttpTransferCacheOptions } from './httpTransferCache';
 import { buildRequestProviders } from './requestProviders';
+import { insertBeforeMarker } from '../utils/insertBeforeMarker';
 import { isAngularZoneMode } from './zoneRuntime';
 
 // --- Last-used requestContext cache for HMR ---
@@ -84,16 +85,10 @@ export const resolveSelector = (
 
 // --- Inject HTML helper ---
 
-const injectBeforeClose = (html: string, snippet: string) => {
-	if (html.includes('</body>')) {
-		return html.replace('</body>', `${snippet}</body>`);
-	}
-	if (html.includes('</html>')) {
-		return html.replace('</html>', `${snippet}</html>`);
-	}
-
-	return html + snippet;
-};
+const injectBeforeClose = (html: string, snippet: string) =>
+	insertBeforeMarker(html, '</body>', snippet) ??
+	insertBeforeMarker(html, '</html>', snippet) ??
+	html + snippet;
 
 // --- Post-render HTML injection ---
 
@@ -104,19 +99,18 @@ export const injectSsrScripts = (
 	requestContext?: unknown,
 	baseHref?: string | null
 ) => {
-	let result = injectBeforeClose(html, browserTranslationBaselineTag());
+	/* Collected and inserted ONCE. Each of these used to be its own
+	 * search-and-copy of the whole document — five passes over the page
+	 * for five snippets that all land in the same place, in this order. */
+	const snippets = [browserTranslationBaselineTag()];
 
 	const registeredScripts = getAndClearClientScripts(requestId);
 	if (registeredScripts.length > 0) {
-		result = injectBeforeClose(
-			result,
-			generateClientScriptCode(registeredScripts)
-		);
+		snippets.push(generateClientScriptCode(registeredScripts));
 	}
 
 	if (requestContext !== undefined) {
-		result = injectBeforeClose(
-			result,
+		snippets.push(
 			`<script${nonceAttr()}>window.__ABS_ANGULAR_REQUEST_CONTEXT__ = ${escapeScriptContent(JSON.stringify(requestContext))};</script>`
 		);
 	}
@@ -124,21 +118,19 @@ export const injectSsrScripts = (
 	// Read by the generated client bootstrap so the browser router uses
 	// the same `APP_BASE_HREF` the server rendered with.
 	if (baseHref) {
-		result = injectBeforeClose(
-			result,
+		snippets.push(
 			`<script${nonceAttr()}>window.__ABS_ANGULAR_BASE_HREF__ = ${escapeScriptContent(JSON.stringify(baseHref))};</script>`
 		);
 	}
 
 	if (indexPath) {
 		const escapedIndexPath = JSON.stringify(indexPath);
-		result = injectBeforeClose(
-			result,
+		snippets.push(
 			`<script${nonceAttr()}>import(${escapeScriptContent(escapedIndexPath)});</script>`
 		);
 	}
 
-	return result;
+	return injectBeforeClose(html, snippets.join(''));
 };
 /* `renderApplication` finishes the HTML and then, in a `finally`, awaits
  * `asyncDestroyPlatform` — a `setTimeout(0)` — before returning the

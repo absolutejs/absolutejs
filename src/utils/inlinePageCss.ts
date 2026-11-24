@@ -18,6 +18,7 @@
  *  the handler hits `readFile` at most once per page per process. */
 
 import { nonceAttr } from './cspNonceRef';
+import { insertBeforeMarker } from './insertBeforeMarker';
 const siblingCssCache = new Map<string, string>();
 
 /** Drop every memoised sibling-CSS read (including cached misses). The dev
@@ -34,7 +35,7 @@ export const injectInlineCss = (headTag: string, css: string) => {
 	if (!css) return headTag;
 	const styleBlock = `<style data-absolute-page-css${nonceAttr()}>${css}</style>`;
 
-	return headTag.replace('</head>', `${styleBlock}</head>`);
+	return insertBeforeMarker(headTag, '</head>', styleBlock) ?? headTag;
 };
 export const readSiblingCss = async (siblingJsPath: string | undefined) => {
 	if (!siblingJsPath) return '';
