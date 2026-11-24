@@ -610,7 +610,6 @@ export type BaseBuildConfig = {
 			| import('@angular/core').EnvironmentProviders
 		>;
 	};
-	astroDirectory?: string;
 	svelteDirectory?: string;
 	emberDirectory?: string;
 	htmlDirectory?: string;
