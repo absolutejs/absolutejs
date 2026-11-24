@@ -3,6 +3,12 @@ import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { Type, type TProperties } from '@sinclair/typebox';
 import { Value, type ValueError } from '@sinclair/typebox/value';
+import { registerEnvFormats } from './envFormats';
+import {
+	envPlaceholders,
+	isInspectingEnv,
+	recordEnvSchema
+} from './envInspect';
 
 const SENSITIVE_PATTERN = /SECRET|KEY|TOKEN|PASSWORD/i;
 
@@ -68,7 +74,32 @@ const checkEnvFileSecurity = (properties: TProperties) => {
 };
 
 export const defineEnv = <T extends TProperties>(properties: T) => {
+	/* Before the schema is used for anything: TypeBox holds no format
+	 * validators of its own and a schema naming a format it does not hold
+	 * fails closed, so `format: 'uri'` rejected every value until now. */
+	registerEnvFormats();
 	const schema = Type.Object(properties);
+
+	/* A tool asking what this project declares, rather than an app
+	 * starting up: a module that reads a variable while it is being
+	 * imported still evaluates, instead of throwing on the first missing
+	 * one — which is the thing the tool is trying to report.
+	 *
+	 * The placeholders are built here rather than with `Value.Create`,
+	 * which refuses a formatted string that has no default ("String types
+	 * with formats must specify a default value") — so inspection would
+	 * have failed on `format: 'uri'`, the exact case the format registry
+	 * exists for. */
+	if (isInspectingEnv()) {
+		recordEnvSchema(properties);
+
+		return Object.freeze(
+			Value.Decode(
+				schema,
+				Value.Convert(schema, envPlaceholders(properties))
+			)
+		);
+	}
 
 	const raw: Record<string, unknown> = {};
 	for (const key of Object.keys(properties)) {
