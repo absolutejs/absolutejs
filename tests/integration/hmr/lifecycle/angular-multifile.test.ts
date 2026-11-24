@@ -131,10 +131,9 @@ describe('Angular multi-file edits propagate correctly', () => {
 			c.replace('this.count++;', 'this.count = this.count + 3;')
 		);
 
-		// Race the three tier broadcasts and require tier-0.
+		// Race both tier broadcasts and require tier-0.
 		const tier = await Promise.race([
 			client.waitFor('angular:component-update', 20_000),
-			client.waitFor('angular:component-remount', 20_000),
 			client.waitFor('angular:rebootstrap', 20_000)
 		]);
 		expect(tier.type).toBe('angular:component-update');

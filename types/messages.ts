@@ -53,7 +53,7 @@ export type AngularHmrAckMessage = {
 	type: 'angular:hmr-ack';
 	id: string;
 	className: string;
-	tier: 'tier-0' | 'tier-1a';
+	tier: 'tier-0';
 	applyMs: number;
 	error?: string;
 	target?: HMRClientTarget;

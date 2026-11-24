@@ -21,11 +21,7 @@ import {
 import { hideErrorOverlay, showErrorOverlay } from './errorOverlay';
 import { installAbsoluteNativeSyncDevtools } from './syncDevtools';
 import { installDevToolbar } from './devToolbar';
-import {
-	dispatchAngularComponentRemount,
-	dispatchAngularComponentUpdate
-} from './handlers/angularHmrShim';
-import { installAngularRemountGlobal } from './handlers/angularRemountWiring';
+import { dispatchAngularComponentUpdate } from './handlers/angularHmrShim';
 import { handleIslandUpdate } from './handlers/islands';
 import { handleReactUpdate } from './handlers/react';
 import { handleHTMLUpdate, handleScriptUpdate } from './handlers/html';
@@ -150,7 +146,6 @@ const hideConnectionLostBanner = () => {
 // Initialize HMR globals
 if (typeof window !== 'undefined') {
 	window.__ABS_HMR_TARGET__ = absoluteHmrClientTarget();
-	installAngularRemountGlobal();
 	if (!window.__HMR_MANIFEST__) {
 		window.__HMR_MANIFEST__ = {};
 	}
@@ -199,7 +194,6 @@ window.addEventListener('unhandledrejection', (evt) => {
 
 const hmrUpdateTypes = new Set([
 	'angular:component-update',
-	'angular:component-remount',
 	'angular:rebootstrap',
 	'angular-update',
 	'react-update',
@@ -323,29 +317,6 @@ const handleHMRMessage = (message: HMRMessage) => {
 				const id = Reflect.get(data, 'id');
 				if (typeof id !== 'string') break;
 				dispatchAngularComponentUpdate({
-					id,
-					timestamp:
-						typeof message.timestamp === 'number'
-							? message.timestamp
-							: Date.now()
-				});
-			}
-			break;
-		}
-		case 'angular:component-remount': {
-			// Tier 1a per-component remount. Structural change
-			// detected in fastHmr — the existing instance lacks new
-			// fields / DI / providers, so we destroy + recreate just
-			// this component (vs. full app rebootstrap). The injected
-			// `__ng_hmr_remount` listener handles the splice via the
-			// `__absAngularRemount` global wired in
-			// `installAngularRemountGlobal`.
-			hideErrorOverlay();
-			const { data } = message;
-			if (isRecord(data)) {
-				const id = Reflect.get(data, 'id');
-				if (typeof id !== 'string') break;
-				dispatchAngularComponentRemount({
 					id,
 					timestamp:
 						typeof message.timestamp === 'number'

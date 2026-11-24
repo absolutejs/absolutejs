@@ -20,9 +20,16 @@ afterEach(async () => {
 });
 
 /* Angular HMR is tiered:
- *   Tier-0  ⇒ broadcast `angular:component-update` (ɵɵreplaceMetadata)
- *   Tier-1a ⇒ broadcast `angular:component-remount` (createComponent)
- *   Tier-1b ⇒ broadcast `angular:rebootstrap` (full app re-bootstrap)
+ *   Tier-0 ⇒ broadcast `angular:component-update` (ɵɵreplaceMetadata)
+ *   Tier-1 ⇒ broadcast `angular:rebootstrap` (full app re-bootstrap)
+ *
+ * There was a third tier between those — `angular:component-remount`,
+ * a per-component destroy-and-recreate — and these tests asserted it
+ * was broadcast for a component-shape change. They passed throughout,
+ * because asserting the MESSAGE says nothing about whether the client
+ * could act on it: the handler never found a live instance, reported
+ * success, and the edit silently did not appear. The tier is gone and
+ * those edits rebootstrap; see docs/dev/angular-hmr-tiers.md.
  *
  * Each tier corresponds to a different shape of edit. The fast
  * extractor in `fastHmrCompiler.ts` decides via a fingerprint over
@@ -74,7 +81,6 @@ const startAndConnect = async () => {
 const waitForAngularTier = (c: HMRClient, deadlineMs = 12_000) =>
 	Promise.race([
 		c.waitFor('angular:component-update', deadlineMs),
-		c.waitFor('angular:component-remount', deadlineMs),
 		c.waitFor('angular:rebootstrap', deadlineMs)
 	]);
 
@@ -112,8 +118,11 @@ describe('Angular tier-0 surgical (cosmetic guts → ɵɵreplaceMetadata)', () =
 	}, 60_000);
 });
 
-describe('Angular tier-1a remount (public-API / scoping change → createComponent)', () => {
-	test('adding a new `@Input()` field forces remount', async () => {
+/* Component-shape changes. Each of these used to assert a
+ * per-component remount broadcast; they now assert the rebootstrap
+ * the server actually escalates to. */
+describe('Angular component-shape change (public-API / scoping → rebootstrap)', () => {
+	test('adding a new `@Input()` field forces rebootstrap', async () => {
 		const { client: c } = await startAndConnect();
 		mutateFile(counterComponent, (content) =>
 			content.replace(
@@ -122,10 +131,10 @@ describe('Angular tier-1a remount (public-API / scoping change → createCompone
 			)
 		);
 		const msg = await waitForAngularTier(c);
-		expect(msg.type).toBe('angular:component-remount');
+		expect(msg.type).toBe('angular:rebootstrap');
 	}, 60_000);
 
-	test('switching `ChangeDetectionStrategy` to OnPush forces remount', async () => {
+	test('switching `ChangeDetectionStrategy` to OnPush forces rebootstrap', async () => {
 		const { client: c } = await startAndConnect();
 		mutateFile(counterComponent, (content) =>
 			content
@@ -139,10 +148,10 @@ describe('Angular tier-1a remount (public-API / scoping change → createCompone
 				)
 		);
 		const msg = await waitForAngularTier(c);
-		expect(msg.type).toBe('angular:component-remount');
+		expect(msg.type).toBe('angular:rebootstrap');
 	}, 60_000);
 
-	test('switching `encapsulation` to ShadowDom forces remount', async () => {
+	test('switching `encapsulation` to ShadowDom forces rebootstrap', async () => {
 		const { client: c } = await startAndConnect();
 		mutateFile(appComponent, (content) =>
 			content.replace(
@@ -151,10 +160,10 @@ describe('Angular tier-1a remount (public-API / scoping change → createCompone
 			)
 		);
 		const msg = await waitForAngularTier(c);
-		expect(msg.type).toBe('angular:component-remount');
+		expect(msg.type).toBe('angular:rebootstrap');
 	}, 60_000);
 
-	test('adding `host: {...}` bindings forces remount', async () => {
+	test('adding `host: {...}` bindings forces rebootstrap', async () => {
 		const { client: c } = await startAndConnect();
 		mutateFile(dropdownComponent, (content) =>
 			content.replace(
@@ -163,11 +172,11 @@ describe('Angular tier-1a remount (public-API / scoping change → createCompone
 			)
 		);
 		const msg = await waitForAngularTier(c);
-		expect(msg.type).toBe('angular:component-remount');
+		expect(msg.type).toBe('angular:rebootstrap');
 	}, 60_000);
 });
 
-describe('Angular tier-1b rebootstrap (structural / DI change → full reboot)', () => {
+describe('Angular structural / DI change (→ full reboot)', () => {
 	test('mutating the `imports: [...]` array forces rebootstrap', async () => {
 		const { client: c } = await startAndConnect();
 		// Order-sensitive: reordering counts as a structural change

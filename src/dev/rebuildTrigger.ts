@@ -1440,14 +1440,14 @@ type SurgicalEntry = { id: string; className: string };
  *   tier 0 → surgical metadata swap (Tier 0). `queue` lists each
  *            affected component; broadcast one `angular:component-update`
  *            per entry.
- *   tier 1 with `kind: 'remount'` → Tier 1a per-component remount.
- *            Same per-component queue as Tier 0; broadcast one
- *            `angular:component-remount` per entry. Used when fastHmr
- *            compiled successfully but the structural fingerprint
- *            changed (new ctor params / fields / providers / etc.).
- *   tier 1 with `kind: 'rebootstrap'` → Tier 1b full app rebootstrap.
- *            Used when we couldn't even compile the new metadata
- *            (file-not-found, no decorated class, ngtsc unavailable).
+ *   tier 1 with `kind: 'rebootstrap'` → full app rebootstrap. Used
+ *            both when we couldn't compile the new metadata
+ *            (file-not-found, no decorated class, ngtsc unavailable)
+ *            AND when fastHmr compiled but the component's shape
+ *            changed (new @Input, changeDetection, encapsulation,
+ *            host bindings). The second case had its own
+ *            per-component remount tier until it was removed as
+ *            non-functional — docs/dev/angular-hmr-tiers.md.
  *   tier 2 → full page reload.  */
 type TierBreakdown = {
 	importsMs: number;
@@ -1486,12 +1486,6 @@ type UserFixableHmrFailure = {
 
 type AngularHmrVerdict =
 	| { tier: 0; queue: SurgicalEntry[]; breakdown: TierBreakdown }
-	| {
-			tier: 1;
-			kind: 'remount';
-			queue: SurgicalEntry[];
-			breakdown: TierBreakdown;
-	  }
 	| { tier: 1; kind: 'rebootstrap'; reason: string }
 	| { tier: 1; kind: 'user-error'; failure: UserFixableHmrFailure }
 	| { tier: 2; reason: string };
@@ -1746,8 +1740,8 @@ const decideAngularTier = async (
 		resolveMs: Math.round(totalResolveMs)
 	};
 	if (rebootstrapClassName !== null) {
-		// Structural component changes that Tier 1a can't faithfully
-		// re-apply against an existing hostElement: imports / hostDirectives
+		// Structural component changes that no in-place patch can
+		// faithfully apply: imports / hostDirectives
 		// array (directive matching runs at element-creation time),
 		// providers / viewProviders array (DI tree captures at instance
 		// creation), `standalone: true ↔ false` toggle, or any non-standalone
@@ -1762,7 +1756,22 @@ const decideAngularTier = async (
 		};
 	}
 	if (anyFingerprintChanged) {
-		return { breakdown, kind: 'remount', queue, tier: 1 };
+		/* These used to go to a per-component remount (Tier 1a), which
+		 * never worked: the handler could not find a single live
+		 * instance, reported success, and the edit silently did not
+		 * appear. See docs/dev/angular-hmr-tiers.md. Rebootstrap is
+		 * in-place and measured at 14ms of DOM work, so routing here
+		 * costs the page's Angular state and nothing noticeable in
+		 * time. */
+		return {
+			kind: 'rebootstrap',
+			reason: `${queue
+				.map((entry) => entry.className)
+				.join(
+					', '
+				)}: component-shape change (inputs/outputs/changeDetection/encapsulation/host)`,
+			tier: 1
+		};
 	}
 
 	return { breakdown, queue, tier: 0 };
@@ -1774,16 +1783,6 @@ const broadcastSurgical = (state: HMRState, queue: SurgicalEntry[]) => {
 		broadcastToClients(state, {
 			data: { id, timestamp },
 			type: 'angular:component-update'
-		});
-	}
-};
-
-const broadcastRemount = (state: HMRState, queue: SurgicalEntry[]) => {
-	const timestamp = Date.now();
-	for (const { id } of queue) {
-		broadcastToClients(state, {
-			data: { id, timestamp },
-			type: 'angular:component-remount'
 		});
 	}
 };
@@ -1834,10 +1833,10 @@ const broadcastRebootstrap = async (state: HMRState, reason: string) => {
 
 /* Schedule the Angular bundle rebuild — debounced + serialized.
  *
- * The Tier 0 / Tier 1a HMR paths don't NEED the bundle to rebuild
- * for the running app to update — surgical updates apply directly to
- * the live LView tree. The bundle is only needed for the next full
- * page load (browser refresh, deep link navigation, Tier 1b
+ * The Tier 0 HMR path doesn't NEED the bundle to rebuild for the
+ * running app to update — surgical updates apply directly to the
+ * live LView tree. The bundle is only needed for the next full
+ * page load (browser refresh, deep link navigation, Tier 1
  * rebootstrap). So we can defer the rebuild until the user pauses
  * editing instead of running `Bun.build` on every keystroke.
  *
@@ -2404,26 +2403,6 @@ const handleAngularFastPath = async (
 		// debounced bundle rebuild — fires 2s after the user pauses
 		// — so SSR catches up. The interactive session already has
 		// the surgical update applied so this is invisible there.
-		void runBundle();
-	} else if (verdict.tier === 1 && verdict.kind === 'remount') {
-		// Tier 1a per-component remount — same pattern as Tier 0,
-		// no bundle work required for the live session. The
-		// browser's `__ng_hmr_remount` fetches `/@ng/component`
-		// and runs `createComponent` against the already-running
-		// app's class identities.
-		await runAngularHmrIncremental(state, angularDir, pageEntries);
-		broadcastRemount(state, verdict.queue);
-		const rightValue = verdict.breakdown;
-		logInfo(
-			`[ng-hmr] tier-1a remount ${queueDescription(verdict.queue)} (server ${tierMs}ms: imports ${rightValue.importsMs}/resolve ${rightValue.resolveMs}/compile ${rightValue.compileMs}; awaiting client apply)`
-		);
-		// The on-disk SSR bundle would otherwise stay frozen at
-		// startup-time bytes after a tier-1a edit (e.g. a fresh
-		// `topLevelImport` or `@Input`/`@Output` change) — same
-		// problem the tier-0 path schedules `runBundle()` for. The
-		// live session is already updated via the remount above;
-		// this background rebuild only matters for fresh-tab /
-		// curl SSR fetches.
 		void runBundle();
 	} else if (verdict.tier === 1 && verdict.kind === 'rebootstrap') {
 		// Tier 1b full app rebootstrap — fastHmr couldn't even

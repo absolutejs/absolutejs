@@ -121,8 +121,8 @@ const buildHmrTail = (className: string, encodedIdLiteral: string) => `
 // patch the prototype, no view recreation needed).
 {
   const __ng_hmr_id = ${encodedIdLiteral};
-  // Per-class sequence counter. Each \`__ng_hmr_load\` /
-  // \`__ng_hmr_remount\` invocation captures \`seq\` at start, then
+  // Per-class sequence counter. Each \`__ng_hmr_load\` invocation
+  // captures \`seq\` at start, then
   // checks after the async fetch + before the apply. If a NEWER
   // event has bumped the counter while we were awaiting (rapid
   // edits), this older invocation aborts so the latest payload
@@ -195,55 +195,16 @@ const buildHmrTail = (className: string, encodedIdLiteral: string) => `
       __ng_hmr_ack('tier-0', performance.now() - t0, undefined, t);
     }
   };
-  // Tier 1 remount: structural changes (new ctor params / new field
-  // initializers / new providers) make a CONTEXT-preserving replace
-  // unsafe — the existing instance lacks the new fields. The remount
-  // path tears down the live LView and re-creates it via public
-  // \`createComponent\` against the same host, so the new constructor
-  // runs with fresh DI, new lifecycle hooks fire, and the splice
-  // logic puts the result back in the parent's view tree. The
-  // shared implementation is on \`globalThis.__absAngularRemount\` —
-  // installed by hmrClient.ts's import-time wiring.
-  const __ng_hmr_remount = async (t) => {
-    const mySeq = ++__ng_hmr_seq;
-    const t0 = performance.now();
-    const [u, core] = await Promise.all([
-      import('/@ng/component?c=' + encodeURIComponent(__ng_hmr_id) + '&t=' + t),
-      import('@angular/core')
-    ]);
-    if (mySeq !== __ng_hmr_seq) return; // superseded by a newer event
-    if (!u || typeof u.default !== 'function') return;
-    if (typeof globalThis.__absAngularRemount === 'function' && ${className}.ɵcmp) {
-      try {
-        await globalThis.__absAngularRemount(
-          ${className},
-          u.default,
-          [core],
-          [],
-          core,
-          ${JSON.stringify(className)}
-        );
-        if (mySeq !== __ng_hmr_seq) return; // newer event arrived during remount
-        __ng_hmr_ack('tier-1a', performance.now() - t0, undefined, t);
-      } catch (err) {
-        console.error('[abs-hmr] remount threw for ${className}:', err);
-        __ng_hmr_ack('tier-1a', performance.now() - t0, String(err && err.message || err), t);
-      }
-    } else {
-      // No remount helper installed (older absolutejs runtime, or
-      // non-component entity). Fall back to surgical replace.
-      u.default(${className}, [core]);
-    }
-  };
-
+  // A component-shape change (new @Input, changeDetection,
+  // encapsulation, host bindings) used to dispatch a per-component
+  // remount here. It never worked — see docs/dev/angular-hmr-tiers.md
+  // — so the server now escalates those to a full rebootstrap, which
+  // the client handles centrally rather than per component.
   if (typeof globalThis !== 'undefined' &&
       globalThis.__angularHmr &&
       typeof globalThis.__angularHmr.on === 'function') {
     globalThis.__angularHmr.on('angular:component-update', (d) => {
       if (d && d.id === __ng_hmr_id) __ng_hmr_load(d.timestamp);
-    });
-    globalThis.__angularHmr.on('angular:component-remount', (d) => {
-      if (d && d.id === __ng_hmr_id) __ng_hmr_remount(d.timestamp);
     });
   }
 }

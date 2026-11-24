@@ -274,7 +274,7 @@ const handleParsedMessage = (
 		}
 
 		case 'angular:hmr-ack': {
-			const tag = data.tier === 'tier-0' ? 'tier-0' : 'tier-1a';
+			const tag = data.tier;
 			const suffix = data.error
 				? ` FAILED — ${data.error}`
 				: ` applied in ${data.applyMs.toFixed(0)}ms`;
