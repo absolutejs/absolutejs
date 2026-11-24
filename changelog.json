@@ -14,6 +14,17 @@
 				}
 			],
 			"date": "2026-11-24",
+			"version": "0.20.0-beta.343"
+		},
+		{
+			"changes": [
+				{
+					"detail": "The dev toolbar (beta.335) mounted on every page in dev, including a page shown inside a frame. In an editor's live preview it floated over the site as though it were part of it. It no longer mounts inside a frame, where the host is already the dev tool. A page that is not an app under development (an editor's own interface built with the framework) can turn it off with `<html data-absolute-dev-toolbar=\"off\">`.",
+					"kind": "fixed",
+					"summary": "The dev toolbar stays out of framed previews, and a page can turn it off"
+				}
+			],
+			"date": "2026-11-24",
 			"version": "0.20.0-beta.342"
 		},
 		{
