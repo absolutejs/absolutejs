@@ -26,7 +26,10 @@ import { isAngularZoneMode } from '../angular/zoneRuntime';
 import { downlevelAsyncForZone } from './downlevelAsyncForZone';
 import { withNavigationAutoEnable } from './navigationAutoEnable';
 import { aotCacheKey, readAotCache, writeAotCache } from './angularAotCache';
-import type { StylePreprocessorConfig } from '../../types/build';
+import type {
+	AngularRouterConfig,
+	StylePreprocessorConfig
+} from '../../types/build';
 
 type SyncReadFile = (fileName: string) => string | undefined;
 
@@ -2146,6 +2149,8 @@ export type AngularProvidersInjection = {
 	appProvidersSource: string | null;
 	/** Source `.ts` path → page metadata for every page the scanner saw. */
 	pagesByFile: Map<string, { hasRoutes: boolean; basePath: string | null }>;
+	/** How the injected router should behave. */
+	router?: AngularRouterConfig;
 };
 
 const ROUTER_OUTLET_PATTERN = /router-outlet|\bRouterOutlet\b/;
@@ -2620,8 +2625,38 @@ export const compileAngular = async (
 				fragments.push('...__abs_globalProviders');
 			}
 			if (pageInjection.hasRoutes) {
+				/* Angular's router restores no scroll position and
+				 * ignores a `#fragment` unless told to, so an in-page
+				 * navigation landed wherever the previous view happened
+				 * to be scrolled to. This framework's own cross-framework
+				 * navigation layer has always restored scroll, which made
+				 * Angular pages the odd ones out. On unless asked
+				 * otherwise. */
+				const scrollRestoration =
+					providersInjection.router?.scrollRestoration !== false;
+				/* Preloading every lazy route spends bandwidth a visitor
+				 * may never use, so it stays opt-in. */
+				const preloadAll =
+					providersInjection.router?.preloading === 'all';
+				const routerImports = [
+					'provideRouter as __abs_provideRouter',
+					'withComponentInputBinding as __abs_withComponentInputBinding',
+					'withNavigationErrorHandler as __abs_withNavigationErrorHandler',
+					'withViewTransitions as __abs_withViewTransitions',
+					...(scrollRestoration
+						? [
+								'withInMemoryScrolling as __abs_withInMemoryScrolling'
+							]
+						: []),
+					...(preloadAll
+						? [
+								'withPreloading as __abs_withPreloading',
+								'PreloadAllModules as __abs_PreloadAllModules'
+							]
+						: [])
+				];
 				importLines.push(
-					`import { provideRouter as __abs_provideRouter, withComponentInputBinding as __abs_withComponentInputBinding, withNavigationErrorHandler as __abs_withNavigationErrorHandler, withViewTransitions as __abs_withViewTransitions } from "@angular/router";`
+					`import { ${routerImports.join(', ')} } from "@angular/router";`
 				);
 				/* A `routerLink` to a URL this table does not match is a
 				 * dead link in Angular (NG04002: no navigation, no URL
@@ -2639,8 +2674,21 @@ export const compileAngular = async (
 				 * compiled into a temp directory and rendered (CI caught
 				 * exactly that). Unset on the server, where a hand-off
 				 * would mean nothing anyway. */
+				const routerFeatures = [
+					'__abs_withComponentInputBinding()',
+					'__abs_withViewTransitions()',
+					...(scrollRestoration
+						? [
+								'__abs_withInMemoryScrolling({ anchorScrolling: "enabled", scrollPositionRestoration: "enabled" })'
+							]
+						: []),
+					...(preloadAll
+						? ['__abs_withPreloading(__abs_PreloadAllModules)']
+						: []),
+					'__abs_withNavigationErrorHandler((event) => { const handler = Reflect.get(globalThis, Symbol.for("absolutejs.angular.routerHandoff")); return typeof handler === "function" ? handler(event) : undefined; })'
+				];
 				fragments.push(
-					`__abs_provideRouter(routes, __abs_withComponentInputBinding(), __abs_withViewTransitions(), __abs_withNavigationErrorHandler((event) => { const handler = Reflect.get(globalThis, Symbol.for("absolutejs.angular.routerHandoff")); return typeof handler === "function" ? handler(event) : undefined; }))`
+					`__abs_provideRouter(routes, ${routerFeatures.join(', ')})`
 				);
 			}
 			if (pageInjection.basePath !== null) {

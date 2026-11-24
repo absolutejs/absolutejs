@@ -2031,7 +2031,10 @@ const buildUnlocked = async ({
 			}
 			angularProvidersInjection = {
 				appProvidersSource: providersImport?.absolutePath ?? null,
-				pagesByFile
+				pagesByFile,
+				...(angular?.router === undefined
+					? {}
+					: { router: angular.router })
 			};
 		});
 	}

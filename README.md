@@ -160,6 +160,19 @@ health endpoints are never limited by a global limit — a 429 to a readiness
 probe takes the process out of rotation. See
 [docs/RATE_LIMITING.md](docs/RATE_LIMITING.md).
 
+### Angular pages keep their scroll position
+
+A page that exports `routes` gets a router configured with
+`withInMemoryScrolling`, so going back restores where the visitor was and
+a `#fragment` scrolls to its anchor. Angular's router does neither on its
+own — measured in a browser on a routed page, scrolling to 1500, navigating
+and going back left the position at **0**; it now returns to **1500**. The
+framework's own cross-framework navigation layer always restored scroll,
+which made Angular pages the odd ones out inside the same app. Turn it off
+with `angular: { router: { scrollRestoration: false } }`, and opt into
+preloading every lazy route with `{ preloading: 'all' }` — off by default,
+since that spends bandwidth a visitor may never use.
+
 ### A render that hangs still answers
 
 `rendering: { timeout: 30000 }` (the default) bounds a page render. Without
