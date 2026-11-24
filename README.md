@@ -160,6 +160,17 @@ health endpoints are never limited by a global limit — a 429 to a readiness
 probe takes the process out of rotation. See
 [docs/RATE_LIMITING.md](docs/RATE_LIMITING.md).
 
+### Vue app state survives hydration
+
+A Vue page's `setupApp` runs on both sides, so a project could already
+install Pinia — but the store **state** never crossed: Pinia fills its
+stores during the server render, the browser makes a fresh instance, and
+every store resets on mount. `ctx.transferState('pinia', () => pinia.state.value)`
+on the server and `pinia.state.value = ctx.restoredState('pinia')` on the
+client carry it over. A channel rather than Pinia support, since the
+framework doesn't depend on Pinia and the same two calls serve any store.
+See [docs/VUE_APP_STATE.md](docs/VUE_APP_STATE.md).
+
 ### Vue islands fetch their data on the server
 
 `useServerData` reads its collector off Vue's SSR context, and only the Vue

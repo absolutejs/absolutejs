@@ -1118,9 +1118,16 @@ export const compileVue = async (
 						'      : "/";',
 						'    await setupAppHook(app, {',
 						'      isServer: false,',
+						/* The mirror of the server's `transferState`: the
+						 * browser reads what the render handed over, so a
+						 * store is restored BEFORE mount and never flashes
+						 * its empty state. A no-op `transferState` keeps one
+						 * isomorphic hook from having to branch. */
+						'      restoredState: (key) => (typeof window === "undefined" ? undefined : (window.__ABSOLUTE_APP_STATE__ ?? {})[key]),',
 						'      router: null,',
 						'      setNotFound: () => {},',
 						'      setRedirect: () => {},',
+						'      transferState: () => {},',
 						'      url: clientUrl',
 						'    });',
 						'  }',

@@ -60,6 +60,10 @@ import {
 	serializeServerDataScript,
 	throwServerDataFailure
 } from './serverDataPayload';
+import {
+	createAppStateTransfer,
+	serializeAppStateScript
+} from './appStateTransfer';
 import { reportServerError } from '../core/errorReporter';
 import { ABS_RENDER_ATTRS, withRenderSpan } from '../core/renderTracing';
 import type { RenderSpan } from '../../types/tracing';
@@ -372,6 +376,7 @@ const renderVuePageRequest = async <Component extends VueComponent>(
 					isServer: true,
 					router: null,
 					url,
+					restoredState: () => undefined,
 					setNotFound: () => {
 						pendingNotFound = true;
 					},
@@ -380,6 +385,9 @@ const renderVuePageRequest = async <Component extends VueComponent>(
 							location,
 							status: status ?? 302
 						};
+					},
+					transferState: (key, snapshot) => {
+						appState.snapshots.set(key, snapshot);
 					}
 				});
 			}
@@ -408,6 +416,11 @@ const renderVuePageRequest = async <Component extends VueComponent>(
 			// render so server markup shows the data; only pages that hydrate
 			// receive the serialized payload.
 			const serverData = createServerDataCollector();
+			/* App-level state a `setupApp` hook wants the browser to have:
+			 * Pinia stores, most often. Vue's own SSR gets the markup
+			 * across but not the stores behind it, so without this the
+			 * browser creates fresh ones and every store resets on mount. */
+			const appState = createAppStateTransfer();
 			const ssrContext: SSRContext = {
 				[SERVER_DATA_CONTEXT_KEY]: serverData
 			};
@@ -440,7 +453,7 @@ const renderVuePageRequest = async <Component extends VueComponent>(
 								maybeProps,
 								`The Vue page ${input.pagePath}`
 							)
-						)}</script>${serializeServerDataScript(serverData)}<script${nonceAttr()} type="module" src="${resolvedIndexPath}"></script></body></html>`;
+						)}</script>${serializeServerDataScript(serverData)}${serializeAppStateScript(appState)}<script${nonceAttr()} type="module" src="${resolvedIndexPath}"></script></body></html>`;
 			};
 
 			/* A page exporting `routes` used to ship an EMPTY #root here.
