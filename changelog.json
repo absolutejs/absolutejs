@@ -9,9 +9,11 @@
 					"kind": "added",
 					"summary": "Third-party scripts have a component, a strategy, and run once",
 					"symbols": [
+						"Head",
 						"Metadata",
 						"ScriptProps",
 						"ScriptStrategy",
+						"generateHeadElement",
 						"insertedScriptAttributes",
 						"scriptAttributes",
 						"scriptIdentity",
