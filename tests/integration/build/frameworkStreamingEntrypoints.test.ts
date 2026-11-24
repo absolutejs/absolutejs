@@ -20,7 +20,8 @@ const ANGULAR_FIXTURE = resolve(
 	'streaming-page.built.ts'
 );
 
-const delay = (ms: number) => new Promise((resolveDelay) => setTimeout(resolveDelay, ms));
+const delay = (ms: number) =>
+	new Promise((_resolve) => setTimeout(_resolve, ms));
 
 describe('streaming across built non-react framework entrypoints', () => {
 	test('setup: build package dist once for built-entrypoint tests', async () => {
@@ -38,10 +39,7 @@ describe('streaming across built non-react framework entrypoints', () => {
 		).toBe(true);
 		expect(
 			existsSync(
-				resolve(
-					PROJECT_ROOT,
-					'dist/svelte/components/AwaitSlot.svelte'
-				)
+				resolve(PROJECT_ROOT, 'dist/svelte/components/AwaitSlot.svelte')
 			)
 		).toBe(true);
 	});

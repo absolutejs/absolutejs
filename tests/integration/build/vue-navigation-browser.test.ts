@@ -139,7 +139,10 @@ beforeAll(async () => {
 		join(fixtureRoot, 'react', 'pages', 'VueNavReact.tsx'),
 		REACT_PAGE
 	);
-	await writeFile(join(fixtureRoot, 'vue', 'pages', 'VueNavVue.vue'), VUE_PAGE);
+	await writeFile(
+		join(fixtureRoot, 'vue', 'pages', 'VueNavVue.vue'),
+		VUE_PAGE
+	);
 	const rel = (path: string) =>
 		relative(process.cwd(), join(fixtureRoot, path));
 	const result = await build({

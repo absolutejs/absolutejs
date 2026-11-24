@@ -96,7 +96,9 @@ describe('wrapAngularRouteLayouts', () => {
 			'<app-shell><app-plans><h1>topic</h1></app-plans></app-shell>'
 		);
 		// Added to the existing array, not replacing what was there.
-		expect(result.source).toContain('imports: [NgIf, ShellLayout, PlansLayout]');
+		expect(result.source).toContain(
+			'imports: [NgIf, ShellLayout, PlansLayout]'
+		);
 		// The generated import stayed out of the template.
 		expect(result.source).not.toMatch(/template:[\s\S]*import \{ Shell/);
 	});
@@ -117,7 +119,9 @@ export class TopicPage {}
 		if (result.kind !== 'wrapped') throw new Error(result.kind);
 
 		expect(result.source).toContain('imports: [ShellLayout]');
-		expect(result.source).toContain('<app-shell><h1>topic</h1></app-shell>');
+		expect(result.source).toContain(
+			'<app-shell><h1>topic</h1></app-shell>'
+		);
 	});
 
 	/* A template expression keeps its substitutions: the wrap is written

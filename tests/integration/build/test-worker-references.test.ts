@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import { access, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { basename, join, resolve } from 'node:path';
 import { build } from '../../../src/core/build';
+import { required } from '../../helpers/required';
 
 const tempDirs: string[] = [];
 const projectRoot = resolve(import.meta.dir, '..', '..', '..');
@@ -43,9 +44,14 @@ describe('production worker entry discovery', () => {
 			basename(url).startsWith('featureWorker.')
 		);
 
-		expect(workerUrl).toStartWith('/');
-		expect(workerUrl).not.toContain('/../');
-		await access(join(buildRoot, workerUrl!.slice(1)));
+		const url = required(
+			workerUrl,
+			'a featureWorker entry in the manifest'
+		);
+
+		expect(url).toStartWith('/');
+		expect(url).not.toContain('/../');
+		await access(join(buildRoot, url.slice(1)));
 	});
 
 	test('does not browser-bundle a Bun-only file referenced only by a test', async () => {

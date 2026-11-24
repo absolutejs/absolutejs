@@ -30,10 +30,16 @@ afterEach(async () => {
 });
 
 const sourcesFor = (entries: Record<string, string>) =>
-	new Map(Object.entries(entries).map(([path, body]) => [join(dir, path), body]));
+	new Map(
+		Object.entries(entries).map(([path, body]) => [join(dir, path), body])
+	);
 
 const ENTRY = 'page.ts';
-const OUTPUTS = [{ content: 'export const compiled = 1;', path: 'page.js' }];
+type CachedOutput = { content: string; path: string };
+
+const OUTPUTS: CachedOutput[] = [
+	{ content: 'export const compiled = 1;', path: 'page.js' }
+];
 
 const keyFor = (
 	transformed: Map<string, string>,
@@ -95,7 +101,9 @@ describe('reading an entry back', () => {
 	};
 
 	test('returns the outputs when nothing it recorded has changed', async () => {
-		const { key, sources } = await recorded({ 'dep.ts': 'export const a = 1;' });
+		const { key, sources } = await recorded({
+			'dep.ts': 'export const a = 1;'
+		});
 
 		expect(await readAotCache(key, sources)).toEqual(OUTPUTS);
 	});
@@ -104,14 +112,18 @@ describe('reading an entry back', () => {
 	 * entry point, and that the build never names, still decides whether
 	 * the compile is reusable. */
 	test('is a miss when a recorded file changed', async () => {
-		const { key, sources } = await recorded({ 'dep.ts': 'export const a = 1;' });
+		const { key, sources } = await recorded({
+			'dep.ts': 'export const a = 1;'
+		});
 		await writeFile(join(dir, 'dep.ts'), 'export const a = 2;');
 
 		expect(await readAotCache(key, sources)).toBeUndefined();
 	});
 
 	test('is a miss when a recorded file is gone', async () => {
-		const { key, sources } = await recorded({ 'dep.ts': 'export const a = 1;' });
+		const { key, sources } = await recorded({
+			'dep.ts': 'export const a = 1;'
+		});
 		await rm(join(dir, 'dep.ts'));
 
 		expect(await readAotCache(key, sources)).toBeUndefined();
@@ -126,7 +138,9 @@ describe('reading an entry back', () => {
 	/* A build killed midway, a truncated write, a hand-edited cache: none of
 	 * them should fail a build. Everything here fails open to a compile. */
 	test('is a miss, not a throw, for a corrupt entry', async () => {
-		const { key, sources } = await recorded({ 'dep.ts': 'export const a = 1;' });
+		const { key, sources } = await recorded({
+			'dep.ts': 'export const a = 1;'
+		});
 		await writeFile(
 			join(dir, '.absolutejs', 'cache', 'angular-aot', `${key}.json`),
 			'{ not json'
@@ -136,7 +150,9 @@ describe('reading an entry back', () => {
 	});
 
 	test('is a miss for an entry written in another format version', async () => {
-		const { key, sources } = await recorded({ 'dep.ts': 'export const a = 1;' });
+		const { key, sources } = await recorded({
+			'dep.ts': 'export const a = 1;'
+		});
 		await writeFile(
 			join(dir, '.absolutejs', 'cache', 'angular-aot', `${key}.json`),
 			JSON.stringify({ files: {}, formatVersion: 99, outputs: OUTPUTS })

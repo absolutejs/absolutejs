@@ -92,7 +92,8 @@ export const AppRoutes = () => <Routes><R element={<Billing></Billing>} path="/b
 	});
 
 	test("a 'use client' directive stays first", () => {
-		const out = splitRoutePages(`'use client';\n${ROUTES}`, 'Routes.tsx') ?? '';
+		const out =
+			splitRoutePages(`'use client';\n${ROUTES}`, 'Routes.tsx') ?? '';
 
 		expect(out.startsWith(`'use client';`)).toBe(true);
 		expect(transpiles(out)).toBe(true);
@@ -174,7 +175,9 @@ export const AdminRoutes = ({ print }: { print: (order: AdminOrder) => void }) =
 		const out = splitRoutePages(source, 'AdminRoutes.tsx') ?? '';
 
 		expect(out).toContain('const OrdersView = __absoluteLazyRoute(');
-		expect(out).toContain(`import { type AdminOrder } from './OrdersView';`);
+		expect(out).toContain(
+			`import { type AdminOrder } from './OrdersView';`
+		);
 		expect(transpiles(out)).toBe(true);
 	});
 
@@ -194,7 +197,10 @@ export const AdminRoutes = () => (
 
 	test('a file with no router is left alone', () => {
 		expect(
-			splitRoutePages(`import { Billing } from './Billing';\nexport const X = () => <Billing />;`, 'X.tsx')
+			splitRoutePages(
+				`import { Billing } from './Billing';\nexport const X = () => <Billing />;`,
+				'X.tsx'
+			)
 		).toBeNull();
 	});
 });

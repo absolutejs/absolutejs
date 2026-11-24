@@ -5,7 +5,8 @@ import { ensureDistBuild } from '../../helpers/ensureDistBuild';
 
 const PROJECT_ROOT = resolve(import.meta.dir, '..', '..', '..');
 
-const delay = (ms: number) => new Promise((resolveDelay) => setTimeout(resolveDelay, ms));
+const delay = (ms: number) =>
+	new Promise((_resolve) => setTimeout(_resolve, ms));
 
 describe('react streaming across built package entrypoints', () => {
 	test('setup: build package dist once for built-entrypoint tests', async () => {
@@ -27,7 +28,11 @@ describe('react streaming across built package entrypoints', () => {
 				createElement(
 					'head',
 					null,
-					createElement('title', null, 'Built Entrypoint Streaming Test')
+					createElement(
+						'title',
+						null,
+						'Built Entrypoint Streaming Test'
+					)
 				),
 				createElement(
 					'body',

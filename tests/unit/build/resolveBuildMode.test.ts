@@ -19,8 +19,12 @@ describe('resolveBuildDevelopmentMode', () => {
 	});
 
 	test('falls back to NODE_ENV when a caller does not provide a mode', () => {
-		expect(resolveBuildDevelopmentMode(undefined, 'development')).toBe(true);
-		expect(resolveBuildDevelopmentMode(undefined, 'production')).toBe(false);
+		expect(resolveBuildDevelopmentMode(undefined, 'development')).toBe(
+			true
+		);
+		expect(resolveBuildDevelopmentMode(undefined, 'production')).toBe(
+			false
+		);
 	});
 
 	test('uses production Vue flags for an explicit production build', () => {

@@ -35,7 +35,9 @@ const makeProject = async (files: Record<string, string>) => {
 
 afterEach(async () => {
 	await Promise.all(
-		roots.splice(0).map((root) => rm(root, { force: true, recursive: true }))
+		roots
+			.splice(0)
+			.map((root) => rm(root, { force: true, recursive: true }))
 	);
 });
 

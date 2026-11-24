@@ -3,7 +3,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, afterEach, describe, expect, spyOn, test } from 'bun:test';
 import autoprefixer from 'autoprefixer';
-import type { StylePreprocessorConfig } from '../../../types/build';
+import type {
+	PostCSSConfig,
+	StylePreprocessorConfig
+} from '../../../types/build';
 import {
 	compileStyleFileIfNeeded,
 	compileStyleFileIfNeededSync,
@@ -253,7 +256,7 @@ describe('the config a project writes', () => {
 	});
 
 	test('it sits alongside a PostCSS config rather than replacing it', () => {
-		const postcss = { plugins: [] };
+		const postcss: PostCSSConfig = { plugins: [] };
 
 		expect(
 			createStyleTransformConfig(undefined, postcss, {

@@ -16,26 +16,26 @@ import { collectTransitiveImports } from '../../../src/build/buildDepVendor';
 let FIXTURE: string;
 beforeAll(async () => {
 	FIXTURE = await mkdtemp(join(tmpdir(), 'absolute-vendor-nested-'));
-	const files = {
-		'node_modules/wrapper/package.json': JSON.stringify({
-			name: 'wrapper',
-			type: 'module',
-			main: 'index.js'
+	const files: Record<string, string> = {
+		'node_modules/hoisted/deep/subpath.js': 'export const deep = 1;',
+		'node_modules/hoisted/index.js': 'export const hoisted = 1;',
+		'node_modules/hoisted/package.json': JSON.stringify({
+			main: 'index.js',
+			name: 'hoisted',
+			type: 'module'
 		}),
 		'node_modules/wrapper/index.js':
 			"import 'nested'; export const wrapper = 1;",
-		'node_modules/wrapper/node_modules/nested/package.json': JSON.stringify(
-			{ name: 'nested', type: 'module', main: 'index.js' }
-		),
 		'node_modules/wrapper/node_modules/nested/index.js':
 			"import 'hoisted/deep/subpath.js'; export const nested = 1;",
-		'node_modules/hoisted/package.json': JSON.stringify({
-			name: 'hoisted',
-			type: 'module',
-			main: 'index.js'
-		}),
-		'node_modules/hoisted/index.js': 'export const hoisted = 1;',
-		'node_modules/hoisted/deep/subpath.js': 'export const deep = 1;'
+		'node_modules/wrapper/node_modules/nested/package.json': JSON.stringify(
+			{ main: 'index.js', name: 'nested', type: 'module' }
+		),
+		'node_modules/wrapper/package.json': JSON.stringify({
+			main: 'index.js',
+			name: 'wrapper',
+			type: 'module'
+		})
 	};
 	for (const [path, content] of Object.entries(files)) {
 		const file = join(FIXTURE, path);
@@ -44,7 +44,7 @@ beforeAll(async () => {
 	}
 });
 afterAll(async () => {
-	await rm(FIXTURE, { recursive: true, force: true });
+	await rm(FIXTURE, { force: true, recursive: true });
 });
 
 const inFixture = async <T>(body: () => Promise<T>) => {

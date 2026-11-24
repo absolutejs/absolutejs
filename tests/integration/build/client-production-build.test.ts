@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import {
+	mkdir,
+	mkdtemp,
+	readdir,
+	readFile,
+	rm,
+	writeFile
+} from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { build } from '../../../src/core/build';
 
@@ -41,7 +48,10 @@ describe('production client bundles', () => {
 		const buildRoot = join(fixtureRoot, 'build');
 		await mkdir(join(reactRoot, 'client'), { recursive: true });
 		await mkdir(join(reactRoot, 'pages'), { recursive: true });
-		await writeFile(join(reactRoot, 'client', 'chooses.ts'), CHOOSES_A_BUILD);
+		await writeFile(
+			join(reactRoot, 'client', 'chooses.ts'),
+			CHOOSES_A_BUILD
+		);
 		await writeFile(
 			join(reactRoot, 'client', 'featureWorker.ts'),
 			`import { whichBuild } from './chooses';

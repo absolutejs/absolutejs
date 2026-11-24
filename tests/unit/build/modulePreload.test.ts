@@ -36,10 +36,7 @@ describe('walking the graph', () => {
 		await write('middle.js', 'import{leaf}from"./leaf.js";export{leaf};');
 		const entry = await write('entry.js', 'import{leaf}from"./middle.js";');
 
-		expect(moduleGraphFor(dir, entry)).toEqual([
-			'/middle.js',
-			'/leaf.js'
-		]);
+		expect(moduleGraphFor(dir, entry)).toEqual(['/middle.js', '/leaf.js']);
 	});
 
 	/* The pattern has to match EMITTED code, not source. The bundler

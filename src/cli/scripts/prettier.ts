@@ -1,4 +1,5 @@
 import type { ToolAdapter } from '../../../types/tool';
+import { loadBuildOutputGlobs } from '../buildOutputDirectories';
 import { runTool } from '../cache';
 
 const FLAG_VALUE_FLAGS = new Set([
@@ -39,7 +40,6 @@ export const prettierAdapter: ToolAdapter = {
 	ignorePatterns: [
 		'**/node_modules/**',
 		'**/dist/**',
-		'**/build/**',
 		'**/.absolutejs/**',
 		'**/generated/**',
 		'**/compiled/**',
@@ -77,5 +77,17 @@ export const prettier = async (args: string[]) => {
 
 		return;
 	}
-	await runTool(prettierAdapter, args);
+	/* The build output is left alone by where the config puts it. It was
+	 * `**\/build/**` in the list above, which left alone every directory
+	 * named `build`, so a project's `src/build/` was never formatted. */
+	await runTool(
+		{
+			...prettierAdapter,
+			ignorePatterns: [
+				...prettierAdapter.ignorePatterns,
+				...(await loadBuildOutputGlobs())
+			]
+		},
+		args
+	);
 };

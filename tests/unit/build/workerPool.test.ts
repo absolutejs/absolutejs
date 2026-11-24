@@ -39,9 +39,9 @@ describe('resolveBuildWorkerCount', () => {
 		expect(resolveBuildWorkerCount({ ABSOLUTE_BUILD_WORKERS: '3' })).toBe(
 			3
 		);
-		expect(
-			resolveBuildWorkerCount({ ABSOLUTE_BUILD_WORKERS: '-4' })
-		).toBe(0);
+		expect(resolveBuildWorkerCount({ ABSOLUTE_BUILD_WORKERS: '-4' })).toBe(
+			0
+		);
 	});
 
 	test('falls back to at least two workers, at most eight, on nonsense', () => {
@@ -59,7 +59,9 @@ describe('resolveBuildWorkerEntry', () => {
 	});
 
 	test('code running from dist/ prefers the bundled entry', () => {
-		const entry = resolveBuildWorkerEntry(join(PROJECT_ROOT, 'dist', 'cli'));
+		const entry = resolveBuildWorkerEntry(
+			join(PROJECT_ROOT, 'dist', 'cli')
+		);
 		expect(entry).toBe(existsSync(DIST_ENTRY) ? DIST_ENTRY : SOURCE_ENTRY);
 	});
 
@@ -71,7 +73,10 @@ describe('resolveBuildWorkerEntry', () => {
 describe('build worker pool', () => {
 	test('round-trips a job through a worker', async () => {
 		const pool = makePool();
-		const payload = { nested: { list: [1, 'two', null] }, text: 'hi' };
+		const payload: Record<string, unknown> = {
+			nested: { list: [1, 'two', null] },
+			text: 'hi'
+		};
 		const result = await pool.run('echo', { value: payload });
 		expect(result).toEqual(payload);
 		expect(pool.isWarm()).toBe(true);
@@ -96,7 +101,9 @@ describe('build worker pool', () => {
 		expect(failure).toBeInstanceOf(Error);
 		if (!(failure instanceof Error)) return;
 		expect(failure.message).toContain('does-not-exist');
-		expect(failure.stack).toContain('dispatched from the build worker pool');
+		expect(failure.stack).toContain(
+			'dispatched from the build worker pool'
+		);
 		// The pool survives a failed job.
 		expect(await pool.run('echo', { value: 42 })).toBe(42);
 	});
@@ -206,7 +213,9 @@ describe('build worker pool', () => {
 
 	test('the published dist entry runs as a worker', async () => {
 		if (!existsSync(DIST_ENTRY)) {
-			console.warn('dist/build/buildWorker.js missing — run bun run build');
+			console.warn(
+				'dist/build/buildWorker.js missing — run bun run build'
+			);
 
 			return;
 		}

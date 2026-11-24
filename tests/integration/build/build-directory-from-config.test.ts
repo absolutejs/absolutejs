@@ -30,7 +30,11 @@ const CLI = join(REPO_ROOT, 'src', 'cli', 'index.ts');
 const roots: string[] = [];
 
 const project = async (name: string, buildDirectory: string) => {
-	const root = join(REPO_ROOT, '.test-builds', `build-dir-${name}-${process.pid}`);
+	const root = join(
+		REPO_ROOT,
+		'.test-builds',
+		`build-dir-${name}-${process.pid}`
+	);
 	roots.push(root);
 	await mkdir(join(root, 'react', 'pages'), { recursive: true });
 	await writeFile(

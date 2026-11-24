@@ -66,7 +66,10 @@ let manifest: Record<string, string> = {};
 
 beforeAll(async () => {
 	await mkdir(join(fixtureRoot, 'vue', 'pages'), { recursive: true });
-	await writeFile(join(fixtureRoot, 'vue', 'pages', 'SlowPage.vue'), SLOW_PAGE);
+	await writeFile(
+		join(fixtureRoot, 'vue', 'pages', 'SlowPage.vue'),
+		SLOW_PAGE
+	);
 	await writeFile(
 		join(fixtureRoot, 'vue', 'pages', 'ThrowingPage.vue'),
 		THROWING_PAGE
@@ -98,12 +101,13 @@ const timeToFirstByte = async (render: () => Promise<Response>) => {
 	let firstChunkAt: number | undefined;
 	/* The streaming path enqueues the head and tail as STRINGS around
 	 * Vue's byte chunks, so a reader of this body sees both. */
-	const asText = (value: unknown) =>
-		typeof value === 'string'
-			? value
-			: value instanceof Uint8Array
-				? decoder.decode(value, { stream: true })
-				: '';
+	const asText = (value: unknown) => {
+		if (typeof value === 'string') return value;
+		if (value instanceof Uint8Array)
+			return decoder.decode(value, { stream: true });
+
+		return '';
+	};
 	const drain = async (): Promise<string[]> => {
 		const chunk = await reader.read();
 		if (chunk.done) return chunks;

@@ -19,7 +19,7 @@ const VUE_DIR = join(PROJECT_ROOT, 'example', 'vue');
 const PAGES_DIR = join(VUE_DIR, 'pages');
 const GENERATED_DIR = getFrameworkGeneratedDir('vue');
 
-const previousEnv = {
+const previousEnv: Record<string, string | undefined> = {
 	compileCache: process.env.ABSOLUTE_COMPILE_CACHE,
 	workers: process.env.ABSOLUTE_BUILD_WORKERS
 };
@@ -43,7 +43,10 @@ const listFiles = (dir: string): string[] =>
 const snapshotGenerated = () => {
 	const snapshot = new Map<string, string>();
 	for (const path of listFiles(GENERATED_DIR).sort()) {
-		snapshot.set(relative(GENERATED_DIR, path), readFileSync(path, 'utf-8'));
+		snapshot.set(
+			relative(GENERATED_DIR, path),
+			readFileSync(path, 'utf-8')
+		);
 	}
 
 	return snapshot;
@@ -79,48 +82,44 @@ afterAll(async () => {
 });
 
 describe('compileVue on the build worker pool', () => {
-	test(
-		'pooled output is byte-for-byte the inline output',
-		async () => {
-			expect(pages.length).toBeGreaterThanOrEqual(4);
+	test('pooled output is byte-for-byte the inline output', async () => {
+		expect(pages.length).toBeGreaterThanOrEqual(4);
 
-			const inline = await compileFresh('0');
-			expect(inline.stats.jobs).toBeGreaterThanOrEqual(pages.length);
-			expect(inline.stats.inlineJobs).toBe(inline.stats.jobs);
-			expect(inline.stats.workers).toEqual([]);
+		const inline = await compileFresh('0');
+		expect(inline.stats.jobs).toBeGreaterThanOrEqual(pages.length);
+		expect(inline.stats.inlineJobs).toBe(inline.stats.jobs);
+		expect(inline.stats.workers).toEqual([]);
 
-			const pooled = await compileFresh('2');
-			expect(pooled.stats.inlineJobs).toBe(0);
-			expect(pooled.stats.jobs).toBeGreaterThanOrEqual(pages.length);
-			expect(pooled.stats.workers).toHaveLength(2);
-			expect(pooled.stats.busyMs).toBeGreaterThan(0);
+		const pooled = await compileFresh('2');
+		expect(pooled.stats.inlineJobs).toBe(0);
+		expect(pooled.stats.jobs).toBeGreaterThanOrEqual(pages.length);
+		expect(pooled.stats.workers).toHaveLength(2);
+		expect(pooled.stats.busyMs).toBeGreaterThan(0);
 
-			expect([...pooled.snapshot.keys()]).toEqual([
-				...inline.snapshot.keys()
-			]);
-			for (const [file, content] of inline.snapshot) {
-				expect(pooled.snapshot.get(file)).toBe(content);
-			}
-			expect(pooled.result.vueServerPaths).toEqual(
-				inline.result.vueServerPaths
-			);
-			expect(pooled.result.vueClientPaths).toEqual(
-				inline.result.vueClientPaths
-			);
-			expect(pooled.result.vueCssPaths).toEqual(inline.result.vueCssPaths);
-			expect([...pooled.result.vueSpaRoutesBySource]).toEqual([
-				...inline.result.vueSpaRoutesBySource
-			]);
-			// Map insertion order follows completion order, which the pool
-			// legitimately changes; the entries themselves must match.
-			const sortedEntries = (map: Map<string, unknown>) =>
-				[...map].sort(([left], [right]) => left.localeCompare(right));
-			expect(sortedEntries(pooled.result.hmrMetadata)).toEqual(
-				sortedEntries(inline.result.hmrMetadata)
-			);
-		},
-		60_000
-	);
+		expect([...pooled.snapshot.keys()]).toEqual([
+			...inline.snapshot.keys()
+		]);
+		for (const [file, content] of inline.snapshot) {
+			expect(pooled.snapshot.get(file)).toBe(content);
+		}
+		expect(pooled.result.vueServerPaths).toEqual(
+			inline.result.vueServerPaths
+		);
+		expect(pooled.result.vueClientPaths).toEqual(
+			inline.result.vueClientPaths
+		);
+		expect(pooled.result.vueCssPaths).toEqual(inline.result.vueCssPaths);
+		expect([...pooled.result.vueSpaRoutesBySource]).toEqual([
+			...inline.result.vueSpaRoutesBySource
+		]);
+		// Map insertion order follows completion order, which the pool
+		// legitimately changes; the entries themselves must match.
+		const sortedEntries = (map: Map<string, unknown>) =>
+			[...map].sort(([left], [right]) => left.localeCompare(right));
+		expect(sortedEntries(pooled.result.hmrMetadata)).toEqual(
+			sortedEntries(inline.result.hmrMetadata)
+		);
+	}, 60_000);
 
 	test('a single-page rebuild stays on the main thread while the pool is cold', async () => {
 		await resetBuildWorkerPool();

@@ -158,9 +158,8 @@ beforeAll(async () => {
 			writeFile(join(fixtureRoot, name), source)
 		)
 	);
-	const { SVELTE_PAGE_ROOT_ID } = await import(
-		'../../../src/svelte/renderToReadableStream'
-	);
+	const { SVELTE_PAGE_ROOT_ID } =
+		await import('../../../src/svelte/renderToReadableStream');
 	const probePath = join(fixtureRoot, 'probe.ts');
 	await writeFile(
 		probePath,

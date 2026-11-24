@@ -19,11 +19,16 @@ afterEach(async () => {
 });
 
 const project = async (withSvelte2Tsx: boolean) => {
-	const root = realpathSync(await mkdtemp(join(tmpdir(), 'absolute-svelte-dts-')));
+	const root = realpathSync(
+		await mkdtemp(join(tmpdir(), 'absolute-svelte-dts-'))
+	);
 	roots.push(root);
 	await mkdir(join(root, 'svelte', 'pages'), { recursive: true });
 	if (withSvelte2Tsx) {
-		await symlink(join(repoRoot, 'node_modules'), join(root, 'node_modules'));
+		await symlink(
+			join(repoRoot, 'node_modules'),
+			join(root, 'node_modules')
+		);
 	}
 	await writeFile(
 		join(root, 'tsconfig.json'),
@@ -47,24 +52,41 @@ const project = async (withSvelte2Tsx: boolean) => {
 
 const declarationOf = (root: string) =>
 	readFileSync(
-		join(root, '.absolutejs', 'types', 'svelte', 'svelte', 'pages', 'Home.svelte.d.ts'),
+		join(
+			root,
+			'.absolutejs',
+			'types',
+			'svelte',
+			'svelte',
+			'pages',
+			'Home.svelte.d.ts'
+		),
 		'utf-8'
 	);
 
 describe('generateSvelteDeclarations', () => {
 	test('declares each component with its real props, and skips an unchanged tree', async () => {
 		const root = await project(true);
-		const options = { projectRoot: root, svelteDirectory: 'svelte' };
+		const options: Parameters<typeof generateSvelteDeclarations>[0] = {
+			projectRoot: root,
+			svelteDirectory: 'svelte'
+		};
 
-		expect((await generateSvelteDeclarations(options)).status).toBe('generated');
+		expect((await generateSvelteDeclarations(options)).status).toBe(
+			'generated'
+		);
 		expect(declarationOf(root)).toContain('title: string');
-		expect((await generateSvelteDeclarations(options)).status).toBe('unchanged');
+		expect((await generateSvelteDeclarations(options)).status).toBe(
+			'unchanged'
+		);
 
 		await writeFile(
 			join(root, 'svelte', 'pages', 'Home.svelte'),
 			`<script lang="ts">\n\tlet { count }: { count: number } = $props();\n</script>\n<p>{count}</p>\n`
 		);
-		expect((await generateSvelteDeclarations(options)).status).toBe('generated');
+		expect((await generateSvelteDeclarations(options)).status).toBe(
+			'generated'
+		);
 		expect(declarationOf(root)).toContain('count: number');
 	}, 60_000);
 
@@ -119,7 +141,12 @@ describe('rootDirs helpers', () => {
 	});
 
 	test('recognise the mirror in a project tsconfig', () => {
-		expect(tsconfigHasSvelteDeclarationRoot(['.', './.absolutejs/types/svelte/'])).toBe(true);
+		expect(
+			tsconfigHasSvelteDeclarationRoot([
+				'.',
+				'./.absolutejs/types/svelte/'
+			])
+		).toBe(true);
 		expect(tsconfigHasSvelteDeclarationRoot(['.'])).toBe(false);
 		expect(tsconfigHasSvelteDeclarationRoot(undefined)).toBe(false);
 	});

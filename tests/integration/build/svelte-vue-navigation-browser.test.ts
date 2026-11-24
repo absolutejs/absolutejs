@@ -87,8 +87,9 @@ const contentType = (path: string) => {
 	return 'application/octet-stream';
 };
 
-const createApp = (buildDir: string, manifest: Record<string, string>) => {
-	return async (request: Request) => {
+const createApp =
+	(buildDir: string, manifest: Record<string, string>) =>
+	async (request: Request) => {
 		const { pathname } = new URL(request.url);
 		if (pathname === '/svelte')
 			return handleSveltePageRequest({
@@ -112,7 +113,6 @@ const createApp = (buildDir: string, manifest: Record<string, string>) => {
 			headers: { 'Content-Type': contentType(filePath) }
 		});
 	};
-};
 
 beforeAll(async () => {
 	await ensureDistBuild();
@@ -161,10 +161,11 @@ const withPage = async (
 ) => {
 	const seen: Observations = { documentLoads: [], errors: [] };
 	const session: BrowserSession = await openPage(`${baseUrl()}${path}`, {
+		waitUntil: 'load',
 		consoleLog: (message: string) => {
-			if (/hydrat|mismatch|error/i.test(message)) seen.errors.push(message);
-		},
-		waitUntil: 'load'
+			if (/hydrat|mismatch|error/i.test(message))
+				seen.errors.push(message);
+		}
 	});
 	try {
 		const { page } = session;
@@ -198,10 +199,7 @@ const hydrated = (page: Page, flag: string) =>
  * timeout. Clearing it first makes the wait mean "this visit's onMount
  * ran". */
 const navigateTo = async (page: Page, link: string, flag: string) => {
-	await page.evaluate(
-		(name) => Reflect.deleteProperty(window, name),
-		flag
-	);
+	await page.evaluate((name) => Reflect.deleteProperty(window, name), flag);
 	await page.click(link);
 	await hydrated(page, flag);
 };

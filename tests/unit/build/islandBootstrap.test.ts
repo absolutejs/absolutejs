@@ -6,9 +6,15 @@ import {
 import { ISLAND_BOOTSTRAP_MANIFEST_KEY } from '../../../src/core/islandManifest';
 import { toPascal } from '../../../src/utils/stringModifiers';
 
-const entry = (path: string, hash: string) => ({
+type BuiltOutput = {
+	hash: string;
+	kind: 'chunk' | 'entry-point';
+	path: string;
+};
+
+const entry = (path: string, hash: string): BuiltOutput => ({
 	hash,
-	kind: 'entry-point' as const,
+	kind: 'entry-point',
 	path
 });
 
@@ -21,26 +27,32 @@ describe('default island bootstrap', () => {
 });
 
 describe('findBootstrapOutputPath', () => {
-	test.each(['bootstrap.ts', 'startIslands.ts', 'bootstrapClient.ts', 'main.tsx'])(
-		'finds the output for a bootstrap named %s',
-		(fileName) => {
-			const stem = fileName.replace(/\.tsx?$/, '');
-			const outputs = [
-				entry('/app/build/pages/index.abc.js', 'abc'),
-				entry(`/app/build/islands/${stem}.h4sh.js`, 'h4sh'),
-				{ hash: 'zzz', kind: 'chunk' as const, path: '/app/build/chunk-zzz.js' }
-			];
+	test.each([
+		'bootstrap.ts',
+		'startIslands.ts',
+		'bootstrapClient.ts',
+		'main.tsx'
+	])('finds the output for a bootstrap named %s', (fileName) => {
+		const stem = fileName.replace(/\.tsx?$/, '');
+		const outputs: BuiltOutput[] = [
+			entry('/app/build/pages/index.abc.js', 'abc'),
+			entry(`/app/build/islands/${stem}.h4sh.js`, 'h4sh'),
+			{
+				hash: 'zzz',
+				kind: 'chunk',
+				path: '/app/build/chunk-zzz.js'
+			}
+		];
 
-			expect(
-				findBootstrapOutputPath({
-					bootstrapPath: `/app/src/islands/${fileName}`,
-					buildPath: '/app/build',
-					outputs,
-					passRoot: '/app/src'
-				})
-			).toBe(`/islands/${stem}.h4sh.js`);
-		}
-	);
+		expect(
+			findBootstrapOutputPath({
+				bootstrapPath: `/app/src/islands/${fileName}`,
+				buildPath: '/app/build',
+				outputs,
+				passRoot: '/app/src'
+			})
+		).toBe(`/islands/${stem}.h4sh.js`);
+	});
 
 	test('ignores a same-named entry from another directory', () => {
 		const outputs = [entry('/app/build/html/bootstrap.aaa.js', 'aaa')];

@@ -61,8 +61,7 @@ const buildReactWithRefresh = async (dir: string) => {
 const hasUnguardedRefresh = async (filePath: string) => {
 	const content = await readFile(filePath, 'utf8');
 	const hasCall =
-		content.includes('$RefreshReg$(') ||
-		content.includes('$RefreshSig$(');
+		content.includes('$RefreshReg$(') || content.includes('$RefreshSig$(');
 	if (!hasCall) return false;
 
 	return !content.startsWith('window.$RefreshReg$');
@@ -112,9 +111,9 @@ describe('patchRefreshGlobals', () => {
 	test('skips files already patched', async () => {
 		const dir = await makeTemp();
 		const file = join(dir, 'chunk-already.js');
-		const original =
-			`${STUB_PREFIX 
-			}var Bar = function() {};\n$RefreshReg$(Bar, "Bar.tsx:Bar");\n`;
+		const original = `${
+			STUB_PREFIX
+		}var Bar = function() {};\n$RefreshReg$(Bar, "Bar.tsx:Bar");\n`;
 		await writeFile(file, original);
 
 		await patchRefreshGlobals([file]);
@@ -159,42 +158,38 @@ describe('patchRefreshGlobals', () => {
 });
 
 describe('reactFastRefresh build output', () => {
-	test(
-		'Bun.build with reactFastRefresh + splitting produces $RefreshReg$ calls that need patching',
-		async () => {
-			const dir = await makeTemp();
-			const outputPaths = await buildReactWithRefresh(dir);
+	test('Bun.build with reactFastRefresh + splitting produces $RefreshReg$ calls that need patching', async () => {
+		const dir = await makeTemp();
+		const outputPaths = await buildReactWithRefresh(dir);
 
-			// Verify the build actually produced $RefreshReg$ calls
-			let filesWithRefresh = 0;
-			for (const filePath of outputPaths) {
+		// Verify the build actually produced $RefreshReg$ calls
+		let filesWithRefresh = 0;
+		for (const filePath of outputPaths) {
+			const content = await readFile(filePath, 'utf8');
+			if (content.includes('$RefreshReg$(')) filesWithRefresh++;
+		}
+		expect(filesWithRefresh).toBeGreaterThan(0);
+
+		// Before patching: at least one file has unguarded $RefreshReg$
+		let unguardedCount = 0;
+		for (const filePath of outputPaths) {
+			if (await hasUnguardedRefresh(filePath)) unguardedCount++;
+		}
+		expect(unguardedCount).toBeGreaterThan(0);
+
+		// After patching: no file has unguarded $RefreshReg$
+		await patchRefreshGlobals(outputPaths);
+
+		for (const filePath of outputPaths) {
+			const stillUnguarded = await hasUnguardedRefresh(filePath);
+			if (stillUnguarded) {
 				const content = await readFile(filePath, 'utf8');
-				if (content.includes('$RefreshReg$(')) filesWithRefresh++;
+				throw new Error(
+					`${filePath} has unguarded $RefreshReg$ after patching. First 200 chars: ${content.slice(0, 200)}`
+				);
 			}
-			expect(filesWithRefresh).toBeGreaterThan(0);
+		}
 
-			// Before patching: at least one file has unguarded $RefreshReg$
-			let unguardedCount = 0;
-			for (const filePath of outputPaths) {
-				if (await hasUnguardedRefresh(filePath)) unguardedCount++;
-			}
-			expect(unguardedCount).toBeGreaterThan(0);
-
-			// After patching: no file has unguarded $RefreshReg$
-			await patchRefreshGlobals(outputPaths);
-
-			for (const filePath of outputPaths) {
-				const stillUnguarded = await hasUnguardedRefresh(filePath);
-				if (stillUnguarded) {
-					const content = await readFile(filePath, 'utf8');
-					throw new Error(
-						`${filePath} has unguarded $RefreshReg$ after patching. First 200 chars: ${content.slice(0, 200)}`
-					);
-				}
-			}
-
-			await rm(dir, { force: true, recursive: true });
-		},
-		15_000
-	);
+		await rm(dir, { force: true, recursive: true });
+	}, 15_000);
 });

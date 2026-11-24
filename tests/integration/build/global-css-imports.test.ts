@@ -13,20 +13,20 @@ test('incremental CSS builds refresh entries importing a changed file outside st
 		await writeFile(join(entries, 'home.css'), '@import "../app.css";');
 		await writeFile(shared, '.probe { color: red; }');
 		const first = await build({
-			cwd: root,
 			buildDirectory: output,
-			stylesConfig: entries,
-			options: { throwOnError: true }
+			cwd: root,
+			options: { throwOnError: true },
+			stylesConfig: entries
 		});
 		if (!first?.manifest?.HomeCSS)
 			throw new Error('Missing initial stylesheet');
 		await writeFile(shared, '.probe { color: blue; }');
 		const second = await build({
-			cwd: root,
 			buildDirectory: output,
-			stylesConfig: entries,
+			cwd: root,
 			incrementalFiles: [shared],
-			options: { throwOnError: true, baseManifest: first.manifest }
+			options: { baseManifest: first.manifest, throwOnError: true },
+			stylesConfig: entries
 		});
 		if (!second?.manifest?.HomeCSS)
 			throw new Error('Missing rebuilt stylesheet');
@@ -38,6 +38,6 @@ test('incremental CSS builds refresh entries importing a changed file outside st
 		expect(css).toContain('#00f');
 		expect(css).not.toContain('red');
 	} finally {
-		await rm(root, { recursive: true, force: true });
+		await rm(root, { force: true, recursive: true });
 	}
 }, 30000);

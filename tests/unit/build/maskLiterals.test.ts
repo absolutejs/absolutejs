@@ -3,9 +3,9 @@ import { maskLiterals } from '../../../src/build/maskLiterals';
 import { rewriteImportsInContent } from '../../../src/build/rewriteImportsPlugin';
 
 const BT = String.fromCharCode(96); // backtick, kept out of source template literals
-const vendorPaths = {
-	react: '/vendor/react.js',
-	'drizzle-orm/neon-http': '/vendor/drizzle-neon.js'
+const vendorPaths: Record<string, string> = {
+	'drizzle-orm/neon-http': '/vendor/drizzle-neon.js',
+	react: '/vendor/react.js'
 };
 const rw = (s: string) => rewriteImportsInContent(s, vendorPaths);
 
@@ -30,12 +30,9 @@ describe('import rewriter — real imports still rewrite', () => {
 
 describe('import rewriter — does NOT touch non-code spans', () => {
 	test('specifier inside a template-literal code sample is preserved', () => {
-		const src =
-			'export const code = ' +
-			BT +
-			"import { drizzle } from 'drizzle-orm/neon-http';\nconst x = 1;" +
-			BT +
-			';';
+		const src = `export const code = ${
+			BT
+		}import { drizzle } from 'drizzle-orm/neon-http';\nconst x = 1;${BT};`;
 		expect(rw(src)).toBe(src);
 	});
 
@@ -51,26 +48,20 @@ describe('import rewriter — does NOT touch non-code spans', () => {
 
 	test('mixed: real import rewritten, sample in same file preserved', () => {
 		const real = 'import React from "react";\n';
-		const sample =
-			'const demo = ' + BT + "import X from 'react';" + BT + ';';
+		const sample = `const demo = ${BT}import X from 'react';${BT};`;
 		expect(rw(real + sample)).toBe(
-			'import React from "/vendor/react.js";\n' + sample
+			`import React from "/vendor/react.js";\n${sample}`
 		);
 	});
 
 	test('template with ${} interpolation: sample preserved, code intact', () => {
-		const src =
-			'const c = ' +
-			BT +
-			"top ${1 + 1} import a from 'react' tail" +
-			BT +
-			';\nimport real from "react";';
+		const src = `const c = ${BT}top \${1 + 1} import a from 'react' tail${
+			BT
+		};\nimport real from "react";`;
 		expect(rw(src)).toBe(
-			'const c = ' +
-				BT +
-				"top ${1 + 1} import a from 'react' tail" +
-				BT +
-				';\nimport real from "/vendor/react.js";'
+			`const c = ${BT}top \${1 + 1} import a from 'react' tail${
+				BT
+			};\nimport real from "/vendor/react.js";`
 		);
 	});
 
@@ -93,7 +84,9 @@ describe('import rewriter — does NOT touch non-code spans', () => {
 
 	test('regex literal containing quotes does not derail a later real import', () => {
 		const src = 'const re = /[\'"]/g;\nimport x from "react";';
-		expect(rw(src)).toBe('const re = /[\'"]/g;\nimport x from "/vendor/react.js";');
+		expect(rw(src)).toBe(
+			'const re = /[\'"]/g;\nimport x from "/vendor/react.js";'
+		);
 	});
 
 	// Regression (beta.1099–1106): a regex containing a quote *inside a template
@@ -103,18 +96,13 @@ describe('import rewriter — does NOT touch non-code spans', () => {
 	// tail imports un-vendored. The template must be preserved and the later
 	// import still rewritten.
 	test('regex-with-quote inside a template interpolation does not swallow a later import', () => {
-		const src =
-			'const gen = ' +
-			BT +
-			"alert('${msg.replace(/'/g, \"x\")}')" +
-			BT +
-			';\nimport React from "react";';
+		const src = `const gen = ${BT}alert('\${msg.replace(/'/g, "x")}')${
+			BT
+		};\nimport React from "react";`;
 		expect(rw(src)).toBe(
-			'const gen = ' +
-				BT +
-				"alert('${msg.replace(/'/g, \"x\")}')" +
-				BT +
-				';\nimport React from "/vendor/react.js";'
+			`const gen = ${BT}alert('\${msg.replace(/'/g, "x")}')${
+				BT
+			};\nimport React from "/vendor/react.js";`
 		);
 	});
 });
@@ -122,20 +110,16 @@ describe('import rewriter — does NOT touch non-code spans', () => {
 describe('maskLiterals round-trip', () => {
 	test('restore(masked) reproduces the source exactly', () => {
 		const src =
-			'import a from "react";\n' +
-			'const code = ' +
-			BT +
-			"import b from 'react';" +
-			BT +
-			';\n' +
-			"// import c from 'react'\n" +
-			'const re = /a\\/b/;';
+			`import a from "react";\n` +
+			`const code = ${BT}import b from 'react';${BT};\n` +
+			`// import c from 'react'\n` +
+			`const re = /a\\/b/;`;
 		const { masked, restore } = maskLiterals(src);
 		expect(restore(masked)).toBe(src);
 	});
 
 	test('masked text has no leftover from/import inside the sample', () => {
-		const src = 'const c = ' + BT + "import b from 'react';" + BT + ';';
+		const src = `const c = ${BT}import b from 'react';${BT};`;
 		const { masked } = maskLiterals(src);
 		expect(masked.includes("from 'react'")).toBe(false);
 	});

@@ -52,7 +52,11 @@ describe('resolveMissingClientFrameworks', () => {
 });
 
 describe('missingFrameworkSpecifierPattern', () => {
-	const pattern = missingFrameworkSpecifierPattern(['angular', 'react', 'vue']);
+	const pattern = missingFrameworkSpecifierPattern([
+		'angular',
+		'react',
+		'vue'
+	]);
 
 	test.each([
 		'react',
@@ -68,12 +72,16 @@ describe('missingFrameworkSpecifierPattern', () => {
 		expect(pattern?.test(specifier)).toBe(true);
 	});
 
-	test.each(['svelte', 'reactive', 'vuex', 'preact', '@angularx/core', 'react-router'])(
-		'does not match %s',
-		(specifier) => {
-			expect(pattern?.test(specifier)).toBe(false);
-		}
-	);
+	test.each([
+		'svelte',
+		'reactive',
+		'vuex',
+		'preact',
+		'@angularx/core',
+		'react-router'
+	])('does not match %s', (specifier) => {
+		expect(pattern?.test(specifier)).toBe(false);
+	});
 
 	test('is null when nothing is missing', () => {
 		expect(missingFrameworkSpecifierPattern([])).toBeNull();
@@ -108,12 +116,18 @@ describe('createMissingClientFrameworkPlugin', () => {
 					target: 'browser'
 				});
 				expect(result.success).toBe(true);
-				const output = await Bun.file(join(root, 'out', 'entry.js')).text();
+				const output = await Bun.file(
+					join(root, 'out', 'entry.js')
+				).text();
 				expect(output).not.toMatch(/from\s*["']vue["']/);
 
-				const loaded: unknown = await import(join(root, 'out', 'entry.js'));
+				const loaded: unknown = await import(
+					join(root, 'out', 'entry.js')
+				);
 				const hydrate =
-					typeof loaded === 'object' && loaded !== null && 'hydrate' in loaded
+					typeof loaded === 'object' &&
+					loaded !== null &&
+					'hydrate' in loaded
 						? loaded.hydrate
 						: undefined;
 				expect(typeof hydrate).toBe('function');

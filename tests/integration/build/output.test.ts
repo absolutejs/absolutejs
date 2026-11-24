@@ -19,63 +19,60 @@ describe('build output validation', () => {
 	const isProjectPath = (value: string) => {
 		const normalizedProjectRoot = resolve(PROJECT_ROOT);
 		const normalizedValue = resolve(value);
+
 		return (
 			normalizedValue === normalizedProjectRoot ||
 			normalizedValue.startsWith(`${normalizedProjectRoot}${sep}`)
 		);
 	};
 
-	test(
-		'setup: run production build',
-		async () => {
-			await mkdir(TEST_BUILD_BASE, { recursive: true });
-			outdir = await mkdtemp(resolve(TEST_BUILD_BASE, 'build-output-'));
+	test('setup: run production build', async () => {
+		await mkdir(TEST_BUILD_BASE, { recursive: true });
+		outdir = await mkdtemp(resolve(TEST_BUILD_BASE, 'build-output-'));
 
-			// Run build in a subprocess to avoid process.exit(1) killing the test runner
-			const proc = Bun.spawn(
-				[
-					'bun',
-					'run',
-					resolve(PROJECT_ROOT, 'src/cli/index.ts'),
-					'start',
-					resolve(PROJECT_ROOT, 'example/server.ts'),
-					'--outdir',
-					outdir,
-					'--config',
-					resolve(PROJECT_ROOT, 'example/absolute.config.ts')
-				],
-				{
-					cwd: PROJECT_ROOT,
-					env: {
-						...process.env,
-						FORCE_COLOR: '0',
-						NODE_ENV: 'production',
-						PORT: '0',
-						TELEMETRY_OFF: '1'
-					},
-					stderr: 'ignore',
-					stdout: 'ignore'
-				}
-			);
-
-			// Wait for the build to produce manifest.json, then kill the server
-			const maxWaitMs = 180_000;
-			const pollMs = 500;
-			const manifestPath = resolve(outdir, 'manifest.json');
-			const start = Date.now();
-
-			while (Date.now() - start < maxWaitMs) {
-				if (existsSync(manifestPath)) break;
-				await Bun.sleep(pollMs);
+		// Run build in a subprocess to avoid process.exit(1) killing the test runner
+		const proc = Bun.spawn(
+			[
+				'bun',
+				'run',
+				resolve(PROJECT_ROOT, 'src/cli/index.ts'),
+				'start',
+				resolve(PROJECT_ROOT, 'example/server.ts'),
+				'--outdir',
+				outdir,
+				'--config',
+				resolve(PROJECT_ROOT, 'example/absolute.config.ts')
+			],
+			{
+				cwd: PROJECT_ROOT,
+				env: {
+					...process.env,
+					FORCE_COLOR: '0',
+					NODE_ENV: 'production',
+					PORT: '0',
+					TELEMETRY_OFF: '1'
+				},
+				stderr: 'ignore',
+				stdout: 'ignore'
 			}
+		);
 
-			proc.kill();
-			await proc.exited;
+		// Wait for the build to produce manifest.json, then kill the server
+		const maxWaitMs = 180_000;
+		const pollMs = 500;
+		const manifestPath = resolve(outdir, 'manifest.json');
+		const start = Date.now();
 
-			expect(existsSync(manifestPath)).toBe(true);
-		},
-		240_000
-	);
+		while (Date.now() - start < maxWaitMs) {
+			if (existsSync(manifestPath)) break;
+			await Bun.sleep(pollMs);
+		}
+
+		proc.kill();
+		await proc.exited;
+
+		expect(existsSync(manifestPath)).toBe(true);
+	}, 240_000);
 
 	test('manifest.json is valid JSON with entries', async () => {
 		const manifestPath = resolve(outdir, 'manifest.json');

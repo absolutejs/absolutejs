@@ -129,9 +129,10 @@ type ServedApp = { baseUrl: string; stop: () => void };
 
 let app: ServedApp | undefined;
 
-const isReactPage = (value: unknown): value is Parameters<
-	typeof handleReactPageRequest
->[0]['Page'] => typeof value === 'function';
+const isReactPage = (
+	value: unknown
+): value is Parameters<typeof handleReactPageRequest>[0]['Page'] =>
+	typeof value === 'function';
 
 const contentType = (path: string) => {
 	if (path.endsWith('.js')) return 'text/javascript; charset=utf-8';
@@ -295,9 +296,11 @@ describe('a soft navigation unmounts the islands it swaps away', () => {
 
 			// Svelte's own teardown ran, so the component's onDestroy fired
 			// rather than the subtree merely being detached.
-			expect(await page.evaluate(() => Reflect.get(window, '__islandDestroyed'))).toBe(
-				'ticker'
-			);
+			expect(
+				await page.evaluate(() =>
+					Reflect.get(window, '__islandDestroyed')
+				)
+			).toBe('ticker');
 			expect(await registered(page)).toBe(0);
 
 			/* And the work stopped. The interval is the part a flag cannot

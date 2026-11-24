@@ -100,7 +100,10 @@ describe('absolute analyze', () => {
 	test('the total is the sum of what it sized', async () => {
 		const { stdout } = await run(['analyze', '--json']);
 		const sizes: Record<string, number> = JSON.parse(stdout);
-		const sum = Object.values(sizes).reduce((carry, size) => carry + size, 0);
+		const sum = Object.values(sizes).reduce(
+			(carry, size) => carry + size,
+			0
+		);
 
 		expect(sum).toBeGreaterThan(0);
 		const report = await run(['analyze']);

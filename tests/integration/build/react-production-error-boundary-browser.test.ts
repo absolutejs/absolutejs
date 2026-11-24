@@ -82,10 +82,7 @@ const contentType = (path: string) => {
 beforeAll(async () => {
 	await ensureDistBuild();
 	await mkdir(join(fixtureRoot, 'react', 'pages'), { recursive: true });
-	await writeFile(
-		join(fixtureRoot, 'react', 'pages', 'ErrorPage.tsx'),
-		PAGE
-	);
+	await writeFile(join(fixtureRoot, 'react', 'pages', 'ErrorPage.tsx'), PAGE);
 	const rel = (path: string) =>
 		relative(process.cwd(), join(fixtureRoot, path));
 	const result = await build({
@@ -104,6 +101,7 @@ beforeAll(async () => {
 			: undefined;
 	const buildDir = join(fixtureRoot, 'build');
 	const server = Bun.serve({
+		port: 0,
 		fetch: async (request: Request) => {
 			const { pathname } = new URL(request.url);
 			if (pathname === '/' && isReactPage(Page))
@@ -122,8 +120,7 @@ beforeAll(async () => {
 			return new Response(Bun.file(filePath), {
 				headers: { 'Content-Type': contentType(filePath) }
 			});
-		},
-		port: 0
+		}
 	});
 	app = {
 		baseUrl: `http://localhost:${server.port}`,
@@ -147,8 +144,8 @@ const consoleErrors: string[] = [];
 const open = async (run: (page: Page) => Promise<void>) => {
 	consoleErrors.length = 0;
 	const session: BrowserSession = await openPage(baseUrl(), {
-		consoleLog: (message: string) => consoleErrors.push(message),
-		waitUntil: 'load'
+		waitUntil: 'load',
+		consoleLog: (message: string) => consoleErrors.push(message)
 	});
 	try {
 		await run(session.page);

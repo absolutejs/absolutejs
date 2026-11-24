@@ -21,14 +21,18 @@ import {
 // backtick, kept out of source template literals so this file stays readable
 const BT = String.fromCharCode(96);
 
-const reactPaths = {
-	react: '/react/vendor/react.js',
+const REACT_VENDOR_PATH = '/react/vendor/react.js';
+
+const reactPaths: Record<string, string> = {
+	react: REACT_VENDOR_PATH,
 	'react-dom': '/react/vendor/react-dom.js',
 	'react-dom/client': '/react/vendor/react-dom_client.js',
 	'react/jsx-runtime': '/react/vendor/react_jsx-runtime.js'
 };
-const vendorPaths = {
-	'@angular/core': '/angular/vendor/angular_core.js',
+const ANGULAR_CORE_VENDOR_PATH = '/angular/vendor/angular_core.js';
+
+const vendorPaths: Record<string, string> = {
+	'@angular/core': ANGULAR_CORE_VENDOR_PATH,
 	vue: '/vue/vendor/vue.js'
 };
 const urlFileMap = new Map([['worker.ts', '/@src/example/worker.ts?v=1']]);
@@ -100,8 +104,7 @@ const expectedAll =
 // Legacy implementations (verbatim logic of the four standalone passes before
 // they were folded into one), used as the reference for equivalence.
 // ---------------------------------------------------------------------------
-const escapeRegex = (str: string) =>
-	str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const escapeRegex = (str: string) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 const sortedReplacements = (paths: Record<string, string>) =>
 	Object.entries(paths).sort(([keyA], [keyB]) => keyB.length - keyA.length);
@@ -165,7 +168,10 @@ const legacyReactSweep = (content: string, paths: Record<string, string>) => {
 		replacer
 	);
 	result = result.replace(
-		new RegExp(`(\\b(?:import|require)${gap}\\(${gap}["'])(${alt})(["'])`, 'g'),
+		new RegExp(
+			`(\\b(?:import|require)${gap}\\(${gap}["'])(${alt})(["'])`,
+			'g'
+		),
 		replacer
 	);
 
@@ -206,9 +212,7 @@ const legacyUrl = (content: string, map: Map<string, string>) =>
 		(match, relPath: string) => {
 			const resolved = map.get(relPath.split('/').pop() ?? '');
 
-			return resolved
-				? `new URL('${resolved}', import.meta.url)`
-				: match;
+			return resolved ? `new URL('${resolved}', import.meta.url)` : match;
 		}
 	);
 
@@ -257,11 +261,11 @@ describe('rewriteClientContent — each family in isolation', () => {
 	test('react family: real imports vendored, masked text untouched', () => {
 		const families = compileClientRewriteFamilies({ reactPaths });
 		const out = rewriteClientContent(fixture, families, true);
-		expect(out).toBe(
-			legacyPipeline(fixture, { react: reactPaths })
-		);
+		expect(out).toBe(legacyPipeline(fixture, { react: reactPaths }));
 		expect(out).toContain('from "/react/vendor/react_jsx-runtime.js"');
-		expect(out).toContain('from/* keep */"/react/vendor/react-dom_client.js"');
+		expect(out).toContain(
+			'from/* keep */"/react/vendor/react-dom_client.js"'
+		);
 		expect(out).toContain('import("/react/vendor/react-dom.js")');
 		expect(out).toContain(`import { useState } from "react";`);
 		expect(out).toContain(`'import React from "react"'`);
@@ -274,9 +278,7 @@ describe('rewriteClientContent — each family in isolation', () => {
 	test('vendor family: no sweep, so a spaced `require` stays bare', () => {
 		const families = compileClientRewriteFamilies({ vendorPaths });
 		const out = rewriteClientContent(fixture, families, true);
-		expect(out).toBe(
-			legacyPipeline(fixture, { vendor: vendorPaths })
-		);
+		expect(out).toBe(legacyPipeline(fixture, { vendor: vendorPaths }));
 		expect(out).toContain('from "/vue/vendor/vue.js"');
 		expect(out).toContain('from "/angular/vendor/angular_core.js"');
 		expect(out).toContain("import('/vue/vendor/vue.js')");
@@ -290,9 +292,9 @@ describe('rewriteClientContent — each family in isolation', () => {
 		const out = rewriteClientContent(fixture, families, true);
 		expect(out).toBe(REFRESH_STUBS + fixture);
 		expect(rewriteClientContent(out, families, true)).toBe(out);
-		expect(
-			rewriteClientContent('const a = 1;\n', families, true)
-		).toBe('const a = 1;\n');
+		expect(rewriteClientContent('const a = 1;\n', families, true)).toBe(
+			'const a = 1;\n'
+		);
 	});
 
 	test('url references: mapped targets rewritten, unmapped left alone', () => {
@@ -334,7 +336,7 @@ describe('rewriteClientContent — all families together', () => {
 	});
 
 	test('matches the legacy four-pass pipeline', () => {
-		const legacyOptions = {
+		const legacyOptions: LegacyOptions = {
 			react: reactPaths,
 			refresh: true,
 			url: urlFileMap,
@@ -368,7 +370,9 @@ describe('precheck skip', () => {
 
 	test('a candidate substring is required, not sufficient', () => {
 		const rewriter = compileSpecifierRewriter(reactPaths);
-		expect(hasSpecifierCandidate('x = "react-native"', rewriter)).toBe(true);
+		expect(hasSpecifierCandidate('x = "react-native"', rewriter)).toBe(
+			true
+		);
 		expect(hasSpecifierCandidate("from 'react'", rewriter)).toBe(true);
 		expect(hasSpecifierCandidate('/react/vendor/react.js', rewriter)).toBe(
 			false
@@ -398,20 +402,29 @@ describe('reduceVendorPaths', () => {
 	test('drops entries the react family already maps identically', () => {
 		expect(
 			reduceVendorPaths(
-				{ ...vendorPaths, react: reactPaths.react, vue: '/other/vue.js' },
-				{ ...reactPaths, '@angular/core': vendorPaths['@angular/core'] }
+				{
+					...vendorPaths,
+					react: REACT_VENDOR_PATH,
+					vue: '/other/vue.js'
+				},
+				{ ...reactPaths, '@angular/core': ANGULAR_CORE_VENDOR_PATH }
 			)
 		).toEqual({ vue: '/other/vue.js' });
 	});
 
 	test('a covered vendor family is a no-op after the react family', () => {
-		const combined = { ...reactPaths, ...vendorPaths };
+		const combined: Record<string, string> = {
+			...reactPaths,
+			...vendorPaths
+		};
 		const withVendor = compileClientRewriteFamilies({
 			reactPaths: combined,
 			vendorPaths
 		});
 		expect(withVendor.vendor).toBeUndefined();
-		const reactOnly = compileClientRewriteFamilies({ reactPaths: combined });
+		const reactOnly = compileClientRewriteFamilies({
+			reactPaths: combined
+		});
 		const out = rewriteClientContent(fixture, reactOnly, true);
 		expect(rewriteClientContent(fixture, withVendor, true)).toBe(out);
 		// ...and equals the old react-then-vendor pipeline on the same maps.
@@ -432,24 +445,27 @@ describe('rewriteSpecifiers — combined regex equals the per-specifier passes',
 		'import("react", { with: { type: "json" } });',
 		"import * as v from 'vue'; import '@angular/core';"
 	];
-	const combined = { ...reactPaths, ...vendorPaths };
+	const combined: Record<string, string> = {
+		...reactPaths,
+		...vendorPaths
+	};
 	const rewriter = compileSpecifierRewriter(combined);
 
 	test('with sweep: union regex == legacy main + sweep', () => {
 		for (const source of cases) {
 			const { masked } = maskLiterals(source);
-			expect(
-				rewriteSpecifiers(masked, rewriter, { sweep: true })
-			).toBe(legacyReactSweep(legacyReactMain(masked, combined), combined));
+			expect(rewriteSpecifiers(masked, rewriter, { sweep: true })).toBe(
+				legacyReactSweep(legacyReactMain(masked, combined), combined)
+			);
 		}
 	});
 
 	test('without sweep: combined regex == legacy per-specifier loop', () => {
 		for (const source of cases) {
 			const { masked } = maskLiterals(source);
-			expect(
-				rewriteSpecifiers(masked, rewriter, { sweep: false })
-			).toBe(legacyVendorMain(masked, combined));
+			expect(rewriteSpecifiers(masked, rewriter, { sweep: false })).toBe(
+				legacyVendorMain(masked, combined)
+			);
 			expect(jsRewriteImports(masked, sortedReplacements(combined))).toBe(
 				legacyVendorMain(masked, combined)
 			);
@@ -473,10 +489,12 @@ describe('rewriteSpecifiers — combined regex equals the per-specifier passes',
 describe('rewriteClientOutputs — file level', () => {
 	test('writes rewritten outputs and tolerates a missing file', async () => {
 		const file = await writeChunk(fixture);
-		const stats = await rewriteClientOutputs(
-			[file, join(dir, 'gone.js')],
-			{ reactPaths, refreshGlobals: true, urlFileMap, vendorPaths }
-		);
+		const stats = await rewriteClientOutputs([file, join(dir, 'gone.js')], {
+			reactPaths,
+			refreshGlobals: true,
+			urlFileMap,
+			vendorPaths
+		});
 		expect(stats).toEqual({ files: 1, rewritten: 1 });
 		expect(await Bun.file(file).text()).toBe(expectedAll);
 	});

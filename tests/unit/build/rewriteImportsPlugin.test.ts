@@ -60,13 +60,10 @@ describe('rewriteImportsPlugin', () => {
 		const input = `import { x } from "@angular/core/rxjs-interop";\n`;
 		const output = rewriteImportsInContent(input, {
 			'@angular/core': '/vendor/angular_core.js',
-			'@angular/core/rxjs-interop':
-				'/vendor/angular_core_rxjs-interop.js'
+			'@angular/core/rxjs-interop': '/vendor/angular_core_rxjs-interop.js'
 		});
 
-		expect(output).toContain(
-			'from "/vendor/angular_core_rxjs-interop.js"'
-		);
+		expect(output).toContain('from "/vendor/angular_core_rxjs-interop.js"');
 		expect(output).not.toContain('from "@angular/core/rxjs-interop"');
 	});
 

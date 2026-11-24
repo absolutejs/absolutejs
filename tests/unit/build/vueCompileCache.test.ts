@@ -89,7 +89,12 @@ describe('vue compile cache', () => {
 		expect(freshOutputs[0]).toContain('./components/Child.js');
 		expect(
 			readFileSync(
-				join(fresh.vueClientPaths[0] ?? '', '..', 'components', 'Child.js'),
+				join(
+					fresh.vueClientPaths[0] ?? '',
+					'..',
+					'components',
+					'Child.js'
+				),
 				'utf-8'
 			)
 		).toContain('first');
@@ -124,7 +129,12 @@ describe('vue compile cache', () => {
 		]);
 		expect(childEditedOutputs[0]).not.toContain('FROM-CACHE');
 		const childClient = readFileSync(
-			join(childEdited.vueClientPaths[0] ?? '', '..', 'components', 'Child.js'),
+			join(
+				childEdited.vueClientPaths[0] ?? '',
+				'..',
+				'components',
+				'Child.js'
+			),
 			'utf-8'
 		);
 		expect(childClient).toContain('second');
@@ -139,7 +149,12 @@ describe('vue compile cache', () => {
 		await resetProcessState();
 		const typesEdited = await compileVue([parentPath], root, false);
 		const typesEditedChild = readFileSync(
-			join(typesEdited.vueClientPaths[0] ?? '', '..', 'components', 'Child.js'),
+			join(
+				typesEdited.vueClientPaths[0] ?? '',
+				'..',
+				'components',
+				'Child.js'
+			),
 			'utf-8'
 		);
 		expect(typesEditedChild).not.toContain('STALE-CHILD');

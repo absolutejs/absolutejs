@@ -11,7 +11,7 @@ import {
  * that make the promise true without putting every image in the project
  * into every page. */
 
-const PLACEHOLDERS = {
+const PLACEHOLDERS: Record<string, string> = {
 	'/assets/png/hero.png': 'data:image/webp;base64,HERO',
 	'/assets/png/logo.png': 'data:image/webp;base64,LOGO',
 	'/assets/png/unused.png': 'data:image/webp;base64,UNUSED'

@@ -104,7 +104,8 @@ afterEach(async () => {
 });
 
 afterAll(async () => {
-	if (previousWorkers === undefined) delete process.env.ABSOLUTE_BUILD_WORKERS;
+	if (previousWorkers === undefined)
+		delete process.env.ABSOLUTE_BUILD_WORKERS;
 	else process.env.ABSOLUTE_BUILD_WORKERS = previousWorkers;
 	await Promise.all(
 		tempDirs.map((dir) => rm(dir, { force: true, recursive: true }))
@@ -177,9 +178,9 @@ describe('chainBundleInlineSourcemaps on the build worker pool', () => {
 		const { bundlePaths, sourcePaths } = await makeFixture(1);
 		const [bundlePath] = bundlePaths;
 		if (!bundlePath) throw new Error('missing bundle');
-		expect(chainBundleInlineSourcemap(bundlePath, { sourcesContent: true })).toBe(
-			true
-		);
+		expect(
+			chainBundleInlineSourcemap(bundlePath, { sourcesContent: true })
+		).toBe(true);
 		const map = await readInlineMap(bundlePath);
 		const sourceIndex = map.sources.indexOf(sourcePaths[0] ?? '');
 		expect(sourceIndex).toBeGreaterThanOrEqual(0);

@@ -115,6 +115,7 @@ const startApp = async (name: string, navigation: boolean) => {
 	if (!isReactPage(Page)) throw new Error('AutoNavReact did not load');
 	const buildDir = join(fixtureRoot, 'build');
 	const server = Bun.serve({
+		port: 0,
 		fetch: async (request: Request) => {
 			const { pathname } = new URL(request.url);
 			if (pathname === '/react')
@@ -139,8 +140,7 @@ const startApp = async (name: string, navigation: boolean) => {
 			return new Response(Bun.file(filePath), {
 				headers: { 'Content-Type': contentType(filePath) }
 			});
-		},
-		port: 0
+		}
 	});
 
 	return {

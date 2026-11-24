@@ -74,7 +74,9 @@ export class InlinePageComponent {}
 		const outputs = await compileAngularFileJIT(inputPath, outDir, dir);
 		expect(outputs.length).toBeGreaterThan(0);
 
-		const outputPath = outputs.find(path => path.endsWith('inline-page.js'));
+		const outputPath = outputs.find((path) =>
+			path.endsWith('inline-page.js')
+		);
 		expect(outputPath).toBeDefined();
 		const output = await readFile(outputPath as string, 'utf-8');
 
@@ -117,11 +119,15 @@ export class InlinePageWithImportsComponent {}
 		const outputs = await compileAngularFileJIT(inputPath, outDir, dir);
 		expect(outputs.length).toBeGreaterThan(0);
 
-		const outputPath = outputs.find(path => path.endsWith('inline-page-with-imports.js'));
+		const outputPath = outputs.find((path) =>
+			path.endsWith('inline-page-with-imports.js')
+		);
 		expect(outputPath).toBeDefined();
 		const output = await readFile(outputPath as string, 'utf-8');
 
-		expect(output).toContain('imports: [CommonModule, DeferSlotComponent, DeferResolvedTemplateDirective, DeferFallbackTemplateDirective, DeferErrorTemplateDirective]');
+		expect(output).toContain(
+			'imports: [CommonModule, DeferSlotComponent, DeferResolvedTemplateDirective, DeferFallbackTemplateDirective, DeferErrorTemplateDirective]'
+		);
 		expect(output).toContain('DeferSlotComponent');
 		expect(output).toContain('__absoluteDeferResolvePayload0');
 
@@ -163,7 +169,7 @@ export class UrlPageComponent {}
 		const outputs = await compileAngularFileJIT(inputPath, outDir, dir);
 		expect(outputs.length).toBeGreaterThan(0);
 
-		const outputPath = outputs.find(path => path.endsWith('url-page.js'));
+		const outputPath = outputs.find((path) => path.endsWith('url-page.js'));
 		expect(outputPath).toBeDefined();
 		const output = await readFile(outputPath as string, 'utf-8');
 
@@ -209,8 +215,12 @@ export class AbsoluteImportPageComponent {}
 		);
 
 		const outputs = await compileAngularFileJIT(inputPath, outDir, dir);
-		const pageOutputPath = outputs.find(path => path.endsWith('absolute-import-page.js'));
-		const childOutputPath = outputs.find(path => path.endsWith('child.js'));
+		const pageOutputPath = outputs.find((path) =>
+			path.endsWith('absolute-import-page.js')
+		);
+		const childOutputPath = outputs.find((path) =>
+			path.endsWith('child.js')
+		);
 		expect(pageOutputPath).toBeDefined();
 		expect(childOutputPath).toBeDefined();
 		const pageOutput = await readFile(pageOutputPath as string, 'utf-8');
@@ -276,15 +286,27 @@ export class AliasImportPageComponent {}
 			);
 
 			const outputs = await compileAngularFileJIT(inputPath, outDir, dir);
-			const pageOutputPath = outputs.find(path => path.endsWith('alias-import-page.js'));
-			const childOutputPath = outputs.find(path => path.endsWith('alias-child.js'));
+			const pageOutputPath = outputs.find((path) =>
+				path.endsWith('alias-import-page.js')
+			);
+			const childOutputPath = outputs.find((path) =>
+				path.endsWith('alias-child.js')
+			);
 			expect(pageOutputPath).toBeDefined();
 			expect(childOutputPath).toBeDefined();
-			const pageOutput = await readFile(pageOutputPath as string, 'utf-8');
-			const childOutput = await readFile(childOutputPath as string, 'utf-8');
+			const pageOutput = await readFile(
+				pageOutputPath as string,
+				'utf-8'
+			);
+			const childOutput = await readFile(
+				childOutputPath as string,
+				'utf-8'
+			);
 
 			expect(pageOutput).toContain(`from "./components/alias-child.js"`);
-			expect(childOutput).toContain('template: `<p>Alias child template</p>`');
+			expect(childOutput).toContain(
+				'template: `<p>Alias child template</p>`'
+			);
 			expect(childOutput).not.toContain('templateUrl');
 		} finally {
 			process.chdir(originalCwd);
@@ -312,7 +334,7 @@ export class CommentedPageComponent {}
 		);
 
 		const outputs = await compileAngularFileJIT(inputPath, outDir, dir);
-		const outputPath = outputs.find(path =>
+		const outputPath = outputs.find((path) =>
 			path.endsWith('commented-template-url-page.js')
 		);
 		expect(outputPath).toBeDefined();
@@ -448,16 +470,24 @@ export class InterpolatePageComponent {
 		const outputs = await compileAngularFileJIT(inputPath, outDir, dir);
 		expect(outputs.length).toBeGreaterThan(0);
 
-		const outputPath = outputs.find(path => path.endsWith('interpolate-page.js'));
+		const outputPath = outputs.find((path) =>
+			path.endsWith('interpolate-page.js')
+		);
 		expect(outputPath).toBeDefined();
 		const output = await readFile(outputPath as string, 'utf-8');
 
 		expect(output).toContain('__absoluteDeferResolveTemplateExpression');
 		expect(output).toContain('__absoluteDeferHtml0 = () => `');
 		expect(output).toContain('__absoluteDeferData0 = () => ({');
-		expect(output).toContain('__absoluteDeferResolvePayload0 = () => new Promise');
-		expect(output).toContain('resolve({ kind: "angular-defer", state: "resolved", html: this.__absoluteDeferHtml0(), data: this.__absoluteDeferData0() })');
-		expect(output).toContain('this.__absoluteDeferResolveTemplateExpression("timestamp()")');
+		expect(output).toContain(
+			'__absoluteDeferResolvePayload0 = () => new Promise'
+		);
+		expect(output).toContain(
+			'resolve({ kind: "angular-defer", state: "resolved", html: this.__absoluteDeferHtml0(), data: this.__absoluteDeferData0() })'
+		);
+		expect(output).toContain(
+			'this.__absoluteDeferResolveTemplateExpression("timestamp()")'
+		);
 		expect(output).not.toContain('{{ timestamp() }}');
 
 		await rm(dir, { force: true, recursive: true });
@@ -466,15 +496,24 @@ export class InterpolatePageComponent {
 	test(
 		'compiles Less styleUrl resources in AOT builds',
 		async () => {
-			const outDir = await mkdtemp(join(tmpdir(), 'absolutejs-angular-less-'));
+			const outDir = await mkdtemp(
+				join(tmpdir(), 'absolutejs-angular-less-')
+			);
 			await mkdir(outDir, { recursive: true });
 
-			const outputs = await compileAngularFile(LESS_STYLE_FIXTURE, outDir);
-			const outputPath = outputs.find(path => path.endsWith('less-style-page.js'));
+			const outputs = await compileAngularFile(
+				LESS_STYLE_FIXTURE,
+				outDir
+			);
+			const outputPath = outputs.find((path) =>
+				path.endsWith('less-style-page.js')
+			);
 			expect(outputPath).toBeDefined();
 			const output = await readFile(outputPath as string, 'utf-8');
 
-			expect(output).toContain('border: 2px solid rgba(15, 118, 110, 0.3)');
+			expect(output).toContain(
+				'border: 2px solid rgba(15, 118, 110, 0.3)'
+			);
 			expect(output).toContain('color: #0f766e');
 			expect(output).not.toContain('@accent');
 
@@ -486,11 +525,18 @@ export class InterpolatePageComponent {
 	test(
 		'compiles Stylus styleUrl resources in AOT builds',
 		async () => {
-			const outDir = await mkdtemp(join(tmpdir(), 'absolutejs-angular-stylus-'));
+			const outDir = await mkdtemp(
+				join(tmpdir(), 'absolutejs-angular-stylus-')
+			);
 			await mkdir(outDir, { recursive: true });
 
-			const outputs = await compileAngularFile(STYLUS_STYLE_FIXTURE, outDir);
-			const outputPath = outputs.find(path => path.endsWith('stylus-style-page.js'));
+			const outputs = await compileAngularFile(
+				STYLUS_STYLE_FIXTURE,
+				outDir
+			);
+			const outputPath = outputs.find((path) =>
+				path.endsWith('stylus-style-page.js')
+			);
 			expect(outputPath).toBeDefined();
 			const output = await readFile(outputPath as string, 'utf-8');
 
@@ -506,48 +552,62 @@ export class InterpolatePageComponent {
 	test(
 		'generated client bootstrap defers streaming slot flush until after hydration',
 		async () => {
-		const outDir = await mkdtemp(join(tmpdir(), 'absolutejs-angular-build-'));
-		await mkdir(outDir, { recursive: true });
+			const outDir = await mkdtemp(
+				join(tmpdir(), 'absolutejs-angular-build-')
+			);
+			await mkdir(outDir, { recursive: true });
 
-		const { clientPaths } = await compileAngular(
-			[STREAMING_FIXTURE],
-			outDir,
-			false
-		);
-		const indexPath = clientPaths.find(path => path.endsWith('streaming-page.js'));
-		expect(indexPath).toBeDefined();
-		const indexContent = await readFile(indexPath as string, 'utf-8');
+			const { clientPaths } = await compileAngular(
+				[STREAMING_FIXTURE],
+				outDir,
+				false
+			);
+			const indexPath = clientPaths.find((path) =>
+				path.endsWith('streaming-page.js')
+			);
+			expect(indexPath).toBeDefined();
+			const indexContent = await readFile(indexPath as string, 'utf-8');
 
-		expect(indexContent).toContain("var pageHasStreamingSlots = Boolean(document.querySelector('[data-absolute-slot=\"true\"]'));");
-		expect(indexContent).toContain("var pageHasRawStreamingSlots = Boolean(document.querySelector('[data-absolute-raw-slot=\"true\"]'));");
-		expect(indexContent).toContain('window.__ABS_SLOT_HYDRATION_PENDING__ = pageHasRawStreamingSlots;');
-		expect(indexContent).toContain('window.__ABS_SLOT_HYDRATION_PENDING__ = false;');
-		expect(indexContent).toContain("if (typeof window.__ABS_SLOT_FLUSH__ === 'function')");
-		expect(indexContent).toContain(
-			"var isClientRender = window.__ABSOLUTE_PAGE_RENDER_MODE__ === 'client';"
-		);
-		expect(indexContent).toContain(
-			'if (!isClientRender && !pageHasIslands)'
-		);
-		expect(indexContent).toContain(
-			"var _sel = AngularStreamingTestPage.ɵcmp?.selectors?.[0]?.[0] || 'ng-app';"
-		);
-		expect(indexContent).toContain(
-			"(document.getElementById('root') || document.body).appendChild(document.createElement(_sel));"
-		);
-		expect(indexContent).toContain(
-			'window.__ABSOLUTE_PAGE_DISPOSE__ = async function()'
-		);
-		expect(indexContent).toContain(
-			"import { prepareBrowserTranslationHydration } from '@absolutejs/absolute/client'"
-		);
-		expect(indexContent).toContain(
-			'restoreTranslation = prepareBrowserTranslationHydration(document.querySelector(_sel))'
-		);
-		expect(indexContent).toContain('}).finally(restoreTranslation)');
+			expect(indexContent).toContain(
+				'var pageHasStreamingSlots = Boolean(document.querySelector(\'[data-absolute-slot="true"]\'));'
+			);
+			expect(indexContent).toContain(
+				'var pageHasRawStreamingSlots = Boolean(document.querySelector(\'[data-absolute-raw-slot="true"]\'));'
+			);
+			expect(indexContent).toContain(
+				'window.__ABS_SLOT_HYDRATION_PENDING__ = pageHasRawStreamingSlots;'
+			);
+			expect(indexContent).toContain(
+				'window.__ABS_SLOT_HYDRATION_PENDING__ = false;'
+			);
+			expect(indexContent).toContain(
+				"if (typeof window.__ABS_SLOT_FLUSH__ === 'function')"
+			);
+			expect(indexContent).toContain(
+				"var isClientRender = window.__ABSOLUTE_PAGE_RENDER_MODE__ === 'client';"
+			);
+			expect(indexContent).toContain(
+				'if (!isClientRender && !pageHasIslands)'
+			);
+			expect(indexContent).toContain(
+				"var _sel = AngularStreamingTestPage.ɵcmp?.selectors?.[0]?.[0] || 'ng-app';"
+			);
+			expect(indexContent).toContain(
+				"(document.getElementById('root') || document.body).appendChild(document.createElement(_sel));"
+			);
+			expect(indexContent).toContain(
+				'window.__ABSOLUTE_PAGE_DISPOSE__ = async function()'
+			);
+			expect(indexContent).toContain(
+				"import { prepareBrowserTranslationHydration } from '@absolutejs/absolute/client'"
+			);
+			expect(indexContent).toContain(
+				'restoreTranslation = prepareBrowserTranslationHydration(document.querySelector(_sel))'
+			);
+			expect(indexContent).toContain('}).finally(restoreTranslation)');
 
-		await rm(outDir, { force: true, recursive: true });
-	},
+			await rm(outDir, { force: true, recursive: true });
+		},
 		ANGULAR_COMPILER_TEST_TIMEOUT_MS
 	);
 });
