@@ -15,6 +15,17 @@
 				}
 			],
 			"date": "2026-11-24",
+			"version": "0.20.0-beta.337"
+		},
+		{
+			"changes": [
+				{
+					"detail": "`absolute scan` runs `@absolutejs/vulnerabilities` 0.17.3: Grype's vulnerability database updates as its own step (up to 15 minutes) before the scan, instead of inside the scan's 3 minutes, where a due update stopped every scan partway through the download.",
+					"kind": "fixed",
+					"summary": "`absolute scan` no longer times out when Grype's database is due for an update"
+				}
+			],
+			"date": "2026-11-24",
 			"version": "0.20.0-beta.336"
 		},
 		{
