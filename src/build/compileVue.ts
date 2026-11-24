@@ -920,19 +920,46 @@ const compileVueFileUncached = async (
  * time or random value. In production Vue's own `logMismatchError` still
  * reaches the app's error reporting.
  *
- * Collected through `app.config.warnHandler` (dev builds of Vue route
- * every hydration warning through it), chained after `setupApp` so an
- * app's own handler still runs. */
-const VUE_DEV_HYDRATION_WATCH = [
+ * Read from `console.warn` while the page hydrates, which is where a dev
+ * build of Vue writes them, with the mismatching node itself as an
+ * argument. The call is passed through untouched, so the console keeps
+ * the live element to inspect; the overlay gets a description of it.
+ * (`app.config.warnHandler` was the first attempt: Vue hands a handler the
+ * message with every node already turned into "[object HTMLDivElement]",
+ * and installing one stops Vue writing the warning to the console at all.)
+ * Hydration is synchronous, so the watch ends when `mount` returns, in a
+ * `finally` so a failed mount never leaves it installed. A page whose
+ * `setupApp` installs its own `warnHandler` gets its warnings there
+ * instead, as Vue intends. */
+export const VUE_DEV_HYDRATION_WATCH = [
 	'  const hydrationWarnings = [];',
+	'  const pageConsoleWarn = console.warn;',
+	'  const describeWarningPart = function (part) {',
+	'    if (part && typeof part === "object" && part.nodeType === 1) {',
+	'      const tag = String(part.tagName).toLowerCase();',
+	'      const id = part.id ? "#" + part.id : "";',
+	'      const classes = typeof part.className === "string" && part.className.trim() ? "." + part.className.trim().split(/\\s+/).join(".") : "";',
+	'      return "<" + tag + id + classes + ">";',
+	'    }',
+	'    if (part && typeof part === "object" && part.nodeType === 8) return "<!--" + part.data + "-->";',
+	'    if (part && typeof part === "object" && part.nodeType === 3) return JSON.stringify(part.data);',
+	'    if (typeof part === "symbol") return part.toString();',
+	'    if (part && typeof part === "object") { try { return JSON.stringify(part); } catch (error) { return String(part); } }',
+	'    return String(part);',
+	'  };',
 	'  if (shouldHydrate) {',
-	'    const appWarnHandler = app.config.warnHandler;',
-	'    app.config.warnHandler = function (message, instance, trace) {',
-	'      if (/^Hydration /.test(message)) hydrationWarnings.push(message + (trace ? "\\n" + trace : ""));',
-	'      if (appWarnHandler) appWarnHandler(message, instance, trace);',
-	'      else console.warn("[Vue warn]: " + message + (trace ? "\\n" + trace : ""));',
+	'    console.warn = function (...parts) {',
+	'      if (typeof parts[0] === "string" && parts[0].startsWith("[Vue warn]: Hydration")) {',
+	'        hydrationWarnings.push(parts.map(describeWarningPart).join(" ").replace(/^\\[Vue warn\\]: /, ""));',
+	'      }',
+	'      return pageConsoleWarn.apply(console, parts);',
 	'    };',
 	'  }'
+];
+
+/* Ends the watch above, whatever `mount` did. */
+export const VUE_DEV_HYDRATION_UNWATCH = [
+	'    console.warn = pageConsoleWarn;'
 ];
 
 const VUE_DEV_HYDRATION_REPORT = [
@@ -1173,6 +1200,7 @@ export const compileVue = async (
 						'    app.mount("#root");',
 						'  } finally {',
 						'    restoreBrowserTranslation();',
+						...(isDev ? VUE_DEV_HYDRATION_UNWATCH : []),
 						'  }',
 						...(isDev ? VUE_DEV_HYDRATION_REPORT : []),
 						'}',
