@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "The test that the access log sink arms one timer for a burst of lines slept 15ms twice against a 20ms timer, leaving 5ms for the first sleep to overrun. On a loaded CI runner it did, and the test failed on commits that had not touched it. It now counts the timers the sink arms instead of waiting on a clock. No behaviour changes.",
+					"kind": "internal",
+					"summary": "A timing-dependent access log test no longer fails at random in CI"
+				}
+			],
+			"date": "2026-11-24",
+			"version": "0.20.0-beta.353"
+		},
+		{
+			"changes": [
+				{
 					"detail": "`bun check` prints diagnostics in a different shape under a coding agent, which it detects from the environment. One assertion expected the terminal shape, so the test passed for a person and failed for an agent on the same commit. The test now sets the environment itself and checks the failing project in both shapes. The checker read both shapes correctly all along; no behaviour changes.",
 					"kind": "internal",
 					"summary": "The all-frameworks typecheck test passes when a coding agent runs it"

@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, spyOn, test } from 'bun:test';
 import { createAccessLogSink } from '../../../src/core/accessLogSink';
 
 /* The sink batches, because a write per request is most of what an access
@@ -9,6 +9,10 @@ import { createAccessLogSink } from '../../../src/core/accessLogSink';
  *
  * Batching is only correct if nothing is lost, which is what these are
  * about: every line comes out, in order, exactly once. */
+
+/* An interval no test waits out, and one nothing else in the process
+ * would pass to `setTimeout`, so the sink's timers can be told apart. */
+const UNREACHED_INTERVAL_MS = 987_654;
 
 const collector = () => {
 	const written: string[] = [];
@@ -102,24 +106,61 @@ describe('createAccessLogSink', () => {
 	});
 
 	/* The timer must not be re-armed per line, or a busy server schedules
-	 * one timeout per request. */
-	test('the pending timer is not re-armed by each line', async () => {
+	 * one timeout per request.
+	 *
+	 * Counted, not timed. This used to sleep 15ms twice against a 20ms
+	 * timer and look at what had been written at 30ms, which left 5ms for
+	 * the first sleep to overrun — and on a loaded CI runner it did, so
+	 * the timer fired between the two lines and the test failed on a
+	 * commit that had not touched it. */
+	test('the pending timer is not re-armed by each line', () => {
 		const sink_ = collector();
+		const armed = spyOn(globalThis, 'setTimeout');
 		const sink = createAccessLogSink({
 			bufferLimit: 100,
-			flushIntervalMs: 20,
+			flushIntervalMs: UNREACHED_INTERVAL_MS,
 			write: sink_.write
 		});
 
 		sink.emit('one');
-		await Bun.sleep(15);
 		sink.emit('two');
-		await Bun.sleep(15);
+		sink.emit('three');
+		const timers = armed.mock.calls.filter(
+			([, delay]) => delay === UNREACHED_INTERVAL_MS
+		).length;
+		armed.mockRestore();
 
-		/* If the second line restarted the clock, nothing has been written
-		 * yet at 30ms. */
-		expect(sink_.lines()).toEqual(['one', 'two']);
+		expect(timers).toBe(1);
+
+		/* And that one timer covers every line held when it was armed. */
+		sink.flush();
+
+		expect(sink_.lines()).toEqual(['one', 'two', 'three']);
 		expect(sink_.writes()).toBe(1);
+	});
+
+	/* The other half: once the held lines are written, the next line arms
+	 * a timer of its own rather than waiting on one that is gone. */
+	test('a line after a flush arms a new timer', () => {
+		const sink_ = collector();
+		const armed = spyOn(globalThis, 'setTimeout');
+		const sink = createAccessLogSink({
+			bufferLimit: 100,
+			flushIntervalMs: UNREACHED_INTERVAL_MS,
+			write: sink_.write
+		});
+
+		sink.emit('one');
+		sink.flush();
+		sink.emit('two');
+		const timers = armed.mock.calls.filter(
+			([, delay]) => delay === UNREACHED_INTERVAL_MS
+		).length;
+		armed.mockRestore();
+		sink.flush();
+
+		expect(timers).toBe(2);
+		expect(sink_.writes()).toBe(2);
 	});
 
 	test('flushEachLine writes immediately, one write per line', () => {
