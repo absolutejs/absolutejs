@@ -176,6 +176,10 @@ declare global {
 			kind?: import('./messages').HMRApplyKind;
 			outcome: import('./messages').HMRApplyOutcome;
 			serverMs: number;
+			/** The file the update came from, when the message named one. A
+			 *  timing with no file is hard to attribute when several
+			 *  updates land together. */
+			source?: string;
 			target: import('./messages').HMRClientTarget;
 			updateId?: number;
 		};
