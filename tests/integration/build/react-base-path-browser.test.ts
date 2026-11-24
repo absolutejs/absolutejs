@@ -77,6 +77,7 @@ beforeAll(async () => {
 			return handleReactPageRequest({
 				index: manifest.BasePathPageIndex ?? '',
 				Page,
+				props: {},
 				request
 			});
 		const filePath = join(buildDir, pathname);
@@ -159,7 +160,10 @@ describe('a React page under a base path', () => {
 			// The map is the base's own: another app's module, served at the
 			// root, resolves its imports at the root.
 			const where = await page.evaluate(async () => {
-				const loaded: unknown = await import('/other/module.js');
+				// A variable, so the checker does not go looking for a
+				// module that exists only on the test's server.
+				const specifier = '/other/module.js';
+				const loaded: unknown = await import(specifier);
 
 				return typeof loaded === 'object' && loaded !== null
 					? Reflect.get(loaded, 'where')

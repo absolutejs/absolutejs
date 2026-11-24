@@ -104,14 +104,12 @@ const createApp = (buildDir: string, manifest: Record<string, string>) => {
 				collectStreamingSlots: true,
 				indexPath: manifest.StreamedPageIndex ?? '',
 				pagePath: manifest.StreamedPage ?? '',
-				props: {},
 				request
 			});
 		if (pathname === '/plain')
 			return handleSveltePageRequest({
 				indexPath: manifest.PlainPageIndex ?? '',
 				pagePath: manifest.PlainPage ?? '',
-				props: {},
 				request
 			});
 		if (extname(pathname) === '')

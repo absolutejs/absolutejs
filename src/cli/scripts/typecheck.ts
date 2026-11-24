@@ -171,11 +171,33 @@ const findBin = (name: string) => {
 // (codegen with non-resolvable paths, .ts-extension imports, etc.). These
 // excludes are not opinions about project layout — they're about not
 // type-checking AbsoluteJS's own generated output.
-const ABSOLUTE_INTERNAL_EXCLUDES = [
-	'.absolutejs/**/*',
-	'**/build/**/*',
-	'**/generated/**/*'
-];
+const ABSOLUTE_INTERNAL_EXCLUDES = ['.absolutejs/**/*', '**/generated/**/*'];
+
+const DEFAULT_BUILD_DIRECTORY = 'build';
+
+/* The build output, by where the config says it goes.
+ *
+ * This was `**\/build/**`, which is an opinion about project layout
+ * after all: it took every directory NAMED `build` out of the program,
+ * source included. A project's `src/build/` or `tests/build/` was never
+ * type-checked and the command said it passed — in this repository that
+ * was 107 test files, among them the type tests for `defineConfig`. */
+let buildOutputExcludes = [`${DEFAULT_BUILD_DIRECTORY}/**/*`];
+
+const setBuildOutputExcludes = (targets: AbsoluteServiceConfig[]) => {
+	buildOutputExcludes = [
+		...new Set(
+			targets.map((config) => {
+				const directory = relative(
+					process.cwd(),
+					resolve(config.buildDirectory ?? DEFAULT_BUILD_DIRECTORY)
+				);
+
+				return `${directory}/**/*`;
+			})
+		)
+	];
+};
 
 const resolveAbsoluteTypeFile = (fileName: string) => {
 	const candidates = [
@@ -478,6 +500,7 @@ const getProjectTypecheckExcludes = () => {
 		...new Set(
 			[
 				...ABSOLUTE_INTERNAL_EXCLUDES,
+				...buildOutputExcludes,
 				...toStringArray(config.exclude),
 				...(outDir === null ? [] : [outDir])
 			].map(toGeneratedConfigPath)
@@ -1123,6 +1146,7 @@ export const dedupeSvelteResult = (
 
 export const typecheck = async (configPath?: string) => {
 	const targets = await getTypecheckTargets(configPath);
+	setBuildOutputExcludes(targets);
 
 	const hasAngular = targets.some((config) =>
 		Boolean(config.angularDirectory)

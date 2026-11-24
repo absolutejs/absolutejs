@@ -94,7 +94,6 @@ const createApp = (buildDir: string, manifest: Record<string, string>) => {
 			return handleSveltePageRequest({
 				indexPath: manifest.PairSvelteIndex ?? '',
 				pagePath: manifest.PairSvelte ?? '',
-				props: {},
 				request
 			});
 		if (pathname === '/vue')

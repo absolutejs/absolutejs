@@ -3,6 +3,8 @@ import { existsSync } from 'node:fs';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { extname, join, relative, resolve } from 'node:path';
 import type { Page } from 'playwright';
+import type { ComponentType } from 'react';
+import type { Component as SvelteComponent } from 'svelte';
 import { build } from '../../../src/core/build';
 import { enableCspNonces } from '../../../src/core/cspNonce';
 import { runWithAbsoluteRequest } from '../../../src/core/requestContext';
@@ -153,7 +155,8 @@ const SVELTE_CSS = `.svelte-styled { color: rgb(0, 0, 200); }
 `;
 
 type ServedApp = { baseUrl: string; stop: () => void };
-type ReactPage = (props: { cssPath?: string }) => unknown;
+type PageProps = { cssPath?: string };
+type ReactPage = ComponentType<PageProps>;
 
 let plain: ServedApp | undefined;
 let secure: ServedApp | undefined;
@@ -184,7 +187,7 @@ const createApp = (
 			});
 		}
 		if (pathname === '/svelte') {
-			return handleSveltePageRequest({
+			return handleSveltePageRequest<SvelteComponent<PageProps>>({
 				indexPath: manifest.SvelteNavIndex ?? '',
 				pagePath: manifest.SvelteNav ?? '',
 				props: { cssPath: manifest.SvelteNavCSS },

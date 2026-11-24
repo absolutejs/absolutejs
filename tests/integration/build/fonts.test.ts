@@ -46,7 +46,7 @@ test('a production build self-hosts fonts and links them from static pages', asy
 			mode: 'production',
 			options: { throwOnError: true }
 		});
-		if (!result) throw new Error('build failed');
+		if (!result?.manifest) throw new Error('build failed');
 
 		const fonts = fontAssets(result.manifest);
 		expect(fonts.preload).toHaveLength(1);

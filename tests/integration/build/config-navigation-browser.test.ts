@@ -128,7 +128,6 @@ const startApp = async (name: string, navigation: boolean) => {
 				return handleSveltePageRequest({
 					indexPath: manifest.AutoNavSvelteIndex ?? '',
 					pagePath: manifest.AutoNavSvelte ?? '',
-					props: {},
 					request
 				});
 			if (extname(pathname) === '')

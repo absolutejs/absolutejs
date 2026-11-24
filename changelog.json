@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "`absolute typecheck` leaves the build output out of the program, and did it by leaving out every directory named `build`. Source in `src/build/`, `tests/build/` or any other directory of that name was never checked, and the command reported a pass. It now leaves out the directory the config says the build goes to (`buildDirectory`, `build` by default; each service's own in a workspace) and checks every other directory whatever it is called. A project with source in a directory named `build` may see type errors it was not shown before; they were always there. Build output kept somewhere other than the configured directory, such as a fixture app's own `build/`, is no longer left out for you: add it to `exclude` in tsconfig.json. In this repository the old rule hid 107 test files, 25 type errors and one `@ts-expect-error` that had never held; those are fixed.",
+					"kind": "fixed",
+					"summary": "`absolute typecheck` checks source in directories named `build` instead of skipping them"
+				}
+			],
+			"date": "2026-11-24",
+			"version": "0.20.0-beta.356"
+		},
+		{
+			"changes": [
+				{
 					"detail": "`defineConfig` infers its argument, and TypeScript makes no excess-property check on an inferred type, so a misspelt key (`reactDirectroy`) or a key that no longer exists passed the checker and the setting silently did not happen. `defineConfig` now gives a type error on any top-level key that is not a config key, and on any key of a workspace service that its kind of service does not have; the error names `UnknownConfigKey<\"the key\">` on the line that sets it. For a config that is not type-checked, loading it prints one warning per unknown key, with the key it was probably meant to be when one is close, and carries on. Nested keys (inside `images`, `tailwind` and so on) are not covered. Also fixed: a workspace where one service set `buildDirectory` and another did not was refused by `defineConfig` as two services sharing a build directory.",
 					"kind": "breaking",
 					"migration": {

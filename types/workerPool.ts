@@ -162,8 +162,9 @@ export type BuildWorkerRunOptions = {
 
 export type BuildWorkerPoolOptions = {
 	/** Absolute path of the worker entry. Defaults to the framework's own
-	 *  `buildWorker` in whichever layout (`src/` or `dist/`) is running. */
-	entry?: string;
+	 *  `buildWorker` in whichever layout (`src/` or `dist/`) is running.
+	 *  `null` says there is none, and every job runs inline. */
+	entry?: string | null;
 	/** Terminate every worker after this long with nothing to do. */
 	idleTimeoutMs?: number;
 	/** Batches smaller than this run inline unless workers are already

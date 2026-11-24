@@ -129,14 +129,12 @@ const createApp = (buildDir: string, manifest: Record<string, string>) => {
 			return handleSveltePageRequest({
 				indexPath: manifest.IslandPageIndex ?? '',
 				pagePath: manifest.IslandPage ?? '',
-				props: {},
 				request
 			});
 		if (pathname === '/plain')
 			return handleSveltePageRequest({
 				indexPath: manifest.PlainPageIndex ?? '',
 				pagePath: manifest.PlainPage ?? '',
-				props: {},
 				request
 			});
 		if (extname(pathname) === '')
