@@ -1,4 +1,5 @@
 import { BASE_36_RADIX } from '../constants';
+import { projectRoot } from '../utils/projectRoot';
 import type { SvelteCssHashGetter } from '../../types/svelte';
 
 /* Opt-in streaming for Svelte `{#await}` blocks.
@@ -726,6 +727,44 @@ const renderSlot = (
 	}); return ${then.literal}; } ${catchBranch} }} />{#if ${HTML_HELPERS}.shadow}${shadows}{/if}`;
 };
 
+/* The index alone is not an id. It restarts at zero in every file, so
+ * two components that each stream one `{#await}` both produced
+ * `absolute-svelte-await-0` — measured by lowering two files and reading
+ * the ids back. A slot id is how a streamed chunk finds the placeholder
+ * it belongs to, so on a page rendering both components the second
+ * chunk's content could land in the first component's hole.
+ *
+ * The file is folded in as a short hash rather than a readable path: the
+ * id goes in an attribute the server writes and the client matches, so it
+ * has to be stable, short, and free of characters a path would bring with
+ * it. Deterministic, because SSR and hydration both compute it — a random
+ * id would differ between the two and match nothing.
+ *
+ * The path is hashed RELATIVE TO THE PROJECT ROOT, with separators
+ * normalised. The value handed in is absolute — a resolved path on the
+ * build machine — so hashing it as-is would give the same component a
+ * different id in a different checkout, and two builds of the same source
+ * would differ byte for byte for no reason. Only the server and client
+ * halves of ONE build have to agree, so that would not break anything;
+ * it would just make a reproducible build impossible to verify. */
+const FILE_HASH_LENGTH = 6;
+
+const awaitSlotFileHash = (filePath: string | undefined) => {
+	if (filePath === undefined) return 'anon';
+	const normalized = filePath.replaceAll('\\', '/');
+	const root = projectRoot.replaceAll('\\', '/');
+	const withinProject = normalized.startsWith(`${root}/`)
+		? normalized.slice(root.length + 1)
+		: normalized;
+	const hasher = new Bun.CryptoHasher('sha256');
+	hasher.update(withinProject);
+
+	return hasher.digest('hex').slice(0, FILE_HASH_LENGTH);
+};
+
+const awaitSlotId = (filePath: string | undefined, index: number) =>
+	`absolute-svelte-await-${awaitSlotFileHash(filePath)}-${index.toString(BASE_36_RADIX)}`;
+
 const IMPORT_LINE =
 	'import AbsoluteAwaitSlot from "@absolutejs/absolute/svelte/components/AwaitSlot.svelte";';
 const INJECTED_SCRIPT = `${IMPORT_LINE}\n${AWAIT_HTML_HELPERS_SOURCE}`;
@@ -748,7 +787,7 @@ export const lowerSvelteAwaitSlotSyntax = (
 		const awaitStart = directive.index + directive[0].length;
 		if (awaitStart < cursor) continue;
 		const block = parseStreamedAwait(source, awaitStart, filePath);
-		const slotId = `absolute-svelte-await-${awaitIndex.toString(BASE_36_RADIX)}`;
+		const slotId = awaitSlotId(filePath, awaitIndex);
 		awaitIndex += 1;
 		lowered += source.slice(cursor, directive.index);
 		lowered += renderSlot(
