@@ -10,6 +10,8 @@ import type { FontAssets } from '../../../types/fonts';
 import { fontMimeType, fontPreconnectOrigins } from '../../utils/fontAssets';
 import { applyIconVersion, iconMimeType } from '../../utils/iconVersion';
 import { serializeSpeculationRules } from '../../utils/generateHeadElement';
+import { scriptIdentity } from '../../utils/scriptAttributes';
+import { Script } from './Script';
 import { serializeJsonLd } from '../../utils/jsonLd';
 
 const RobotsContent = ({ robots }: { robots: RobotsDirective }) => {
@@ -195,6 +197,7 @@ export const Head = ({
 	meta,
 	jsonLd,
 	preload,
+	scripts,
 	speculationRules
 }: Metadata = {}) => (
 	<head suppressHydrationWarning>
@@ -283,5 +286,12 @@ export const Head = ({
 				type="application/ld+json"
 			/>
 		)}
+		{/* Third-party tags last: a deferred analytics script should not be
+		    fetched ahead of the CSS that decides what the page looks like.
+		    `<Script>` renders the same tag from inside the body, for a
+		    script a component owns rather than the page. */}
+		{scripts?.map((script) => (
+			<Script key={scriptIdentity(script) ?? script.code} {...script} />
+		))}
 	</head>
 );

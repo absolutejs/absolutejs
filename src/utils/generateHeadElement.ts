@@ -7,7 +7,8 @@ import type {
 } from '../../types/metadata';
 import { renderFontTags } from './fontAssets';
 import { applyIconVersion, iconMimeType } from './iconVersion';
-import { nonceAttr } from './cspNonceRef';
+import { nonceAttr, readCspNonce } from './cspNonceRef';
+import { scriptTag } from './scriptAttributes';
 import { serializeJsonLd } from './jsonLd';
 
 const renderRobotsContent = (robots: RobotsDirective) => {
@@ -158,6 +159,7 @@ export const generateHeadElement = ({
 	meta,
 	jsonLd,
 	preload,
+	scripts,
 	speculationRules
 }: Metadata = {}) => {
 	const tags: string[] = [
@@ -225,6 +227,15 @@ export const generateHeadElement = ({
 		tags.push(
 			`<script${nonceAttr()} type="application/ld+json">${serializeJsonLd(jsonLd)}</script>`
 		);
+	}
+
+	/* Third-party tags last, after the page's own stylesheets and
+	 * metadata: a deferred analytics script should not be fetched ahead of
+	 * the CSS that decides what the page looks like. A `lazyOnload` script
+	 * renders a small inline bootstrap instead of a tag, since a head
+	 * built as a string has no component to run the insertion later. */
+	for (const script of scripts ?? []) {
+		tags.push(scriptTag(script, readCspNonce()));
 	}
 
 	return `<head>\n  ${tags.join('\n  ')}\n</head>` as const;

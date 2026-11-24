@@ -5,6 +5,28 @@
 		{
 			"changes": [
 				{
+					"detail": "There was no supported way to add a third-party tag: no framework had a `<Script>` component, and `generateHeadElement` rendered meta tags, preload links, speculation rules and JSON-LD but had no option for a script, so a project wrote the tag into its own markup. That is also how it ended up running more than once. Measured in a browser before any of this existed, on two pages that both carried one tag with its own counter: a soft navigation read 1, then 2, then 3 going back, because the navigation layer recreates every executable script of the page it swaps in. A real analytics tag double-counts every pageview after the first and a chat widget re-initialises. Now `<Script src=\"…\" />` (React) or `scripts: [{ src: … }]` on any page head renders the tag with a strategy — `beforeInteractive` undeferred, `afterInteractive` deferred (the default, since a third-party tag that blocks parsing is the thing this avoids), or `lazyOnload`, added by the client after the window loads on an idle callback. Each tag carries an identity, `id` or `src`, and deduplication is keyed on THAT and deliberately not on `src` for every script: a page's own hydration index has the same `src` on both sides of a navigation and must run again, which is the mechanism by which the incoming page mounts at all. When the live document is already running a script with that identity the ELEMENT IS MOVED into the new page rather than recreated, because the browser keeps an \"already started\" flag on the element itself, so a fresh node with identical attributes would fetch and execute again. Verified on a live server across four cases: both pages carrying the tag (1 after the navigation, was 2), two navigations (1, was 3), `lazyOnload` (1), and the asymmetric case where the second page does not carry the script at all and the visitor returns (1). The page's own React app still hydrates on arrival in each. Angular gets no component form and that is not an omission: its template compiler drops a `<script>` element silently — `preparseElement` returns null for one, with no error — so a component could render the tag and nothing would appear. A head rendered as a string has no component to run an effect later, so `lazyOnload` there renders a small inline bootstrap that checks the document for the tag first; both it and inline source neutralise a literal `</script`, which would otherwise close the element early and spill the rest of the page as markup, and which is not hypothetical in code pasted out of a tag manager. On a Svelte page the request nonce is applied server-side after rendering, because a component compiled in the project cannot read it and the tag would otherwise be rendered and then refused by the page's own policy. Not to be confused with `registerClientScript`, which serializes a function of yours to run after Angular hydration. See docs/THIRD_PARTY_SCRIPTS.md.",
+					"kind": "added",
+					"summary": "Third-party scripts have a component, a strategy, and run once",
+					"symbols": [
+						"Head",
+						"Metadata",
+						"ScriptProps",
+						"ScriptStrategy",
+						"generateHeadElement",
+						"insertedScriptAttributes",
+						"scriptAttributes",
+						"scriptIdentity",
+						"scriptTag"
+					]
+				}
+			],
+			"date": "2026-11-23",
+			"version": "0.20.0-beta.331"
+		},
+		{
+			"changes": [
+				{
 					"kind": "added",
 					"summary": "A page's response preloads the modules its entry will import"
 				}

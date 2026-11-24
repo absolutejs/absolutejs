@@ -11,6 +11,7 @@ export * from './networking';
 export * from './projectRoot';
 export * from './registerClientScript';
 export * from './route';
+export * from './scriptAttributes';
 export * from './streamingSlotMetricSink';
 export * from './streamingSlots';
 export * from './isPrerendering';

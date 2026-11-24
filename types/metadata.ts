@@ -48,6 +48,7 @@ export type MetaTag = {
 import type { FontAssets } from './fonts';
 import type { AlternateLink } from './i18n';
 import type { JsonLdSchema } from './jsonLd';
+import type { ScriptProps } from './script';
 
 /** A `<link rel="preload">` (or `rel="modulepreload"` when `module` is
  *  set) emitted in the document head so the browser starts fetching the
@@ -94,5 +95,10 @@ export type Metadata = {
 	meta?: MetaTag[];
 	jsonLd?: JsonLdSchema | JsonLdSchema[];
 	preload?: PreloadLink[];
+	/** Third-party scripts, each with a loading strategy and an identity
+	 *  so it runs once across a soft navigation. Angular reaches a script
+	 *  only this way: its template compiler drops a `<script>` element
+	 *  silently. */
+	scripts?: ScriptProps[];
 	speculationRules?: SpeculationRules;
 };
