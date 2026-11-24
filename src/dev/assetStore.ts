@@ -140,6 +140,29 @@ const evictMissingChunks = async (
 export const lookupAsset = (store: Map<string, Uint8Array>, path: string) =>
 	store.get(path);
 
+const HASHED_STYLESHEET_RE = /\.[a-z0-9]{8}\.css$/;
+
+/** The current build of a stylesheet asked for by an older hash. A rebuild
+ *  replaces `studio.abc12345.css` with `studio.def67890.css` and removes
+ *  the old file, but a page rendered just before it (a reload during an
+ *  edit) still asks for the old name, and a 404 leaves it with no styles at
+ *  all. A newer stylesheet is always safe to give an older page; a newer
+ *  module is not (the page's other modules wouldn't match), so this is for
+ *  stylesheets only. Null when the asset isn't a hashed stylesheet or
+ *  nothing replaced it. */
+export const currentStylesheetFor = (
+	store: Map<string, Uint8Array>,
+	path: string
+) => {
+	if (!HASHED_STYLESHEET_RE.test(path)) return null;
+	const identity = stripHash(path);
+	for (const candidate of store.keys())
+		if (candidate !== path && stripHash(candidate) === identity)
+			return candidate;
+
+	return null;
+};
+
 const processScanEntry = (
 	entry: import('node:fs').Dirent,
 	dir: string,

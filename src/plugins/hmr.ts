@@ -6,7 +6,11 @@ import {
 	UNFOUND_INDEX
 } from '../constants';
 import type { HMRState } from '../dev/clientManager';
-import { getMimeType, lookupAsset } from '../dev/assetStore';
+import {
+	currentStylesheetFor,
+	getMimeType,
+	lookupAsset
+} from '../dev/assetStore';
 import { bridgeReactInternals } from '../react/bridgeInternals';
 import {
 	handleClientConnect,
@@ -122,6 +126,24 @@ const resolveDevAssetResponse = async (
 				'Cache-Control': 'no-store',
 				'Content-Type': getMimeType(pathname)
 			}
+		});
+	}
+
+	// A stylesheet asked for by a hash a rebuild has since replaced (and
+	// removed from disk): the current build of it, not a 404 that leaves
+	// the page unstyled.
+	const currentStylesheet = currentStylesheetFor(
+		hmrState.assetStore,
+		pathname
+	);
+	if (currentStylesheet) {
+		return new Response(null, {
+			headers: {
+				'Cache-Control': 'no-store',
+				// The browser is outside the base's proxy otherwise.
+				Location: withBasePath(currentStylesheet)
+			},
+			status: 302
 		});
 	}
 

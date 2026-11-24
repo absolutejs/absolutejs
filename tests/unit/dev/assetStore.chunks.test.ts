@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
 	cleanStaleAssets,
+	currentStylesheetFor,
 	populateAssetStore
 } from '../../../src/dev/assetStore';
 
@@ -55,5 +56,30 @@ describe('asset store shared chunks', () => {
 
 		expect(store.has('/chunk-aaaaaaaa.js')).toBe(true);
 		expect(store.has('/chunk-gone00000.js')).toBe(false);
+	});
+});
+
+describe('a stylesheet asked for by a replaced hash', () => {
+	test('resolves to the current build of the same stylesheet', () => {
+		const store = new Map<string, Uint8Array>([
+			['/styles/studio.def67890.css', new Uint8Array()],
+			['/styles/other.aaaaaaaa.css', new Uint8Array()],
+			['/indexes/Page.bbbbbbbb.js', new Uint8Array()]
+		]);
+		expect(currentStylesheetFor(store, '/styles/studio.abc12345.css')).toBe(
+			'/styles/studio.def67890.css'
+		);
+		// The live one is itself, not a redirect.
+		expect(
+			currentStylesheetFor(store, '/styles/studio.def67890.css')
+		).toBeNull();
+		// Never for modules: a newer module wouldn't match the page's others.
+		expect(
+			currentStylesheetFor(store, '/indexes/Page.cccccccc.js')
+		).toBeNull();
+		// Nothing replaced it.
+		expect(
+			currentStylesheetFor(store, '/styles/gone.dddddddd.css')
+		).toBeNull();
 	});
 });
