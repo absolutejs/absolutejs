@@ -1,4 +1,5 @@
 import type { IslandFramework } from '../../types/island';
+import { isProductionRuntime } from '../utils/runtimeMode';
 import { getIslandComponent, parseIslandProps } from '../core/islands';
 import {
 	getIslandStyleManifestKey,
@@ -343,14 +344,99 @@ const hydrateIsland = async (
 	}
 };
 
+/* `interaction`: hydrate when someone reaches for it. For something
+ * heavy that only matters once touched — a date picker, a rich editor, a
+ * map — where `visible` still pays for it the moment it scrolls past.
+ *
+ * `focusin` rather than `focus` because focus does not bubble, so a
+ * keyboard user landing on a control INSIDE the island would otherwise
+ * never trigger it. `pointerdown` rather than `click`, so the work starts
+ * on press rather than on release. Passive, because none of these
+ * handlers call preventDefault and a non-passive touchstart listener
+ * delays scrolling. */
+type ResolveIslandComponent = (
+	framework: IslandFramework,
+	component: string
+) => Promise<unknown>;
+
+const INTERACTION_EVENTS = [
+	'pointerdown',
+	'touchstart',
+	'focusin',
+	'keydown'
+] as const;
+
+const hydrateOnInteraction = (
+	registry: RuntimeIslandRegistry,
+	element: IslandElement,
+	resolveComponent?: ResolveIslandComponent
+) => {
+	const start = () => {
+		for (const event of INTERACTION_EVENTS)
+			element.removeEventListener(event, start);
+		void hydrateIsland(registry, element, resolveComponent);
+	};
+	for (const event of INTERACTION_EVENTS)
+		element.addEventListener(event, start, { passive: true });
+};
+
+/* `media`: hydrate only while the query matches, and later if it starts
+ * matching — a layout changing, a phone rotating, a window resized across
+ * a breakpoint. Without the listener this would be "hydrate if the query
+ * matched at first paint", which is a different and much less useful
+ * promise.
+ *
+ * A browser with no `matchMedia` hydrates immediately rather than never:
+ * the island working is the safe direction. */
+const hydrateOnMedia = (
+	registry: RuntimeIslandRegistry,
+	element: IslandElement,
+	resolveComponent?: ResolveIslandComponent
+) => {
+	const query = element.dataset.hydrateMedia;
+	if (query === undefined || typeof window.matchMedia !== 'function') {
+		void hydrateIsland(registry, element, resolveComponent);
+
+		return;
+	}
+	const list = window.matchMedia(query);
+	if (list.matches) {
+		void hydrateIsland(registry, element, resolveComponent);
+
+		return;
+	}
+	const onChange = (event: MediaQueryListEvent) => {
+		/* The element may have been swapped out by a navigation while the
+		 * query did not match; without this the listener would keep the
+		 * detached island alive for the life of the document. */
+		if (!element.isConnected) {
+			list.removeEventListener('change', onChange);
+
+			return;
+		}
+		if (!event.matches) return;
+		list.removeEventListener('change', onChange);
+		void hydrateIsland(registry, element, resolveComponent);
+	};
+	list.addEventListener('change', onChange);
+};
+
+const warnedModes = new Set<string>();
+
+const warnUnknownHydrate = (mode: string) => {
+	if (isProductionRuntime()) return;
+	if (warnedModes.has(mode)) return;
+	warnedModes.add(mode);
+	console.warn(
+		`[absolutejs] Unknown island hydrate strategy "${mode}". It hydrated immediately. Expected load, idle, visible, interaction, media or none.`
+	);
+};
+
 const scheduleIsland = (
 	registry: RuntimeIslandRegistry,
 	element: IslandElement,
 	observer: IntersectionObserver | null,
-	resolveComponent?: (
-		framework: IslandFramework,
-		component: string
-	) => Promise<unknown>
+	resolveComponent?: ResolveIslandComponent
 ) => {
 	const mode = element.dataset.hydrate ?? 'load';
 	if (mode === 'none') return;
@@ -371,7 +457,23 @@ const scheduleIsland = (
 
 		return;
 	}
+	if (mode === 'interaction') {
+		hydrateOnInteraction(registry, element, resolveComponent);
 
+		return;
+	}
+	if (mode === 'media') {
+		hydrateOnMedia(registry, element, resolveComponent);
+
+		return;
+	}
+
+	/* Anything else hydrates immediately, which is the safe direction —
+	 * an island that works is better than one that never appears. It says
+	 * so in dev, though: before this, a typo in `hydrate` behaved exactly
+	 * like `load` and nothing ever mentioned it, so `hydrate="vislble"`
+	 * looked like the strategy simply not working. */
+	warnUnknownHydrate(mode);
 	void hydrateIsland(registry, element, resolveComponent);
 };
 

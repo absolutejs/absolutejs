@@ -1,6 +1,6 @@
 import type {
 	IslandFramework,
-	IslandHydrate,
+	IslandHydrateMode,
 	RuntimeIslandRenderProps
 } from '../../types/island';
 import { requireCurrentIslandRegistry } from '../core/currentIslandRegistry';
@@ -18,7 +18,7 @@ const islandFrameworks: IslandFramework[] = [
 	'angular'
 ];
 
-const islandHydrationModes: IslandHydrate[] = [
+const islandHydrationModes: IslandHydrateMode[] = [
 	'load',
 	'idle',
 	'visible',
@@ -41,7 +41,7 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 const isIslandFramework = (value: string): value is IslandFramework =>
 	islandFrameworks.some((framework) => framework === value);
 
-const isIslandHydrate = (value: string): value is IslandHydrate =>
+const isIslandHydrate = (value: string): value is IslandHydrateMode =>
 	islandHydrationModes.some((mode) => mode === value);
 
 const parseAttributes = (attributeString: string) => {

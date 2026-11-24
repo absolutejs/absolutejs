@@ -617,6 +617,16 @@ const build = async () => {
 		join('src', 'client', 'scriptMarker.ts'),
 		join(DIST, 'client', 'scriptMarker.ts')
 	);
+	/* Island.svelte imports ../../core/islandHydrateMode for the hydrate
+	 * strategy's markup form. Same arrangement again: the component ships
+	 * as source, so every path it names has to exist under dist/. That
+	 * module imports nothing but its types, which is what makes copying it
+	 * enough. */
+	await mkdir(join(DIST, 'core'), { recursive: true });
+	await cp(
+		join('src', 'core', 'islandHydrateMode.ts'),
+		join(DIST, 'core', 'islandHydrateMode.ts')
+	);
 	await copyPublishedSvelteRouterSources();
 	await mkdir(join(DIST, 'vue', 'components'), { recursive: true });
 	const vueFiles = await readdir('src/vue/components');
