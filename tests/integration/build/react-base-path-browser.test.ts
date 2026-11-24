@@ -50,8 +50,12 @@ const previousBase = process.env.ABSOLUTE_BASE_PATH;
 beforeAll(async () => {
 	await ensureDistBuild();
 	await mkdir(join(fixtureRoot, 'react', 'pages'), { recursive: true });
-	await writeFile(join(fixtureRoot, 'react', 'pages', 'BasePathPage.tsx'), PAGE);
-	const rel = (path: string) => relative(process.cwd(), join(fixtureRoot, path));
+	await writeFile(
+		join(fixtureRoot, 'react', 'pages', 'BasePathPage.tsx'),
+		PAGE
+	);
+	const rel = (path: string) =>
+		relative(process.cwd(), join(fixtureRoot, path));
 	const result = await build({
 		buildDirectory: rel('build'),
 		mode: 'production',
@@ -91,26 +95,27 @@ beforeAll(async () => {
 	 * root-absolute path of its own, as a page under the base might import
 	 * it (Studio mounting the portal's Settings). */
 	const rootApp: Record<string, string> = {
-		'/other/module.js':
-			"export { where } from '/vendor/other-app.js';",
+		'/other/module.js': "export { where } from '/vendor/other-app.js';",
 		'/vendor/other-app.js': "export const where = 'root';"
 	};
 	// The proxy: only `/base/...` reaches the app, without the prefix.
 	const server = Bun.serve({
+		port: 0,
 		fetch: (request) => {
 			const url = new URL(request.url);
 			const other = rootApp[url.pathname];
 			if (other)
 				return new Response(other, {
-					headers: { 'Content-Type': 'text/javascript; charset=utf-8' }
+					headers: {
+						'Content-Type': 'text/javascript; charset=utf-8'
+					}
 				});
 			if (url.pathname !== BASE && !url.pathname.startsWith(`${BASE}/`))
 				return new Response('outside the base', { status: 404 });
 			url.pathname = url.pathname.slice(BASE.length) || '/';
 
 			return app(new Request(url, request));
-		},
-		port: 0
+		}
 	});
 	origin = `http://localhost:${server.port}`;
 	stop = () => server.stop(true);
@@ -128,8 +133,8 @@ describe('a React page under a base path', () => {
 		const errors: string[] = [];
 		const outside: string[] = [];
 		const session = await openPage(`${origin}${BASE}/`, {
-			consoleLog: (message) => errors.push(message),
-			waitUntil: 'commit'
+			waitUntil: 'commit',
+			consoleLog: (message) => errors.push(message)
 		});
 		try {
 			const { page } = session;
@@ -156,7 +161,11 @@ describe('a React page under a base path', () => {
 			// The import map and the base script removed themselves.
 			expect(head.scripts).toEqual(['classic']);
 			expect(outside).toEqual([]);
-			expect(errors.filter((text) => /hydrat|did(n't| not) match/i.test(text))).toEqual([]);
+			expect(
+				errors.filter((text) =>
+					/hydrat|did(n't| not) match/i.test(text)
+				)
+			).toEqual([]);
 			// The map is the base's own: another app's module, served at the
 			// root, resolves its imports at the root.
 			const where = await page.evaluate(async () => {

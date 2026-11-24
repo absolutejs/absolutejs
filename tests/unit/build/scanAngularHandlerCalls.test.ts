@@ -30,7 +30,10 @@ afterEach(() => {
 describe('scanAngularHandlerCalls', () => {
 	test('ignores framework-owned hot-reload entry copies', () => {
 		const projectRoot = createProject();
-		writeFileSync(join(projectRoot, 'server.ts'), serverSource('/angular/*'));
+		writeFileSync(
+			join(projectRoot, 'server.ts'),
+			serverSource('/angular/*')
+		);
 		writeFileSync(
 			join(projectRoot, '.absolutejs-hmr-123-0.ts'),
 			serverSource('/angular')

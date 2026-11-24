@@ -32,6 +32,7 @@ const makeFakePkg = (
 		mkdirSync(dirname(fullPath), { recursive: true });
 		writeFileSync(fullPath, src);
 	}
+
 	return pkgDir;
 };
 
@@ -118,7 +119,7 @@ describe('computeDepVendorPaths', () => {
 		makeFakePkg(
 			dir,
 			'zustand-vendor',
-			{ 'index.js': "module.exports = { createStore: () => {} };" },
+			{ 'index.js': 'module.exports = { createStore: () => {} };' },
 			{ main: 'index.js' }
 		);
 
@@ -128,16 +129,16 @@ describe('computeDepVendorPaths', () => {
 			dir,
 			'fake-r3f',
 			{
+				'dist/wrapper.cjs.dev.js':
+					"const z = require('zustand-vendor'); require('worker_threads'); module.exports = { z };",
 				'dist/wrapper.cjs.js': [
 					"'use strict';",
 					"if (process.env.NODE_ENV === 'production') {",
 					"  module.exports = require('./wrapper.cjs.prod.js');",
-					"} else {",
+					'} else {',
 					"  module.exports = require('./wrapper.cjs.dev.js');",
-					"}"
+					'}'
 				].join('\n'),
-				'dist/wrapper.cjs.dev.js':
-					"const z = require('zustand-vendor'); require('worker_threads'); module.exports = { z };",
 				'dist/wrapper.cjs.prod.js':
 					"const z = require('zustand-vendor'); module.exports = { z };"
 			},
@@ -146,7 +147,7 @@ describe('computeDepVendorPaths', () => {
 
 		writeFileSync(
 			join(dir, 'entry.ts'),
-			[`import 'fake-r3f';`, "void 0;"].join('\n')
+			[`import 'fake-r3f';`, 'void 0;'].join('\n')
 		);
 
 		// The vendor pipeline resolves bare specifiers relative to

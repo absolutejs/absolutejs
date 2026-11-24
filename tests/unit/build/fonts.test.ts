@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+	existsSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	writeFileSync
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { deflateSync } from 'node:zlib';
@@ -77,7 +83,8 @@ const fakeGoogle = () => {
 	return { fetchFont, requests };
 };
 
-const offline: FontFetch = () => Promise.reject(new Error('getaddrinfo ENOTFOUND'));
+const offline: FontFetch = () =>
+	Promise.reject(new Error('getaddrinfo ENOTFOUND'));
 
 /* Minimal sfnt with head, hhea and OS/2 (no cmap, so the average width
  * comes from OS/2 xAvgCharWidth). */
@@ -121,7 +128,11 @@ const buildWoff = () => {
 	const { tables } = buildSfnt();
 	const compressed = tables.map(
 		([tag, view]) =>
-			[tag, new Uint8Array(view.buffer), deflateSync(new Uint8Array(view.buffer))] as const
+			[
+				tag,
+				new Uint8Array(view.buffer),
+				deflateSync(new Uint8Array(view.buffer))
+			] as const
 	);
 	const headerSize = 44 + tables.length * 20;
 	const total =
@@ -217,13 +228,20 @@ describe('fallback metrics', () => {
 describe('Google Fonts CSS', () => {
 	test('builds sorted css2 URLs', () => {
 		expect(
-			googleFontsCssUrl({ family: 'Open Sans', weights: [700, 400] }, 'swap')
+			googleFontsCssUrl(
+				{ family: 'Open Sans', weights: [700, 400] },
+				'swap'
+			)
 		).toBe(
 			'https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;700&display=swap'
 		);
 		expect(
 			googleFontsCssUrl(
-				{ family: 'Poppins', styles: ['italic', 'normal'], weights: [400, 700] },
+				{
+					family: 'Poppins',
+					styles: ['italic', 'normal'],
+					weights: [400, 700]
+				},
 				'optional'
 			)
 		).toBe(
@@ -273,7 +291,10 @@ describe('buildFonts', () => {
 		rmSync(root, { force: true, recursive: true });
 	});
 
-	const run = (fetchFont: FontFetch, overrides: Record<string, unknown> = {}) =>
+	const run = (
+		fetchFont: FontFetch,
+		overrides: Record<string, unknown> = {}
+	) =>
 		buildFonts({
 			buildPath: join(root, 'build'),
 			config: {
@@ -297,7 +318,9 @@ describe('buildFonts', () => {
 		);
 
 		const stylesheet = result.manifest.AbsoluteFontsCSS;
-		expect(stylesheet).toMatch(/^\/assets\/fonts\/fonts\.[0-9a-f]{8}\.css$/);
+		expect(stylesheet).toMatch(
+			/^\/assets\/fonts\/fonts\.[0-9a-f]{8}\.css$/
+		);
 		const css = readFileSync(join(root, 'build', stylesheet ?? ''), 'utf8');
 		expect(css).not.toContain('fonts.gstatic.com');
 		expect(css).not.toContain('latin-ext');
@@ -317,21 +340,25 @@ describe('buildFonts', () => {
 		expect(css).toContain(
 			"--font-poppins: 'Poppins', 'Poppins Fallback', sans-serif;"
 		);
-		expect(css).toContain('.font-poppins {\n  font-family: var(--font-poppins);\n}');
+		expect(css).toContain(
+			'.font-poppins {\n  font-family: var(--font-poppins);\n}'
+		);
 
 		// Only the first weight/style in latin is preloaded.
 		expect(fontAssets(result.manifest).preload).toHaveLength(1);
 		expect(result.manifest.AbsoluteFontPreload0).toMatch(
 			/^\/assets\/fonts\/poppins-latin-400-normal\.[0-9a-f]{8}\.woff2$/
 		);
-		for (const path of result.outputPaths) expect(existsSync(path)).toBe(true);
+		for (const path of result.outputPaths)
+			expect(existsSync(path)).toBe(true);
 		expect(result.outputPaths).toHaveLength(3);
 	});
 
 	test('keeps the outputs through stale-output cleanup', async () => {
 		const result = await run(fakeGoogle().fetchFont);
 		await cleanStaleOutputs(join(root, 'build'), result.outputPaths);
-		for (const path of result.outputPaths) expect(existsSync(path)).toBe(true);
+		for (const path of result.outputPaths)
+			expect(existsSync(path)).toBe(true);
 	});
 
 	test('reuses cached downloads, so a second build works offline', async () => {
@@ -366,7 +393,10 @@ describe('buildFonts', () => {
 		);
 		// The variable and class still come from the local stylesheet.
 		expect(assets.stylesheets[1]).toBe(result.manifest.AbsoluteFontsCSS);
-		const css = readFileSync(join(root, 'build', assets.stylesheets[1] ?? ''), 'utf8');
+		const css = readFileSync(
+			join(root, 'build', assets.stylesheets[1] ?? ''),
+			'utf8'
+		);
 		expect(css).toContain("--font-poppins: 'Poppins', sans-serif;");
 		expect(warnings[0]).toContain('linking https://fonts.googleapis.com');
 	});
@@ -398,7 +428,9 @@ describe('buildFonts', () => {
 		);
 		expect(css).toContain('font-weight: 100 900;');
 		expect(css).toContain('font-display: optional;');
-		expect(css).toContain("--brand: 'Brand Sans', 'Brand Sans Fallback', sans-serif;");
+		expect(css).toContain(
+			"--brand: 'Brand Sans', 'Brand Sans Fallback', sans-serif;"
+		);
 		expect(css).toContain('.brand {');
 		expect(result.manifest.AbsoluteFontPreload0).toMatch(
 			/brand-sans-100-900-normal\.[0-9a-f]{8}\.woff2$/
@@ -409,7 +441,11 @@ describe('buildFonts', () => {
 		await expect(
 			buildFonts({
 				buildPath: join(root, 'build'),
-				config: { families: [{ family: 'Brand', src: [{ path: 'nope.woff2' }] }] },
+				config: {
+					families: [
+						{ family: 'Brand', src: [{ path: 'nope.woff2' }] }
+					]
+				},
 				projectRoot: root
 			})
 		).rejects.toThrow('font file not found: nope.woff2');
@@ -418,7 +454,11 @@ describe('buildFonts', () => {
 	test('preloads explicitly selected faces, or none', async () => {
 		const selected = await run(fakeGoogle().fetchFont, {
 			families: [
-				{ family: 'Poppins', preload: [{ weight: 700 }], weights: [400, 700] }
+				{
+					family: 'Poppins',
+					preload: [{ weight: 700 }],
+					weights: [400, 700]
+				}
 			]
 		});
 		expect(fontAssets(selected.manifest).preload).toEqual([
@@ -445,7 +485,10 @@ describe('font head tags', () => {
 				AbsoluteFontsCSS: '/fonts.css',
 				Other: '/x.js'
 			})
-		).toEqual({ preload: ['/a.woff2', '/b.woff2'], stylesheets: ['/fonts.css'] });
+		).toEqual({
+			preload: ['/a.woff2', '/b.woff2'],
+			stylesheets: ['/fonts.css']
+		});
 		expect(fontAssets({})).toEqual({ preload: [], stylesheets: [] });
 	});
 
@@ -457,7 +500,9 @@ describe('font head tags', () => {
 			'<link rel="stylesheet" href="/assets/fonts/fonts.1a2b3c4d.css" data-absolute-fonts>';
 		expect(head).toContain(preload);
 		expect(head).toContain(stylesheet);
-		expect(head.indexOf(stylesheet)).toBeLessThan(head.indexOf('/page.css'));
+		expect(head.indexOf(stylesheet)).toBeLessThan(
+			head.indexOf('/page.css')
+		);
 		expect(head).not.toContain('fonts.googleapis.com');
 		expect(head).not.toContain('<style');
 	});
@@ -465,9 +510,13 @@ describe('font head tags', () => {
 	test('remote fallback stylesheets get preconnects and escaped URLs', () => {
 		const tags = renderFontTags({
 			preload: [],
-			stylesheets: ['https://fonts.googleapis.com/css2?family=A&display=swap']
+			stylesheets: [
+				'https://fonts.googleapis.com/css2?family=A&display=swap'
+			]
 		});
-		expect(tags).toContain('<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>');
+		expect(tags).toContain(
+			'<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>'
+		);
 		expect(tags).toContain(
 			'<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=A&amp;display=swap" data-absolute-fonts>'
 		);

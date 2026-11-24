@@ -8,7 +8,7 @@ import { rewriteReactImports } from '../../../src/build/rewriteReactImports';
 // backtick, kept out of source template literals so this file stays readable
 const BT = String.fromCharCode(96);
 
-const vendorPaths = {
+const vendorPaths: Record<string, string> = {
 	react: '/react/vendor/react.js',
 	'react-dom': '/react/vendor/react-dom.js',
 	'react/jsx-dev-runtime': '/react/vendor/react_jsx-dev-runtime.js',
@@ -59,9 +59,7 @@ describe('rewriteReactImports — every real jsx-runtime import is vendored', ()
 		const out = await rewrite(
 			'// app/comp/ui.tsx\nimport { jsxDEV } from "react/jsx-dev-runtime";\nvar x = 1;\n'
 		);
-		expect(out).toContain(
-			'from "/react/vendor/react_jsx-dev-runtime.js"'
-		);
+		expect(out).toContain('from "/react/vendor/react_jsx-dev-runtime.js"');
 		expect(out).not.toContain('"react/jsx-dev-runtime"');
 	});
 
@@ -69,9 +67,9 @@ describe('rewriteReactImports — every real jsx-runtime import is vendored', ()
 		expect(await rewrite('import"react/jsx-runtime";')).toBe(
 			'import"/react/vendor/react_jsx-runtime.js";'
 		);
-		expect(
-			await rewrite('export{Fragment}from"react/jsx-runtime";')
-		).toBe('export{Fragment}from"/react/vendor/react_jsx-runtime.js";');
+		expect(await rewrite('export{Fragment}from"react/jsx-runtime";')).toBe(
+			'export{Fragment}from"/react/vendor/react_jsx-runtime.js";'
+		);
 	});
 
 	// The safety-net sweep: a real import whose specifier is separated from its
@@ -93,16 +91,13 @@ describe('rewriteReactImports — every real jsx-runtime import is vendored', ()
 	// still be rewritten.
 	test('import after a template with a regex-in-interpolation is vendored', async () => {
 		const bt = String.fromCharCode(96);
-		const src =
-			'const f = () => ' +
-			bt +
-			"() => { alert('${msg.replace(/'/g, \"\\\\'\")}'); }" +
-			bt +
-			';\nimport { jsxDEV as jsxDEV38 } from "react/jsx-dev-runtime";\nexport const z = 1;\n';
+		const src = `const f = () => ${
+			bt
+		}() => { alert('\${msg.replace(/'/g, "\\\\'")}'); }${
+			bt
+		};\nimport { jsxDEV as jsxDEV38 } from "react/jsx-dev-runtime";\nexport const z = 1;\n`;
 		const out = await rewrite(src);
-		expect(out).toContain(
-			'from "/react/vendor/react_jsx-dev-runtime.js"'
-		);
+		expect(out).toContain('from "/react/vendor/react_jsx-dev-runtime.js"');
 		expect(out).not.toContain('"react/jsx-dev-runtime"');
 		// the template body (with its regex/quotes) is preserved verbatim
 		expect(out).toContain("msg.replace(/'/g,");
@@ -111,22 +106,18 @@ describe('rewriteReactImports — every real jsx-runtime import is vendored', ()
 
 describe('rewriteReactImports — never rewrites specifier TEXT (no false positives)', () => {
 	test("React's dev error-message template is left untouched", async () => {
-		const src =
-			'function warn() {\n  throw Error(' +
-			BT +
-			'A library pre-bundled an old copy of "react" or "react/jsx-runtime".' +
-			BT +
-			');\n}\n';
+		const src = `function warn() {\n  throw Error(${
+			BT
+		}A library pre-bundled an old copy of "react" or "react/jsx-runtime".${
+			BT
+		});\n}\n`;
 		expect(await rewrite(src)).toBe(src);
 	});
 
 	test('import-like text inside a rendered code sample (template) is preserved', async () => {
-		const src =
-			'export const sample = ' +
-			BT +
-			'import { jsx } from "react/jsx-runtime";' +
-			BT +
-			';\n';
+		const src = `export const sample = ${
+			BT
+		}import { jsx } from "react/jsx-runtime";${BT};\n`;
 		expect(await rewrite(src)).toBe(src);
 	});
 
@@ -155,7 +146,7 @@ describe('maskLiterals — content-gated string masking', () => {
 
 	test('a string whose text could be misread as an import IS masked', () => {
 		const { masked } = maskLiterals(
-			"const s = \"import App from 'react'\";"
+			'const s = "import App from \'react\'";'
 		);
 		expect(masked).not.toContain('import App from');
 	});

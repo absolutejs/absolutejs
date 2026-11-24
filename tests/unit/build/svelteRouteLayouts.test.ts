@@ -51,8 +51,12 @@ describe('wrapSvelteRouteLayouts', () => {
 		const result = wrap('<p>plain</p>\n', ['./outer.svelte']);
 
 		expect(result).toContain('<script lang="ts">');
-		expect(result).toContain("import AbsRouteLayout0 from './outer.svelte';");
-		expect(result).toContain('<AbsRouteLayout0><p>plain</p></AbsRouteLayout0>');
+		expect(result).toContain(
+			"import AbsRouteLayout0 from './outer.svelte';"
+		);
+		expect(result).toContain(
+			'<AbsRouteLayout0><p>plain</p></AbsRouteLayout0>'
+		);
 	});
 
 	/* `<svelte:options>` has to stay at the top level of a component, and
@@ -70,7 +74,9 @@ describe('wrapSvelteRouteLayouts', () => {
 `;
 		const result = wrap(source, ['./outer.svelte']) ?? '';
 
-		expect(result).toContain('<AbsRouteLayout0><p>content</p></AbsRouteLayout0>');
+		expect(result).toContain(
+			'<AbsRouteLayout0><p>content</p></AbsRouteLayout0>'
+		);
 		expect(result).not.toMatch(/<AbsRouteLayout0>[\s\S]*<svelte:head>/);
 		expect(result).not.toMatch(/<AbsRouteLayout0>[\s\S]*<svelte:options/);
 	});

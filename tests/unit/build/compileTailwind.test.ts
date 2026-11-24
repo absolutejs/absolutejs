@@ -37,7 +37,9 @@ describe('compileTailwind', () => {
 	});
 
 	test('runs PostCSS after native Tailwind generation', async () => {
-		const root = await mkdtemp(join(process.cwd(), '.tmp-tailwind-postcss-'));
+		const root = await mkdtemp(
+			join(process.cwd(), '.tmp-tailwind-postcss-')
+		);
 		const input = join(root, 'input.css');
 		const source = join(root, 'index.html');
 		const outDir = join(root, 'build');
@@ -58,8 +60,8 @@ describe('compileTailwind', () => {
 					plugins: [
 						{
 							postcssPlugin: 'absolute-test-tailwind-postcss',
-							Once(root: Root) {
-								root.append({
+							Once(css: Root) {
+								css.append({
 									prop: '--absolute-tailwind-postcss',
 									value: '1'
 								});
@@ -79,7 +81,9 @@ describe('compileTailwind', () => {
 	// Dev rebuilds broadcast a stylesheet reload only when the emitted CSS
 	// changed; a saved file that adds no utility must report no change.
 	test('reports whether the emitted CSS changed', async () => {
-		const root = await mkdtemp(join(process.cwd(), '.tmp-tailwind-changed-'));
+		const root = await mkdtemp(
+			join(process.cwd(), '.tmp-tailwind-changed-')
+		);
 		const input = join(root, 'input.css');
 		const source = join(root, 'index.html');
 		const outDir = join(root, 'build');

@@ -207,12 +207,9 @@ const contentType = (path: string) => {
 	return 'application/octet-stream';
 };
 
-const createApp = (
-	buildDir: string,
-	manifest: Record<string, string>,
-	Page: unknown
-) => {
-	return async (request: Request) => {
+const createApp =
+	(buildDir: string, manifest: Record<string, string>, Page: unknown) =>
+	async (request: Request) => {
 		const { pathname } = new URL(request.url);
 		setCurrentIslandManifest(manifest, buildDir);
 		if (pathname === '/react' && isReactPage(Page))
@@ -250,7 +247,6 @@ const createApp = (
 			headers: { 'Content-Type': contentType(filePath) }
 		});
 	};
-};
 
 beforeAll(async () => {
 	await ensureDistBuild();
@@ -334,11 +330,11 @@ const openAt = async (
 ) => {
 	const seen: Observations = { documentLoads: [], errors: [] };
 	const session: BrowserSession = await openPage(`${baseUrl()}${path}`, {
+		waitUntil: 'load',
 		consoleLog: (message: string) => {
 			if (/hydrat|mismatch|error/i.test(message))
 				seen.errors.push(message);
-		},
-		waitUntil: 'load'
+		}
 	});
 	try {
 		const { page } = session;

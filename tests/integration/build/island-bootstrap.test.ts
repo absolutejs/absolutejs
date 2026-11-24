@@ -32,7 +32,9 @@ const page = (title: string) =>
 
 const createFixture = async () => {
 	await mkdir(testBuildRoot, { recursive: true });
-	const root = await mkdtemp(join(testBuildRoot, 'absolute-island-bootstrap-'));
+	const root = await mkdtemp(
+		join(testBuildRoot, 'absolute-island-bootstrap-')
+	);
 	tempDirs.push(root);
 	await mkdir(join(root, 'html', 'pages'), { recursive: true });
 	await mkdir(join(root, 'htmx', 'pages'), { recursive: true });
@@ -81,13 +83,13 @@ const buildFixture = async (root: string, bootstrap?: string) => {
 		buildDirectory: rel('build'),
 		htmlDirectory: rel('html'),
 		htmxDirectory: rel('htmx'),
-		reactDirectory: rel('react'),
 		islands: {
 			bootstrap: bootstrap && rel(bootstrap),
 			registry: rel('islands/registry.ts')
 		},
 		mode: 'production',
-		options: { throwOnError: true }
+		options: { throwOnError: true },
+		reactDirectory: rel('react')
 	});
 
 	return result?.manifest ?? {};

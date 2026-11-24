@@ -42,7 +42,10 @@ const fixtureRoot = join(
 /* Two pages, because React answers the two kinds of mismatch
  * differently and a page carrying both can only show the louder one.
  * `kind` picks which mismatch the page commits. */
-const page = (name: string, kind: 'none' | 'tag' | 'text') => `import { useEffect, useState } from 'react';
+const pageSource = (
+	name: string,
+	kind: 'none' | 'tag' | 'text'
+) => `import { useEffect, useState } from 'react';
 
 const onServer = () => typeof window === 'undefined';
 
@@ -117,7 +120,7 @@ beforeAll(async () => {
 	for (const [name, kind] of Object.entries(PAGES)) {
 		await writeFile(
 			join(fixtureRoot, 'react', 'pages', `${name}.tsx`),
-			page(name, kind)
+			pageSource(name, kind)
 		);
 	}
 	const rel = (path: string) =>
@@ -141,6 +144,7 @@ beforeAll(async () => {
 	}
 	const buildDir = join(fixtureRoot, 'build');
 	const server = Bun.serve({
+		port: 0,
 		fetch: async (request: Request) => {
 			const { pathname } = new URL(request.url);
 			const name = pathname.slice(1);
@@ -170,8 +174,7 @@ beforeAll(async () => {
 			return new Response(Bun.file(filePath), {
 				headers: { 'Content-Type': contentType(filePath) }
 			});
-		},
-		port: 0
+		}
 	});
 	app = {
 		baseUrl: `http://localhost:${server.port}`,
@@ -195,8 +198,8 @@ const consoleMessages: string[] = [];
 const open = async (name: string, run: (page: Page) => Promise<void>) => {
 	consoleMessages.length = 0;
 	const session: BrowserSession = await openPage(`${baseUrl()}/${name}`, {
-		consoleLog: (message: string) => consoleMessages.push(message),
-		waitUntil: 'load'
+		waitUntil: 'load',
+		consoleLog: (message: string) => consoleMessages.push(message)
 	});
 	try {
 		await run(session.page);
@@ -222,7 +225,8 @@ const survivingServerNodes = (page: Page) =>
 const staysInteractive = async (page: Page) => {
 	await page.click('#bump');
 	await page.waitForFunction(
-		() => document.querySelector('#bump')?.textContent?.trim() === 'count 1',
+		() =>
+			document.querySelector('#bump')?.textContent?.trim() === 'count 1',
 		undefined,
 		{ timeout: 10_000 }
 	);
@@ -310,7 +314,9 @@ describe('an element mismatch on a production React page', () => {
 				undefined,
 				{ timeout: 20_000 }
 			);
-			expect(serverHtml.TagMismatch).toContain('<section id="tag-mismatch"');
+			expect(serverHtml.TagMismatch).toContain(
+				'<section id="tag-mismatch"'
+			);
 
 			expect(await page.locator('article#tag-mismatch').count()).toBe(1);
 			expect(await page.locator('section#tag-mismatch').count()).toBe(0);

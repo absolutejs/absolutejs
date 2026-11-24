@@ -33,10 +33,14 @@ beforeAll(async () => {
 	await mkdir(join(root, 'src'), { recursive: true });
 
 	// Plain prebuilt JS package — the common case, externalizable.
-	await writePackage(nm('plain'), { main: 'dist/index.js', name: 'plain' }, {
-		'dist/index.js': 'export const plain = "plain";\n',
-		'dist/package.json': '{"type":"module"}'
-	});
+	await writePackage(
+		nm('plain'),
+		{ main: 'dist/index.js', name: 'plain' },
+		{
+			'dist/index.js': 'export const plain = "plain";\n',
+			'dist/package.json': '{"type":"module"}'
+		}
+	);
 	// Scoped package with `exports` — externalizable, subpath too.
 	await writePackage(
 		nm('@scope', 'pkg'),
@@ -53,10 +57,14 @@ beforeAll(async () => {
 		}
 	);
 	// Ships single-file components next to its JS — must stay bundled.
-	await writePackage(nm('sfc-lib'), { main: 'index.js', name: 'sfc-lib' }, {
-		'components/Widget.vue': '<template><div/></template>\n',
-		'index.js': 'export const sfc = "sfc";\n'
-	});
+	await writePackage(
+		nm('sfc-lib'),
+		{ main: 'index.js', name: 'sfc-lib' },
+		{
+			'components/Widget.vue': '<template><div/></template>\n',
+			'index.js': 'export const sfc = "sfc";\n'
+		}
+	);
 	// Multi-adapter package: the Vue subpath is prebuilt JS, the Svelte
 	// subpath ships `.svelte` components next to its JS. Also declares a
 	// peer dependency on svelte, which must NOT count as a Svelte entry.
@@ -71,8 +79,8 @@ beforeAll(async () => {
 			peerDependencies: { svelte: '^5', vue: '^3' }
 		},
 		{
-			'dist/svelte/Router.svelte': '<div/>\n',
 			'dist/svelte/index.js': 'export const svelteEntry = 1;\n',
+			'dist/svelte/Router.svelte': '<div/>\n',
 			'dist/vue/index.js': 'export const vueEntry = 1;\n'
 		}
 	);
@@ -80,7 +88,9 @@ beforeAll(async () => {
 	await writePackage(
 		nm('svelte-cond-lib'),
 		{
-			exports: { '.': { default: './dist/index.js', svelte: './src/index.js' } },
+			exports: {
+				'.': { default: './dist/index.js', svelte: './src/index.js' }
+			},
 			name: 'svelte-cond-lib'
 		},
 		{
@@ -89,16 +99,28 @@ beforeAll(async () => {
 		}
 	);
 	// Unbuilt TypeScript entry — bundle it.
-	await writePackage(nm('ts-src'), { main: 'index.ts', name: 'ts-src' }, {
-		'index.ts': 'export const tsSrc: number = 1;\n'
-	});
+	await writePackage(
+		nm('ts-src'),
+		{ main: 'index.ts', name: 'ts-src' },
+		{
+			'index.ts': 'export const tsSrc: number = 1;\n'
+		}
+	);
 	// Nested duplicate: `host` depends on its own `dep` copy.
-	await writePackage(nm('dep'), { main: 'index.js', name: 'dep', version: '2.0.0' }, {
-		'index.js': 'export const dep = 2;\n'
-	});
-	await writePackage(nm('host'), { main: 'index.js', name: 'host' }, {
-		'index.js': 'import { dep } from "dep"; export const host = dep;\n'
-	});
+	await writePackage(
+		nm('dep'),
+		{ main: 'index.js', name: 'dep', version: '2.0.0' },
+		{
+			'index.js': 'export const dep = 2;\n'
+		}
+	);
+	await writePackage(
+		nm('host'),
+		{ main: 'index.js', name: 'host' },
+		{
+			'index.js': 'import { dep } from "dep"; export const host = dep;\n'
+		}
+	);
 	await writePackage(
 		nm('host', 'node_modules', 'dep'),
 		{ main: 'index.js', name: 'dep', version: '1.0.0' },
@@ -110,11 +132,7 @@ beforeAll(async () => {
 		{ main: 'index.js', name: 'local-lib' },
 		{ 'index.js': 'export const local = 1;\n' }
 	);
-	await symlink(
-		join(root, 'packages', 'local-lib'),
-		nm('local-lib'),
-		'dir'
-	);
+	await symlink(join(root, 'packages', 'local-lib'), nm('local-lib'), 'dir');
 });
 
 afterAll(async () => {
@@ -208,7 +226,9 @@ describe('createDevServerExternalResolver', () => {
 			projectRoot: root
 		});
 		expect(bySpecifier.isExternal('@scope/pkg', importer())).toBe(true);
-		expect(bySpecifier.isExternal('@scope/pkg/sub', importer())).toBe(false);
+		expect(bySpecifier.isExternal('@scope/pkg/sub', importer())).toBe(
+			false
+		);
 
 		const scopedGlob = createDevServerExternalResolver({
 			bundleDependencies: ['@scope/*'],

@@ -23,8 +23,9 @@ const keys = (source: string, define?: Record<string, string>) =>
 
 describe('finding process.env in client code', () => {
 	test('reports a bare read, with the place to go and fix it', () => {
-		expect(scan('const a = 1;\nexport const url = process.env.API_URL;'))
-			.toEqual([{ column: 20, key: 'process.env.API_URL', line: 2 }]);
+		expect(
+			scan('const a = 1;\nexport const url = process.env.API_URL;')
+		).toEqual([{ column: 20, key: 'process.env.API_URL', line: 2 }]);
 	});
 
 	test('reads an indexed key as the key', () => {
@@ -34,9 +35,9 @@ describe('finding process.env in client code', () => {
 	});
 
 	test('a computed key or the whole object has no single key', () => {
-		expect(keys('export const read = (name) => process.env[name];')).toEqual(
-			['process.env']
-		);
+		expect(
+			keys('export const read = (name) => process.env[name];')
+		).toEqual(['process.env']);
 		expect(keys('export const all = { ...process.env };')).toEqual([
 			'process.env'
 		]);
@@ -248,7 +249,10 @@ describe('a browser pass carrying the boundary plugins', () => {
 
 		return path;
 	};
-	const bundle = async (entry: string, plugins: Parameters<typeof Bun.build>[0]['plugins']) =>
+	const bundle = async (
+		entry: string,
+		plugins: Parameters<typeof Bun.build>[0]['plugins']
+	) =>
 		Bun.build({
 			entrypoints: [entry],
 			outdir: join(root, 'out'),
@@ -262,8 +266,14 @@ describe('a browser pass carrying the boundary plugins', () => {
 	});
 
 	test('fails on the server-only marker, naming the importer', async () => {
-		write('db.ts', "import '@absolutejs/absolute/server-only';\nexport const q = () => 1;");
-		const entry = write('page.ts', "import { q } from './db';\nconsole.log(q());");
+		write(
+			'db.ts',
+			"import '@absolutejs/absolute/server-only';\nexport const q = () => 1;"
+		);
+		const entry = write(
+			'page.ts',
+			"import { q } from './db';\nconsole.log(q());"
+		);
 		const result = await bundle(entry, [createServerOnlyPlugin(root)]);
 
 		expect(result.success).toBe(false);
@@ -275,11 +285,16 @@ describe('a browser pass carrying the boundary plugins', () => {
 	});
 
 	test("the bare 'server-only' specifier gets the same message", async () => {
-		const entry = write('next.ts', "import 'server-only';\nexport const x = 1;");
+		const entry = write(
+			'next.ts',
+			"import 'server-only';\nexport const x = 1;"
+		);
 		const result = await bundle(entry, [createServerOnlyPlugin(root)]);
 
 		expect(result.success).toBe(false);
-		expect(result.logs[0]?.message).toContain('must not be part of a browser bundle');
+		expect(result.logs[0]?.message).toContain(
+			'must not be part of a browser bundle'
+		);
 	});
 
 	test("a dependency's import is named as that package's bug", async () => {
@@ -300,7 +315,10 @@ describe('a browser pass carrying the boundary plugins', () => {
 	test('a server-only import is fine when no client pass sees it', async () => {
 		// The plugin goes on the browser passes only; the same module is
 		// ordinary code for the server bundle.
-		const entry = write('serverEntry.ts', "import './db';\nexport const y = 2;");
+		const entry = write(
+			'serverEntry.ts',
+			"import './db';\nexport const y = 2;"
+		);
 		const result = await Bun.build({
 			entrypoints: [entry],
 			external: ['@absolutejs/absolute/server-only'],
@@ -320,7 +338,10 @@ describe('a browser pass carrying the boundary plugins', () => {
 		});
 
 	test('fails the pass on process.env when the mode is error', async () => {
-		const entry = write('leaky.ts', 'export const url = process.env.API_URL;');
+		const entry = write(
+			'leaky.ts',
+			'export const url = process.env.API_URL;'
+		);
 		const result = await bundle(entry, [processEnvPlugin('error')]);
 
 		expect(result.success).toBe(false);
@@ -332,7 +353,10 @@ describe('a browser pass carrying the boundary plugins', () => {
 	});
 
 	test('still bundles when the mode is warn', async () => {
-		const entry = write('warned.ts', 'export const url = process.env.API_URL;');
+		const entry = write(
+			'warned.ts',
+			'export const url = process.env.API_URL;'
+		);
 		const result = await bundle(entry, [processEnvPlugin('warn')]);
 
 		expect(result.success).toBe(true);

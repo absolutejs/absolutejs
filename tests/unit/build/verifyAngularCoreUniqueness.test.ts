@@ -25,9 +25,9 @@ describe('verifyAngularCoreUniqueness', () => {
 			PAGE_PATH,
 			[
 				'import { Component } from "../../vendor/server/angular_core.js";',
-				'const template = `import { REQUEST_CONTEXT } from \'@angular/core\';`;',
+				"const template = `import { REQUEST_CONTEXT } from '@angular/core';`;",
 				'const rewrite = (s) => s.replace(/from\\s*[\'"]@angular\\/core[\'"]/g, "x");',
-				"const other = \"import('@angular/core')\";",
+				'const other = "import(\'@angular/core\')";',
 				'export { Component, template, rewrite, other };'
 			].join('\n')
 		);

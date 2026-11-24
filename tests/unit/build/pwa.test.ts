@@ -10,7 +10,9 @@ import {
 const roots: string[] = [];
 afterEach(async () => {
 	await Promise.all(
-		roots.splice(0).map((root) => rm(root, { force: true, recursive: true }))
+		roots
+			.splice(0)
+			.map((root) => rm(root, { force: true, recursive: true }))
 	);
 });
 
@@ -47,7 +49,11 @@ describe('AbsoluteJS PWA build integration', () => {
 			config: {
 				manifest: {
 					icons: [
-						{ src: '/icon.png', sizes: '512x512', type: 'image/png' }
+						{
+							sizes: '512x512',
+							src: '/icon.png',
+							type: 'image/png'
+						}
 					],
 					name: 'Absolute App',
 					shortName: 'Absolute'
@@ -90,7 +96,10 @@ describe('AbsoluteJS PWA build integration', () => {
 			'/__absolute/pwa/bootstrap.js'
 		);
 		const pageEntry = join(paths.generatedRoot, 'page.ts');
-		await writeFile(pageEntry, 'globalThis.__absolutePageStarted = true;\n');
+		await writeFile(
+			pageEntry,
+			'globalThis.__absolutePageStarted = true;\n'
+		);
 		const pageBuild = await Bun.build({
 			banner: artifacts.bootstrapBanner,
 			entrypoints: [pageEntry],

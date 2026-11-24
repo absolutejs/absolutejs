@@ -6,7 +6,7 @@ import { ensureDistBuild } from '../../helpers/ensureDistBuild';
 const PROJECT_ROOT = resolve(import.meta.dir, '..', '..', '..');
 
 const delay = (ms: number) =>
-	new Promise((resolveDelay) => setTimeout(resolveDelay, ms));
+	new Promise((_resolve) => setTimeout(_resolve, ms));
 
 describe('react streaming across cross-framework entrypoints', () => {
 	test('setup: build package dist once for built-entrypoint tests', async () => {

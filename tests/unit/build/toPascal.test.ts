@@ -1,5 +1,9 @@
 import { describe, expect, test } from 'bun:test';
-import { toPascal, toKebab, toScreamingSnake } from '../../../src/utils/stringModifiers';
+import {
+	toPascal,
+	toKebab,
+	toScreamingSnake
+} from '../../../src/utils/stringModifiers';
 
 describe('toPascal', () => {
 	test('capitalizes single word', () => {

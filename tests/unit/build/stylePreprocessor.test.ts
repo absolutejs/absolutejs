@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { build } from 'bun';
 import { describe, expect, test } from 'bun:test';
+import type { StylePreprocessorConfig } from '../../../types/build';
 import { scanCssEntryPoints } from '../../../src/build/scanCssEntryPoints';
 import {
 	compileStyleSource,
@@ -19,7 +20,7 @@ describe('stylePreprocessor', () => {
 			const scssPath = join(root, 'theme.scss');
 			await writeFile(cssPath, '.plain { color: red; }');
 			await writeFile(scssPath, '$tone: blue; .theme { color: $tone; }');
-			const config = {
+			const config: StylePreprocessorConfig = {
 				postcss: {
 					plugins: [
 						{
@@ -56,8 +57,14 @@ describe('stylePreprocessor', () => {
 				'$accent: #0f766e; .button { color: $accent; }'
 			);
 			await writeFile(sass, '$space: 12px\n.panel\n  padding: $space\n');
-			await writeFile(less, '@radius: 6px; .card { border-radius: @radius; }');
-			await writeFile(stylus, 'accent = #2563eb\n.badge\n  color accent\n');
+			await writeFile(
+				less,
+				'@radius: 6px; .card { border-radius: @radius; }'
+			);
+			await writeFile(
+				stylus,
+				'accent = #2563eb\n.badge\n  color accent\n'
+			);
 
 			await expect(compileStyleSource(scss)).resolves.toContain(
 				'color: #0f766e'
@@ -122,24 +129,38 @@ describe('stylePreprocessor', () => {
 		try {
 			const shared = join(root, 'shared');
 			await mkdir(shared, { recursive: true });
-			await writeFile(join(shared, '_tokens.scss'), '.icon { background-image: url("./icon.svg"); }');
+			await writeFile(
+				join(shared, '_tokens.scss'),
+				'.icon { background-image: url("./icon.svg"); }'
+			);
 			await writeFile(join(shared, 'colors.styl'), 'brand = #16a34a');
 			await writeFile(join(shared, 'icon.svg'), '<svg />');
 			const scss = join(root, 'theme.scss');
 			const stylus = join(root, 'theme.styl');
-			await writeFile(scss, '@use "@theme/tokens"; .button { color: #111827; }');
-			await writeFile(stylus, '@import "@theme/colors"\n.badge\n  color brand\n');
+			await writeFile(
+				scss,
+				'@use "@theme/tokens"; .button { color: #111827; }'
+			);
+			await writeFile(
+				stylus,
+				'@import "@theme/colors"\n.badge\n  color brand\n'
+			);
 
 			const css = await compileStyleSource(scss, undefined, undefined, {
 				aliases: {
 					'@theme/*': join(shared, '*')
 				}
 			});
-			const stylusCss = await compileStyleSource(stylus, undefined, undefined, {
-				aliases: {
-					'@theme/*': join(shared, '*')
+			const stylusCss = await compileStyleSource(
+				stylus,
+				undefined,
+				undefined,
+				{
+					aliases: {
+						'@theme/*': join(shared, '*')
+					}
 				}
-			});
+			);
 
 			expect(css).toContain('.icon');
 			expect(css).toContain('url("./shared/icon.svg")');
@@ -159,14 +180,19 @@ describe('stylePreprocessor', () => {
 			await writeFile(join(shared, 'tokens.less'), '@brand: #0891b2;');
 			const scss = join(root, 'theme.scss');
 			const less = join(root, 'theme.less');
-			await writeFile(scss, '.button { color: tokens.$brand; background: $surface; }');
-			await writeFile(less, '@import "tokens.less"; .card { color: @brand; background: @surface; }');
+			await writeFile(
+				scss,
+				'.button { color: tokens.$brand; background: $surface; }'
+			);
+			await writeFile(
+				less,
+				'@import "tokens.less"; .card { color: @brand; background: @surface; }'
+			);
 
 			await expect(
 				compileStyleSource(scss, undefined, undefined, {
 					scss: {
-						additionalData:
-							'@use "tokens"; $surface: #f8fafc;',
+						additionalData: '@use "tokens"; $surface: #f8fafc;',
 						loadPaths: [shared]
 					}
 				})
@@ -185,7 +211,9 @@ describe('stylePreprocessor', () => {
 	});
 
 	test('applies configured options inside Bun style plugin builds', async () => {
-		const root = await mkdtemp(join(tmpdir(), 'absolutejs-style-plugin-options-'));
+		const root = await mkdtemp(
+			join(tmpdir(), 'absolutejs-style-plugin-options-')
+		);
 
 		try {
 			const entry = join(root, 'entry.ts');
@@ -220,7 +248,9 @@ describe('stylePreprocessor', () => {
 	});
 
 	test('applies PostCSS inside Bun style plugin builds', async () => {
-		const root = await mkdtemp(join(tmpdir(), 'absolutejs-postcss-plugin-'));
+		const root = await mkdtemp(
+			join(tmpdir(), 'absolutejs-postcss-plugin-')
+		);
 
 		try {
 			const entry = join(root, 'entry.ts');
@@ -237,7 +267,12 @@ describe('stylePreprocessor', () => {
 							plugins: [
 								{
 									postcssPlugin: 'absolute-test-bun-postcss',
-									Rule(rule: { append(input: { prop: string; value: string }): void }) {
+									Rule(rule: {
+										append(input: {
+											prop: string;
+											value: string;
+										}): void;
+									}) {
 										rule.append({
 											prop: '--postcss-proof',
 											value: '1'
@@ -263,7 +298,6 @@ describe('stylePreprocessor', () => {
 		}
 	});
 
-
 	test('scans style entrypoints and skips CSS module files', async () => {
 		const root = await mkdtemp(join(tmpdir(), 'absolutejs-style-scan-'));
 
@@ -271,7 +305,10 @@ describe('stylePreprocessor', () => {
 			await writeFile(join(root, 'main.css'), 'body {}');
 			await writeFile(join(root, 'theme.scss'), '.theme {}');
 			await writeFile(join(root, 'legacy.less'), '.legacy {}');
-			await writeFile(join(root, 'tokens.styl'), '.tokens\n  color red\n');
+			await writeFile(
+				join(root, 'tokens.styl'),
+				'.tokens\n  color red\n'
+			);
 			await writeFile(join(root, 'card.module.scss'), '.card {}');
 
 			const entries = await scanCssEntryPoints(root);

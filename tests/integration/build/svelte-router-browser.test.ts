@@ -152,11 +152,13 @@ const contentType = (path: string) => {
 const serveBuild = (buildDir: string, manifest: Record<string, string>) => {
 	const port = Number(process.env.SVELTE_ROUTER_TEST_PORT ?? 0);
 	const server = Bun.serve({
+		port,
 		fetch: async (request) => {
 			const { pathname } = new URL(request.url);
 			if (extname(pathname) !== '') {
 				const filePath = join(buildDir, pathname);
-				if (!existsSync(filePath)) return new Response(null, { status: 404 });
+				if (!existsSync(filePath))
+					return new Response(null, { status: 404 });
 
 				return new Response(Bun.file(filePath), {
 					headers: { 'Content-Type': contentType(filePath) }
@@ -168,8 +170,7 @@ const serveBuild = (buildDir: string, manifest: Record<string, string>) => {
 				pagePath: manifest.RouterApp ?? '',
 				request
 			});
-		},
-		port
+		}
 	});
 
 	return {
@@ -192,7 +193,8 @@ beforeAll(async () => {
 	await writeFile(join(componentsDir, 'FramedPanel.svelte'), FRAMED_PANEL);
 	lazyPanelSource = LAZY_MARKER;
 
-	const rel = (path: string) => relative(process.cwd(), join(fixtureRoot, path));
+	const rel = (path: string) =>
+		relative(process.cwd(), join(fixtureRoot, path));
 	const result = await build({
 		buildDirectory: rel('build'),
 		mode: 'production',
@@ -223,7 +225,8 @@ const withPage = async (
 	});
 	try {
 		session.page.on('request', (request) => {
-			if (request.resourceType() === 'script') scripts.push(request.url());
+			if (request.resourceType() === 'script')
+				scripts.push(request.url());
 		});
 		await session.page.waitForFunction(
 			() => Reflect.get(window, '__hydrated') === true,
@@ -281,7 +284,9 @@ describe('svelte router guards', () => {
 			expect(await page.locator('#long').count()).toBe(1);
 			expect(await page.locator('#home').count()).toBe(0);
 
-			await page.evaluate(() => Reflect.set(window, '__blockBack', false));
+			await page.evaluate(() =>
+				Reflect.set(window, '__blockBack', false)
+			);
 			await page.goBack();
 			await page.waitForSelector('#home', { timeout: 10_000 });
 			expect(pathnameOf(page)).toBe('/app');
@@ -303,9 +308,10 @@ describe('svelte router lazy routes', () => {
 			await page.hover('#lazy-link');
 			await page.waitForFunction(
 				(count) =>
-					performance.getEntriesByType('resource').filter((entry) =>
-						entry.name.endsWith('.js')
-					).length > count,
+					performance
+						.getEntriesByType('resource')
+						.filter((entry) => entry.name.endsWith('.js')).length >
+					count,
 				initial.length,
 				{ timeout: 10_000 }
 			);
@@ -356,8 +362,10 @@ describe('svelte router lazy routes', () => {
 				new MutationObserver(() => {
 					const panel = document.getElementById('lazy-panel');
 					const first = Reflect.get(window, '__ssrPanel');
-					if (panel && !first) Reflect.set(window, '__ssrPanel', panel);
-					if (document.getElementById('lazy-pending')) seen.push('pending');
+					if (panel && !first)
+						Reflect.set(window, '__ssrPanel', panel);
+					if (document.getElementById('lazy-pending'))
+						seen.push('pending');
 					if (first && !panel) seen.push('missing');
 				}).observe(document, { childList: true, subtree: true });
 			});
@@ -370,7 +378,8 @@ describe('svelte router lazy routes', () => {
 			await session.page.click('#lazy-count');
 			await session.page.waitForFunction(
 				() =>
-					document.getElementById('lazy-count')?.textContent === 'count 1',
+					document.getElementById('lazy-count')?.textContent ===
+					'count 1',
 				undefined,
 				{ timeout: 5_000 }
 			);
@@ -384,7 +393,9 @@ describe('svelte router lazy routes', () => {
 				)
 			).toBe(true);
 			expect(
-				await session.page.evaluate(() => Reflect.get(window, '__pendingSeen'))
+				await session.page.evaluate(() =>
+					Reflect.get(window, '__pendingSeen')
+				)
 			).toEqual([]);
 			expect(warnings.filter((text) => /hydrat/i.test(text))).toEqual([]);
 		} finally {
@@ -421,7 +432,8 @@ describe('svelte router lazy routes', () => {
 			await session.page.click('#framed-count');
 			await session.page.waitForFunction(
 				() =>
-					document.getElementById('framed-count')?.textContent === 'count 1',
+					document.getElementById('framed-count')?.textContent ===
+					'count 1',
 				undefined,
 				{ timeout: 5_000 }
 			);
@@ -450,9 +462,9 @@ describe('svelte router lazy routes', () => {
 describe('svelte router scroll restoration', () => {
 	test('back/forward restores the scroll position and new navigations start at the top', async () => {
 		await withPage('/app', async (page) => {
-			expect(
-				await page.evaluate(() => history.scrollRestoration)
-			).toBe('manual');
+			expect(await page.evaluate(() => history.scrollRestoration)).toBe(
+				'manual'
+			);
 			await page.click('#long-link');
 			await page.waitForSelector('#long');
 			await page.evaluate(() => window.scrollTo(0, 2000));
@@ -466,15 +478,23 @@ describe('svelte router scroll restoration', () => {
 
 			await page.goBack();
 			await page.waitForSelector('#long');
-			await page.waitForFunction(() => window.scrollY === 2000, undefined, {
-				timeout: 10_000
-			});
+			await page.waitForFunction(
+				() => window.scrollY === 2000,
+				undefined,
+				{
+					timeout: 10_000
+				}
+			);
 
 			await page.goForward();
 			await page.waitForSelector('#home');
-			await page.waitForFunction(() => window.scrollY === 700, undefined, {
-				timeout: 10_000
-			});
+			await page.waitForFunction(
+				() => window.scrollY === 700,
+				undefined,
+				{
+					timeout: 10_000
+				}
+			);
 			expect(await scrollY(page)).toBe(700);
 		});
 	}, 60_000);
@@ -524,9 +544,13 @@ describe('svelte router scroll restoration', () => {
 			await page.waitForFunction(
 				() => Reflect.get(window, '__hydrated') === true
 			);
-			await page.waitForFunction(() => window.scrollY === 1500, undefined, {
-				timeout: 10_000
-			});
+			await page.waitForFunction(
+				() => window.scrollY === 1500,
+				undefined,
+				{
+					timeout: 10_000
+				}
+			);
 			expect(await scrollY(page)).toBe(1500);
 		});
 	}, 60_000);

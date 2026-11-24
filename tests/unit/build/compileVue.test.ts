@@ -7,6 +7,7 @@ import { createSSRApp } from 'vue';
 import { renderToString } from 'vue/server-renderer';
 import { clearVueHmrCaches, compileVue } from '../../../src/build/compileVue';
 import { projectFixtureDir } from '../../helpers/projectFixtureDir';
+import { required } from '../../helpers/required';
 
 const writeTempFile = async (path: string, content: string) => {
 	await Bun.write(path, content);
@@ -30,14 +31,21 @@ defineProps<{ status: Status }>();
 				),
 				// Like a package's index.d.ts: `export * from './status'`
 				// names a directory, which resolves to its index file.
-				writeTempFile(join(root, 'types.ts'), "export * from './status';\n"),
+				writeTempFile(
+					join(root, 'types.ts'),
+					"export * from './status';\n"
+				),
 				writeTempFile(
 					join(root, 'status', 'index.ts'),
 					"export type Status = 'on' | 'off';\n"
 				)
 			]);
 
-			const { vueClientPaths } = await compileVue([pagePath], root, false);
+			const { vueClientPaths } = await compileVue(
+				[pagePath],
+				root,
+				false
+			);
 			expect(
 				vueClientPaths.some((path) => path.endsWith('StatusPage.js'))
 			).toBe(true);
@@ -81,12 +89,16 @@ const label = shout(level(2));
 				false
 			);
 			for (const paths of [vueClientPaths, vueServerPaths]) {
-				const entry = paths.find((path) => path.endsWith('SignalsPage.js'));
+				const entry = paths.find((path) =>
+					path.endsWith('SignalsPage.js')
+				);
 				expect(entry).toBeDefined();
 				if (!entry) continue;
 				for (const helper of ['signals.js', 'level.js', 'shout.js'])
 					expect(
-						await Bun.file(join(entry, '..', 'utils', helper)).exists()
+						await Bun.file(
+							join(entry, '..', 'utils', helper)
+						).exists()
 					).toBe(true);
 			}
 		} finally {
@@ -187,7 +199,11 @@ const rows = [{ name: 'first row' }];
 				)
 			]);
 
-			const { vueServerPaths } = await compileVue([pagePath], root, false);
+			const { vueServerPaths } = await compileVue(
+				[pagePath],
+				root,
+				false
+			);
 			const serverEntry = vueServerPaths.find((path) =>
 				path.endsWith('LazyPage.js')
 			);
@@ -302,11 +318,15 @@ defineProps<PageProps>();
 			expect(indexContent).toContain(
 				'window.__ABSOLUTE_PAGE_DISPOSE__ = async function()'
 			);
-			expect(indexContent).toContain('window.__ABS_SLOT_HYDRATION_PENDING__ = shouldHydrate;');
+			expect(indexContent).toContain(
+				'window.__ABS_SLOT_HYDRATION_PENDING__ = shouldHydrate;'
+			);
 			expect(indexContent).toContain(
 				'if (shouldHydrate && typeof requestAnimationFrame === "function") {'
 			);
-			expect(indexContent).toContain('requestAnimationFrame(releaseStreamingSlots);');
+			expect(indexContent).toContain(
+				'requestAnimationFrame(releaseStreamingSlots);'
+			);
 		} finally {
 			await rm(root, { force: true, recursive: true });
 		}
@@ -393,7 +413,9 @@ export const routes = defineRoutes([
 			const development = await indexOf(true);
 			// Collected from Vue's warnings, chained after any app handler...
 			expect(development).toContain('app.config.warnHandler = function');
-			expect(development).toContain('if (appWarnHandler) appWarnHandler(');
+			expect(development).toContain(
+				'if (appWarnHandler) appWarnHandler('
+			);
 			// ...and handed to the overlay once the page has mounted.
 			expect(development).toContain('"absolute:dev-error"');
 			expect(development.indexOf('app.mount("#root")')).toBeLessThan(
@@ -494,7 +516,9 @@ export const routes = [
 				);
 				if (!output) throw new Error(`no bundle for ${name}`);
 
-				return import(`${pathToFileURL(output.path).href}?t=${Date.now()}`);
+				return import(
+					`${pathToFileURL(output.path).href}?t=${Date.now()}`
+				);
 			};
 
 			const expected: Record<string, string> = {
@@ -526,10 +550,10 @@ export const routes = [
 				let notFound = false;
 				await routed.setupApp(app, {
 					isServer: true,
+					url,
 					setNotFound: () => {
 						notFound = true;
-					},
-					url
+					}
 				});
 				expect(notFound).toBe(false);
 				const html = await renderToString(app);
@@ -541,24 +565,43 @@ export const routes = [
 	});
 });
 
-
 test('shared child CSS is emitted once with the same cascade after a cache restart', async () => {
 	const root = await mkdtemp(join(tmpdir(), 'absolutejs-css-diamond-'));
 	const page = join(root, 'Diamond.vue');
 	try {
 		await Promise.all([
-			writeTempFile(page, `<script setup>import Left from './Left.vue'; import Right from './Right.vue';</script><template><Left /><Right /></template>`),
-			writeTempFile(join(root, 'Left.vue'), `<script setup>import Shared from './Shared.vue';</script><template><Shared /></template><style>.diamond-value { color: green; }</style>`),
-			writeTempFile(join(root, 'Right.vue'), `<script setup>import Shared from './Shared.vue';</script><template><Shared /></template><style>.diamond-value { color: blue; }</style>`),
-			writeTempFile(join(root, 'Shared.vue'), `<template><span class="diamond-value">Shared</span></template><style>.diamond-value { color: red; }</style>`)
+			writeTempFile(
+				page,
+				`<script setup>import Left from './Left.vue'; import Right from './Right.vue';</script><template><Left /><Right /></template>`
+			),
+			writeTempFile(
+				join(root, 'Left.vue'),
+				`<script setup>import Shared from './Shared.vue';</script><template><Shared /></template><style>.diamond-value { color: green; }</style>`
+			),
+			writeTempFile(
+				join(root, 'Right.vue'),
+				`<script setup>import Shared from './Shared.vue';</script><template><Shared /></template><style>.diamond-value { color: blue; }</style>`
+			),
+			writeTempFile(
+				join(root, 'Shared.vue'),
+				`<template><span class="diamond-value">Shared</span></template><style>.diamond-value { color: red; }</style>`
+			)
 		]);
 		const first = await compileVue([page], root, false);
-		const css = await Bun.file(first.vueCssPaths[0]!).text();
+		const css = await Bun.file(
+			required(first.vueCssPaths[0], 'a compiled stylesheet')
+		).text();
 		expect(css.match(/color: red/g)).toHaveLength(1);
-		expect(css.indexOf('color: red')).toBeGreaterThan(css.indexOf('color: blue'));
+		expect(css.indexOf('color: red')).toBeGreaterThan(
+			css.indexOf('color: blue')
+		);
 		clearVueHmrCaches();
 		const warm = await compileVue([page], root, false);
-		expect(await Bun.file(warm.vueCssPaths[0]!).text()).toBe(css);
+		expect(
+			await Bun.file(
+				required(warm.vueCssPaths[0], 'a compiled stylesheet')
+			).text()
+		).toBe(css);
 	} finally {
 		clearVueHmrCaches();
 		await rm(root, { force: true, recursive: true });

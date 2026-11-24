@@ -69,7 +69,10 @@ export function LazyShell({ url }: { url?: string }) {
 }
 `;
 
-const page = (name: string, marker: string) => `import { useState } from 'react';
+const page = (
+	name: string,
+	marker: string
+) => `import { useState } from 'react';
 
 export function ${name}() {
 	const [count, setCount] = useState(0);
@@ -99,9 +102,18 @@ beforeAll(async () => {
 	await ensureDistBuild();
 	await mkdir(join(fixtureRoot, 'react', 'pages'), { recursive: true });
 	await mkdir(join(fixtureRoot, 'react', 'components'), { recursive: true });
-	await writeFile(join(fixtureRoot, 'react', 'pages', 'LazyShell.tsx'), SHELL);
-	await writeFile(join(fixtureRoot, 'react', 'components', 'Billing.tsx'), page('Billing', 'billing'));
-	await writeFile(join(fixtureRoot, 'react', 'components', 'Account.tsx'), page('Account', 'account'));
+	await writeFile(
+		join(fixtureRoot, 'react', 'pages', 'LazyShell.tsx'),
+		SHELL
+	);
+	await writeFile(
+		join(fixtureRoot, 'react', 'components', 'Billing.tsx'),
+		page('Billing', 'billing')
+	);
+	await writeFile(
+		join(fixtureRoot, 'react', 'components', 'Account.tsx'),
+		page('Account', 'account')
+	);
 	// A page frame wrapping a route's page: it stays in the entry.
 	await writeFile(
 		join(fixtureRoot, 'react', 'components', 'Frame.tsx'),
@@ -112,7 +124,8 @@ export function Frame({ children, title }: { children: ReactNode; title: string 
 }
 `
 	);
-	const rel = (path: string) => relative(process.cwd(), join(fixtureRoot, path));
+	const rel = (path: string) =>
+		relative(process.cwd(), join(fixtureRoot, path));
 	const result = await build({
 		buildDirectory: rel('build'),
 		mode: 'production',
@@ -125,7 +138,12 @@ export function Frame({ children, title }: { children: ReactNode; title: string 
 	// its route pages split (build/routePagesPlugin.ts), so it emits the
 	// boundaries the browser bundle hydrates. bun test runs no framework
 	// plugin, so the test applies the transform itself.
-	const serverCopy = join(fixtureRoot, 'react', 'pages', 'LazyShell.server.tsx');
+	const serverCopy = join(
+		fixtureRoot,
+		'react',
+		'pages',
+		'LazyShell.server.tsx'
+	);
 	await writeFile(serverCopy, splitRoutePages(SHELL, serverCopy) ?? SHELL);
 	const pageModule: unknown = await import(serverCopy);
 	const Page: unknown =
@@ -136,6 +154,7 @@ export function Frame({ children, title }: { children: ReactNode; title: string 
 	const buildDir = join(fixtureRoot, 'build');
 
 	const server = Bun.serve({
+		port: 0,
 		fetch: async (request) => {
 			const { pathname } = new URL(request.url);
 			if (extname(pathname) === '')
@@ -146,7 +165,8 @@ export function Frame({ children, title }: { children: ReactNode; title: string 
 					request
 				});
 			const filePath = join(buildDir, pathname);
-			if (!existsSync(filePath)) return new Response(null, { status: 404 });
+			if (!existsSync(filePath))
+				return new Response(null, { status: 404 });
 			const source = await readFile(filePath, 'utf-8');
 			// A page's own chunk: held back, as a slow network would.
 			if (source.includes('data-page')) {
@@ -157,8 +177,7 @@ export function Frame({ children, title }: { children: ReactNode; title: string 
 			return new Response(source, {
 				headers: { 'Content-Type': 'text/javascript; charset=utf-8' }
 			});
-		},
-		port: 0
+		}
 	});
 	origin = `http://localhost:${server.port}`;
 	stop = () => server.stop(true);
@@ -171,15 +190,20 @@ afterAll(async () => {
 
 describe('React router pages load when first shown, with nothing to write', () => {
 	test('the entry carries no page; each page is a chunk of its own', async () => {
-		const entry = await readFile(join(fixtureRoot, 'build', entryPath), 'utf-8');
+		const entry = await readFile(
+			join(fixtureRoot, 'build', entryPath),
+			'utf-8'
+		);
 
 		expect(entry).not.toContain('data-page');
 	});
 
-	test('the layout is interactive before the page\'s code arrives; the page hydrates after; a loaded page is not fetched again', async () => {
+	test("the layout is interactive before the page's code arrives; the page hydrates after; a loaded page is not fetched again", async () => {
 		const errors: string[] = [];
 		servedChunks.length = 0;
-		const session = await openPage(`${origin}/billing`, { waitUntil: 'commit' });
+		const session = await openPage(`${origin}/billing`, {
+			waitUntil: 'commit'
+		});
 		try {
 			const { page: tab } = session;
 			tab.on('pageerror', (error) => errors.push(error.message));
@@ -222,13 +246,22 @@ describe('React router pages load when first shown, with nothing to write', () =
 			// page is fetched when its route is first shown.
 			const fetchedBeforeAccount = servedChunks.length;
 			await tab.click('#to-account');
-			await tab.waitForSelector('[data-frame="Account"] section[data-page="account"]', { timeout: 10_000 });
+			await tab.waitForSelector(
+				'[data-frame="Account"] section[data-page="account"]',
+				{ timeout: 10_000 }
+			);
 			expect(servedChunks.length).toBe(fetchedBeforeAccount + 1);
 			const fetchedBefore = servedChunks.length;
 			await tab.click('#to-billing');
-			await tab.waitForSelector('section[data-page="billing"]', { timeout: 2_000 });
+			await tab.waitForSelector('section[data-page="billing"]', {
+				timeout: 2_000
+			});
 			expect(servedChunks.length).toBe(fetchedBefore);
-			expect(errors.filter((text) => /hydrat|did(n't| not) match/i.test(text))).toEqual([]);
+			expect(
+				errors.filter((text) =>
+					/hydrat|did(n't| not) match/i.test(text)
+				)
+			).toEqual([]);
 		} finally {
 			await session.close();
 		}

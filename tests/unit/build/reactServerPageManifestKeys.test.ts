@@ -34,13 +34,11 @@ describe('React Server Components page manifest keys', () => {
 	});
 
 	test('asset() warns once in dev when the doubled alias is used', () => {
-		const manifest = {
+		const manifest: Record<string, string> = {
 			DashboardRSC: '/build/rsc/DashboardRSC.js',
 			DashboardRSCRSC: '/build/rsc/DashboardRSC.js'
 		};
-		const warn = spyOn(console, 'warn').mockImplementation(
-			() => undefined
-		);
+		const warn = spyOn(console, 'warn').mockImplementation(() => undefined);
 		try {
 			expect(asset(manifest, 'DashboardRSC')).toBe(
 				'/build/rsc/DashboardRSC.js'

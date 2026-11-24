@@ -31,7 +31,12 @@ import { ensureDistBuild } from '../../helpers/ensureDistBuild';
 
 const repoRoot = resolve(import.meta.dir, '..', '..', '..');
 const fixtures: string[] = [];
-const OMITTED = new Set(['.bin', '@absolutejs', 'react-router', 'react-router-dom']);
+const OMITTED = new Set([
+	'.bin',
+	'@absolutejs',
+	'react-router',
+	'react-router-dom'
+]);
 
 const createFixture = async (prefix: string) => {
 	const root = await mkdtemp(join(tmpdir(), prefix));
@@ -217,7 +222,7 @@ describe('<Link> from react/components without react-router installed', () => {
 			expect(result.exitCode).toBe(0);
 			expect(result.manifest.LinkHomeIndex).toBeDefined();
 			expect(result.manifest.LinkOtherIndex).toBeDefined();
-			if (mode === 'production') manifest = result.manifest;
+			if (mode === 'production') ({ manifest } = result);
 		},
 		120_000
 	);
@@ -240,7 +245,6 @@ describe('<Link> from react/components without react-router installed', () => {
 		const reader = proc.stdout.getReader();
 		let printed = '';
 		while (!printed.includes('\n')) {
-			// eslint-disable-next-line no-await-in-loop
 			const { done, value } = await reader.read();
 			if (done) break;
 			printed += new TextDecoder().decode(value);
@@ -263,7 +267,9 @@ describe('<Link> from react/components without react-router installed', () => {
 			await page.waitForSelector('#LinkHome[data-hydrated="true"]', {
 				timeout: 15_000
 			});
-			await page.evaluate(() => Reflect.set(window, '__sameDocument', true));
+			await page.evaluate(() =>
+				Reflect.set(window, '__sameDocument', true)
+			);
 
 			await page.click('#link');
 			await page.waitForSelector('#LinkOther[data-hydrated="true"]', {

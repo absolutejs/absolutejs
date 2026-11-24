@@ -1,5 +1,12 @@
 import { afterAll, describe, expect, test } from 'bun:test';
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import {
+	mkdirSync,
+	mkdtempSync,
+	realpathSync,
+	rmSync,
+	symlinkSync,
+	writeFileSync
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -29,17 +36,26 @@ writeJson(join(app, 'node_modules', 'library', 'package.json'), {
 	main: 'index.js',
 	name: 'library'
 });
-writeFileSync(join(app, 'node_modules', 'library', 'index.js'), 'module.exports = 1;\n');
+writeFileSync(
+	join(app, 'node_modules', 'library', 'index.js'),
+	'module.exports = 1;\n'
+);
 writeJson(join(app, 'package.json'), {
-	dependencies: { '@demo/core': 'workspace:*', library: '1.0.0', missing: '1.0.0' },
+	dependencies: {
+		'@demo/core': 'workspace:*',
+		library: '1.0.0',
+		missing: '1.0.0'
+	},
 	name: 'web'
 });
 
 afterAll(() => rmSync(root, { force: true, recursive: true }));
 
-describe('the app\'s own workspace packages', () => {
-	test('a linked package is the app\'s source; an installed one is not', () => {
-		expect(isWorkspacePackageSpecifier('@demo/core/greeting', app)).toBe(true);
+describe("the app's own workspace packages", () => {
+	test("a linked package is the app's source; an installed one is not", () => {
+		expect(isWorkspacePackageSpecifier('@demo/core/greeting', app)).toBe(
+			true
+		);
 		expect(isWorkspacePackageSpecifier('library', app)).toBe(false);
 		expect(isWorkspacePackageSpecifier('not-installed', app)).toBe(false);
 	});

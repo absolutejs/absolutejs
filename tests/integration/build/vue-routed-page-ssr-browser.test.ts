@@ -186,10 +186,10 @@ const withPage = async (
 ) => {
 	const errors: string[] = [];
 	const session: BrowserSession = await openPage(`${baseUrl()}${path}`, {
+		waitUntil: 'load',
 		consoleLog: (message: string) => {
 			if (/hydrat|mismatch|error/i.test(message)) errors.push(message);
-		},
-		waitUntil: 'load'
+		}
 	});
 	try {
 		const { page } = session;
@@ -288,11 +288,8 @@ describe('the client hydrates that HTML', () => {
 			).toBe(true);
 			// Still the server's markup, now live.
 			expect(
-				await page.evaluate(
-					() =>
-						document
-							.getElementById('shell')
-							?.getAttribute('data-ssr')
+				await page.evaluate(() =>
+					document.getElementById('shell')?.getAttribute('data-ssr')
 				)
 			).toBe('server');
 

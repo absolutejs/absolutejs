@@ -61,7 +61,7 @@ describe('the react and Flight versions must match', () => {
 		expect(flightVersionProblem('19.2.9', '19.2.9')).toBeUndefined();
 	});
 
-	test("an unreadable react version does not block", () => {
+	test('an unreadable react version does not block', () => {
 		expect(flightVersionProblem('19.2.9', undefined)).toBeUndefined();
 	});
 

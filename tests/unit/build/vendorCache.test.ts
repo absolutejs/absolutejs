@@ -27,7 +27,9 @@ const makeProject = async () => {
 
 afterEach(async () => {
 	await Promise.all(
-		temporaryDirs.splice(0).map((dir) => rm(dir, { force: true, recursive: true }))
+		temporaryDirs
+			.splice(0)
+			.map((dir) => rm(dir, { force: true, recursive: true }))
 	);
 });
 
@@ -61,9 +63,9 @@ describe('computeVendorCacheKey', () => {
 
 	for (const [label, change] of changes) {
 		test(`changes when the ${label} changes`, () => {
-			expect(computeVendorCacheKey({ ...baseInputs, ...change })).not.toBe(
-				computeVendorCacheKey(baseInputs)
-			);
+			expect(
+				computeVendorCacheKey({ ...baseInputs, ...change })
+			).not.toBe(computeVendorCacheKey(baseInputs));
 		});
 	}
 });
@@ -101,7 +103,10 @@ describe('save/restore round trip', () => {
 		await saveVendorCache(
 			'key-one',
 			dirs,
-			{ angularSpecifiers: ['@angular/core'], depPaths: { dep: '/vendor/dep.js' } },
+			{
+				angularSpecifiers: ['@angular/core'],
+				depPaths: { dep: '/vendor/dep.js' }
+			},
 			root
 		);
 		await rm(join(root, 'build'), { force: true, recursive: true });
@@ -113,9 +118,9 @@ describe('save/restore round trip', () => {
 		expect(await Bun.file(join(vendorDir, 'vue.js')).text()).toBe(
 			'export const vue = 1;'
 		);
-		expect(await Bun.file(join(vendorDir, 'nested', 'chunk.js')).text()).toBe(
-			'chunk'
-		);
+		expect(
+			await Bun.file(join(vendorDir, 'nested', 'chunk.js')).text()
+		).toBe('chunk');
 		expect(await Bun.file(join(depVendorDir, 'dep.js')).text()).toBe('dep');
 	});
 
@@ -155,6 +160,8 @@ describe('save/restore round trip', () => {
 		await restoreVendorCache('key-three', [vendorDir], root);
 
 		expect(await Bun.file(join(vendorDir, 'dep.js')).text()).toBe('first');
-		expect(existsSync(join(root, '.absolutejs', 'vendor-cache'))).toBe(true);
+		expect(existsSync(join(root, '.absolutejs', 'vendor-cache'))).toBe(
+			true
+		);
 	});
 });

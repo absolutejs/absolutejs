@@ -23,7 +23,17 @@ export default defineConfig([
 			'**/node_modules/**',
 			// Build / compile output.
 			'**/dist/**',
-			'**/build/**',
+			// Named by where it is. This was `**/build/**`, which also took
+			// tests/unit/build and tests/integration/build out of the lint.
+			'build/**',
+			'example/build/**',
+			'tests/fixtures/**/build/**',
+			// NOT build output: the framework's own compilers. They were
+			// never linted, because the pattern above matched them by
+			// name, and they hold 459 errors as of beta.357 — 187 of them
+			// nesting depth, which is restructuring and not tidying. Listed
+			// here so the gap is written down instead of accidental.
+			'src/build/**',
 			'**/compiled/**',
 			// Generated, cached, and vendored code — not authored by us.
 			'**/.absolutejs/**',

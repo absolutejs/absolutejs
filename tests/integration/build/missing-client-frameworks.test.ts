@@ -148,7 +148,9 @@ describe('Svelte-only project without Vue, Angular or React installed', () => {
 			expect(manifest.HomeIndex).toBeDefined();
 			const offenders = (await clientSources(join(root, `build-${mode}`)))
 				.filter(({ source }) =>
-					bareImportOf('vue|@vue|@angular|react|react-dom').test(source)
+					bareImportOf('vue|@vue|@angular|react|react-dom').test(
+						source
+					)
 				)
 				.map(({ file }) => file);
 			expect(offenders).toEqual([]);

@@ -89,7 +89,9 @@ console.log('MANIFEST' + JSON.stringify(result?.manifest ?? {}));
 		new Response(proc.stdout).text(),
 		new Response(proc.stderr).text()
 	]);
-	const line = stdout.split('\n').find((entry) => entry.startsWith('MANIFEST'));
+	const line = stdout
+		.split('\n')
+		.find((entry) => entry.startsWith('MANIFEST'));
 	const manifest: Record<string, string> = line
 		? JSON.parse(line.slice('MANIFEST'.length))
 		: {};
@@ -166,7 +168,9 @@ describe('HTML includes', () => {
 		expect(contact).not.toContain('DEFAULT_TITLE');
 		expect(contact).toContain('SITE_HEADER <nav>NESTED_NAV</nav>');
 		expect(contact).toContain('<h1>CONTACT_BODY</h1>');
-		expect(contact.split('<a class="cta">CTA <nav>NESTED_NAV</nav>').length).toBe(3);
+		expect(
+			contact.split('<a class="cta">CTA <nav>NESTED_NAV</nav>').length
+		).toBe(3);
 	}, 120_000);
 
 	test('an unclosed include fails the build with its file and line', async () => {
@@ -186,11 +190,13 @@ describe('HTML includes', () => {
 		const { exitCode, output } = await createProject('cycle', {
 			'html/pages/Loop.html':
 				'<abs-include src="../partials/a.html"></abs-include>\n',
-			'html/partials/a.html': '<abs-include src="b.html"></abs-include>\n',
-			'html/partials/b.html': '<abs-include src="a.html"></abs-include>\n',
+			'html/partials/a.html':
+				'<abs-include src="b.html"></abs-include>\n',
+			'html/partials/b.html':
+				'<abs-include src="a.html"></abs-include>\n',
 			'htmx/pages/Ok.html': '<p>ok</p>\n',
-			'islands/registry.ts': BASE_FILES['islands/registry.ts'] ?? '',
 			'islands/Counter.tsx': BASE_FILES['islands/Counter.tsx'] ?? '',
+			'islands/registry.ts': BASE_FILES['islands/registry.ts'] ?? '',
 			'styles/indexes/site.css': ''
 		});
 

@@ -13,6 +13,7 @@ import {
 	vueRelativeOutputImport
 } from '../../../src/build/vueModuleOutputPath';
 import { getFrameworkGeneratedDir } from '../../../src/utils/generatedDir';
+import { required } from '../../helpers/required';
 
 test('package Vue components, nested components and helpers keep separate browser and server outputs', async () => {
 	const root = await mkdtemp(join(tmpdir(), 'vue-package-output-'));
@@ -29,8 +30,8 @@ test('package Vue components, nested components and helpers keep separate browse
 		await Bun.write(
 			join(packageRoot, 'package.json'),
 			JSON.stringify({
-				name: packageName,
-				exports: { './Picker.vue': './components/Picker.vue' }
+				exports: { './Picker.vue': './components/Picker.vue' },
+				name: packageName
 			})
 		);
 		await Bun.write(
@@ -76,17 +77,18 @@ test('package Vue components, nested components and helpers keep separate browse
 		for (const target of ['browser', 'bun'] as const) {
 			const entry =
 				target === 'browser'
-					? result.vueClientPaths[0]!
-					: result.vueServerPaths[0]!;
+					? required(result.vueClientPaths[0], 'a Vue client entry')
+					: required(result.vueServerPaths[0], 'a Vue server entry');
 			const build = await Bun.build({
 				entrypoints: [entry],
-				target,
-				outdir: join(root, target)
+				outdir: join(root, target),
+				target
 			});
 			expect(build.success).toBe(true);
-			const artifact = build.outputs.find((output) =>
-				output.path.endsWith('.js')
-			)!;
+			const artifact = required(
+				build.outputs.find((output) => output.path.endsWith('.js')),
+				'a JavaScript output'
+			);
 			if (target === 'browser')
 				expect(await artifact.text()).not.toContain('ssrInterpolate');
 			else {
@@ -108,8 +110,8 @@ test('package Vue components, nested components and helpers keep separate browse
 		).not.toContain('ssrRender');
 	} finally {
 		clearVueHmrCaches();
-		await rm(root, { recursive: true, force: true });
-		await rm(packageRoot, { recursive: true, force: true });
+		await rm(root, { force: true, recursive: true });
+		await rm(packageRoot, { force: true, recursive: true });
 	}
 });
 
@@ -135,7 +137,9 @@ test('generated source identities reject escaped or malformed paths', () => {
 	expect(relative(client, unrelated)).toMatch(
 		/^sources[\\/]_external[\\/]h-[0-9a-z]{13}[\\/]useCredits\.js$/
 	);
-	expect(vueModuleSourcePath(client, unrelated, join('/', 'unrelated-project'))).toBeNull();
+	expect(
+		vueModuleSourcePath(client, unrelated, join('/', 'unrelated-project'))
+	).toBeNull();
 	expect(
 		vueModuleSourcePath(client, join(root, 'server', 'other.js'))
 	).toBeNull();
@@ -152,10 +156,23 @@ test('generated source identities reject escaped or malformed paths', () => {
 
 test('generated source paths never contain the project root', () => {
 	const projectRoot = join(tmpdir(), 'vue-mirror', 'machine', 'app');
-	const client = join(projectRoot, '.absolutejs', 'generated', 'vue', 'client');
+	const client = join(
+		projectRoot,
+		'.absolutejs',
+		'generated',
+		'vue',
+		'client'
+	);
 	const inside = join(projectRoot, 'src', 'frontend', 'vue', 'Lazy.vue');
 	const sibling = join(projectRoot, '..', 'shared', 'useShared.ts');
-	const hoisted = join(projectRoot, '..', '..', 'node_modules', 'ui', 'Btn.vue');
+	const hoisted = join(
+		projectRoot,
+		'..',
+		'..',
+		'node_modules',
+		'ui',
+		'Btn.vue'
+	);
 	const contained = (output: string) => relative(client, output);
 
 	expect(contained(vueModuleOutputPath(client, inside, projectRoot))).toBe(
@@ -207,7 +224,11 @@ test('generated source paths never contain the project root', () => {
 		)
 	).toBe('../../../src/util.js');
 	expect(
-		vueRelativeOutputImport(sibling, hoisted.replace(/\.vue$/, '.js'), projectRoot)
+		vueRelativeOutputImport(
+			sibling,
+			hoisted.replace(/\.vue$/, '.js'),
+			projectRoot
+		)
 	).toBe('../../2/node_modules/ui/Btn.js');
 });
 
@@ -235,7 +256,10 @@ test('a Vue tree outside the project builds without its absolute path', async ()
 			join(vueRoot, 'state', 'index.ts'),
 			"import {base} from './base';import {suffix} from '../shared/suffix';export const label=`${base}${suffix}`;"
 		);
-		await Bun.write(join(vueRoot, 'state', 'base.ts'), 'export const base=4;');
+		await Bun.write(
+			join(vueRoot, 'state', 'base.ts'),
+			'export const base=4;'
+		);
 		await Bun.write(
 			join(vueRoot, 'shared', 'suffix.ts'),
 			"export const suffix='2';"
@@ -243,7 +267,9 @@ test('a Vue tree outside the project builds without its absolute path', async ()
 		clearVueHmrCaches();
 		const result = await compileVue([page], vueRoot, false);
 		const browser = await Bun.build({
-			entrypoints: [result.vueClientPaths[0]!],
+			entrypoints: [
+				required(result.vueClientPaths[0], 'a Vue client entry')
+			],
 			outdir: join(root, 'browser'),
 			splitting: true,
 			target: 'browser'
@@ -255,23 +281,29 @@ test('a Vue tree outside the project builds without its absolute path', async ()
 				'vue-unrelated-tree-'
 			);
 		expect(
-			relative(generated, result.vueClientPaths[0]!)
+			relative(
+				generated,
+				required(result.vueClientPaths[0], 'a Vue client entry')
+			)
 		).not.toContain('vue-unrelated-tree-');
 		const server = await Bun.build({
-			entrypoints: [result.vueServerPaths[0]!],
+			entrypoints: [
+				required(result.vueServerPaths[0], 'a Vue server entry')
+			],
 			outdir: join(root, 'bun'),
 			target: 'bun'
 		});
 		expect(server.success).toBe(true);
-		const entry = server.outputs.find((output) =>
-			output.path.endsWith('.js')
-		)!;
+		const entry = required(
+			server.outputs.find((output) => output.path.endsWith('.js')),
+			'a JavaScript output'
+		);
 		const module = await import(pathToFileURL(entry.path).href);
 		const html = await renderToString(createSSRApp(module.default));
 		expect(html).toContain('card 4');
 		expect(html).toContain('42');
 	} finally {
 		clearVueHmrCaches();
-		await rm(root, { recursive: true, force: true });
+		await rm(root, { force: true, recursive: true });
 	}
 });

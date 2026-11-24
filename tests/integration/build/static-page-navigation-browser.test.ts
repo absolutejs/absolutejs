@@ -132,13 +132,15 @@ const createApp = (
 		// The published client runtime, as an installed app would import it.
 		if (pathname.startsWith('/dist/')) {
 			const distFile = join(repoRoot, pathname.slice(1));
-			if (!existsSync(distFile)) return new Response(null, { status: 404 });
+			if (!existsSync(distFile))
+				return new Response(null, { status: 404 });
 
 			return new Response(Bun.file(distFile), {
 				headers: { 'Content-Type': contentType(distFile) }
 			});
 		}
-		if (extname(pathname) === '') return new Response('not found', { status: 404 });
+		if (extname(pathname) === '')
+			return new Response('not found', { status: 404 });
 		const filePath = join(buildDir, pathname);
 		if (!existsSync(filePath)) return new Response(null, { status: 404 });
 
@@ -225,7 +227,9 @@ const pathnameOf = (page: Page) => new URL(page.url()).pathname;
 
 const canTearDown = (page: Page) =>
 	page.evaluate(
-		() => typeof Reflect.get(window, '__ABSOLUTE_PAGE_DISPOSE__') === 'function'
+		() =>
+			typeof Reflect.get(window, '__ABSOLUTE_PAGE_DISPOSE__') ===
+			'function'
 	);
 
 describe('a static page swapped in by another page', () => {

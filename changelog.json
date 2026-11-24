@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "`absolute prettier` left the build output alone by ignoring every directory named `build`, so source in `src/build/` or `tests/build/` was never formatted or checked and the command reported a pass. It now ignores the directory the config says the build goes to (`buildDirectory`, `build` by default; each service's own in a workspace), the same rule `absolute typecheck` got in beta.356, and the two share one definition. `absolute fmt` was never affected: it reads only the project's `.prettierignore`. A project that formats with `absolute prettier --check` and has source in a directory named `build` may see files reported that were skipped before.",
+					"kind": "fixed",
+					"summary": "`absolute prettier` formats source in directories named `build` instead of skipping them"
+				}
+			],
+			"date": "2026-11-24",
+			"version": "0.20.0-beta.358"
+		},
+		{
+			"changes": [
+				{
 					"detail": "Vue recovers from a hydration mismatch by replacing the server's nodes, so in development the page usually still looks right while the cause ships, and the only sign was a console warning. In development a Vue page now collects Vue's hydration warnings (through `app.config.warnHandler`, chained after any handler a `setupApp` hook installs) and shows them on the error overlay after mount, with the usual causes: reading `window`, storage or a cookie during render, a teleport into an element of the page, a time or random value. Production is unchanged; Vue's own error still reaches the app's error reporting.",
 					"kind": "added",
 					"summary": "A Vue hydration mismatch shows on the development error overlay"

@@ -1,8 +1,11 @@
 node_modules
 dist
-build/
-!src/build/
-!src/build/**
+# Build output, named by where it is. A bare `build/` here matched every
+# directory of that name, so tests/unit/build and tests/integration/build
+# were never formatted.
+/build/
+example/build/
+tests/fixtures/**/build/
 *.min.js
 # Vendored third-party code — keep as faithful upstream/bundled output.
 **/vendor/**

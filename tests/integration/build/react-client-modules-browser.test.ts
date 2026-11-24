@@ -12,7 +12,11 @@ import { ensureDistBuild } from '../../helpers/ensureDistBuild';
  * app's React into a page that is not a React page at all. */
 
 const repoRoot = resolve(import.meta.dir, '..', '..', '..');
-const fixtureRoot = join(repoRoot, '.test-builds', `react-client-modules-${process.pid}`);
+const fixtureRoot = join(
+	repoRoot,
+	'.test-builds',
+	`react-client-modules-${process.pid}`
+);
 
 const PAGE = `export function Home() {
 	return (
@@ -60,8 +64,12 @@ beforeAll(async () => {
 	await mkdir(join(fixtureRoot, 'react', 'pages'), { recursive: true });
 	await mkdir(join(fixtureRoot, 'react', 'embeds'), { recursive: true });
 	await writeFile(join(fixtureRoot, 'react', 'pages', 'Home.tsx'), PAGE);
-	await writeFile(join(fixtureRoot, 'react', 'embeds', 'Counter.tsx'), MODULE);
-	const rel = (path: string) => relative(process.cwd(), join(fixtureRoot, path));
+	await writeFile(
+		join(fixtureRoot, 'react', 'embeds', 'Counter.tsx'),
+		MODULE
+	);
+	const rel = (path: string) =>
+		relative(process.cwd(), join(fixtureRoot, path));
 	const result = await build({
 		buildDirectory: rel('build'),
 		clientModules: { Counter: rel('react/embeds/Counter.tsx') },
@@ -79,6 +87,7 @@ module.mountCounter(document.getElementById('host'), module.moduleName);
 </script></body></html>`;
 
 	const server = Bun.serve({
+		port: 0,
 		fetch: async (request) => {
 			const { pathname } = new URL(request.url);
 			if (extname(pathname) === '')
@@ -86,13 +95,13 @@ module.mountCounter(document.getElementById('host'), module.moduleName);
 					headers: { 'Content-Type': 'text/html; charset=utf-8' }
 				});
 			const filePath = join(buildDir, pathname);
-			if (!existsSync(filePath)) return new Response(null, { status: 404 });
+			if (!existsSync(filePath))
+				return new Response(null, { status: 404 });
 
 			return new Response(await readFile(filePath, 'utf-8'), {
 				headers: { 'Content-Type': 'text/javascript; charset=utf-8' }
 			});
-		},
-		port: 0
+		}
 	});
 	origin = `http://localhost:${server.port}`;
 	stop = () => server.stop(true);
@@ -115,17 +124,21 @@ describe('a client module', () => {
 		expect(code).toContain('/react/vendor/');
 	});
 
-	test('mounts with the app\'s React in a page that is not a React page', async () => {
+	test("mounts with the app's React in a page that is not a React page", async () => {
 		const errors: string[] = [];
 		const session = await openPage(`${origin}/`, { waitUntil: 'load' });
 		try {
 			const { page } = session;
 			page.on('pageerror', (error) => errors.push(error.message));
 			await page.waitForSelector('#embedded', { timeout: 15_000 });
-			expect((await page.textContent('#embedded'))?.trim()).toBe('counter 0');
+			expect((await page.textContent('#embedded'))?.trim()).toBe(
+				'counter 0'
+			);
 			await page.click('#embedded');
 			await page.click('#embedded');
-			expect((await page.textContent('#embedded'))?.trim()).toBe('counter 2');
+			expect((await page.textContent('#embedded'))?.trim()).toBe(
+				'counter 2'
+			);
 			expect(errors).toEqual([]);
 		} finally {
 			await session.close();

@@ -4,13 +4,12 @@ import { expandHtmlIncludes } from '../../../src/build/htmlIncludes';
 
 const ROOT = '/project/html';
 
-const filesystem =
-	(files: Record<string, string>) => (path: string) => {
-		const source = files[path];
-		if (source === undefined) throw new Error(`ENOENT ${path}`);
+const filesystem = (files: Record<string, string>) => (path: string) => {
+	const source = files[path];
+	if (source === undefined) throw new Error(`ENOENT ${path}`);
 
-		return source;
-	};
+	return source;
+};
 
 const expand = (page: string, files: Record<string, string>) =>
 	expandHtmlIncludes(page, resolve(ROOT, 'pages/Home.html'), {
@@ -25,7 +24,8 @@ describe('expandHtmlIncludes', () => {
 			{
 				[resolve(ROOT, 'partials/header.html')]:
 					'<header><abs-include src="nav/links.html"/></header>',
-				[resolve(ROOT, 'partials/nav/links.html')]: '<a href="/">Home</a>'
+				[resolve(ROOT, 'partials/nav/links.html')]:
+					'<a href="/">Home</a>'
 			}
 		);
 
@@ -90,7 +90,10 @@ describe('expandHtmlIncludes', () => {
 
 	test('a missing file fails naming the tag and the chain', () => {
 		expect(() =>
-			expand('<abs-include src="../partials/nope.html"></abs-include>', {})
+			expand(
+				'<abs-include src="../partials/nope.html"></abs-include>',
+				{}
+			)
 		).toThrow(
 			/<abs-include src="\.\.\/partials\/nope\.html"> in pages\/Home\.html: file not found/
 		);
@@ -187,9 +190,12 @@ describe('expandHtmlIncludes', () => {
 
 	test('an unclosed include fails naming the file and line', () => {
 		expect(() =>
-			expand('<p>a</p>\n<div>\n<abs-include src="../partials/a.html">\n', {
-				[resolve(ROOT, 'partials/a.html')]: 'A'
-			})
+			expand(
+				'<p>a</p>\n<div>\n<abs-include src="../partials/a.html">\n',
+				{
+					[resolve(ROOT, 'partials/a.html')]: 'A'
+				}
+			)
 		).toThrow(
 			/Unclosed <abs-include src="\.\.\/partials\/a\.html"> in pages\/Home\.html:3/
 		);

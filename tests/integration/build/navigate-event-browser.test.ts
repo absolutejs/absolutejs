@@ -130,12 +130,9 @@ const POSTED_PAGE = `<!doctype html>
 <html lang="en"><head><title>Posted</title></head>
 <body><div id="posted-page">posted</div></body></html>`;
 
-const createApp = (
-	buildDir: string,
-	manifest: Record<string, string>,
-	Page: unknown
-) => {
-	return async (request: Request) => {
+const createApp =
+	(buildDir: string, manifest: Record<string, string>, Page: unknown) =>
+	async (request: Request) => {
 		const { pathname } = new URL(request.url);
 		if (pathname === '/posted')
 			return new Response(POSTED_PAGE, {
@@ -163,7 +160,6 @@ const createApp = (
 			headers: { 'Content-Type': contentType(filePath) }
 		});
 	};
-};
 
 beforeAll(async () => {
 	await ensureDistBuild();
@@ -277,7 +273,8 @@ const svelteArrived = (page: Page) =>
 const queryShown = async (page: Page) => {
 	await page.waitForFunction(
 		() =>
-			(document.getElementById('query')?.textContent?.trim() ?? '') !== '',
+			(document.getElementById('query')?.textContent?.trim() ?? '') !==
+			'',
 		undefined,
 		{ timeout: 10_000 }
 	);
@@ -298,9 +295,9 @@ describe('a GET form submission', () => {
 			await page.click('#search-submit');
 			await svelteArrived(page);
 
-			expect(new URL(page.url()).pathname + new URL(page.url()).search).toBe(
-				'/svelte?q=hello'
-			);
+			expect(
+				new URL(page.url()).pathname + new URL(page.url()).search
+			).toBe('/svelte?q=hello');
 			expect(await sameDocument(page)).toBe(true);
 			expect(await queryShown(page)).toBe('hello');
 			expect(seen.documentLoads).toEqual([]);
@@ -433,9 +430,12 @@ describe('a browser with no Navigation API', () => {
 				expect(seen.documentLoads).toEqual([]);
 
 				await page.click('#to-react');
-				await page.waitForSelector('#react-page[data-hydrated="true"]', {
-					timeout: 20_000
-				});
+				await page.waitForSelector(
+					'#react-page[data-hydrated="true"]',
+					{
+						timeout: 20_000
+					}
+				);
 				await page.click('#search-submit');
 				await page.waitForSelector('#svelte-page', { timeout: 20_000 });
 

@@ -21,12 +21,42 @@ const isIdentChar = (c: string) => /[A-Za-z0-9_$]/.test(c);
 // A `/` starts a regex literal (not division) when the previous significant
 // token is one of these chars/keywords, or nothing (start of file).
 const REGEX_OK_AFTER_CHAR = new Set([
-	'(', ',', '=', ':', '[', '!', '&', '|', '?', '{', '}', ';',
-	'+', '-', '*', '/', '%', '^', '~', '<', '>'
+	'(',
+	',',
+	'=',
+	':',
+	'[',
+	'!',
+	'&',
+	'|',
+	'?',
+	'{',
+	'}',
+	';',
+	'+',
+	'-',
+	'*',
+	'/',
+	'%',
+	'^',
+	'~',
+	'<',
+	'>'
 ]);
 const REGEX_OK_AFTER_WORD = new Set([
-	'return', 'typeof', 'instanceof', 'in', 'of', 'new', 'delete', 'void',
-	'do', 'else', 'yield', 'await', 'case'
+	'return',
+	'typeof',
+	'instanceof',
+	'in',
+	'of',
+	'new',
+	'delete',
+	'void',
+	'do',
+	'else',
+	'yield',
+	'await',
+	'case'
 ]);
 
 export type MaskedSource = {
@@ -58,7 +88,10 @@ const legacyMaskLiterals = (src: string) => {
 		let j = start + 1;
 		while (j < n) {
 			const c = src[j];
-			if (c === '\\') { j += 2; continue; }
+			if (c === '\\') {
+				j += 2;
+				continue;
+			}
 			if (c === q) return j + 1;
 			if (c === '\n') return j; // unterminated guard
 			j++;
@@ -81,15 +114,22 @@ const legacyMaskLiterals = (src: string) => {
 		let ipSpace = false;
 		while (j < n && depth > 0) {
 			const c = src[j] as string; // j < n guarantees a char
-			if (c === '\\') { j += 2; continue; }
+			if (c === '\\') {
+				j += 2;
+				continue;
+			}
 			if (c === '`') {
 				j = endOfTemplate(j);
-				ipChar = ')'; ipWord = ''; ipSpace = false;
+				ipChar = ')';
+				ipWord = '';
+				ipSpace = false;
 				continue;
 			}
 			if (c === '"' || c === "'") {
 				j = endOfString(j);
-				ipChar = '"'; ipWord = ''; ipSpace = false;
+				ipChar = '"';
+				ipWord = '';
+				ipSpace = false;
 				continue;
 			}
 			if (c === '/' && src[j + 1] === '/') {
@@ -111,7 +151,9 @@ const legacyMaskLiterals = (src: string) => {
 				const e = endOfRegex(j);
 				if (e > 0) {
 					j = e;
-					ipChar = ')'; ipWord = ''; ipSpace = false;
+					ipChar = ')';
+					ipWord = '';
+					ipSpace = false;
 					continue;
 				}
 			}
@@ -138,9 +180,15 @@ const legacyMaskLiterals = (src: string) => {
 		let j = start + 1;
 		while (j < n) {
 			const c = src[j];
-			if (c === '\\') { j += 2; continue; }
+			if (c === '\\') {
+				j += 2;
+				continue;
+			}
 			if (c === '`') return j + 1;
-			if (c === '$' && src[j + 1] === '{') { j = endOfInterp(j + 2); continue; }
+			if (c === '$' && src[j + 1] === '{') {
+				j = endOfInterp(j + 2);
+				continue;
+			}
 			j++;
 		}
 
@@ -151,11 +199,17 @@ const legacyMaskLiterals = (src: string) => {
 		let inClass = false;
 		while (j < n) {
 			const c = src[j];
-			if (c === '\\') { j += 2; continue; }
+			if (c === '\\') {
+				j += 2;
+				continue;
+			}
 			if (c === '\n') return -1; // unterminated → treat the slash as division
 			if (c === '[') inClass = true;
 			else if (c === ']') inClass = false;
-			else if (c === '/' && !inClass) { j++; break; }
+			else if (c === '/' && !inClass) {
+				j++;
+				break;
+			}
 			j++;
 		}
 		while (j < n && /[a-z]/i.test(src[j] ?? '')) j++; // flags
@@ -393,7 +447,8 @@ describe('maskLiterals — equivalent to the character-by-character scanner', ()
 			'x\v/re/',
 			'\r\n/re/'
 		];
-		for (const source of cases) expectSameMask(source, JSON.stringify(source));
+		for (const source of cases)
+			expectSameMask(source, JSON.stringify(source));
 	});
 
 	test('seeded fuzz over tokenizer-relevant characters', () => {
@@ -407,11 +462,57 @@ describe('maskLiterals — equivalent to the character-by-character scanner', ()
 			return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
 		};
 		const alphabet = [
-			'/', '/', '/', '"', "'", String.fromCharCode(96), '\\', '$', '{', '}',
-			'*', '\n', '\n', ' ', ' ', '\t', '\r', '[', ']', '(', ')', '=', ',',
-			';', ':', '!', '+', '-', 'a', 'b', 'x', 'g', 'i', '_', '0', '9',
-			'return', 'typeof', 'in', 'of', 'new', 'else', 'from "react"',
-			'import "x"', 'require(', 'import(', '${', '*/', '//', '/*', SENTINEL
+			'/',
+			'/',
+			'/',
+			'"',
+			"'",
+			String.fromCharCode(96),
+			'\\',
+			'$',
+			'{',
+			'}',
+			'*',
+			'\n',
+			'\n',
+			' ',
+			' ',
+			'\t',
+			'\r',
+			'[',
+			']',
+			'(',
+			')',
+			'=',
+			',',
+			';',
+			':',
+			'!',
+			'+',
+			'-',
+			'a',
+			'b',
+			'x',
+			'g',
+			'i',
+			'_',
+			'0',
+			'9',
+			'return',
+			'typeof',
+			'in',
+			'of',
+			'new',
+			'else',
+			'from "react"',
+			'import "x"',
+			'require(',
+			'import(',
+			'${',
+			'*/',
+			'//',
+			'/*',
+			SENTINEL
 		];
 		for (let round = 0; round < 6000; round += 1) {
 			const length = Math.floor(random() * 40);

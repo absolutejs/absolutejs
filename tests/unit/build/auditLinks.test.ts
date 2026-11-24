@@ -8,6 +8,7 @@ import {
 	deadLinkWarning,
 	pathMatchesPattern
 } from '../../../src/build/auditLinks';
+import type { BuildConfig } from '../../../types/build';
 
 /* The dead-link check: the typo `route()` cannot catch, because a
  * template attribute is not a typed position and an HTML route is not a
@@ -34,7 +35,9 @@ const makeProject = async (files: Record<string, string>) => {
 
 afterEach(async () => {
 	await Promise.all(
-		roots.splice(0).map((root) => rm(root, { force: true, recursive: true }))
+		roots
+			.splice(0)
+			.map((root) => rm(root, { force: true, recursive: true }))
 	);
 });
 
@@ -72,9 +75,7 @@ describe('collectLinks', () => {
 				.map((link) => `${link.href}@${link.line}`)
 				.sort()
 				.join(' ')
-		).toBe(
-			'/html-target@2 /react-target@2 /svelte-target@1 /vue-target@2'
-		);
+		).toBe('/html-target@2 /react-target@2 /svelte-target@1 /vue-target@2');
 		expect(links.map((link) => link.file).sort()).toEqual([
 			'html/pages/Home.html',
 			'react/pages/Home.tsx',
@@ -128,7 +129,7 @@ describe('collectLinks', () => {
 });
 
 describe('auditLinks', () => {
-	const config = { fileRoutes: true, reactDirectory: 'react' };
+	const config: BuildConfig = { fileRoutes: true, reactDirectory: 'react' };
 
 	test('reports a link no route serves, and accepts the ones that are served', async () => {
 		const root = await makeProject({
@@ -149,9 +150,9 @@ describe('auditLinks', () => {
 
 		/* One finding, and it names where to look — a count alone would
 		 * pass with the wrong link reported. */
-		expect(dead.map((link) => `${link.file}:${link.line} ${link.path}`)).toEqual(
-			['src/Nav.tsx:6 /pricng']
-		);
+		expect(
+			dead.map((link) => `${link.file}:${link.line} ${link.path}`)
+		).toEqual(['src/Nav.tsx:6 /pricng']);
 	});
 
 	/* Served by the asset plugin, not by a route, so no route table will
@@ -200,7 +201,12 @@ describe('deadLinkWarning', () => {
 	test('names each link and how to silence a plugin route', () => {
 		const warning =
 			deadLinkWarning([
-				{ file: 'src/Nav.tsx', href: '/pricng', line: 7, path: '/pricng' }
+				{
+					file: 'src/Nav.tsx',
+					href: '/pricng',
+					line: 7,
+					path: '/pricng'
+				}
 			]) ?? '';
 
 		expect(warning).toContain('1 link points at a path no route serves');

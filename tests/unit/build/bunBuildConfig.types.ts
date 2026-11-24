@@ -1,8 +1,5 @@
 import { defineConfig } from '../../../src/utils/defineConfig';
-import type {
-	BuildConfig,
-	BunBuildConfigOverride
-} from '../../../types/build';
+import type { BuildConfig, BunBuildConfigOverride } from '../../../types/build';
 
 const validOverride: BunBuildConfigOverride = {
 	minify: {
@@ -20,13 +17,11 @@ const validOverride: BunBuildConfigOverride = {
 };
 
 const validSingleServiceConfig = defineConfig({
+	bunBuild: validOverride,
 	entry: 'src/backend/server.ts',
-	reactDirectory: 'src/react',
 	pwa: {
 		manifest: {
-			icons: [
-				{ src: '/icon.svg', sizes: 'any', type: 'image/svg+xml' }
-			],
+			icons: [{ sizes: 'any', src: '/icon.svg', type: 'image/svg+xml' }],
 			name: 'Absolute App',
 			shortName: 'Absolute'
 		},
@@ -35,13 +30,11 @@ const validSingleServiceConfig = defineConfig({
 		},
 		sync: true
 	},
-	bunBuild: validOverride
+	reactDirectory: 'src/react'
 });
 
 const validWorkspaceConfig = defineConfig({
 	api: {
-		entry: 'src/backend/server.ts',
-		reactDirectory: 'src/react',
 		bunBuild: {
 			default: {
 				sourcemap: 'linked'
@@ -51,7 +44,9 @@ const validWorkspaceConfig = defineConfig({
 					identifiers: false
 				}
 			}
-		}
+		},
+		entry: 'src/backend/server.ts',
+		reactDirectory: 'src/react'
 	},
 	worker: {
 		command: ['bun', 'run', 'worker.ts'],
@@ -97,14 +92,14 @@ const invalidTargetOverride: BunBuildConfigOverride = {
  * `defineConfig` and never held; nobody knew, because nothing in this
  * directory was type-checked. The build drops the key either way. */
 const invalidOutdirConfig: BuildConfig = {
-	entry: 'src/backend/server.ts',
-	reactDirectory: 'src/react',
 	bunBuild: {
 		reactClient: {
 			// @ts-expect-error outdir is owned by Absolute build passes.
 			outdir: 'custom'
 		}
-	}
+	},
+	entry: 'src/backend/server.ts',
+	reactDirectory: 'src/react'
 };
 
 void validSingleServiceConfig;

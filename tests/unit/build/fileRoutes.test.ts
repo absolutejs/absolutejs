@@ -110,9 +110,7 @@ describe('fileRoutePath', () => {
 			typePath: '/'
 		});
 		// A group contributes nothing, so it cannot be nested into a param.
-		expect(
-			fileRoutePath('react', '(shop)/[category]/[item].tsx')
-		).toEqual({
+		expect(fileRoutePath('react', '(shop)/[category]/[item].tsx')).toEqual({
 			paths: ['/:category/:item'],
 			typePath: '/:category/:item'
 		});
@@ -170,9 +168,9 @@ describe('scanFileRoutes', () => {
 	test('finds route files, server modules and skips private files', async () => {
 		const root = await makeProject({
 			'react/routes/_parts/Shell.tsx': '',
+			'react/routes/blog/_Card.tsx': '',
 			'react/routes/blog/[slug].server.ts': '',
 			'react/routes/blog/[slug].tsx': '',
-			'react/routes/blog/_Card.tsx': '',
 			'react/routes/error.tsx': '',
 			'react/routes/index.test.tsx': '',
 			'react/routes/index.tsx': '',
@@ -198,7 +196,9 @@ describe('scanFileRoutes', () => {
 				['svelte', '/docs']
 			]);
 			const post = routes.find((route) => route.path === '/blog/:slug');
-			expect(post?.server).toEndWith('react/routes/blog/[slug].server.ts');
+			expect(post?.server).toEndWith(
+				'react/routes/blog/[slug].server.ts'
+			);
 			expect(fileRoutesOf('svelte')).toHaveLength(1);
 			expect(fileRouteNamed(post?.name ?? '')?.path).toBe('/blog/:slug');
 			expect(
@@ -208,9 +208,9 @@ describe('scanFileRoutes', () => {
 				fileRouteFor(join(base, 'react/routes/blog/_Card.tsx'))
 			).toBeUndefined();
 			// A route created after the scan is still recognised by path.
-			expect(
-				fileRouteFor(join(base, 'react/routes/new.tsx'))?.path
-			).toBe('/new');
+			expect(fileRouteFor(join(base, 'react/routes/new.tsx'))?.path).toBe(
+				'/new'
+			);
 			expect(isInFileRouteRoot(join(base, 'react/routes/x.ts'))).toBe(
 				true
 			);

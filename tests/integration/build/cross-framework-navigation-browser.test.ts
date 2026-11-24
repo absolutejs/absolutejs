@@ -309,11 +309,14 @@ const withPage = async (
 	run: (page: Page, seen: PageObservations) => Promise<void>,
 	options: { withoutNavigationApi?: boolean } = {}
 ) => {
-	const seen: PageObservations = { documentLoads: [], errors: [], scripts: [] };
-	const session: BrowserSession = await openPage(
-		`${baseUrlOf(app)}${path}`,
-		{ waitUntil: 'load' }
-	);
+	const seen: PageObservations = {
+		documentLoads: [],
+		errors: [],
+		scripts: []
+	};
+	const session: BrowserSession = await openPage(`${baseUrlOf(app)}${path}`, {
+		waitUntil: 'load'
+	});
 	try {
 		const { page } = session;
 		if (options.withoutNavigationApi) {
@@ -337,14 +340,19 @@ const withPage = async (
 				seen.scripts.push(request.url());
 			}
 		});
-		await waitHydrated(page, path === '/react' ? '#react-page' : '#svelte-page');
+		await waitHydrated(
+			page,
+			path === '/react' ? '#react-page' : '#svelte-page'
+		);
 		// Survives a soft navigation, gone after a real page load.
 		await page.evaluate(() => {
 			Reflect.set(window, '__sameDocument', true);
 			const violations: string[] = [];
 			Reflect.set(window, '__cspViolations', violations);
 			document.addEventListener('securitypolicyviolation', (event) => {
-				violations.push(`${event.violatedDirective} ${event.blockedURI}`);
+				violations.push(
+					`${event.violatedDirective} ${event.blockedURI}`
+				);
 			});
 		});
 		await run(page, seen);
@@ -356,18 +364,12 @@ const withPage = async (
 const sameDocument = (page: Page) =>
 	page.evaluate(() => Reflect.get(window, '__sameDocument') === true);
 
-const textOf = async (page: Page, selector: string) =>
-	(await page.locator(selector).textContent())?.trim();
-
 const colorOf = (page: Page, selector: string) =>
-	page.evaluate(
-		(target) => {
-			const element = document.querySelector(target);
+	page.evaluate((target) => {
+		const element = document.querySelector(target);
 
-			return element ? getComputedStyle(element).color : null;
-		},
-		selector
-	);
+		return element ? getComputedStyle(element).color : null;
+	}, selector);
 
 const stylesheetHrefs = (page: Page) =>
 	page.evaluate(() =>
@@ -409,7 +411,10 @@ const keptSwappedElement = (page: Page, selector: string) =>
 	);
 
 const headCount = (page: Page, selector: string) =>
-	page.evaluate((target) => document.querySelectorAll(target).length, selector);
+	page.evaluate(
+		(target) => document.querySelectorAll(target).length,
+		selector
+	);
 
 const roundTrip = async (page: Page, seen: PageObservations) => {
 	for (let click = 0; click < 3; click += 1) {
@@ -469,19 +474,22 @@ describe('cross-framework navigation', () => {
 			await page.click('#to-svelte');
 			await waitHydrated(page, '#svelte-page');
 			const svelteSheets = await stylesheetHrefs(page);
-			expect(svelteSheets.some((href) => href.includes('svelte-nav'))).toBe(
-				true
+			expect(
+				svelteSheets.some((href) => href.includes('svelte-nav'))
+			).toBe(true);
+			expect(
+				svelteSheets.some((href) => href.includes('react-nav'))
+			).toBe(false);
+			expect(await colorOf(page, '.svelte-styled')).toBe(
+				'rgb(0, 0, 200)'
 			);
-			expect(svelteSheets.some((href) => href.includes('react-nav'))).toBe(
-				false
-			);
-			expect(await colorOf(page, '.svelte-styled')).toBe('rgb(0, 0, 200)');
 			// The Svelte component's own (inline, scoped) CSS applies too.
 			expect(
 				await page.evaluate(
 					() =>
 						getComputedStyle(
-							document.querySelector('.scoped-title') ?? document.body
+							document.querySelector('.scoped-title') ??
+								document.body
 						).letterSpacing
 				)
 			).toBe('3px');
@@ -492,9 +500,9 @@ describe('cross-framework navigation', () => {
 			expect(reactSheets.some((href) => href.includes('react-nav'))).toBe(
 				true
 			);
-			expect(reactSheets.some((href) => href.includes('svelte-nav'))).toBe(
-				false
-			);
+			expect(
+				reactSheets.some((href) => href.includes('svelte-nav'))
+			).toBe(false);
 			expect(await colorOf(page, '.react-styled')).toBe('rgb(200, 0, 0)');
 			expect(await page.locator('.scoped-title').count()).toBe(0);
 		});
@@ -513,9 +521,13 @@ describe('cross-framework navigation', () => {
 			await page.goBack();
 			await waitHydrated(page, '#react-page');
 			expect(pathnameOf(page)).toBe('/react');
-			await page.waitForFunction(() => window.scrollY === 1200, undefined, {
-				timeout: 5_000
-			});
+			await page.waitForFunction(
+				() => window.scrollY === 1200,
+				undefined,
+				{
+					timeout: 5_000
+				}
+			);
 
 			await page.goForward();
 			await waitHydrated(page, '#svelte-page');
@@ -534,7 +546,13 @@ describe('cross-framework navigation', () => {
 			plain,
 			'/react',
 			async (page, seen) => {
-				expect(await page.evaluate(() => 'navigation' in window && window.navigation === undefined)).toBe(true);
+				expect(
+					await page.evaluate(
+						() =>
+							'navigation' in window &&
+							window.navigation === undefined
+					)
+				).toBe(true);
 				await roundTrip(page, seen);
 				await page.goBack();
 				await waitHydrated(page, '#svelte-page');
@@ -557,7 +575,9 @@ describe('cross-framework navigation', () => {
 			expect(policy).toContain("'strict-dynamic'");
 			await roundTrip(page, seen);
 			expect(
-				await page.evaluate(() => Reflect.get(window, '__cspViolations'))
+				await page.evaluate(() =>
+					Reflect.get(window, '__cspViolations')
+				)
 			).toEqual([]);
 			expect(seen.errors).toEqual([]);
 		});

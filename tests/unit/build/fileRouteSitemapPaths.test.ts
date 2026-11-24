@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileRouteSitemapPaths } from '../../../src/build/fileRouteSitemapPaths';
 import { generateSitemap } from '../../../src/utils/generateSitemap';
+import type { BuildConfig } from '../../../types/build';
 
 /* The sitemap was EMPTY for a project whose pages are all file routes —
  * measured on the file-routes fixture: 20-odd routes and
@@ -34,11 +35,13 @@ const makeProject = async (files: Record<string, string>) => {
 
 afterEach(async () => {
 	await Promise.all(
-		roots.splice(0).map((root) => rm(root, { force: true, recursive: true }))
+		roots
+			.splice(0)
+			.map((root) => rm(root, { force: true, recursive: true }))
 	);
 });
 
-const config = { fileRoutes: true, reactDirectory: 'react' };
+const config: BuildConfig = { fileRoutes: true, reactDirectory: 'react' };
 
 describe('fileRouteSitemapPaths', () => {
 	test('lists a static route and skips a dynamic one with nothing to enumerate', async () => {
@@ -168,9 +171,15 @@ describe('generateSitemap with file-route paths', () => {
 	});
 
 	test('an excluded path stays out however it is served', async () => {
-		await generateSitemap([], 'https://e.com', outDir, {
-			exclude: ['/draft']
-		}, { fileRoutePaths: ['/draft', '/kept'] });
+		await generateSitemap(
+			[],
+			'https://e.com',
+			outDir,
+			{
+				exclude: ['/draft']
+			},
+			{ fileRoutePaths: ['/draft', '/kept'] }
+		);
 		const xml = read();
 
 		expect(xml).not.toContain('/draft');

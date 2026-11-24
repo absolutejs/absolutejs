@@ -10,7 +10,9 @@ const writeTempFile = async (path: string, content: string) => {
 
 describe('compileSvelte', () => {
 	test('hydrates a page that streams an {#await}, like any other', async () => {
-		const root = await mkdtemp(join(tmpdir(), 'absolutejs-compile-svelte-'));
+		const root = await mkdtemp(
+			join(tmpdir(), 'absolutejs-compile-svelte-')
+		);
 		const awaitPage = join(root, 'AwaitStreamingPage.svelte');
 		const awaitChild = join(root, 'AwaitChild.svelte');
 		const plainPage = join(root, 'PlainPage.svelte');

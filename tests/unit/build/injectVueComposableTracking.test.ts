@@ -18,7 +18,7 @@ const resolveById = (commentPath: string | undefined) =>
 const evaluate = (code: string, runtimeScope: Record<string, unknown>) => {
 	const exported = code.replace(/^export \{[^}]*\};?$/m, '');
 	const body = `${exported}\nreturn { useCount: typeof useCount === "function" ? useCount : undefined, useThing: typeof useThing === "function" ? useThing : undefined, useStore: typeof useStore !== "undefined" ? useStore : undefined };`;
-	// eslint-disable-next-line @typescript-eslint/no-implied-eval
+
 	const factory = new Function('globalThis', body);
 
 	return factory(runtimeScope) as {
@@ -55,18 +55,18 @@ describe('findTopLevelStatementEnd', () => {
 	});
 
 	test('returns -1 when no terminator is found', () => {
-		expect(findTopLevelStatementEnd('var useCount = () => {\n  x;\n', 15)).toBe(
-			-1
-		);
+		expect(
+			findTopLevelStatementEnd('var useCount = () => {\n  x;\n', 15)
+		).toBe(-1);
 	});
 });
 
 describe('injectVueComposableTrackingIntoContent', () => {
 	test('leaves output without composables untouched', () => {
 		const content = '// src/a.ts\nvar helper = () => 1;\n';
-		expect(injectVueComposableTrackingIntoContent(content, resolveById)).toBe(
-			content
-		);
+		expect(
+			injectVueComposableTrackingIntoContent(content, resolveById)
+		).toBe(content);
 	});
 
 	test('wraps each composable with its own source-derived module id', () => {
@@ -107,7 +107,7 @@ describe('injectVueComposableTrackingIntoContent', () => {
 
 	test('is not confused by quotes in comments, regex literals or templates', () => {
 		const content = [
-			"// node_modules/@absolutejs/hotkeys/dist/vue.js",
+			'// node_modules/@absolutejs/hotkeys/dist/vue.js',
 			'var useHotkey = (binding, handler, options2 = {}) => {',
 			"  // don't let a stray quote break the scan",
 			'  const parts = binding.split(/["\'+]/);',
@@ -177,9 +177,9 @@ describe('injectVueComposableTrackingIntoContent', () => {
 			'var useCount = () => ({ count: ref(1) })',
 			''
 		].join('\n');
-		expect(injectVueComposableTrackingIntoContent(content, resolveById)).toBe(
-			content
-		);
+		expect(
+			injectVueComposableTrackingIntoContent(content, resolveById)
+		).toBe(content);
 	});
 });
 
@@ -187,14 +187,27 @@ describe('resolveVueComposableModuleId', () => {
 	test('maps generated client helpers back to their source under vueDir', () => {
 		const projectRoot = mkdtempSync(join(tmpdir(), 'vue-hmr-id-'));
 		const vueDir = join(projectRoot, 'src', 'frontend');
-		const generatedVueDir = join(projectRoot, '.absolutejs', 'generated', 'vue');
+		const generatedVueDir = join(
+			projectRoot,
+			'.absolutejs',
+			'generated',
+			'vue'
+		);
 		mkdirSync(join(vueDir, 'composables'), { recursive: true });
 		writeFileSync(join(vueDir, 'composables', 'useAuth.ts'), 'export {};');
-		const options = { generatedVueDir, projectRoot, vueDir };
+		const options: Parameters<typeof resolveVueComposableModuleId>[1] = {
+			generatedVueDir,
+			projectRoot,
+			vueDir
+		};
 
 		expect(
 			resolveVueComposableModuleId(
-				vueModuleOutputPath(join(generatedVueDir, 'client'), join(vueDir, 'composables/useAuth.ts'), projectRoot),
+				vueModuleOutputPath(
+					join(generatedVueDir, 'client'),
+					join(vueDir, 'composables/useAuth.ts'),
+					projectRoot
+				),
 				options
 			)
 		).toBe(join(vueDir, 'composables', 'useAuth.ts'));
@@ -202,25 +215,39 @@ describe('resolveVueComposableModuleId', () => {
 		// server wraps) instead of pointing at the generated intermediate.
 		expect(
 			resolveVueComposableModuleId(
-				vueModuleOutputPath(join(generatedVueDir, 'client'), join(vueDir, 'composables/useMissing.ts'), projectRoot),
+				vueModuleOutputPath(
+					join(generatedVueDir, 'client'),
+					join(vueDir, 'composables/useMissing.ts'),
+					projectRoot
+				),
 				options
 			)
 		).toBe(join(vueDir, 'composables', 'useMissing.ts'));
 		// Helpers outside vueDir stay inside the client tree and retain their identity.
 		expect(
 			resolveVueComposableModuleId(
-				vueModuleOutputPath(join(generatedVueDir, 'client'), resolve(vueDir, '..', 'shared/useShared.ts'), projectRoot),
+				vueModuleOutputPath(
+					join(generatedVueDir, 'client'),
+					resolve(vueDir, '..', 'shared/useShared.ts'),
+					projectRoot
+				),
 				options
 			)
 		).toBe(resolve(vueDir, '..', 'shared', 'useShared.ts'));
 		// Anything else resolves against the project root untouched.
 		expect(
-			resolveVueComposableModuleId('node_modules/lib/dist/vue.js', options)
+			resolveVueComposableModuleId(
+				'node_modules/lib/dist/vue.js',
+				options
+			)
 		).toBe(join(projectRoot, 'node_modules', 'lib', 'dist', 'vue.js'));
 		expect(
-			resolveVueComposableModuleId('src/frontend/composables/useAuth.ts', {
-				projectRoot
-			})
+			resolveVueComposableModuleId(
+				'src/frontend/composables/useAuth.ts',
+				{
+					projectRoot
+				}
+			)
 		).toBe(join(vueDir, 'composables', 'useAuth.ts'));
 	});
 });
@@ -238,7 +265,10 @@ describe('collectVueHmrOutputPaths', () => {
 			page,
 			'import { a } from "../../chunk-aaaaaaaa.js";\nimport("../../chunk-cccccccc.js");\n'
 		);
-		writeFileSync(shared, 'import "./chunk-bbbbbbbb.js";\nexport var a = 1;\n');
+		writeFileSync(
+			shared,
+			'import "./chunk-bbbbbbbb.js";\nexport var a = 1;\n'
+		);
 		writeFileSync(nested, 'export var b = 2;\n');
 		writeFileSync(dynamic, 'export var c = 3;\n');
 		writeFileSync(svelteOnly, 'export var d = 4;\n');
@@ -247,7 +277,9 @@ describe('collectVueHmrOutputPaths', () => {
 			[page],
 			[shared, nested, dynamic, svelteOnly]
 		);
-		expect(new Set(result)).toEqual(new Set([page, shared, nested, dynamic]));
+		expect(new Set(result)).toEqual(
+			new Set([page, shared, nested, dynamic])
+		);
 	});
 
 	test('returns the page bundles alone when there are no chunks', () => {

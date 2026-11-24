@@ -121,8 +121,9 @@ const contentType = (path: string) => {
 	return 'application/octet-stream';
 };
 
-const createApp = (buildDir: string, manifest: Record<string, string>) => {
-	return async (request: Request) => {
+const createApp =
+	(buildDir: string, manifest: Record<string, string>) =>
+	async (request: Request) => {
 		const { pathname } = new URL(request.url);
 		setCurrentIslandManifest(manifest, buildDir);
 		if (pathname === '/island')
@@ -146,7 +147,6 @@ const createApp = (buildDir: string, manifest: Record<string, string>) => {
 			headers: { 'Content-Type': contentType(filePath) }
 		});
 	};
-};
 
 beforeAll(async () => {
 	await ensureDistBuild();
