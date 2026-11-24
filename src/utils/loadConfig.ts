@@ -5,6 +5,8 @@ import type {
 	ServiceConfig,
 	WorkspaceConfig
 } from '../../types/build';
+import { describeUnknownConfigKeys } from './configKeys';
+import { logWarn } from './logger';
 
 const RESERVED_TOP_LEVEL_KEYS = new Set([
 	'assetsDirectory',
@@ -120,11 +122,27 @@ const projectServiceConfig = (config: ConfigInput, serviceName: string) => {
 	return serviceConfig;
 };
 
+/* Said once a process: the config is loaded by the build, by `prepare()`
+ * and by several commands, and one misspelt key is one thing to fix. */
+const reportedUnknownKeys = new Set<string>();
+
+const warnUnknownConfigKeys = (config: Record<string, unknown>) => {
+	describeUnknownConfigKeys(config)
+		.filter((message) => !reportedUnknownKeys.has(message))
+		.forEach((message) => {
+			reportedUnknownKeys.add(message);
+			logWarn(message);
+		});
+};
+
 export const loadConfig = async (configPath?: string) => {
 	const config = await loadRawConfig(configPath);
 	const serviceName = process.env.ABSOLUTE_WORKSPACE_SERVICE_NAME;
 	if (typeof serviceName === 'string' && serviceName.length > 0) {
-		return projectServiceConfig(config, serviceName);
+		const service = projectServiceConfig(config, serviceName);
+		warnUnknownConfigKeys(service);
+
+		return service;
 	}
 
 	if (isWorkspaceConfig(config)) {
@@ -132,6 +150,8 @@ export const loadConfig = async (configPath?: string) => {
 			'absolute.config.ts defines multiple services. Use `absolute workspace dev` or set ABSOLUTE_WORKSPACE_SERVICE_NAME before loading a specific service config.'
 		);
 	}
+
+	warnUnknownConfigKeys(config);
 
 	return config;
 };

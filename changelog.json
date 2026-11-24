@@ -5,6 +5,24 @@
 		{
 			"changes": [
 				{
+					"detail": "`defineConfig` infers its argument, and TypeScript makes no excess-property check on an inferred type, so a misspelt key (`reactDirectroy`) or a key that no longer exists passed the checker and the setting silently did not happen. `defineConfig` now gives a type error on any top-level key that is not a config key, and on any key of a workspace service that its kind of service does not have; the error names `UnknownConfigKey<\"the key\">` on the line that sets it. For a config that is not type-checked, loading it prints one warning per unknown key, with the key it was probably meant to be when one is close, and carries on. Nested keys (inside `images`, `tailwind` and so on) are not covered. Also fixed: a workspace where one service set `buildDirectory` and another did not was refused by `defineConfig` as two services sharing a build directory.",
+					"kind": "breaking",
+					"migration": {
+						"instruction": "If typecheck now reports `UnknownConfigKey<\"…\">` in absolute.config.ts, correct the spelling of that key or delete it; it was never read. Values of your own that were kept in the config object belong in a separate export.",
+						"manual": true
+					},
+					"summary": "`defineConfig` rejects config keys that do not exist, and loading a config warns about them",
+					"symbols": [
+						"defineConfig"
+					]
+				}
+			],
+			"date": "2026-11-24",
+			"version": "0.20.0-beta.355"
+		},
+		{
+			"changes": [
+				{
 					"detail": "`astroDirectory` was declared on the build config, reserved as a top-level key and copied into the production runtime, and read by nothing: no scanner, builder or compiler, because there is no Astro adapter. Setting it type-checked and did nothing. It is removed from all three places. A config typed as `BuildConfig` that still sets it now gets a type error; delete the key, nothing else changes. A config passed through `defineConfig` is unaffected, because `defineConfig` accepts keys it does not know.",
 					"kind": "breaking",
 					"migration": {
