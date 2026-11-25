@@ -196,6 +196,9 @@ const checkSignature = (
 	return { proof, valid: true };
 };
 
+/* A failed check, typed as the result so callers can narrow on `valid`. */
+const invalid = (reason: string): Result => ({ reason, valid: false });
+
 /** Whether the committed proof covers this exact command, tree and Bun,
  *  signed by the trusted key. Fails closed with the first reason found. */
 export const verifyCommandProof = (
@@ -209,20 +212,13 @@ export const verifyCommandProof = (
 	if (!read.valid) return read;
 	const { proof } = read;
 	if (JSON.stringify(proof.command) !== JSON.stringify(command))
-		return {
-			reason: 'command differs from the recorded command',
-			valid: false
-		};
+		return invalid('command differs from the recorded command');
 	if (proof.bun !== Bun.version)
-		return {
-			reason: `recorded on Bun ${proof.bun}, verifying on Bun ${Bun.version}`,
-			valid: false
-		};
+		return invalid(
+			`recorded on Bun ${proof.bun}, verifying on Bun ${Bun.version}`
+		);
 	if (proof.sourceTree !== createCommandSourceTree(cwd, proofLocation))
-		return {
-			reason: 'source tree changed since the command passed',
-			valid: false
-		};
+		return invalid('source tree changed since the command passed');
 
 	return checkSignature(proof, cwd, trustedKeyLocation);
 };
