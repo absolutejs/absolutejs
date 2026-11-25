@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "Two more compiler files in `src/build/` pass the lint and are off the list of exceptions: `scanRouteRegistrations.ts` and `manifestKeys.ts`. The route scanner had no tests of its own, so 8 were written first and run against the old version before the file was restructured. 92 of the 100 files are linted; 8 remain listed, with 227 errors between them. No behaviour changes.",
+					"kind": "internal",
+					"summary": "Two more compiler files in `src/build/` pass the lint; 8 remain"
+				}
+			],
+			"date": "2026-11-25",
+			"version": "0.20.0-beta.367"
+		},
+		{
+			"changes": [
+				{
 					"detail": "Three more compiler files in `src/build/` pass the lint and are off the list of exceptions: `parseAngularConfigImports.ts`, `scanAngularPageRoutes.ts` and `scanVueSsrOnlyPages.ts`. The two Angular scanners had no tests of their own, so 15 were written first and run against the old versions before the files were restructured. 90 of the 100 files are linted; 10 remain listed, with 255 errors between them. No behaviour changes.",
 					"kind": "internal",
 					"summary": "Three more compiler files in `src/build/` pass the lint; 10 remain"

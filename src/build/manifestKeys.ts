@@ -77,7 +77,7 @@ export const deriveManifestKeys = async (
 	const definite = new Set<string>();
 	const possible = new Set<string>();
 	const patterns = ['Chunk${string}'];
-	const at = (dir: string | undefined) =>
+	const absoluteDir = (dir: string | undefined) =>
 		dir === undefined ? undefined : resolve(projectRoot, dir);
 	const fromRoot = (path: string) => toPosix(relative(projectRoot, path));
 	/* Through the build's naming function, as the build does. */
@@ -86,14 +86,14 @@ export const deriveManifestKeys = async (
 		if (output) target.add(output.key);
 	};
 
-	const reactDir = at(config.reactDirectory);
-	const svelteDir = at(config.svelteDirectory);
-	const vueDir = at(config.vueDirectory);
-	const angularDir = at(config.angularDirectory);
-	const emberDir = at(config.emberDirectory);
-	const htmlDir = at(config.htmlDirectory);
-	const htmxDir = at(config.htmxDirectory);
-	const assetsDir = at(config.assetsDirectory);
+	const reactDir = absoluteDir(config.reactDirectory);
+	const svelteDir = absoluteDir(config.svelteDirectory);
+	const vueDir = absoluteDir(config.vueDirectory);
+	const angularDir = absoluteDir(config.angularDirectory);
+	const emberDir = absoluteDir(config.emberDirectory);
+	const htmlDir = absoluteDir(config.htmlDirectory);
+	const htmxDir = absoluteDir(config.htmxDirectory);
+	const assetsDir = absoluteDir(config.assetsDirectory);
 	const fileRoutes = scanFileRoutes(config, projectRoot).routes;
 
 	// React: one hydration index per page (generateReactIndexFiles names
@@ -109,10 +109,10 @@ export const deriveManifestKeys = async (
 				.filter((route) => route.framework === 'react')
 				.map((route) => route.name)
 		].filter(Boolean);
-		for (const name of names) {
+		names.forEach((name) => {
 			add(definite, `${GENERATED}/react/indexes/${name}.js`);
 			add(possible, `${GENERATED}/react/indexes/${name}.css`);
-		}
+		});
 	}
 
 	// Client modules: `<Name>Module` each (build/clientModules.ts).
@@ -121,17 +121,21 @@ export const deriveManifestKeys = async (
 			definite.add(clientModuleManifestKey(name));
 
 	// React Server Components: `<Page>RSC` per page, plus the runtime.
-	const rscDir = at(config.reactServerComponentsDirectory);
+	const rscDir = absoluteDir(config.reactServerComponentsDirectory);
 	if (rscDir && existsSync(join(rscDir, 'pages'))) {
 		const { reactServerPageManifestKeys } =
 			await import('./buildReactServerComponents');
 		const names = (
 			await scanEntryPoints(join(rscDir, 'pages'), '*.{tsx,jsx,ts,js}')
 		).map((page) => toPascal(stemOf(page)));
-		if (names.length > 0) {
-			definite.add(REACT_SERVER_CLIENT_MANIFEST_KEY);
-			definite.add(REACT_SERVER_RENDERER_MANIFEST_KEY);
-		}
+		const runtimeKeys =
+			names.length > 0
+				? [
+						REACT_SERVER_CLIENT_MANIFEST_KEY,
+						REACT_SERVER_RENDERER_MANIFEST_KEY
+					]
+				: [];
+		for (const key of runtimeKeys) definite.add(key);
 		for (const keys of reactServerPageManifestKeys(names).keys.values())
 			for (const key of keys) definite.add(key);
 	}
@@ -142,24 +146,22 @@ export const deriveManifestKeys = async (
 			join(svelteDir, 'pages'),
 			'*.svelte'
 		);
-		for (const page of pageFiles) {
+		pageFiles.forEach((page) => {
 			const name = stemOf(page);
 			definite.add(toPascal(name));
 			add(definite, `svelte/server/pages/${name}.js`);
 			add(definite, `${GENERATED}/svelte/indexes/pages/${name}.js`);
 			add(definite, `${GENERATED}/svelte/client/pages/${name}.js`);
 			add(possible, `${GENERATED}/svelte/indexes/pages/${name}.css`);
-		}
-		for (const route of fileRoutes.filter(
-			(entry) => entry.framework === 'svelte'
-		)) {
-			for (const key of [
+		});
+		fileRoutes
+			.filter((entry) => entry.framework === 'svelte')
+			.flatMap((route) => [
 				route.name,
 				`${route.name}Index`,
 				`${route.name}Client`
 			])
-				possible.add(key);
-		}
+			.forEach((key) => possible.add(key));
 	}
 
 	// Vue: the SSR module, index and client module (both mirrored under
@@ -171,7 +173,7 @@ export const deriveManifestKeys = async (
 			'*.vue'
 		);
 		const cssDir = assetsDir ? basename(assetsDir) : 'assets';
-		for (const page of pageFiles) {
+		pageFiles.forEach((page) => {
 			const name = stemOf(page);
 			const mirrored = asJs(fromRoot(page));
 			definite.add(toPascal(name));
@@ -182,7 +184,7 @@ export const deriveManifestKeys = async (
 			possible.add(`${name}Css`);
 			if (readFileSync(page, 'utf-8').includes('defineRoutes'))
 				possible.add(`${name}SpaManifest`);
-		}
+		});
 	}
 
 	// Angular: the SSR module (mirrored from the project root) and its
@@ -192,13 +194,13 @@ export const deriveManifestKeys = async (
 			join(angularDir, 'pages'),
 			'**/*.ts'
 		);
-		for (const page of pageFiles) {
+		pageFiles.forEach((page) => {
 			const name = stemOf(page);
 			definite.add(toPascal(name));
 			add(definite, `angular/${asJs(fromRoot(page))}`);
 			add(definite, `${GENERATED}/angular/indexes/${name}.js`);
 			add(possible, `${GENERATED}/angular/indexes/${name}.css`);
-		}
+		});
 	}
 
 	// Ember: the self-contained SSR bundle, by file name.
@@ -207,54 +209,62 @@ export const deriveManifestKeys = async (
 			join(emberDir, 'pages'),
 			'*.{gjs,gts,ts}'
 		);
-		for (const page of pageFiles) {
+		pageFiles.forEach((page) => {
 			definite.add(toPascal(stemOf(page)));
 			possible.add(`${toPascal(stemOf(page))}Index`);
-		}
+		});
 	}
 
 	// Static HTML and HTMX pages: keyed by file name, as written.
-	for (const dir of [htmlDir, htmxDir]) {
-		if (!dir) continue;
-		for (const page of await scanEntryPoints(join(dir, 'pages'), '*.html'))
-			definite.add(basename(page, '.html'));
-		for (const script of await scanEntryPoints(
-			join(dir, 'scripts'),
-			'*.{js,ts}'
-		))
-			add(definite, asJs(fromRoot(script)));
-	}
+	const staticDirs = [htmlDir, htmxDir].filter((dir) => dir !== undefined);
+	const [staticPages, staticScripts] = await Promise.all([
+		Promise.all(
+			staticDirs.map((dir) =>
+				scanEntryPoints(join(dir, 'pages'), '*.html')
+			)
+		),
+		Promise.all(
+			staticDirs.map((dir) =>
+				scanEntryPoints(join(dir, 'scripts'), '*.{js,ts}')
+			)
+		)
+	]);
+	for (const page of staticPages.flat())
+		definite.add(basename(page, '.html'));
+	for (const script of staticScripts.flat())
+		add(definite, asJs(fromRoot(script)));
 
 	// Global stylesheets: built under `<build>/<styles folder name>/`.
 	const stylesPath =
 		typeof config.stylesConfig === 'string'
 			? config.stylesConfig
 			: config.stylesConfig?.path;
-	const stylesDir = at(stylesPath);
+	const stylesDir = absoluteDir(stylesPath);
 	if (stylesDir) {
 		const ignore =
 			typeof config.stylesConfig === 'object'
 				? config.stylesConfig.ignore
 				: undefined;
-		for (const sheet of await scanCssEntryPoints(stylesDir, ignore)) {
+		const sheets = await scanCssEntryPoints(stylesDir, ignore);
+		sheets.forEach((sheet) => {
 			const path = toPosix(relative(stylesDir, sheet)).replace(
 				STYLE_EXTENSION,
 				'.css'
 			);
 			add(definite, `${basename(stylesDir)}/${path}`);
-		}
+		});
 	}
 
 	// Islands: one client entry per registered component, under
 	// `islands/<framework>/`, and the bootstrap that starts them.
-	const registryPath = at(config.islands?.registry);
-	const bootstrapPath = at(config.islands?.bootstrap);
+	const registryPath = absoluteDir(config.islands?.registry);
+	const bootstrapPath = absoluteDir(config.islands?.bootstrap);
 	if (registryPath && existsSync(registryPath)) {
 		const { definitions } = await loadIslandRegistryBuildInfo(registryPath);
-		for (const { component, framework } of definitions) {
+		definitions.forEach(({ component, framework }) => {
 			add(definite, `islands/${framework}/${component}.js`);
 			add(possible, `islands/${framework}/${component}.css`);
-		}
+		});
 		if (!bootstrapPath && definitions.length > 0)
 			add(definite, `islands/${DEFAULT_ISLAND_BOOTSTRAP_NAME}.js`);
 	}
@@ -352,11 +362,10 @@ export const writeManifestKeysDeclaration = async (
 				)
 			)
 		);
-		if (derived.definite.size === 0 && derived.possible.size === 0) {
-			await rm(path, { force: true });
-
-			return null;
-		}
+		const isEmpty =
+			derived.definite.size === 0 && derived.possible.size === 0;
+		if (isEmpty) await rm(path, { force: true });
+		if (isEmpty) return null;
 		const source = manifestKeysDeclarationSource(derived);
 		const current = existsSync(path)
 			? await readFile(path, 'utf-8')

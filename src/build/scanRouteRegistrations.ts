@@ -75,33 +75,38 @@ const hasSourceExtension = (filePath: string) => {
 	return SOURCE_EXTENSIONS.has(filePath.slice(idx));
 };
 
-const collectSourceFiles = (root: string): string[] => {
+const readEntries = (dir: string) => {
+	try {
+		return readdirSync(dir, { encoding: 'utf-8', withFileTypes: true });
+	} catch {
+		return [];
+	}
+};
+
+const isScannedDirectory = (entry: Dirent) =>
+	entry.isDirectory() &&
+	!SKIP_DIRS.has(entry.name) &&
+	!entry.name.startsWith('.');
+
+const collectSourceFiles = (root: string) => {
 	const out: string[] = [];
 	const stack: string[] = [root];
 
 	while (stack.length > 0) {
 		const dir = stack.pop();
 		if (!dir) continue;
-
-		let entries: Dirent[];
-		try {
-			entries = readdirSync(dir, {
-				encoding: 'utf-8',
-				withFileTypes: true
-			});
-		} catch {
-			continue;
-		}
-
-		for (const entry of entries) {
-			if (entry.isDirectory()) {
-				if (SKIP_DIRS.has(entry.name)) continue;
-				if (entry.name.startsWith('.')) continue;
-				stack.push(join(dir, entry.name));
-			} else if (entry.isFile() && hasSourceExtension(entry.name)) {
-				out.push(join(dir, entry.name));
-			}
-		}
+		const entries = readEntries(dir);
+		entries
+			.filter(isScannedDirectory)
+			.forEach((entry) => stack.push(join(dir, entry.name)));
+		entries
+			.filter(
+				(entry) =>
+					!entry.isDirectory() &&
+					entry.isFile() &&
+					hasSourceExtension(entry.name)
+			)
+			.forEach((entry) => out.push(join(dir, entry.name)));
 	}
 
 	return out;
@@ -118,67 +123,67 @@ const fileMayContainRouteRegistrations = (source: string) => {
 	return false;
 };
 
-const extractRoutesFromFile = (
-	filePath: string,
-	out: ExtractedRoute[]
-): void => {
-	let source: string;
+/* The route one call registers, when it is `.method('/path', …)`. */
+const routeOfCall = (node: TS.Node, sourceFile: TS.SourceFile) => {
+	if (!ts.isCallExpression(node)) return null;
+	const callee = node.expression;
+	if (!ts.isPropertyAccessExpression(callee) || !ts.isIdentifier(callee.name))
+		return null;
+	const methodName = callee.name.text;
+	if (!ELYSIA_ROUTE_METHODS.has(methodName)) return null;
+	const [firstArg, ...handlerArgs] = node.arguments;
+	if (
+		!firstArg ||
+		!ts.isStringLiteral(firstArg) ||
+		!firstArg.text.startsWith('/')
+	)
+		return null;
+
+	// Take only the handler / options args (everything after the path).
+	// Using node.getText() here would include the preceding chain (e.g.
+	// `.get("/", x).get("/signin", y)` would capture the whole chain when
+	// visiting the outer call), causing the metadata regex to bleed
+	// sitemap: {…} blocks across routes.
+	const route: ExtractedRoute = {
+		handlerSource: handlerArgs
+			.map((argument) => argument.getText(sourceFile))
+			.join('\n'),
+		method: methodName.toUpperCase(),
+		path: firstArg.text
+	};
+
+	return route;
+};
+
+const readSource = (filePath: string) => {
 	try {
-		source = readFileSync(filePath, 'utf-8');
+		return readFileSync(filePath, 'utf-8');
 	} catch {
-		return;
+		return undefined;
 	}
+};
 
-	if (!fileMayContainRouteRegistrations(source)) return;
+const extractRoutesFromFile = (filePath: string) => {
+	const source = readSource(filePath);
+	if (source === undefined || !fileMayContainRouteRegistrations(source))
+		return [];
 
-	const sf = ts.createSourceFile(
+	const sourceFile = ts.createSourceFile(
 		filePath,
 		source,
 		ts.ScriptTarget.Latest,
 		true,
 		getScriptKind(filePath)
 	);
-
+	const routes: ExtractedRoute[] = [];
 	const visit = (node: TS.Node) => {
-		if (ts.isCallExpression(node)) {
-			const callee = node.expression;
-			if (
-				ts.isPropertyAccessExpression(callee) &&
-				ts.isIdentifier(callee.name)
-			) {
-				const methodName = callee.name.text;
-				if (ELYSIA_ROUTE_METHODS.has(methodName)) {
-					const firstArg = node.arguments[0];
-					if (
-						firstArg &&
-						ts.isStringLiteral(firstArg) &&
-						firstArg.text.startsWith('/')
-					) {
-						// Take only the handler / options args (everything
-						// after the path). Using node.getText() here would
-						// include the preceding chain (e.g. `.get("/", x)
-						// .get("/signin", y)` would capture the whole
-						// chain when visiting the outer call), causing the
-						// metadata regex to bleed sitemap: {…} blocks
-						// across routes.
-						const argTexts: string[] = [];
-						for (let i = 1; i < node.arguments.length; i++) {
-							const arg = node.arguments[i];
-							if (arg) argTexts.push(arg.getText(sf));
-						}
-						out.push({
-							handlerSource: argTexts.join('\n'),
-							method: methodName.toUpperCase(),
-							path: firstArg.text
-						});
-					}
-				}
-			}
-		}
+		const route = routeOfCall(node, sourceFile);
+		if (route) routes.push(route);
 		ts.forEachChild(node, visit);
 	};
+	ts.forEachChild(sourceFile, visit);
 
-	ts.forEachChild(sf, visit);
+	return routes;
 };
 
 /** Walk every TypeScript source file under `projectRoot` and return the
@@ -192,15 +197,7 @@ const extractRoutesFromFile = (
  *  `new Elysia({ prefix })`, but it doesn't need to — sitemap discovery
  *  downstream filters by `isPageHandler` and then dedups by mount path,
  *  so API duplicates are dropped naturally. */
-export const scanRouteRegistrations = (
-	projectRoot: string
-): ExtractedRoute[] => {
-	const files = collectSourceFiles(projectRoot);
-	const collected: ExtractedRoute[] = [];
-
-	for (const file of files) {
-		extractRoutesFromFile(file, collected);
-	}
-
-	return collected;
-};
+export const scanRouteRegistrations = (projectRoot: string) =>
+	collectSourceFiles(projectRoot).flatMap((file) =>
+		extractRoutesFromFile(file)
+	);
