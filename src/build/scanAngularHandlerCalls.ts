@@ -78,37 +78,39 @@ const hasSourceExtension = (filePath: string) => {
 	return SOURCE_EXTENSIONS.has(filePath.slice(idx));
 };
 
-const collectSourceFiles = (root: string): string[] => {
+const readEntries = (dir: string) => {
+	try {
+		return readdirSync(dir, { encoding: 'utf-8', withFileTypes: true });
+	} catch {
+		return [];
+	}
+};
+
+const isScannedDirectory = (entry: Dirent) =>
+	entry.isDirectory() &&
+	!SKIP_DIRS.has(entry.name) &&
+	!entry.name.startsWith('.');
+
+const isScannedFile = (entry: Dirent) =>
+	!entry.isDirectory() &&
+	entry.isFile() &&
+	!entry.name.startsWith(SERVER_ENTRY_COPY_PREFIX) &&
+	hasSourceExtension(entry.name);
+
+const collectSourceFiles = (root: string) => {
 	const out: string[] = [];
 	const stack: string[] = [root];
 
 	while (stack.length > 0) {
 		const dir = stack.pop();
 		if (!dir) continue;
-
-		let entries: Dirent[];
-		try {
-			entries = readdirSync(dir, {
-				encoding: 'utf-8',
-				withFileTypes: true
-			});
-		} catch {
-			continue;
-		}
-
-		for (const entry of entries) {
-			if (entry.isDirectory()) {
-				if (SKIP_DIRS.has(entry.name)) continue;
-				if (entry.name.startsWith('.')) continue;
-				stack.push(join(dir, entry.name));
-			} else if (
-				entry.isFile() &&
-				!entry.name.startsWith(SERVER_ENTRY_COPY_PREFIX) &&
-				hasSourceExtension(entry.name)
-			) {
-				out.push(join(dir, entry.name));
-			}
-		}
+		const entries = readEntries(dir);
+		entries
+			.filter(isScannedDirectory)
+			.forEach((entry) => stack.push(join(dir, entry.name)));
+		entries
+			.filter(isScannedFile)
+			.forEach((entry) => out.push(join(dir, entry.name)));
 	}
 
 	return out;
@@ -120,7 +122,7 @@ const fileMayContainAngularHandler = (source: string) =>
 /** Look for the manifest key string in something like
  *  `pagePath: asset(manifest, "Foo")`. Returns null if the value isn't
  *  shaped that way (e.g. dynamic computation). */
-const extractManifestKey = (pagePathValue: TS.Expression): string | null => {
+const extractManifestKey = (pagePathValue: TS.Expression) => {
 	if (!ts.isCallExpression(pagePathValue)) return null;
 	const callee = pagePathValue.expression;
 	if (!ts.isIdentifier(callee) || callee.text !== 'asset') return null;
@@ -131,124 +133,129 @@ const extractManifestKey = (pagePathValue: TS.Expression): string | null => {
 	return second.text;
 };
 
+/* The path of `.method("/path", …)`, when `node` is such a call. */
+const routePathOf = (node: TS.Node) => {
+	if (!ts.isCallExpression(node)) return null;
+	const callee = node.expression;
+	if (
+		!ts.isPropertyAccessExpression(callee) ||
+		!ts.isIdentifier(callee.name) ||
+		!ELYSIA_ROUTE_METHODS.has(callee.name.text)
+	)
+		return null;
+	const [firstArg] = node.arguments;
+
+	return firstArg &&
+		ts.isStringLiteral(firstArg) &&
+		firstArg.text.startsWith('/')
+		? firstArg.text
+		: null;
+};
+
 /** Find the enclosing `.method("/path", ...)` Elysia call (if any) by
  *  walking up the AST from `node`. The path argument is returned. */
-const findEnclosingMountPath = (node: TS.Node): string | null => {
+const findEnclosingMountPath = (node: TS.Node) => {
 	let cursor: TS.Node | undefined = node.parent;
 	while (cursor) {
-		if (ts.isCallExpression(cursor)) {
-			const callee = cursor.expression;
-			if (
-				ts.isPropertyAccessExpression(callee) &&
-				ts.isIdentifier(callee.name) &&
-				ELYSIA_ROUTE_METHODS.has(callee.name.text)
-			) {
-				const firstArg = cursor.arguments[0];
-				if (
-					firstArg &&
-					ts.isStringLiteral(firstArg) &&
-					firstArg.text.startsWith('/')
-				) {
-					return firstArg.text;
-				}
-			}
-		}
+		const path = routePathOf(cursor);
+		if (path !== null) return path;
 		cursor = cursor.parent;
 	}
 
 	return null;
 };
 
-const extractCallsFromFile = (
-	filePath: string,
-	out: AngularHandlerCall[]
-): void => {
-	let source: string;
+const propertyNameOf = (property: TS.PropertyAssignment) =>
+	ts.isIdentifier(property.name) || ts.isStringLiteral(property.name)
+		? property.name.text
+		: null;
+
+/* The manifest key after one more property of the options object, given
+ * the key so far. The properties are taken in the order written:
+ *
+ *   `pagePath: asset(manifest, "Foo")` sets it, and a `pagePath` that is
+ *   not shaped that way clears whatever came before;
+ *
+ *   `...helper("Foo")` supplies it only when nothing has yet. That is the
+ *   project-level convention for passing page-bundle paths (a
+ *   `pageAssets(key)` helper returning `{ indexPath, pagePath }`): the
+ *   helper's body cannot be traced in general, but its string argument
+ *   IS the manifest key by convention. */
+const nextManifestKey = (
+	current: string | null,
+	property: TS.ObjectLiteralElementLike
+) => {
+	if (ts.isPropertyAssignment(property))
+		return propertyNameOf(property) === 'pagePath'
+			? extractManifestKey(property.initializer)
+			: current;
+	if (!ts.isSpreadAssignment(property) || current) return current;
+	const spread = property.expression;
+	if (!ts.isCallExpression(spread)) return current;
+	const [firstArg] = spread.arguments;
+
+	return firstArg && ts.isStringLiteral(firstArg) ? firstArg.text : current;
+};
+
+/* The call `node` makes, when it is `handleAngularPageRequest({ … })`
+ * with a manifest key that can be read. */
+const handlerCallAt = (node: TS.Node, filePath: string) => {
+	if (
+		!ts.isCallExpression(node) ||
+		!ts.isIdentifier(node.expression) ||
+		node.expression.text !== 'handleAngularPageRequest'
+	)
+		return null;
+	const [argument] = node.arguments;
+	if (!argument || !ts.isObjectLiteralExpression(argument)) return null;
+	const manifestKey = argument.properties.reduce<string | null>(
+		nextManifestKey,
+		null
+	);
+	if (!manifestKey) return null;
+	const call: AngularHandlerCall = {
+		manifestKey,
+		mountPath: findEnclosingMountPath(node),
+		sourceFile: filePath
+	};
+
+	return call;
+};
+
+const readSource = (filePath: string) => {
 	try {
-		source = readFileSync(filePath, 'utf-8');
+		return readFileSync(filePath, 'utf-8');
 	} catch {
-		return;
+		return undefined;
 	}
+};
 
-	if (!fileMayContainAngularHandler(source)) return;
+const extractCallsFromFile = (filePath: string) => {
+	const source = readSource(filePath);
+	if (source === undefined || !fileMayContainAngularHandler(source))
+		return [];
 
-	const sf = ts.createSourceFile(
+	const sourceFile = ts.createSourceFile(
 		filePath,
 		source,
 		ts.ScriptTarget.Latest,
 		true,
 		getScriptKind(filePath)
 	);
-
+	const calls: AngularHandlerCall[] = [];
 	const visit = (node: TS.Node) => {
-		if (
-			ts.isCallExpression(node) &&
-			ts.isIdentifier(node.expression) &&
-			node.expression.text === 'handleAngularPageRequest'
-		) {
-			const [arg] = node.arguments;
-			if (arg && ts.isObjectLiteralExpression(arg)) {
-				let manifestKey: string | null = null;
-				for (const prop of arg.properties) {
-					if (ts.isPropertyAssignment(prop)) {
-						if (!prop.name) continue;
-						const name = ts.isIdentifier(prop.name)
-							? prop.name.text
-							: ts.isStringLiteral(prop.name)
-								? prop.name.text
-								: null;
-						if (name === 'pagePath') {
-							manifestKey = extractManifestKey(prop.initializer);
-						}
-					} else if (ts.isSpreadAssignment(prop)) {
-						// Project-level convention: `...helper("Foo")` is the
-						// idiomatic way to pass page-bundle paths (e.g. the
-						// `pageAssets(key)` helper that returns
-						// `{ indexPath, pagePath: asset(manifest, key) }`).
-						// We can't trace the helper body in the general case,
-						// but the string literal arg IS the manifest key by
-						// convention, so use it as a fallback when no direct
-						// `pagePath` property was found.
-						if (manifestKey) continue;
-						const spreadExpr = prop.expression;
-						if (
-							ts.isCallExpression(spreadExpr) &&
-							spreadExpr.arguments.length > 0
-						) {
-							const [firstArg] = spreadExpr.arguments;
-							if (firstArg && ts.isStringLiteral(firstArg)) {
-								manifestKey = firstArg.text;
-							}
-						}
-					}
-				}
-
-				if (manifestKey) {
-					out.push({
-						manifestKey,
-						mountPath: findEnclosingMountPath(node),
-						sourceFile: filePath
-					});
-				}
-			}
-		}
+		const call = handlerCallAt(node, filePath);
+		if (call) calls.push(call);
 		ts.forEachChild(node, visit);
 	};
+	ts.forEachChild(sourceFile, visit);
 
-	ts.forEachChild(sf, visit);
+	return calls;
 };
 
 /** Walk every TypeScript file under `projectRoot` and return all
  *  `handleAngularPageRequest({...})` calls found. */
-export const scanAngularHandlerCalls = (
-	projectRoot: string
-): AngularHandlerCall[] => {
-	const files = collectSourceFiles(projectRoot);
-	const collected: AngularHandlerCall[] = [];
-
-	for (const file of files) {
-		extractCallsFromFile(file, collected);
-	}
-
-	return collected;
-};
+export const scanAngularHandlerCalls = (projectRoot: string) =>
+	collectSourceFiles(projectRoot).flatMap((file) =>
+		extractCallsFromFile(file)
+	);
