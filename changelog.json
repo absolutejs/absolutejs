@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "`src/build/buildDepVendor.ts` passes the lint and is off the list of exceptions. It decides which dependencies are vendored and builds them, so the change was checked by output: the vendor path map for the example app is identical, order included, and all 184 vendor files a build of the example app produces are identical by hash before and after. 97 of the 100 compiler files are linted; 3 remain listed. No behaviour changes.",
+					"kind": "internal",
+					"summary": "The dependency vendor builder in `src/build/` passes the lint; 3 files remain"
+				}
+			],
+			"date": "2026-11-25",
+			"version": "0.20.0-beta.377"
+		},
+		{
+			"changes": [
+				{
 					"detail": "`src/build/scanAngularHandlerCalls.ts` passes the lint and is off the list of exceptions. Six tests were added first, pinning how a call's manifest key and mount path are read, and run against the old version; the scan's output on the example app and the test fixtures is identical before and after. 96 of the 100 compiler files are linted; 4 remain listed. No behaviour changes.",
 					"kind": "internal",
 					"summary": "The Angular handler scanner in `src/build/` passes the lint; 4 files remain"
