@@ -813,10 +813,10 @@ export const fileRouteFor = (source: string) => {
 	 * know which page a changed file is. */
 	return routesFromFile(root, relativePath, [])[0];
 };
-export const fileRouteRootOf = (framework: FileRouteFramework) =>
-	registry().roots.find((root) => root.framework === framework)?.dir;
 export const fileRouteNamed = (name: string) =>
 	[...registry().bySource.values()].find((route) => route.name === name);
+export const fileRouteRootOf = (framework: FileRouteFramework) =>
+	registry().roots.find((root) => root.framework === framework)?.dir;
 export const fileRoutesOf = (framework: FileRouteFramework) =>
 	[...registry().bySource.values()].filter(
 		(route) => route.framework === framework

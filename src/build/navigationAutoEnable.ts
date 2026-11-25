@@ -28,24 +28,13 @@
 let autoEnabled = false;
 
 /** Called by `build()` from `config.navigation`. */
-export const setNavigationAutoEnable = (value: boolean) => {
-	autoEnabled = value;
-};
-
-export const navigationAutoEnabled = () => autoEnabled;
-
-/* Appended to the END of a hydration index. The import hoists, so the
- * call runs after the page has mounted — which is where the documented
- * API says to call it from (a React effect, a Svelte `onMount`), and it
- * matters: `enableNavigation()` marks a page with no teardown hook as
- * having nothing to tear down, so it has to run after an index has
- * registered its real one. */
 export const NAVIGATION_AUTO_ENABLE_SOURCE = `
 import { enableNavigation as __absoluteEnableNavigation__ } from '@absolutejs/absolute/client/navigation';
 if (typeof window !== 'undefined') __absoluteEnableNavigation__();
 `;
-
-/** `source` with the auto-enable snippet appended when the config asked
- *  for it, unchanged otherwise. */
+export const navigationAutoEnabled = () => autoEnabled;
+export const setNavigationAutoEnable = (value: boolean) => {
+	autoEnabled = value;
+};
 export const withNavigationAutoEnable = (source: string) =>
 	autoEnabled ? `${source}\n${NAVIGATION_AUTO_ENABLE_SOURCE}` : source;

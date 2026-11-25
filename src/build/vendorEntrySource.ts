@@ -54,26 +54,29 @@ const RESERVED_KEYS = new Set([
 const VALID_IDENTIFIER = /^[$_\p{L}][$_\p{L}\p{N}]*$/u;
 
 export const generateVendorEntrySource = async (specifier: string) => {
-	const mod = (await importFromProject(specifier)) as Record<string, unknown>;
+	const loaded: unknown = await importFromProject(specifier);
+	const mod = typeof loaded === 'object' && loaded !== null ? loaded : {};
 	const exportKeys = Object.keys(mod).filter(
 		(key) => !RESERVED_KEYS.has(key) && VALID_IDENTIFIER.test(key)
 	);
 
 	const localBindings = exportKeys
-		.map((key, i) => `const __abs_${i} = __abs_ns[${JSON.stringify(key)}];`)
+		.map(
+			(key, index) =>
+				`const __abs_${index} = __abs_ns[${JSON.stringify(key)}];`
+		)
 		.join('\n');
 	const reExportClause =
 		exportKeys.length > 0
 			? `export { ${exportKeys
-					.map((key, i) => `__abs_${i} as ${key}`)
+					.map((key, index) => `__abs_${index} as ${key}`)
 					.join(', ')} };\n`
 			: '';
 
 	return (
-		`import * as __abs_ns from '${specifier}';\n` +
-		(localBindings ? `${localBindings}\n` : '') +
-		reExportClause +
-		`export default __abs_ns.default;\n` +
+		`import * as __abs_ns from '${specifier}';\n${
+			localBindings ? `${localBindings}\n` : ''
+		}${reExportClause}export default __abs_ns.default;\n` +
 		// Pin the namespace so Bun's tree-shaker preserves every
 		// transitive declaration the package re-exports — including
 		// aliased exports (`export { X as Y }`) where the underlying X

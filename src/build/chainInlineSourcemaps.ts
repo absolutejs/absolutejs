@@ -36,6 +36,7 @@ const decodeVlq = (str: string, startPos: number) => {
 	}
 	const negative = result & 1;
 	const value = result >>> 1;
+
 	return { pos, value: negative ? -value : value };
 };
 
@@ -48,6 +49,7 @@ const encodeVlq = (value: number) => {
 		if (v) digit |= 32;
 		result += BASE64_CHARS[digit];
 	} while (v);
+
 	return result;
 };
 
@@ -109,6 +111,7 @@ const decodeMappings = (mappings: string): Segment[][] => {
 		current.push(segment);
 	}
 	lines.push(current);
+
 	return lines;
 };
 
@@ -135,6 +138,7 @@ const encodeMappings = (lines: Segment[][]) => {
 		}
 		parts.push(segs.join(','));
 	}
+
 	return parts.join(';');
 };
 
@@ -189,6 +193,7 @@ const traceInner = (
 			}
 		}
 	}
+
 	return null;
 };
 
@@ -264,77 +269,9 @@ export const buildLineRemap = (before: string, after: string) => {
 			}
 		}
 	}
+
 	return remap;
 };
-
-/* Build an inline-sourcemap comment from scratch for a transform that
- * is mostly line-preserving (e.g. Bun.Transpiler's TS-stripping over a
- * .ts file). For each source-content line that survived into the
- * generated content (per `buildLineRemap`'s content-matching), emit a
- * single mapping at that generated line pointing back to the source
- * line. Stack-trace remapping cares about line >> column; columns
- * default to 0.
- *
- * Returns the `\n//# sourceMappingURL=data:...base64...\n` comment
- * suitable for appending to the generated file. */
-export const inlineLineMapComment = (
-	sourcePath: string,
-	sourceContent: string,
-	generatedContent: string
-) => {
-	const remap = buildLineRemap(sourceContent, generatedContent);
-	const generatedLineCount = generatedContent.split('\n').length;
-	const segs: Segment[][] = Array.from(
-		{ length: generatedLineCount },
-		() => []
-	);
-	for (let srcLine = 0; srcLine < remap.length; srcLine++) {
-		const genLine = remap[srcLine];
-		if (
-			genLine === undefined ||
-			genLine < 0 ||
-			genLine >= generatedLineCount
-		)
-			continue;
-		const segLine = segs[genLine];
-		if (!segLine) continue;
-		segLine.push({
-			genCol: 0,
-			sourceCol: 0,
-			sourceIdx: 0,
-			sourceLine: srcLine
-		});
-	}
-	const map: SourceMap = {
-		mappings: encodeMappings(segs),
-		names: [],
-		sources: [sourcePath],
-		sourcesContent: [sourceContent],
-		version: 3
-	};
-	return `${inlineSourceMapComment(map)}\n`;
-};
-
-/* Apply a generated-line remap to a sourcemap's mappings. Segments on
- * removed lines are dropped; segments on kept lines move to the new
- * generated line index. */
-export const remapGeneratedLines = (mappings: string, lineRemap: number[]) => {
-	const decoded = decodeMappings(mappings);
-	const remapped: Segment[][] = [];
-	for (let origLine = 0; origLine < decoded.length; origLine++) {
-		const newLine = lineRemap[origLine];
-		if (newLine === undefined || newLine < 0) continue;
-		const origSegs = decoded[origLine];
-		if (!origSegs) continue;
-		while (remapped.length < newLine) remapped.push([]);
-		remapped[newLine] = origSegs;
-	}
-	return encodeMappings(remapped);
-};
-
-/* Chain `outer` (gen → outerSrc) with each `fetchInner(outerSrc)` (gen
- * → innerSrc) into a single (gen → innerSrc) map. Outer sources that
- * have no inner map are passed through unchanged. */
 export const chainSourcemap = (
 	outer: SourceMap,
 	fetchInner: (sourcePath: string) => SourceMap | null
@@ -352,6 +289,7 @@ export const chainSourcemap = (
 		if (existing >= 0) return existing;
 		newSources.push(src);
 		newSourcesContent.push(content);
+
 		return newSources.length - 1;
 	};
 
@@ -394,6 +332,7 @@ export const chainSourcemap = (
 				if (t) {
 					const innerRemap = innerSrcRemap[seg.sourceIdx];
 					const remappedIdx = innerRemap?.[t.sourceIdx] ?? -1;
+
 					return {
 						genCol: seg.genCol,
 						sourceCol: t.col,
@@ -401,6 +340,7 @@ export const chainSourcemap = (
 						sourceLine: t.line
 					};
 				}
+
 				// Inner trace miss — fall back to outer attribution
 				// so Bun's runtime still has something to show.
 				return {
@@ -410,6 +350,7 @@ export const chainSourcemap = (
 					sourceLine: seg.sourceLine
 				};
 			}
+
 			return {
 				genCol: seg.genCol,
 				sourceCol: seg.sourceCol,
@@ -426,6 +367,58 @@ export const chainSourcemap = (
 		sourcesContent: newSourcesContent,
 		version: 3
 	};
+};
+export const inlineLineMapComment = (
+	sourcePath: string,
+	sourceContent: string,
+	generatedContent: string
+) => {
+	const remap = buildLineRemap(sourceContent, generatedContent);
+	const generatedLineCount = generatedContent.split('\n').length;
+	const segs: Segment[][] = Array.from(
+		{ length: generatedLineCount },
+		() => []
+	);
+	for (let srcLine = 0; srcLine < remap.length; srcLine++) {
+		const genLine = remap[srcLine];
+		if (
+			genLine === undefined ||
+			genLine < 0 ||
+			genLine >= generatedLineCount
+		)
+			continue;
+		const segLine = segs[genLine];
+		if (!segLine) continue;
+		segLine.push({
+			genCol: 0,
+			sourceCol: 0,
+			sourceIdx: 0,
+			sourceLine: srcLine
+		});
+	}
+	const map: SourceMap = {
+		mappings: encodeMappings(segs),
+		names: [],
+		sources: [sourcePath],
+		sourcesContent: [sourceContent],
+		version: 3
+	};
+
+	return `${inlineSourceMapComment(map)}\n`;
+};
+export const remapGeneratedLines = (mappings: string, lineRemap: number[]) => {
+	const decoded = decodeMappings(mappings);
+	const remapped: Segment[][] = [];
+	for (let origLine = 0; origLine < decoded.length; origLine++) {
+		const newLine = lineRemap[origLine];
+		if (newLine === undefined || newLine < 0) continue;
+		const origSegs = decoded[origLine];
+		if (!origSegs) continue;
+		while (remapped.length < newLine) remapped.push([]);
+		remapped[newLine] = origSegs;
+	}
+
+	return encodeMappings(remapped);
 };
 
 type ChainInlineOptions = {
@@ -464,6 +457,7 @@ export const chainBundleInlineSourcemap = (
 		if (idx < 0) return null;
 		const content = outerMap.sourcesContent?.[idx];
 		if (!content) return null;
+
 		return extractInlineMap(content);
 	});
 	if (!sourcesContent) {
@@ -516,6 +510,7 @@ export const chainExternalSourcemap = (mapFilePath: string) => {
 		if (idx < 0) return null;
 		const content = outerMap.sourcesContent?.[idx];
 		if (!content) return null;
+
 		return extractInlineMap(content);
 	});
 	writeFileSync(mapFilePath, JSON.stringify(chained));

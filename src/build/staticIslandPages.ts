@@ -36,7 +36,7 @@ const isIslandHydrationMode = (value: string): value is IslandHydrateMode =>
 
 type HTMLAttributeMap = Map<string, string>;
 
-const parseHtmlAttributes = (attributeString: string): HTMLAttributeMap => {
+const parseHtmlAttributes = (attributeString: string) => {
 	const attributeRe = new RegExp(ATTRIBUTE_RE_SOURCE, 'g');
 	const attributes = new Map<string, string>();
 	let match = attributeRe.exec(attributeString);

@@ -1,3 +1,10 @@
+/* The `code` of a filesystem error (`ENOENT`, …), read without asserting
+ * that whatever was thrown is one. */
+const errorCodeOf = (error: unknown) => {
+	if (!(error instanceof Error) || !('code' in error)) return undefined;
+
+	return typeof error.code === 'string' ? error.code : undefined;
+};
 /** Compatibility shim — the rewrite logic moved to
  *  `rewriteImportsPlugin.ts` where it runs in-pipeline against
  *  `BuildArtifact[]` straight off `Bun.build()`'s result. Existing callers
@@ -10,6 +17,7 @@ import {
 	rewriteVendorDirectories as rewriteVendorDirectoriesImpl
 } from './rewriteImportsPlugin';
 
+export const rewriteVendorDirectories = rewriteVendorDirectoriesImpl;
 export const rewriteImports = async (
 	outputPaths: string[],
 	vendorPaths: Record<string, string>
@@ -24,7 +32,7 @@ export const rewriteImports = async (
 			try {
 				original = await Bun.file(filePath).text();
 			} catch (err) {
-				const code = (err as NodeJS.ErrnoException).code;
+				const code = errorCodeOf(err);
 				// ENOENT: file already swept by the next build cycle. The
 				// rewrite is for the build that just completed, but the
 				// next build is already in progress and will re-rewrite.
@@ -38,12 +46,10 @@ export const rewriteImports = async (
 			try {
 				await Bun.write(filePath, rewritten);
 			} catch (err) {
-				const code = (err as NodeJS.ErrnoException).code;
+				const code = errorCodeOf(err);
 				if (code === 'ENOENT') return;
 				throw err;
 			}
 		})
 	);
 };
-
-export const rewriteVendorDirectories = rewriteVendorDirectoriesImpl;

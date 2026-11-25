@@ -82,7 +82,7 @@ export const fileRouteSitemapPaths = async (
 			continue;
 		}
 		if (!entry.server) continue;
-		// eslint-disable-next-line no-await-in-loop -- these import and may
+
 		// read a database; running every route's entries() at once would
 		// open as many connections as the project has dynamic routes.
 		const produced = await loadEntries(entry.server, typePath);

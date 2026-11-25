@@ -13,9 +13,7 @@ import { incrementalTailwindBuild } from './tailwindCompiler';
    CSS), so without these the user has to manually add a `@source`
    directive per framework. Auto-injecting them eliminates a class of
    silent "my utility class doesn't show up" bugs. */
-export const computeFrameworkTailwindSources = (
-	config: BuildConfig
-): string[] => {
+export const computeFrameworkTailwindSources = (config: BuildConfig) => {
 	const cwd = process.cwd();
 	const dirs: Array<[string | undefined, string]> = [
 		[config.angularDirectory, '**/*.{ts,tsx,html,htm}'],
@@ -31,6 +29,7 @@ export const computeFrameworkTailwindSources = (
 		if (!dir) continue;
 		out.push(`${resolve(cwd, dir)}/${glob}`);
 	}
+
 	return out;
 };
 
@@ -41,23 +40,6 @@ export const computeFrameworkTailwindSources = (
 const TAILWIND_CANDIDATE_EXTENSION_PATTERN =
 	/\.(html?|m?[jt]sx?|cjs|vue|svelte|astro|mdx?|css|s[ac]ss|less|styl(?:us)?)$/i;
 
-export const isTailwindCandidate = (filePath: string) =>
-	TAILWIND_CANDIDATE_EXTENSION_PATTERN.test(filePath);
-
-/* Production / cold-start build of the Tailwind output CSS.
-
-   Uses the same persistent-compiler path as HMR — calling
-   `incrementalTailwindBuild` with no changed-file hint forces a fresh
-   compile + full source scan. The compiler instance is then cached for
-   the remainder of the process, so subsequent rebuilds (HMR ticks during
-   `absolute dev`) get the per-candidate cache for free.
-
-   This replaces the old `bun.build` + `bun-plugin-tailwind` pipeline:
-   the bundler was being spun up just to drive Tailwind, which made every
-   call pay bundler-init cost and discarded Tailwind's internal caches
-   between calls. Going directly through `tailwindcss`'s own `compile()`
-   API drops both costs and brings the production build into the same
-   fast path as dev. */
 export const compileTailwind = async (
 	input: string,
 	output: string,
@@ -77,7 +59,6 @@ export const compileTailwind = async (
 		extraSources
 	);
 };
-
 export const compileTailwindConfig = async (
 	tailwind: TailwindConfig,
 	buildPath: string,
@@ -93,3 +74,5 @@ export const compileTailwindConfig = async (
 		extraSources,
 		changedFiles
 	);
+export const isTailwindCandidate = (filePath: string) =>
+	TAILWIND_CANDIDATE_EXTENSION_PATTERN.test(filePath);

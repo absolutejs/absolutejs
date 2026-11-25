@@ -91,21 +91,6 @@ const frameworkOwnersOf = (source: string) => {
 /** Where the installed `@absolutejs/absolute/client` keeps its chunks, or
  *  `null` when the package resolves without them (a consumer that bundled
  *  the runtime flat, or a layout this does not recognise). */
-export const findClientRuntimeChunks = () => {
-	const entry = resolvePackageImport('@absolutejs/absolute/client', [
-		'browser',
-		'import'
-	]);
-	if (!entry) return null;
-	const chunks = join(dirname(entry), CHUNKS_DIRECTORY);
-
-	return existsSync(chunks) ? chunks : null;
-};
-
-/** Copies the runtime's chunks to `<islandsDir>/chunks` and returns the
- *  copied file paths, for the caller to include in the island rewrite
- *  pass. `frameworks` are the ones the app configures; a hydrator chunk
- *  for any other is skipped. Empty when there is nothing to copy. */
 export const copyClientRuntimeChunks = (
 	islandsDir: string,
 	frameworks: readonly string[]
@@ -133,4 +118,14 @@ export const copyClientRuntimeChunks = (
 	}
 
 	return copied;
+};
+export const findClientRuntimeChunks = () => {
+	const entry = resolvePackageImport('@absolutejs/absolute/client', [
+		'browser',
+		'import'
+	]);
+	if (!entry) return null;
+	const chunks = join(dirname(entry), CHUNKS_DIRECTORY);
+
+	return existsSync(chunks) ? chunks : null;
 };

@@ -260,7 +260,7 @@ const createEmberServerResolverPlugin = (
 		// original source directory before letting Bun resolve them. The
 		// staged module sits in `<emberDir>/generated/_tmp/` so a `../foo`
 		// import would otherwise miss the real source file entirely.
-		const stagedSourceMap = options.stagedSourceMap;
+		const { stagedSourceMap } = options;
 		if (stagedSourceMap && stagedSourceMap.size > 0) {
 			build.onResolve({ filter: /^\.{1,2}\// }, (args) => {
 				const originalImporter = stagedSourceMap.get(args.importer);
@@ -378,6 +378,33 @@ export default PageComponent;
  *  client bundle pass picks it up alongside other client entries and
  *  externalizes the Ember runtime to the vendor URLs.
  */
+export const clearEmberCompilerCache = () => {
+	// no-op for Phase 1
+};
+export const compileEmber = async (
+	entries: string[],
+	emberDir: string,
+	cwd: string = process.cwd(),
+	_hmr = false
+) => {
+	if (entries.length === 0) {
+		return {
+			clientPaths: [] as string[],
+			serverPaths: [] as string[]
+		};
+	}
+
+	const compiledRoot = getFrameworkGeneratedDir('ember');
+
+	const outputs = await Promise.all(
+		entries.map((entry) => compileEmberFile(entry, compiledRoot, cwd))
+	);
+
+	return {
+		clientPaths: outputs.map((o) => o.clientPath),
+		serverPaths: outputs.map((o) => o.serverPath)
+	};
+};
 export const compileEmberFile = async (
 	entry: string,
 	compiledRoot: string,
@@ -457,41 +484,6 @@ export const compileEmberFile = async (
 
 	return { clientPath, serverPath } satisfies CompileEmberResult;
 };
-
-/**
- * Batch-compile every entry in `entries`. Mirrors `compileSvelte`'s
- * shape so `core/build.ts` can call it the same way.
- */
-export const compileEmber = async (
-	entries: string[],
-	emberDir: string,
-	cwd: string = process.cwd(),
-	_hmr = false
-) => {
-	if (entries.length === 0) {
-		return {
-			clientPaths: [] as string[],
-			serverPaths: [] as string[]
-		};
-	}
-
-	const compiledRoot = getFrameworkGeneratedDir('ember');
-
-	const outputs = await Promise.all(
-		entries.map((entry) => compileEmberFile(entry, compiledRoot, cwd))
-	);
-
-	return {
-		clientPaths: outputs.map((o) => o.clientPath),
-		serverPaths: outputs.map((o) => o.serverPath)
-	};
-};
-
-/**
- * Hot path used by the dev module server: compile a single entry into
- * a tmp dir and return the resulting JS source string. Phase 1 doesn't
- * implement caching here; phase 3 will.
- */
 export const compileEmberFileSource = async (entry: string) => {
 	const resolvedEntry = resolve(entry);
 	const source = await file(resolvedEntry).text();
@@ -507,28 +499,12 @@ export const compileEmberFileSource = async (entry: string) => {
 
 	return transpiler.transformSync(preprocessed);
 };
-
-/**
- * Match the `compileSvelte` API surface so the dev rebuilder can call
- * a stable name. Phase 1 returns the entry directory unchanged — caching
- * lives in `compileEmber` itself, not in a separate cache layer.
- */
-export const clearEmberCompilerCache = () => {
-	// no-op for Phase 1
-};
-
-// Expose dirname helper so consumers can predict where compiled outputs
-// land without re-deriving the path scheme. The `emberDir` parameter is
-// retained for back-compat with callers but ignored — output now lives
-// at <projectRoot>/.absolutejs/generated/ember/ regardless.
-export const getEmberCompiledRoot = (_emberDir?: string) =>
-	getFrameworkGeneratedDir('ember');
-
-export const getEmberServerCompiledDir = (emberDir: string) =>
-	join(getEmberCompiledRoot(emberDir), 'server');
-
 export const getEmberClientCompiledDir = (emberDir: string) =>
 	join(getEmberCompiledRoot(emberDir), 'client');
+export const getEmberCompiledRoot = (_emberDir?: string) =>
+	getFrameworkGeneratedDir('ember');
+export const getEmberServerCompiledDir = (emberDir: string) =>
+	join(getEmberCompiledRoot(emberDir), 'server');
 
 // Re-export so build.ts can call basename/dirname helpers from one place.
 export { dirname, basename };

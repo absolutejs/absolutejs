@@ -695,6 +695,11 @@ const precomputeAotResourceTransforms = async (
 	return { stats, transformedSources };
 };
 
+export const compileAngularFile = async (
+	inputPath: string,
+	outDir: string,
+	stylePreprocessors?: StylePreprocessorConfig
+) => compileAngularFiles([inputPath], outDir, stylePreprocessors);
 export const compileAngularFiles = async (
 	inputPaths: string[],
 	outDir: string,
@@ -1090,12 +1095,6 @@ export const compileAngularFiles = async (
 	);
 };
 
-export const compileAngularFile = async (
-	inputPath: string,
-	outDir: string,
-	stylePreprocessors?: StylePreprocessorConfig
-) => compileAngularFiles([inputPath], outDir, stylePreprocessors);
-
 // Module-level cache: source content hash → compiled output path.
 // Skips re-transpilation of unchanged files during HMR, preventing
 // bun --hot from re-evaluating the growing module graph on each change.
@@ -1141,7 +1140,7 @@ const escapeTemplateContent = (content: string) =>
 const findUncommentedMatch = (source: string, pattern: RegExp) => {
 	const re = new RegExp(
 		pattern.source,
-		pattern.flags.includes('g') ? pattern.flags : pattern.flags + 'g'
+		pattern.flags.includes('g') ? pattern.flags : `${pattern.flags}g`
 	);
 	let match: RegExpExecArray | null;
 	while ((match = re.exec(source)) !== null) {
@@ -1395,10 +1394,12 @@ const inlineTemplateAndLowerDefer = async (source: string, fileDir: string) => {
 		const templateRaw = await fs.readFile(templatePath, 'utf-8');
 		const lowered = lowerAngularDeferSyntax(templateRaw);
 		const escaped = escapeTemplateContent(lowered.template);
-		const replacedSource =
-			source.slice(0, templateUrlMatch.index) +
-			`template: \`${escaped}\`` +
-			source.slice(templateUrlMatch.index + templateUrlMatch[0].length);
+		const replacedSource = `${source.slice(
+			0,
+			templateUrlMatch.index
+		)}template: \`${escaped}\`${source.slice(
+			templateUrlMatch.index + templateUrlMatch[0].length
+		)}`;
 
 		return {
 			deferSlots: lowered.slots,
@@ -1427,10 +1428,12 @@ const inlineTemplateAndLowerDefer = async (source: string, fileDir: string) => {
 		return { deferSlots: lowered.slots, source };
 	}
 	const escaped = escapeTemplateContent(lowered.template);
-	const replacedSource =
-		source.slice(0, inlineTemplateMatch.index) +
-		`template: \`${escaped}\`` +
-		source.slice(inlineTemplateMatch.index + inlineTemplateMatch[0].length);
+	const replacedSource = `${source.slice(
+		0,
+		inlineTemplateMatch.index
+	)}template: \`${escaped}\`${source.slice(
+		inlineTemplateMatch.index + inlineTemplateMatch[0].length
+	)}`;
 
 	return {
 		deferSlots: lowered.slots,
@@ -1457,10 +1460,12 @@ const inlineTemplateAndLowerDeferSync = (source: string, fileDir: string) => {
 		const templateRaw = readFileSync(templatePath, 'utf-8');
 		const lowered = lowerAngularDeferSyntax(templateRaw);
 		const escaped = escapeTemplateContent(lowered.template);
-		const replacedSource =
-			source.slice(0, templateUrlMatch.index) +
-			`template: \`${escaped}\`` +
-			source.slice(templateUrlMatch.index + templateUrlMatch[0].length);
+		const replacedSource = `${source.slice(
+			0,
+			templateUrlMatch.index
+		)}template: \`${escaped}\`${source.slice(
+			templateUrlMatch.index + templateUrlMatch[0].length
+		)}`;
 
 		return {
 			deferSlots: lowered.slots,
@@ -1489,10 +1494,12 @@ const inlineTemplateAndLowerDeferSync = (source: string, fileDir: string) => {
 		return { deferSlots: lowered.slots, source };
 	}
 	const escaped = escapeTemplateContent(lowered.template);
-	const replacedSource =
-		source.slice(0, inlineTemplateMatch.index) +
-		`template: \`${escaped}\`` +
-		source.slice(inlineTemplateMatch.index + inlineTemplateMatch[0].length);
+	const replacedSource = `${source.slice(
+		0,
+		inlineTemplateMatch.index
+	)}template: \`${escaped}\`${source.slice(
+		inlineTemplateMatch.index + inlineTemplateMatch[0].length
+	)}`;
 
 	return {
 		deferSlots: lowered.slots,
@@ -1545,11 +1552,12 @@ const inlineStyleUrlsSync = (
 		.map((escaped) => `\`${escaped}\``);
 	if (inlinedStyles.length === 0) return source;
 
-	return (
-		source.slice(0, styleUrlsMatch.index) +
-		`styles: [${inlinedStyles.join(', ')}]` +
-		source.slice(styleUrlsMatch.index + styleUrlsMatch[0].length)
-	);
+	return `${source.slice(
+		0,
+		styleUrlsMatch.index
+	)}styles: [${inlinedStyles.join(', ')}]${source.slice(
+		styleUrlsMatch.index + styleUrlsMatch[0].length
+	)}`;
 };
 
 const inlineSingleStyleUrlSync = (
@@ -1569,11 +1577,12 @@ const inlineSingleStyleUrlSync = (
 	);
 	if (!escaped) return source;
 
-	return (
-		source.slice(0, styleUrlMatch.index) +
-		`styles: [\`${escaped}\`]` +
-		source.slice(styleUrlMatch.index + styleUrlMatch[0].length)
-	);
+	return `${source.slice(
+		0,
+		styleUrlMatch.index
+	)}styles: [\`${escaped}\`]${source.slice(
+		styleUrlMatch.index + styleUrlMatch[0].length
+	)}`;
 };
 
 const inlineResourcesSync = (
@@ -1617,11 +1626,12 @@ const inlineStyleUrls = async (
 		.map((escaped) => `\`${escaped}\``);
 	if (inlinedStyles.length === 0) return source;
 
-	return (
-		source.slice(0, styleUrlsMatch.index) +
-		`styles: [${inlinedStyles.join(', ')}]` +
-		source.slice(styleUrlsMatch.index + styleUrlsMatch[0].length)
-	);
+	return `${source.slice(
+		0,
+		styleUrlsMatch.index
+	)}styles: [${inlinedStyles.join(', ')}]${source.slice(
+		styleUrlsMatch.index + styleUrlsMatch[0].length
+	)}`;
 };
 
 const inlineSingleStyleUrl = async (
@@ -1641,11 +1651,12 @@ const inlineSingleStyleUrl = async (
 	);
 	if (!escaped) return source;
 
-	return (
-		source.slice(0, styleUrlMatch.index) +
-		`styles: [\`${escaped}\`]` +
-		source.slice(styleUrlMatch.index + styleUrlMatch[0].length)
-	);
+	return `${source.slice(
+		0,
+		styleUrlMatch.index
+	)}styles: [\`${escaped}\`]${source.slice(
+		styleUrlMatch.index + styleUrlMatch[0].length
+	)}`;
 };
 
 /** Inline templateUrl and styleUrls/styleUrl from external files */
@@ -1879,6 +1890,7 @@ export const compileAngularFileJIT = async (
 
 	const withCacheBuster = (specifier: string) => {
 		if (!cacheBuster) return specifier;
+
 		return specifier.includes('?')
 			? `${specifier}&t=${cacheBuster}`
 			: `${specifier}?t=${cacheBuster}`;
@@ -1981,6 +1993,7 @@ export const compileAngularFileJIT = async (
 			await fs.mkdir(targetDir, { recursive: true });
 			await fs.copyFile(resolved, targetPath);
 			allOutputs.push(targetPath);
+
 			return;
 		}
 
@@ -2216,67 +2229,6 @@ const statementReferencesClass = (
  *
  *  Works on both the AOT output (`static ɵcmp = ɵɵdefineComponent(...)`)
  *  and the JIT output (`Name = __decorate([Component({...})], Name)`). */
-export const detectAngularPageComponentClass = (source: string) => {
-	const defaultMatch = source.match(
-		/export\s+default\s+([A-Za-z_$][\w$]*)\s*;/
-	);
-	if (defaultMatch) return defaultMatch[1] ?? null;
-
-	const sourceFile = ts.createSourceFile(
-		'page.js',
-		source,
-		ts.ScriptTarget.Latest,
-		true,
-		ts.ScriptKind.JS
-	);
-	const exportedNames = new Set<string>();
-	for (const statement of sourceFile.statements) {
-		if (
-			!ts.isExportDeclaration(statement) ||
-			statement.moduleSpecifier ||
-			!statement.exportClause ||
-			!ts.isNamedExports(statement.exportClause)
-		)
-			continue;
-		for (const element of statement.exportClause.elements) {
-			exportedNames.add((element.propertyName ?? element.name).text);
-		}
-	}
-
-	const candidates = sourceFile.statements
-		.filter(ts.isClassDeclaration)
-		.filter(
-			(statement) =>
-				isExportedClass(statement) ||
-				exportedNames.has(statement.name?.text ?? '')
-		)
-		.map((statement) => {
-			const className = statement.name?.text ?? '';
-			const related = sourceFile.statements
-				.filter((other) =>
-					statementReferencesClass(other, className, sourceFile)
-				)
-				.map((other) => other.getText(sourceFile));
-			const text = [statement.getText(sourceFile), ...related].join('\n');
-
-			return {
-				className,
-				hostsOutlet: ROUTER_OUTLET_PATTERN.test(text),
-				isComponent: COMPONENT_MARKER_PATTERN.test(text)
-			};
-		})
-		.filter((candidate) => candidate.className.length > 0);
-
-	const components = candidates.filter((candidate) => candidate.isComponent);
-	const outletHosts = components.filter((candidate) => candidate.hostsOutlet);
-	// Nested routed children can host their own outlet; they are declared
-	// before the page root that references them, so the last host wins.
-	const outletHost = outletHosts.at(-1);
-	if (outletHost) return outletHost.className;
-
-	return components.at(-1)?.className ?? candidates[0]?.className ?? null;
-};
-
 export const compileAngular = async (
 	entryPoints: string[],
 	outRoot: string,
@@ -2531,6 +2483,7 @@ export const compileAngular = async (
 							/* missing source — treat as empty */
 						}
 					}
+
 					return JSON.stringify({
 						basePath: pageInjectionForHash?.basePath ?? null,
 						hasRoutes: pageInjectionForHash?.hasRoutes ?? false,
@@ -2631,6 +2584,7 @@ export const compileAngular = async (
 						/\\/g,
 						'/'
 					);
+
 					return join(compiledParent, rel).replace(
 						/\.[cm]?[tj]sx?$/,
 						'.js'
@@ -2641,6 +2595,7 @@ export const compileAngular = async (
 						dirname(rawServerFile),
 						compiledAppProvidersPath
 					).replace(/\\/g, '/');
+
 					return rel.startsWith('.') ? rel : `./${rel}`;
 				})();
 				importLines.push(
@@ -3074,4 +3029,64 @@ Reflect.set(globalThis, __abs_routerHandoffKey, __abs_routerHandoff);
 		clientPaths,
 		serverPaths
 	};
+};
+export const detectAngularPageComponentClass = (source: string) => {
+	const defaultMatch = source.match(
+		/export\s+default\s+([A-Za-z_$][\w$]*)\s*;/
+	);
+	if (defaultMatch) return defaultMatch[1] ?? null;
+
+	const sourceFile = ts.createSourceFile(
+		'page.js',
+		source,
+		ts.ScriptTarget.Latest,
+		true,
+		ts.ScriptKind.JS
+	);
+	const exportedNames = new Set<string>();
+	for (const statement of sourceFile.statements) {
+		if (
+			!ts.isExportDeclaration(statement) ||
+			statement.moduleSpecifier ||
+			!statement.exportClause ||
+			!ts.isNamedExports(statement.exportClause)
+		)
+			continue;
+		for (const element of statement.exportClause.elements) {
+			exportedNames.add((element.propertyName ?? element.name).text);
+		}
+	}
+
+	const candidates = sourceFile.statements
+		.filter(ts.isClassDeclaration)
+		.filter(
+			(statement) =>
+				isExportedClass(statement) ||
+				exportedNames.has(statement.name?.text ?? '')
+		)
+		.map((statement) => {
+			const className = statement.name?.text ?? '';
+			const related = sourceFile.statements
+				.filter((other) =>
+					statementReferencesClass(other, className, sourceFile)
+				)
+				.map((other) => other.getText(sourceFile));
+			const text = [statement.getText(sourceFile), ...related].join('\n');
+
+			return {
+				className,
+				hostsOutlet: ROUTER_OUTLET_PATTERN.test(text),
+				isComponent: COMPONENT_MARKER_PATTERN.test(text)
+			};
+		})
+		.filter((candidate) => candidate.className.length > 0);
+
+	const components = candidates.filter((candidate) => candidate.isComponent);
+	const outletHosts = components.filter((candidate) => candidate.hostsOutlet);
+	// Nested routed children can host their own outlet; they are declared
+	// before the page root that references them, so the last host wins.
+	const outletHost = outletHosts.at(-1);
+	if (outletHost) return outletHost.className;
+
+	return components.at(-1)?.className ?? candidates[0]?.className ?? null;
 };

@@ -81,6 +81,31 @@ export type ManifestOutputKey = {
  * `asset(manifest, key)` without building (build/manifestKeys.ts), so the
  * two cannot name an output differently.
  */
+export const generateManifest = (outputs: BuildArtifact[], buildPath: string) =>
+	outputs.reduce<Record<string, string>>((manifest, artifact) => {
+		// Normalize both paths for consistent comparison across platforms
+		const normalizedArtifactPath = normalizePath(artifact.path);
+		const normalizedBuildPath = normalizePath(buildPath);
+
+		let relative = normalizedArtifactPath.startsWith(normalizedBuildPath)
+			? normalizedArtifactPath.slice(normalizedBuildPath.length)
+			: normalizedArtifactPath;
+		relative = relative.replace(/^\/+/, '');
+
+		const output = manifestKeyForOutput(relative, artifact.hash);
+		if (!output) return manifest;
+		const { key, warnOnDuplicate } = output;
+		const path = `/${relative}`;
+
+		if (warnOnDuplicate && manifest[key] && manifest[key] !== path) {
+			logWarn(
+				`Duplicate manifest key "${key}" — "${manifest[key]}" will be overwritten by "${path}". Use unique page names across frameworks.`
+			);
+		}
+		manifest[key] = path;
+
+		return manifest;
+	}, {});
 export const manifestKeyForOutput = (
 	relativePath: string,
 	hash: string | null = null
@@ -155,29 +180,3 @@ export const manifestKeyForOutput = (
 		warnOnDuplicate: true
 	};
 };
-
-export const generateManifest = (outputs: BuildArtifact[], buildPath: string) =>
-	outputs.reduce<Record<string, string>>((manifest, artifact) => {
-		// Normalize both paths for consistent comparison across platforms
-		const normalizedArtifactPath = normalizePath(artifact.path);
-		const normalizedBuildPath = normalizePath(buildPath);
-
-		let relative = normalizedArtifactPath.startsWith(normalizedBuildPath)
-			? normalizedArtifactPath.slice(normalizedBuildPath.length)
-			: normalizedArtifactPath;
-		relative = relative.replace(/^\/+/, '');
-
-		const output = manifestKeyForOutput(relative, artifact.hash);
-		if (!output) return manifest;
-		const { key, warnOnDuplicate } = output;
-		const path = `/${relative}`;
-
-		if (warnOnDuplicate && manifest[key] && manifest[key] !== path) {
-			logWarn(
-				`Duplicate manifest key "${key}" — "${manifest[key]}" will be overwritten by "${path}". Use unique page names across frameworks.`
-			);
-		}
-		manifest[key] = path;
-
-		return manifest;
-	}, {});

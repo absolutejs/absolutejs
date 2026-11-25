@@ -55,12 +55,8 @@ export type VueCompileCacheEntry = {
 	typeDeps: Record<string, string>;
 };
 
-export const vueCompileCacheEnabled = () =>
-	process.env.ABSOLUTE_COMPILE_CACHE !== '0';
-
 export const hashContent = (content: string) =>
 	createHash('sha256').update(content).digest('hex');
-
 export const hashParts = (parts: readonly string[]) => {
 	const hash = createHash('sha256');
 	for (const part of parts) {
@@ -70,6 +66,8 @@ export const hashParts = (parts: readonly string[]) => {
 
 	return hash.digest('hex');
 };
+export const vueCompileCacheEnabled = () =>
+	process.env.ABSOLUTE_COMPILE_CACHE !== '0';
 
 const readOwnPackageVersion = () => {
 	const candidates = [
