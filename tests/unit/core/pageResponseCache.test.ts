@@ -1,8 +1,13 @@
 import { describe, expect, test } from 'bun:test';
 import {
+	consumeActionFlash,
+	encodeActionFlash
+} from '../../../src/core/formActionFlash';
+import {
 	streamingPageHeaders,
 	withPageCacheHeaders
 } from '../../../src/core/pageResponseCache';
+import type { ActionFlash } from '../../../src/utils/formActionState';
 
 const html = (body = '<!DOCTYPE html><html><body>hi</body></html>') =>
 	new Response(body, { headers: { 'Content-Type': 'text/html' } });
@@ -114,5 +119,98 @@ describe('withPageCacheHeaders', () => {
 
 		expect(out.status).toBe(302);
 		expect(out.headers.get('cache-control')).toBeNull();
+	});
+});
+
+/* A form posted without JavaScript is answered with a redirect back to
+ * the page and its result in a cookie; the page then has the errors and
+ * typed values written into it for that one request. Both shortcuts here
+ * used to get in the way of that: the browser revalidated, was told 304,
+ * and showed its cached copy with an empty form and no error. */
+describe('withPageCacheHeaders — a request carrying a form result', () => {
+	const flash: ActionFlash = {
+		action: '/actions/contact',
+		result: {
+			errors: { message: 'Message is too short' },
+			status: 'error',
+			values: { message: 'hey' }
+		}
+	};
+	const flashCookie = () =>
+		(encodeActionFlash(flash, false).split(';')[0] ?? '').trim();
+
+	const formPage = (padding = '') =>
+		`<!DOCTYPE html><html><body><form method="post" action="/actions/contact" data-absolute-action><textarea name="message"></textarea><p id="message-error" data-action-error="message" hidden></p></form>${padding}</body></html>`;
+
+	test('is not answered 304, though the page itself is unchanged', async () => {
+		const first = await withPageCacheHeaders(html(formPage()));
+		const etag = first.headers.get('etag') ?? '';
+		const request = new Request('http://x/contact', {
+			headers: { cookie: flashCookie(), 'if-none-match': etag }
+		});
+
+		const out = await withPageCacheHeaders(html(formPage()), request);
+
+		expect(out.status).toBe(200);
+		expect(await out.text()).toContain('data-action-error');
+	});
+
+	test('is not compressed, so the result can still be written in', async () => {
+		const large = formPage('<p>filler</p>'.repeat(400));
+		const request = new Request('http://x/contact', {
+			headers: { 'accept-encoding': 'br, gzip', cookie: flashCookie() }
+		});
+
+		const out = await withPageCacheHeaders(html(large), request);
+
+		expect(out.headers.get('content-encoding')).toBeNull();
+	});
+
+	/* The whole path a browser takes: revalidating, accepting compression,
+	 * on a page large enough to compress. */
+	test('ends up with the error and the typed value in the page', async () => {
+		const large = formPage('<p>filler</p>'.repeat(400));
+		const first = await withPageCacheHeaders(html(large));
+		const request = new Request('http://x/contact', {
+			headers: {
+				'accept-encoding': 'br, gzip',
+				cookie: flashCookie(),
+				'if-none-match': first.headers.get('etag') ?? ''
+			}
+		});
+
+		const cached = await withPageCacheHeaders(html(large), request);
+		const answered = consumeActionFlash(request, cached);
+		const body = (await answered?.text()) ?? '';
+
+		expect(answered?.status).toBe(200);
+		expect(body).toContain('Message is too short');
+		expect(body).toContain('>hey</textarea>');
+		expect(answered?.headers.get('cache-control')).toBe('no-store');
+		expect(answered?.headers.get('etag')).toBeNull();
+	});
+
+	test('a request without one still gets its 304 and its compression', async () => {
+		const large = formPage('<p>filler</p>'.repeat(400));
+		const compressed = await withPageCacheHeaders(
+			html(large),
+			new Request('http://x/contact', {
+				headers: { 'accept-encoding': 'br, gzip' }
+			})
+		);
+
+		expect(compressed.headers.get('content-encoding')).not.toBeNull();
+
+		const revalidated = await withPageCacheHeaders(
+			html(large),
+			new Request('http://x/contact', {
+				headers: {
+					'accept-encoding': 'br, gzip',
+					'if-none-match': compressed.headers.get('etag') ?? ''
+				}
+			})
+		);
+
+		expect(revalidated.status).toBe(304);
 	});
 });
