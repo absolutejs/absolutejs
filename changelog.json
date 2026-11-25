@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "`src/build/islandRegistryTransform.ts` passes the lint and is off the list of exceptions. It had no tests of its own, so 12 were written first, pinning whole outputs, and run against the old version before the file was restructured. 94 of the 100 compiler files are linted; 6 remain listed. No behaviour changes.",
+					"kind": "internal",
+					"summary": "The island registry transform in `src/build/` passes the lint; 6 files remain"
+				}
+			],
+			"date": "2026-11-25",
+			"version": "0.20.0-beta.373"
+		},
+		{
+			"changes": [
+				{
 					"detail": "`absolute dev --port 4000` is the first thing most people try, and it never worked: the flag was not read, so the server came up on the default port in silence, and since the CLI began rejecting unknown flags (beta.288) the command refused to start. `--port <n>` now picks the port, ahead of `ABSOLUTE_PORT`, `PORT` and `dev.port`; a value that is not a port between 1 and 65535 is an error before anything starts. `--host` listens on every interface so other devices on the network can reach the dev server, as `dev.host: '0.0.0.0'` does. The startup banner now prints the Network address whenever the server listens beyond this machine; it used to print it only when `--host` was passed to the server process itself, so a host set through the config listened on the network and never said where.",
 					"kind": "added",
 					"summary": "`absolute dev` takes `--port` and `--host`"
