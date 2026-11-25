@@ -85,29 +85,53 @@ const scanSourceImports = async (directories: string[]) => {
 	const transpiler = new Bun.Transpiler({ loader: 'tsx' });
 	const glob = new Glob('**/*.{ts,tsx,js,jsx}');
 
-	for (const dir of directories) {
+	/* The specifiers one file imports; none when it cannot be read or
+	 * parsed. */
+	const importsOf = async (file: string) => {
 		try {
-			for await (const file of glob.scan({ absolute: true, cwd: dir })) {
-				const rel = file.slice(dir.length + 1);
-				const [first] = rel.split('/');
-				if (first && SCAN_SKIP_DIRS.has(first)) continue;
-				try {
-					const content = await Bun.file(file).text();
-					for (const imp of transpiler.scanImports(content)) {
-						if (isAngularBrowserSpecifier(imp.path)) {
-							angular.add(imp.path);
-						} else if (isBareSpecifier(imp.path)) {
-							transitiveRoots.add(imp.path);
-						}
-					}
-				} catch {
-					// unreadable file, skip
-				}
-			}
+			const content = await Bun.file(file).text();
+
+			return transpiler.scanImports(content).map((imp) => imp.path);
 		} catch {
-			// missing dir, skip
+			return [];
 		}
-	}
+	};
+	/* Every scannable file under `dir`, in the order the glob yields
+	 * them; none when the directory is missing. */
+	const filesIn = async (dir: string) => {
+		try {
+			const files = await Array.fromAsync(
+				glob.scan({ absolute: true, cwd: dir })
+			);
+
+			return files.filter((file) => {
+				const [first] = file.slice(dir.length + 1).split('/');
+
+				return !(first && SCAN_SKIP_DIRS.has(first));
+			});
+		} catch {
+			return [];
+		}
+	};
+	const record = (specifier: string) => {
+		if (isAngularBrowserSpecifier(specifier)) angular.add(specifier);
+		else if (isBareSpecifier(specifier)) transitiveRoots.add(specifier);
+	};
+
+	// One directory, then one file, at a time: the order specifiers are
+	// found in is the order their vendor bundles are built in.
+	const files = await directories.reduce(
+		async (previous, dir) => [...(await previous), ...(await filesIn(dir))],
+		Promise.resolve<string[]>([])
+	);
+	const imports = await files.reduce(
+		async (previous, file) => [
+			...(await previous),
+			...(await importsOf(file))
+		],
+		Promise.resolve<string[]>([])
+	);
+	imports.forEach(record);
 
 	return { angular, transitiveRoots };
 };
@@ -145,55 +169,56 @@ const collectTransitiveAngularSpecs = async (
 	const { readFileSync } = await import('node:fs');
 	const transpiler = new Bun.Transpiler({ loader: 'js' });
 	const visited = new Set<string>();
-	const frontier: string[] = [];
-	for (const r of roots) frontier.push(r);
+
+	/* The source of the module `spec` resolves to, or null when it does
+	 * not resolve or cannot be read. */
+	const sourceOf = (spec: string) => {
+		try {
+			return readFileSync(Bun.resolveSync(spec, process.cwd()), 'utf-8');
+		} catch {
+			return null;
+		}
+	};
+	const bareImportsOf = (content: string) => {
+		try {
+			return transpiler
+				.scanImports(content)
+				.map((imp) => imp.path)
+				.filter(isBareSpecifier);
+		} catch {
+			return [];
+		}
+	};
+	/* Visit one specifier and return the unvisited bare specifiers its
+	 * module imports — the next pass's work. */
+	const visit = (spec: string) => {
+		if (visited.has(spec)) return [];
+		visited.add(spec);
+		const content = sourceOf(spec);
+		if (content === null) return [];
+		// If this file ships partial AOT declarations, the *package* it
+		// belongs to needs the linker — add the spec used to import it.
+		// Skip if it's already an @angular/* spec (covered separately).
+		if (
+			!isAngularBrowserSpecifier(spec) &&
+			containsPartialDeclarations(content)
+		)
+			angularFound.add(spec);
+		const children = bareImportsOf(content).filter(
+			(child) => !visited.has(child)
+		);
+		children.filter(isAngularBrowserSpecifier).forEach((child) => {
+			angularFound.add(child);
+		});
+
+		return children;
+	};
 
 	const MAX_PASSES = 5;
+	let frontier = [...roots];
 	for (let pass = 0; pass < MAX_PASSES; pass++) {
-		const next: string[] = [];
-		for (const spec of frontier) {
-			if (visited.has(spec)) continue;
-			visited.add(spec);
-			let resolved: string;
-			try {
-				resolved = Bun.resolveSync(spec, process.cwd());
-			} catch {
-				continue;
-			}
-			let content: string;
-			try {
-				content = readFileSync(resolved, 'utf-8');
-			} catch {
-				continue;
-			}
-			// If this file ships partial AOT declarations, the *package* it
-			// belongs to needs the linker — add the spec used to import it.
-			// Skip if it's already an @angular/* spec (covered separately).
-			if (
-				!isAngularBrowserSpecifier(spec) &&
-				containsPartialDeclarations(content)
-			) {
-				angularFound.add(spec);
-			}
-			let imports;
-			try {
-				imports = transpiler.scanImports(content);
-			} catch {
-				continue;
-			}
-			for (const imp of imports) {
-				const child = imp.path;
-				if (!isBareSpecifier(child)) continue;
-				if (visited.has(child)) continue;
-				if (isAngularBrowserSpecifier(child)) {
-					angularFound.add(child);
-				}
-				next.push(child);
-			}
-		}
-		if (next.length === 0) break;
-		frontier.length = 0;
-		for (const s of next) frontier.push(s);
+		frontier = frontier.flatMap(visit);
+		if (frontier.length === 0) break;
 	}
 };
 
