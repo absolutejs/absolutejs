@@ -53,13 +53,17 @@ const readBindings = (file: TS.SourceFile) => {
 		if (!ts.isStringLiteral(statement.moduleSpecifier)) continue;
 		const specifier = statement.moduleSpecifier.text;
 		const named = clause.namedBindings;
-		if (ROUTER_PACKAGES.has(specifier)) {
-			if (named && ts.isNamedImports(named))
-				for (const element of named.elements)
-					if ((element.propertyName ?? element.name).text === 'Route')
-						routeNames.add(element.name.text);
-			continue;
-		}
+		const namedElements =
+			named && ts.isNamedImports(named) ? [...named.elements] : [];
+		const fromRouter = ROUTER_PACKAGES.has(specifier);
+		if (fromRouter)
+			namedElements
+				.filter(
+					(element) =>
+						(element.propertyName ?? element.name).text === 'Route'
+				)
+				.forEach((element) => routeNames.add(element.name.text));
+		if (fromRouter) continue;
 		if (!isLocalSpecifier(specifier)) continue;
 		if (clause.name)
 			bindings.set(clause.name.text, {
@@ -68,16 +72,16 @@ const readBindings = (file: TS.SourceFile) => {
 				local: clause.name.text,
 				specifier
 			});
-		if (named && ts.isNamedImports(named))
-			for (const element of named.elements) {
-				if (element.isTypeOnly) continue;
+		namedElements
+			.filter((element) => !element.isTypeOnly)
+			.forEach((element) =>
 				bindings.set(element.name.text, {
 					declaration: statement,
 					imported: (element.propertyName ?? element.name).text,
 					local: element.name.text,
 					specifier
-				});
-			}
+				})
+			);
 	}
 
 	return { bindings, routeNames };
@@ -204,11 +208,10 @@ const findRoutePages = (file: TS.SourceFile, routeNames: Set<string>) => {
 	const pageNames = new Set<string>();
 	const constants = jsxConstants(file);
 	const visit = (node: TS.Node) => {
+		const selfClosing = ts.isJsxSelfClosingElement(node) ? node : null;
 		const opening = ts.isJsxElement(node)
 			? node.openingElement
-			: ts.isJsxSelfClosingElement(node)
-				? node
-				: null;
+			: selfClosing;
 		const name = opening && tagName(opening);
 		if (
 			opening &&
@@ -218,10 +221,11 @@ const findRoutePages = (file: TS.SourceFile, routeNames: Set<string>) => {
 		) {
 			const written = elementExpression(opening);
 			const expression = written && resolveElement(written, constants);
-			for (const page of expression ? elementPages(expression) : []) {
+			const pages = expression ? elementPages(expression) : [];
+			pages.forEach((page) => {
 				for (const tag of page.tags) pageTags.add(tag);
 				pageNames.add(page.name);
-			}
+			});
 		}
 		ts.forEachChild(node, visit);
 	};
@@ -293,7 +297,7 @@ const directivePrologueEnd = (file: TS.SourceFile) => {
 			!ts.isStringLiteral(statement.expression)
 		)
 			break;
-		end = statement.end;
+		({ end } = statement);
 	}
 
 	return end;
@@ -335,7 +339,7 @@ export const splitRoutePages = (source: string, fileName: string) => {
 	];
 	// Rewrite from the end so earlier positions stay valid.
 	const ordered = [...declarations].sort(
-		(a, b) => b.getStart() - a.getStart()
+		(left, right) => right.getStart() - left.getStart()
 	);
 	let output = source;
 	for (const declaration of ordered)

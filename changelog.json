@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "Four more compiler files in `src/build/` pass the lint and are off the list of exceptions: `compileEmber.ts`, `splitRoutePages.ts`, `vueCompileCache.ts` and `verifyAngularCoreUniqueness.ts`. 87 of the 100 files are linted; 13 remain listed, with 288 errors between them. No behaviour changes.",
+					"kind": "internal",
+					"summary": "Four more compiler files in `src/build/` pass the lint; 13 remain"
+				}
+			],
+			"date": "2026-11-25",
+			"version": "0.20.0-beta.365"
+		},
+		{
+			"changes": [
+				{
 					"detail": "Sixteen more compiler files in `src/build/` now pass the lint and are off the list of exceptions: the ones with five errors or fewer each. Most of the work was flattening nested blocks into guard clauses and small helpers, with a few type assertions replaced by guards. 83 of the 100 files are linted; 17 remain listed, with 317 errors between them. No behaviour changes.",
 					"kind": "internal",
 					"summary": "Sixteen more compiler files in `src/build/` pass the lint; 17 remain"

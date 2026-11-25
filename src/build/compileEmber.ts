@@ -1,8 +1,13 @@
 import { existsSync } from 'node:fs';
 import { mkdir, rm } from 'node:fs/promises';
 import { basename, dirname, extname, join, resolve } from 'node:path';
-import { build as bunBuild, Transpiler, write, file } from 'bun';
-import type { BunPlugin } from 'bun';
+import {
+	build as bunBuild,
+	Transpiler,
+	write,
+	file,
+	type BunPlugin
+} from 'bun';
 import { getFrameworkGeneratedDir } from '../utils/generatedDir';
 
 /**
@@ -116,37 +121,41 @@ const isTemplateTagFile = (entry: string) => {
  * to identifiers the user actually imported — HTML tag names like
  * `<main>` correctly fall through to the HTML branch.
  */
-const rewriteTemplateEvalToScope = (source: string) => {
-	const importedNames = new Set<string>();
+/* The local binding one entry of a named-import list introduces. */
+const localNameOf = (part: string) => {
+	const trimmed = part.trim();
+	if (!trimmed) return undefined;
+	// Handle `foo as bar` — bar is the local binding
+	const asMatch = /\bas\s+(\w+)$/.exec(trimmed);
+	const localName = asMatch ? asMatch[1] : trimmed.replace(/^type\s+/, '');
 
+	return localName && /^\w+$/.test(localName) ? localName : undefined;
+};
+
+/* Every name one import statement binds: its namespace alias, its
+ * default, then its named imports, in that order. */
+const localNamesOfImport = (match: RegExpMatchArray) => {
+	const [, namespaceImport, defaultImport, namedAfterDefault, named] = match;
+	const alias = namespaceImport
+		? /\*\s+as\s+(\w+)/.exec(namespaceImport)?.[1]
+		: undefined;
+	const namedList = named ?? namedAfterDefault;
+
+	return [
+		alias,
+		defaultImport,
+		...(namedList ? namedList.split(',').map(localNameOf) : [])
+	].filter(
+		(name): name is string => typeof name === 'string' && name.length > 0
+	);
+};
+
+const rewriteTemplateEvalToScope = (source: string) => {
 	const importRegex =
 		/^\s*import\s+(?:type\s+)?(?:(\*\s+as\s+\w+)|(\w+)(?:\s*,\s*\{([^}]+)\})?|\{([^}]+)\})\s+from\s+['"][^'"]+['"]/gm;
-	let match;
-	while ((match = importRegex.exec(source)) !== null) {
-		const [, namespaceImport, defaultImport, namedAfterDefault, named] =
-			match;
-
-		if (namespaceImport) {
-			const aliasMatch = /\*\s+as\s+(\w+)/.exec(namespaceImport);
-			if (aliasMatch?.[1]) importedNames.add(aliasMatch[1]);
-		}
-		if (defaultImport) importedNames.add(defaultImport);
-		const namedList = named ?? namedAfterDefault;
-		if (namedList) {
-			for (const part of namedList.split(',')) {
-				const trimmed = part.trim();
-				if (!trimmed) continue;
-				// Handle `foo as bar` — bar is the local binding
-				const asMatch = /\bas\s+(\w+)$/.exec(trimmed);
-				const localName = asMatch
-					? asMatch[1]
-					: trimmed.replace(/^type\s+/, '');
-				if (localName && /^\w+$/.test(localName)) {
-					importedNames.add(localName);
-				}
-			}
-		}
-	}
+	const importedNames = new Set(
+		[...source.matchAll(importRegex)].flatMap(localNamesOfImport)
+	);
 
 	const scopeObject =
 		importedNames.size === 0
@@ -388,10 +397,10 @@ export const compileEmber = async (
 	_hmr = false
 ) => {
 	if (entries.length === 0) {
-		return {
-			clientPaths: [] as string[],
-			serverPaths: [] as string[]
-		};
+		const clientPaths: string[] = [];
+		const serverPaths: string[] = [];
+
+		return { clientPaths, serverPaths };
 	}
 
 	const compiledRoot = getFrameworkGeneratedDir('ember');
