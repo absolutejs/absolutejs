@@ -226,7 +226,11 @@ const getTimed = async (
 	};
 };
 
-const prerendered = (name: string) => join(root, 'dist', '_prerendered', name);
+/* Under `build/`, because the fixture's config says
+ * `buildDirectory: './build'` and `absolute start` has honoured that since
+ * beta.302. This read `dist/`, the directory the command used to write
+ * whatever the config said, and failed every night from then on. */
+const prerendered = (name: string) => join(root, 'build', '_prerendered', name);
 
 const BYPASS_TOKEN = 'partial-prerender-test-token';
 const results: Record<string, Timed> = {};

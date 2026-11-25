@@ -8,6 +8,7 @@ import {
 	taggedWithEncoding
 } from './compressHtmlResponse';
 import { HTML_CONTENT_TYPE } from '../constants';
+import { ACTION_FLASH_COOKIE } from '../utils/formActionState';
 import { withRenderSpan } from './renderTracing';
 
 // The SPA cache policy, applied to every framework's HTML page response.
@@ -107,6 +108,26 @@ const addModulePreloadLinks = (response: Response) => {
 	response.headers.set('link', modulePreloadLinkHeader(preloads));
 };
 
+/* A request carrying a form result is about to be answered with that
+ * result written into the page (`consumeActionFlash`): one visitor's
+ * errors and typed values, in a body nobody else gets. Neither shortcut
+ * below is right for it.
+ *
+ *   `304` tells the browser to show the copy it has, which has no result
+ *   in it — so after a submission without JavaScript the form came back
+ *   empty, with no error, and the result was never consumed.
+ *
+ *   Compressing here hands the flash step bytes it cannot rewrite, and
+ *   it skips them — the same blank form, on any page large enough to be
+ *   compressed.
+ *
+ * Only the cookie's presence is read. Whether it is valid is the flash
+ * step's business; a stale or forged one costs a visitor one uncached,
+ * uncompressed page. */
+const awaitsActionFlash = (request: Request | undefined) =>
+	request?.headers.get('cookie')?.includes(`${ACTION_FLASH_COOKIE}=`) ===
+	true;
+
 const cachedPageResponse = async (
 	response: Response,
 	request: Request | undefined,
@@ -137,16 +158,18 @@ const cachedPageResponse = async (
 	 * hand it brotli bytes. Settling it first also means a 304 skips the
 	 * compression work entirely. A handler that already encoded its own
 	 * body is left alone. */
-	const encoding = headers.has('content-encoding')
-		? undefined
-		: chosenHtmlEncoding({ body: html, request });
+	const personalised = awaitsActionFlash(request);
+	const encoding =
+		headers.has('content-encoding') || personalised
+			? undefined
+			: chosenHtmlEncoding({ body: html, request });
 	const etag =
 		encoding === undefined
 			? computeEtag(html)
 			: taggedWithEncoding(computeEtag(html), encoding);
 	headers.set('etag', etag);
 
-	if (request?.headers.get('if-none-match') === etag) {
+	if (!personalised && request?.headers.get('if-none-match') === etag) {
 		return new Response(null, {
 			headers: { 'cache-control': 'no-cache', etag },
 			status: 304

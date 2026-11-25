@@ -194,7 +194,11 @@ const waitForServer = async (attempt = 0): Promise<void> => {
 	await waitForServer(attempt + 1);
 };
 
-const prerendered = (name: string) => join(root, 'dist', '_prerendered', name);
+/* Under `build/`, because the fixture's config says
+ * `buildDirectory: './build'` and `absolute start` has honoured that since
+ * beta.302. This read `dist/`, the directory the command used to write
+ * whatever the config said, and failed every night from then on. */
+const prerendered = (name: string) => join(root, 'build', '_prerendered', name);
 
 type Timed = { ms: number; text: string };
 

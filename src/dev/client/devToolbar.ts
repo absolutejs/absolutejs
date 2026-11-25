@@ -35,6 +35,7 @@
 import { detectCurrentFramework } from './frameworkDetect';
 import { subscribeHmrApplies } from './hmrTiming';
 import { withClientBasePath } from './basePath';
+import { applyPageNonce } from './cspNonce';
 
 const TOGGLE_KEY = 'D';
 const STORAGE_KEY = 'absolute:devtoolbar';
@@ -291,7 +292,14 @@ export const installDevToolbar = () => {
 						: ''
 				}</div></div>`
 			: '';
-		root.innerHTML = `<style>${STYLES}</style><div class="wrap">${body}<button class="pill" data-toggle><span class="dot"></span>AbsoluteJS<span class="count">${islands.length} island${islands.length === 1 ? '' : 's'}</span></button></div>`;
+		root.innerHTML = `<div class="wrap">${body}<button class="pill" data-toggle><span class="dot"></span>AbsoluteJS<span class="count">${islands.length} island${islands.length === 1 ? '' : 's'}</span></button></div>`;
+		/* As an element carrying the page's nonce, not as markup: a
+		 * `<style>` written through innerHTML has none, so under
+		 * secureHeaders() the browser blocked it — the toolbar came up
+		 * unstyled and every page reported a CSP violation in dev. */
+		const style = applyPageNonce(document.createElement('style'));
+		style.textContent = STYLES;
+		root.prepend(style);
 		if (state.open && state.panel === 'network') {
 			const markup = await networkRows();
 			const target = root.querySelector('[data-body]');
