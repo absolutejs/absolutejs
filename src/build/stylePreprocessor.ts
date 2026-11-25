@@ -66,21 +66,20 @@ const missingDependencyError = (name: string, filePath: string) =>
 		`Unable to compile ${filePath}: install optional dependency "${name}" to use this stylesheet preprocessor.`
 	);
 
-/* Re-throw a preprocessor error with the filename + a one-line summary
-   prefixed so the dev server's `[hmr] error` log doesn't print
+/* A preprocessor error, for the caller to throw, with the filename + a
+   one-line summary prefixed so the dev server's `[hmr] error` log doesn't print
    `Server error: undefined`. Sass / Less / Stylus all attach useful
    metadata (line, column, snippet) to their errors but the property
    names differ — we surface whatever's available. */
-const throwPreprocessorError = (
+const preprocessorError = (
 	error: unknown,
 	filePath: string,
 	language: StyleLanguage
-): never => {
-	if (!(error instanceof Error)) {
-		throw new Error(
+) => {
+	if (!(error instanceof Error))
+		return new Error(
 			`${language} compile failed in ${filePath}: ${String(error)}`
 		);
-	}
 
 	const detail = error as Error & {
 		line?: number;
@@ -102,7 +101,8 @@ const throwPreprocessorError = (
 		`${language} compile failed in ${filePath}${location}\n${message}`
 	);
 	wrapped.cause = error;
-	throw wrapped;
+
+	return wrapped;
 };
 
 const requireOptionalPeerSync = <T>(specifier: string) => {
@@ -126,8 +126,9 @@ type AliasEntry = {
 	replacements: string[];
 };
 
-let tsconfigAliasCache:
-	{ cwd: string; aliases: AliasEntry[]; baseUrl: string } | undefined;
+type TsconfigAliases = { aliases: AliasEntry[]; baseUrl: string; cwd: string };
+
+let tsconfigAliasCache: TsconfigAliases | undefined;
 
 const stripJsonComments = (source: string) =>
 	source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
@@ -145,7 +146,7 @@ const readTsconfigAliases = () => {
 	if (tsconfigAliasCache?.cwd === cwd) return tsconfigAliasCache;
 
 	const tsconfigPath = resolve(cwd, 'tsconfig.json');
-	const empty = { aliases: [], baseUrl: cwd, cwd };
+	const empty: TsconfigAliases = { aliases: [], baseUrl: cwd, cwd };
 	if (!existsSync(tsconfigPath)) {
 		tsconfigAliasCache = empty;
 
@@ -201,9 +202,11 @@ const resolveAliasTargets = (
 		const match = specifier.match(aliasPatternToRegExp(alias.pattern));
 		if (!match) continue;
 		const wildcard = match[1] ?? '';
-		for (const replacement of alias.replacements) {
-			targets.push(resolve(baseUrl, replacement.replace('*', wildcard)));
-		}
+		targets.push(
+			...alias.replacements.map((replacement) =>
+				resolve(baseUrl, replacement.replace('*', wildcard))
+			)
+		);
 	}
 
 	return targets;
@@ -376,13 +379,14 @@ const getSassOptions = (
 	...(language === 'scss' ? (config?.scss ?? {}) : {})
 });
 
-const getLessOptions = (
-	config: StylePreprocessorConfig | undefined
-): LessPreprocessorOptions => config?.less ?? {};
+const NO_LESS_OPTIONS: LessPreprocessorOptions = {};
+const NO_STYLUS_OPTIONS: StylusPreprocessorOptions = {};
 
-const getStylusOptions = (
-	config: StylePreprocessorConfig | undefined
-): StylusPreprocessorOptions => config?.stylus ?? {};
+const getLessOptions = (config: StylePreprocessorConfig | undefined) =>
+	config?.less ?? NO_LESS_OPTIONS;
+
+const getStylusOptions = (config: StylePreprocessorConfig | undefined) =>
+	config?.stylus ?? NO_STYLUS_OPTIONS;
 
 type BrowserTargetConfig = {
 	autoprefixer?: boolean;
@@ -430,9 +434,7 @@ const normalizePostcssModule = (mod: unknown) => {
 	return mod;
 };
 
-const loadPostcssConfigFile = async (
-	configPath: string
-): Promise<PostCSSRuntimeConfig> => {
+const loadPostcssConfigFile = async (configPath: string) => {
 	const resolved = resolve(process.cwd(), configPath);
 	const loaded =
 		resolved.endsWith('.cjs') || resolved.endsWith('.cts')
@@ -820,7 +822,7 @@ const renderStylus = async (
 		throw missingDependencyError('stylus', filePath);
 	}
 
-	return new Promise<string>((resolveCss, reject) => {
+	return new Promise<string>((_resolve, reject) => {
 		const renderer = stylus(contents);
 		renderer.set('filename', filePath);
 		for (const [key, value] of Object.entries(options.options ?? {})) {
@@ -834,15 +836,12 @@ const renderStylus = async (
 				return;
 			}
 			// Stylus exposes its dependency list after a successful render.
-			if (deps) {
-				const stylusDeps = (
-					renderer as unknown as { deps?: () => string[] }
-				).deps?.();
-				if (Array.isArray(stylusDeps)) {
-					for (const dep of stylusDeps) deps.add(resolve(dep));
-				}
-			}
-			resolveCss(css ?? '');
+			const stylusDeps = deps
+				? (renderer as unknown as { deps?: () => string[] }).deps?.()
+				: undefined;
+			if (deps && Array.isArray(stylusDeps))
+				stylusDeps.forEach((dep) => deps.add(resolve(dep)));
+			_resolve(css ?? '');
 		});
 	});
 };
@@ -885,10 +884,6 @@ export const addStyleImporter = (importerPath: string, stylePath: string) => {
 	deps.add(target);
 	styleDependencyGraph.set(key, deps);
 };
-
-/* Files that import the given path. Used by the dev server to rebuild
-   importers when a partial changes — there's no import-graph traversal,
-   so callers should pass already-resolved absolute paths. */
 export const findStyleEntriesImporting = (changedPath: string) => {
 	const target = resolve(changedPath);
 	const importers: string[] = [];
@@ -898,10 +893,11 @@ export const findStyleEntriesImporting = (changedPath: string) => {
 
 	return importers;
 };
-
-/* Hash the just-emitted CSS for an entry; returns `true` only when the
-   output actually differs from the previous compile. The dev path uses
-   this to suppress style-update broadcasts on whitespace-only edits. */
+export const forgetStyleEntry = (entry: string) => {
+	const key = resolve(entry);
+	styleDependencyGraph.delete(key);
+	styleOutputHashes.delete(key);
+};
 export const recordStyleOutput = (entry: string, css: string) => {
 	const key = resolve(entry);
 	const hash = createHash('sha1').update(css).digest('hex');
@@ -911,12 +907,138 @@ export const recordStyleOutput = (entry: string, css: string) => {
 	return previous !== hash;
 };
 
-/* Drop cached state for an entry — used when the file is deleted or the
-   dev server is shutting down. */
-export const forgetStyleEntry = (entry: string) => {
-	const key = resolve(entry);
-	styleDependencyGraph.delete(key);
-	styleOutputHashes.delete(key);
+/* Add what Sass says it loaded to `deps`.
+ *
+ * When Sass resolves a relative `@use './partial'` via the built-in
+ * filesystem loader (which it does whenever the source has a `url:` set,
+ * which we always do), the custom importer's `canonicalize`/`load`
+ * callbacks don't fire — so `deps` would otherwise be empty.
+ * `loadedUrls` always reflects every file Sass actually touched,
+ * including the entry, so the entry is filtered out and the rest added. */
+const sassDependencies = (loadedUrls: URL[] | undefined, filePath: string) =>
+	(loadedUrls ?? [])
+		.filter((url) => url.protocol === 'file:')
+		.map((url) => fileURLToPath(url))
+		.filter((dep) => resolve(dep) !== resolve(filePath));
+
+const loadSass = async (packageName: string, filePath: string) => {
+	try {
+		return await importOptionalPeer<typeof import('sass')>(packageName);
+	} catch {
+		throw missingDependencyError(packageName, filePath);
+	}
+};
+
+const compileSassSource = async (
+	filePath: string,
+	rawContents: string,
+	language: 'sass' | 'scss',
+	config: StylePreprocessorConfig | undefined,
+	deps: Set<string>
+) => {
+	const options = getSassOptions(config, language);
+	const sass = await loadSass(options.implementation ?? 'sass', filePath);
+	const contents = withAdditionalData(rawContents, options.additionalData);
+	const loadPaths = normalizeLoadPaths(filePath, options.loadPaths);
+	try {
+		const result = sass.compileString(contents, {
+			importers: [
+				createSassImporter(filePath, loadPaths, language, config, deps)
+			],
+			loadPaths,
+			style: 'expanded',
+			syntax: language === 'sass' ? 'indented' : 'scss',
+			url: new URL(pathToFileURL(resolve(filePath)).href)
+		});
+
+		const css = await runPostcss(result.css, filePath, config);
+		for (const dep of sassDependencies(result.loadedUrls, filePath))
+			deps.add(dep);
+		recordStyleDeps(filePath, deps);
+
+		return css;
+	} catch (error) {
+		throw preprocessorError(error, filePath, language);
+	}
+};
+
+type LessRender = typeof import('less').render;
+type LessModule = { default?: { render: LessRender }; render?: LessRender };
+
+const loadLessRender = async (filePath: string) => {
+	try {
+		const lessModule = await importOptionalPeer<LessModule>('less');
+
+		return (lessModule.render ? lessModule : lessModule.default)?.render;
+	} catch {
+		throw missingDependencyError('less', filePath);
+	}
+};
+
+const compileLessSource = async (
+	filePath: string,
+	rawContents: string,
+	config: StylePreprocessorConfig | undefined,
+	deps: Set<string>
+) => {
+	const options = getLessOptions(config);
+	const render = await loadLessRender(filePath);
+	if (!render) throw missingDependencyError('less', filePath);
+
+	const contents = withAdditionalData(rawContents, options.additionalData);
+	const loadPaths = normalizeLoadPaths(filePath, options.paths);
+	try {
+		const result = await render(contents, {
+			...(options.options ?? {}),
+			filename: filePath,
+			paths: loadPaths,
+			plugins: [
+				...((options.options?.plugins as unknown[]) ?? []),
+				createLessFileManager(filePath, loadPaths, config, deps)
+			]
+		});
+
+		const css = await runPostcss(result.css, filePath, config);
+		recordStyleDeps(filePath, deps);
+
+		return css;
+	} catch (error) {
+		throw preprocessorError(error, filePath, 'less');
+	}
+};
+
+const compileStylusSource = async (
+	filePath: string,
+	rawContents: string,
+	config: StylePreprocessorConfig | undefined,
+	deps: Set<string>
+) => {
+	const options = getStylusOptions(config);
+	const loadPaths = normalizeLoadPaths(filePath, options.paths);
+	const contents = withAdditionalData(
+		preprocessLoadedStyle(
+			rawContents,
+			filePath,
+			filePath,
+			loadPaths,
+			'stylus',
+			config
+		),
+		options.additionalData
+	);
+
+	try {
+		const css = await runPostcss(
+			await renderStylus(contents, filePath, loadPaths, options, deps),
+			filePath,
+			config
+		);
+		recordStyleDeps(filePath, deps);
+
+		return css;
+	} catch (error) {
+		throw preprocessorError(error, filePath, 'stylus');
+	}
 };
 
 export const compileStyleSource = async (
@@ -932,138 +1054,12 @@ export const compileStyleSource = async (
 	// can invalidate this entry when one of its imports changes.
 	const deps = new Set<string>();
 
-	if (language === 'scss' || language === 'sass') {
-		const options = getSassOptions(config, language);
-		const packageName = options.implementation ?? 'sass';
-		let sass: typeof import('sass');
-		try {
-			sass = await importOptionalPeer<typeof import('sass')>(packageName);
-		} catch {
-			throw missingDependencyError(packageName, filePath);
-		}
-
-		const contents = withAdditionalData(
-			rawContents,
-			options.additionalData
-		);
-		const loadPaths = normalizeLoadPaths(filePath, options.loadPaths);
-		try {
-			const result = sass.compileString(contents, {
-				importers: [
-					createSassImporter(
-						filePath,
-						loadPaths,
-						language,
-						config,
-						deps
-					)
-				],
-				loadPaths,
-				style: 'expanded',
-				syntax: language === 'sass' ? 'indented' : 'scss',
-				url: new URL(pathToFileURL(resolve(filePath)).href)
-			});
-
-			const css = await runPostcss(result.css, filePath, config);
-			// Augment `deps` with `result.loadedUrls`. Detail:
-			// resolves a relative `@use './partial'` via the
-			// built-in filesystem loader (which it does whenever
-			// the source has a `url:` set, which we always do),
-			// the custom importer's `canonicalize`/`load` callbacks
-			// don't fire — so `deps` would otherwise be empty.
-			// `loadedUrls` always reflects every file Sass actually
-			// touched, including the entry, so we filter the entry
-			// out and add the rest.
-			const loadedUrls = result.loadedUrls ?? [];
-			for (const url of loadedUrls) {
-				if (url.protocol !== 'file:') continue;
-				const dep = fileURLToPath(url);
-				if (resolve(dep) === resolve(filePath)) continue;
-				deps.add(dep);
-			}
-			recordStyleDeps(filePath, deps);
-
-			return css;
-		} catch (error) {
-			throwPreprocessorError(error, filePath, language);
-		}
-	}
-
-	if (language === 'less') {
-		const options = getLessOptions(config);
-		type LessRender = typeof import('less').render;
-		let lessModule: {
-			default?: { render: LessRender };
-			render?: LessRender;
-		};
-		try {
-			lessModule = await importOptionalPeer<typeof lessModule>('less');
-		} catch {
-			throw missingDependencyError('less', filePath);
-		}
-		const less = lessModule.render ? lessModule : lessModule.default;
-		const render = less?.render;
-		if (!render) throw missingDependencyError('less', filePath);
-
-		const contents = withAdditionalData(
-			rawContents,
-			options.additionalData
-		);
-		const loadPaths = normalizeLoadPaths(filePath, options.paths);
-		try {
-			const result = await render(contents, {
-				...(options.options ?? {}),
-				filename: filePath,
-				paths: loadPaths,
-				plugins: [
-					...((options.options?.plugins as unknown[]) ?? []),
-					createLessFileManager(filePath, loadPaths, config, deps)
-				]
-			});
-
-			const css = await runPostcss(result.css, filePath, config);
-			recordStyleDeps(filePath, deps);
-
-			return css;
-		} catch (error) {
-			throwPreprocessorError(error, filePath, 'less');
-		}
-	}
-
-	if (language === 'stylus') {
-		const options = getStylusOptions(config);
-		const loadPaths = normalizeLoadPaths(filePath, options.paths);
-		const contents = withAdditionalData(
-			preprocessLoadedStyle(
-				rawContents,
-				filePath,
-				filePath,
-				loadPaths,
-				'stylus',
-				config
-			),
-			options.additionalData
-		);
-
-		try {
-			const css = await runPostcss(
-				await renderStylus(
-					contents,
-					filePath,
-					loadPaths,
-					options,
-					deps
-				),
-				filePath,
-				config
-			);
-			recordStyleDeps(filePath, deps);
-
-			return css;
-		} catch (error) {
-			throwPreprocessorError(error, filePath, 'stylus');
-		}
-	}
+	if (language === 'scss' || language === 'sass')
+		return compileSassSource(filePath, rawContents, language, config, deps);
+	if (language === 'less')
+		return compileLessSource(filePath, rawContents, config, deps);
+	if (language === 'stylus')
+		return compileStylusSource(filePath, rawContents, config, deps);
 
 	return runPostcss(rawContents, filePath, config);
 };
@@ -1150,6 +1146,15 @@ export const createStylePreprocessorPlugin = (
 
 export const stylePreprocessorPlugin = createStylePreprocessorPlugin();
 
+/* `lang="scss"`, or the older `type="text/scss"`. */
+const languageOfStyleTag = (attributes: Record<string, string | boolean>) => {
+	if (typeof attributes.lang === 'string') return attributes.lang;
+
+	return typeof attributes.type === 'string'
+		? attributes.type.replace(/^text\//, '')
+		: null;
+};
+
 export const createSvelteStylePreprocessor = (
 	config?: StylePreprocessorConfig
 ) => ({
@@ -1162,13 +1167,9 @@ export const createSvelteStylePreprocessor = (
 		content: string;
 		filename?: string;
 	}) => {
-		const language =
-			typeof attributes.lang === 'string'
-				? attributes.lang
-				: typeof attributes.type === 'string'
-					? attributes.type.replace(/^text\//, '')
-					: null;
-		if (!language || !STYLE_LANGUAGE_PATTERN.test(language)) return;
+		const language = languageOfStyleTag(attributes);
+		if (!language || !STYLE_LANGUAGE_PATTERN.test(language))
+			return undefined;
 
 		const path = filename ?? `style.${language}`;
 
@@ -1189,6 +1190,25 @@ const CSS_IMPORT_PATTERN = /@import\s+["']([^"']+)["']\s*;?/g;
  * server's event loop on a deep `@import` chain. Same failure modes:
  * `@import url(...)` and media-qualified imports pass through. */
 
+/* What one `@import "<path>";` is replaced with: nothing when the file
+ * is already being inlined further up (a cycle), the statement itself
+ * when the file does not exist — and otherwise the file to inline, as a
+ * path for the caller to read. */
+const importReplacement = (
+	match: RegExpExecArray,
+	baseDir: string,
+	visited: Set<string>
+) => {
+	const [statement, importPath] = match;
+	if (importPath === undefined) return statement;
+	const fullPath = isAbsolute(importPath)
+		? importPath
+		: resolve(baseDir, importPath);
+	if (visited.has(fullPath)) return '';
+
+	return existsSync(fullPath) ? { fullPath } : statement;
+};
+
 const resolveCssImportsAsync = async (
 	content: string,
 	baseDir: string,
@@ -1197,36 +1217,28 @@ const resolveCssImportsAsync = async (
 	const matches = Array.from(content.matchAll(CSS_IMPORT_PATTERN));
 	if (matches.length === 0) return content;
 
+	// Each import is read independently of the others (its `visited` set
+	// is a copy), so they are read together and stitched back in order.
+	const replacements = await Promise.all(
+		matches.map(async (match) => {
+			const replacement = importReplacement(match, baseDir, visited);
+			if (typeof replacement === 'string') return replacement;
+			const { fullPath } = replacement;
+
+			return resolveCssImportsAsync(
+				await readFile(fullPath, 'utf-8'),
+				dirname(fullPath),
+				new Set([...visited, fullPath])
+			);
+		})
+	);
 	let cursor = 0;
 	const parts: string[] = [];
-	for (const match of matches) {
-		const importPath = match[1];
-		if (importPath === undefined) continue;
+	matches.forEach((match, index) => {
 		const start = match.index ?? 0;
-		const end = start + match[0].length;
-		parts.push(content.slice(cursor, start));
-
-		const fullPath = isAbsolute(importPath)
-			? importPath
-			: resolve(baseDir, importPath);
-		if (visited.has(fullPath) || !existsSync(fullPath)) {
-			parts.push(visited.has(fullPath) ? '' : match[0]);
-			cursor = end;
-			continue;
-		}
-
-		const nextVisited = new Set(visited);
-		nextVisited.add(fullPath);
-		const imported = await readFile(fullPath, 'utf-8');
-		parts.push(
-			await resolveCssImportsAsync(
-				imported,
-				dirname(fullPath),
-				nextVisited
-			)
-		);
-		cursor = end;
-	}
+		parts.push(content.slice(cursor, start), replacements[index] ?? '');
+		cursor = start + match[0].length;
+	});
 	parts.push(content.slice(cursor));
 
 	return parts.join('');
@@ -1308,6 +1320,50 @@ const resolveCssImportsSync = (
 		return resolveCssImportsSync(imported, dirname(fullPath), nextVisited);
 	});
 
+const requireSass = (packageName: string, filePath: string) => {
+	try {
+		return requireOptionalPeerSync<typeof import('sass')>(packageName);
+	} catch {
+		throw missingDependencyError(packageName, filePath);
+	}
+};
+
+const compileSassSync = (
+	filePath: string,
+	rawContents: string,
+	language: 'sass' | 'scss',
+	config: StylePreprocessorConfig | undefined
+) => {
+	const options = getSassOptions(config, language);
+	const sass = requireSass(options.implementation ?? 'sass', filePath);
+	const contents = withAdditionalData(rawContents, options.additionalData);
+	const loadPaths = normalizeLoadPaths(filePath, options.loadPaths);
+	const result = sass.compileString(contents, {
+		importers: [createSassImporter(filePath, loadPaths, language, config)],
+		loadPaths,
+		style: 'expanded',
+		syntax: language === 'sass' ? 'indented' : 'scss',
+		url: new URL(pathToFileURL(resolve(filePath)).href)
+	});
+	// Track every `@use` / `@import` dependency Sass loaded so
+	// downstream HMR can find the entry stylesheet that needs to
+	// re-emit when a shared partial (`_shared.scss`, `_tokens.scss`)
+	// changes. `result.loadedUrls` includes the entry itself plus
+	// everything it pulled in. Without this, editing a shared partial
+	// silently keeps the entry's stale CSS until a full restart.
+	for (const dep of sassDependencies(result.loadedUrls, filePath))
+		addStyleImporter(filePath, dep);
+
+	// Sass leaves plain `.css` `@import` statements alone (per CSS
+	// spec, those are runtime-resolved). Resolve them here so the
+	// inlined `ɵcmp.styles` content is self-contained.
+	return resolveCssImportsSync(
+		result.css,
+		dirname(filePath),
+		new Set([filePath])
+	);
+};
+
 const compileStyleFileSyncUnprefixed = (
 	filePath: string,
 	config?: StylePreprocessorConfig
@@ -1319,54 +1375,8 @@ const compileStyleFileSyncUnprefixed = (
 			`Unable to compile ${filePath}: PostCSS preprocessing is async-only.`
 		);
 	}
-	if (language === 'scss' || language === 'sass') {
-		const options = getSassOptions(config, language);
-		const packageName = options.implementation ?? 'sass';
-		let sass: typeof import('sass');
-		try {
-			sass = requireOptionalPeerSync<typeof import('sass')>(packageName);
-		} catch {
-			throw missingDependencyError(packageName, filePath);
-		}
-
-		const contents = withAdditionalData(
-			rawContents,
-			options.additionalData
-		);
-		const loadPaths = normalizeLoadPaths(filePath, options.loadPaths);
-		const result = sass.compileString(contents, {
-			importers: [
-				createSassImporter(filePath, loadPaths, language, config)
-			],
-			loadPaths,
-			style: 'expanded',
-			syntax: language === 'sass' ? 'indented' : 'scss',
-			url: new URL(pathToFileURL(resolve(filePath)).href)
-		});
-		// Track every `@use` / `@import` dependency Sass loaded so
-		// downstream HMR can find the entry stylesheet that needs to
-		// re-emit when a shared partial (`_shared.scss`,
-		// `_tokens.scss`) changes. `result.loadedUrls` includes the
-		// entry itself plus everything it pulled in. Without this,
-		// editing a shared partial silently keeps the entry's stale
-		// CSS until a full restart.
-		const loadedUrls = result.loadedUrls ?? [];
-		for (const url of loadedUrls) {
-			if (url.protocol !== 'file:') continue;
-			const dep = fileURLToPath(url);
-			if (resolve(dep) === resolve(filePath)) continue;
-			addStyleImporter(filePath, dep);
-		}
-
-		// Sass leaves plain `.css` `@import` statements alone (per CSS
-		// spec, those are runtime-resolved). Resolve them here so the
-		// inlined `ɵcmp.styles` content is self-contained.
-		return resolveCssImportsSync(
-			result.css,
-			dirname(filePath),
-			new Set([filePath])
-		);
-	}
+	if (language === 'scss' || language === 'sass')
+		return compileSassSync(filePath, rawContents, language, config);
 	if (language === 'less') {
 		throw new Error(
 			`Unable to compile ${filePath} synchronously: Less only has an async compiler. Compile it with compileStyleFileIfNeeded() instead.`

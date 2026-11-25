@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "`src/build/stylePreprocessor.ts` passes the lint and is off the list of exceptions. The compile function is split by language (Sass, Less, Stylus), and the import resolver and the synchronous Sass path are flattened. One rule is switched off for this file, with the reason written beside it: the 15 type assertions on Sass, Less, Stylus, PostCSS and autoprefixer, which are optional peers loaded by name and cannot be typed by import. Checked by output: 188 compiles of a purpose-built corpus (every language, five configurations, error cases, the dependency graph) are identical before and after, and so is every built stylesheet and script of the example app. 99 of the 100 compiler files are linted; `compileAngular.ts` remains. No behaviour changes.",
+					"kind": "internal",
+					"summary": "The style preprocessor in `src/build/` passes the lint; 1 file remains"
+				}
+			],
+			"date": "2026-11-25",
+			"version": "0.20.0-beta.379"
+		},
+		{
+			"changes": [
+				{
 					"detail": "`src/build/chainInlineSourcemaps.ts` passes the lint and is off the list of exceptions. It decodes, chains and re-encodes source maps, so the restructured code was compared with the old on 16,000 generated maps and texts and on the example app's real maps (no difference), and timed against it on 17 MB of mappings (no slower; the first version of the restructure was about a tenth slower and was reworked until it was not). Thirteen tests now pin outputs the old code produced. One behaviour differs, for invalid input only: a bundle whose inline map is valid JSON but not a source map is now left alone, where the old code threw. 98 of the 100 compiler files are linted; 2 remain listed.",
 					"kind": "internal",
 					"summary": "The sourcemap chaining in `src/build/` passes the lint; 2 files remain"

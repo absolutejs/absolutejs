@@ -31,12 +31,11 @@ export default defineConfig([
 			// NOT build output: the framework's own compilers. They were
 			// never linted, because the old `**/build/**` matched them by
 			// name. The directory is linted now; these are the files that
-			// still fail (79 errors as of beta.378, most of them nesting
+			// still fail (39 errors as of beta.379, most of them nesting
 			// depth, which is restructuring and not tidying). Each is to be
 			// fixed and taken off this list — a file that is not listed is
 			// held to the same rules as the rest of src/.
 			'src/build/compileAngular.ts',
-			'src/build/stylePreprocessor.ts',
 			// Generated, cached, and vendored code — not authored by us.
 			'**/.absolutejs/**',
 			// Written by `absolute-changelog release`; its migration maps keep
@@ -400,6 +399,19 @@ export default defineConfig([
 		// composable — it gives user code a typed handle to the per-request
 		// context without forcing every page to repeat the assertion.
 		files: ['src/angular/composables/usePageContext.ts'],
+		rules: {
+			'@typescript-eslint/consistent-type-assertions': 'off'
+		}
+	},
+	{
+		// Sass, Less, Stylus, PostCSS and autoprefixer are optional peers,
+		// loaded by name at run time and only when a project uses them, so
+		// their types cannot be imported and what `import()` returns has to
+		// be told what it is. The assertions here are that boundary: 15 of
+		// them, every one on a module, a config file or a renderer that came
+		// from outside. Everything else in the file is held to the rule's
+		// neighbours.
+		files: ['src/build/stylePreprocessor.ts'],
 		rules: {
 			'@typescript-eslint/consistent-type-assertions': 'off'
 		}
