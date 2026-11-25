@@ -59,6 +59,19 @@ const hasSourceExtension = (filePath: string) => {
 	return SOURCE_EXTENSIONS.has(filePath.slice(idx));
 };
 
+const readEntries = (dir: string) => {
+	try {
+		return readdirSync(dir, { encoding: 'utf-8', withFileTypes: true });
+	} catch {
+		return [];
+	}
+};
+
+const isScannedDirectory = (entry: Dirent) =>
+	entry.isDirectory() &&
+	!SKIP_DIRS.has(entry.name) &&
+	!entry.name.startsWith('.');
+
 const collectSourceFiles = (root: string) => {
 	const out: string[] = [];
 	const stack: string[] = [root];
@@ -66,26 +79,18 @@ const collectSourceFiles = (root: string) => {
 	while (stack.length > 0) {
 		const dir = stack.pop();
 		if (!dir) continue;
-
-		let entries: Dirent[];
-		try {
-			entries = readdirSync(dir, {
-				encoding: 'utf-8',
-				withFileTypes: true
-			});
-		} catch {
-			continue;
-		}
-
-		for (const entry of entries) {
-			if (entry.isDirectory()) {
-				if (SKIP_DIRS.has(entry.name)) continue;
-				if (entry.name.startsWith('.')) continue;
-				stack.push(join(dir, entry.name));
-			} else if (entry.isFile() && hasSourceExtension(entry.name)) {
-				out.push(join(dir, entry.name));
-			}
-		}
+		const entries = readEntries(dir);
+		entries
+			.filter(isScannedDirectory)
+			.forEach((entry) => stack.push(join(dir, entry.name)));
+		entries
+			.filter(
+				(entry) =>
+					!entry.isDirectory() &&
+					entry.isFile() &&
+					hasSourceExtension(entry.name)
+			)
+			.forEach((entry) => out.push(join(dir, entry.name)));
 	}
 
 	return out;
@@ -197,7 +202,7 @@ const extractAssetLiteralKey = (
 	constants: ConstStrings
 ) => {
 	if (call.arguments.length < 2) return null;
-	const keyArg = call.arguments[1];
+	const [, keyArg] = call.arguments;
 	if (!keyArg) return null;
 
 	return readStringValue(keyArg, constants);
@@ -228,7 +233,7 @@ const readProperty = (property: TS.ObjectLiteralElementLike) => {
 const extractSsrOnlyPageName = (
 	objectLiteral: TS.ObjectLiteralExpression,
 	constants: ConstStrings
-): string | null => {
+) => {
 	let hasClientNone = false;
 	let pageAssetKey: string | null = null;
 
@@ -236,20 +241,31 @@ const extractSsrOnlyPageName = (
 		const property = readProperty(element);
 		if (!property) continue;
 
-		if (property.name === 'client') {
+		if (property.name === 'client')
 			hasClientNone =
 				readStringValue(property.value, constants) === 'none';
-			continue;
-		}
-
-		if (property.name === 'pagePath') {
+		if (property.name === 'pagePath')
 			pageAssetKey = extractPagePathAssetKey(property.value, constants);
-		}
 	}
 
 	if (!hasClientNone) return null;
 
 	return pageAssetKey;
+};
+
+/* The SSR-only page a `handleVuePageRequest({ … })` call names, when
+ * `node` is such a call and says `client: 'none'`. */
+const ssrOnlyPageNameOfCall = (node: TS.Node, constants: ConstStrings) => {
+	if (
+		!ts.isCallExpression(node) ||
+		!isHandleVuePageRequestCallee(node.expression)
+	)
+		return null;
+	const [firstArg] = node.arguments;
+
+	return firstArg && ts.isObjectLiteralExpression(firstArg)
+		? extractSsrOnlyPageName(firstArg, constants)
+		: null;
 };
 
 const extractFromFile = (filePath: string) => {
@@ -273,16 +289,8 @@ const extractFromFile = (filePath: string) => {
 
 	const constants = collectConstStrings(sourceFile);
 	const visit = (node: TS.Node) => {
-		if (
-			ts.isCallExpression(node) &&
-			isHandleVuePageRequestCallee(node.expression)
-		) {
-			const firstArg = node.arguments[0];
-			if (firstArg && ts.isObjectLiteralExpression(firstArg)) {
-				const pageName = extractSsrOnlyPageName(firstArg, constants);
-				if (pageName) out.add(pageName);
-			}
-		}
+		const pageName = ssrOnlyPageNameOfCall(node, constants);
+		if (pageName) out.add(pageName);
 		ts.forEachChild(node, visit);
 	};
 

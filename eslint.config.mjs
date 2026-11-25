@@ -31,7 +31,7 @@ export default defineConfig([
 			// NOT build output: the framework's own compilers. They were
 			// never linted, because the old `**/build/**` matched them by
 			// name. The directory is linted now; these are the files that
-			// still fail (288 errors as of beta.365, most of them nesting
+			// still fail (255 errors as of beta.366, most of them nesting
 			// depth, which is restructuring and not tidying). Each is to be
 			// fixed and taken off this list — a file that is not listed is
 			// held to the same rules as the rest of src/.
@@ -42,11 +42,8 @@ export default defineConfig([
 			'src/build/compileVue.ts',
 			'src/build/islandRegistryTransform.ts',
 			'src/build/manifestKeys.ts',
-			'src/build/parseAngularConfigImports.ts',
 			'src/build/scanAngularHandlerCalls.ts',
-			'src/build/scanAngularPageRoutes.ts',
 			'src/build/scanRouteRegistrations.ts',
-			'src/build/scanVueSsrOnlyPages.ts',
 			'src/build/stylePreprocessor.ts',
 			// Generated, cached, and vendored code — not authored by us.
 			'**/.absolutejs/**',

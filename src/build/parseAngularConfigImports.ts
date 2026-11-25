@@ -27,71 +27,74 @@ export type AngularProvidersImport = {
 	absolutePath: string;
 };
 
-const findDefineConfigCall = (
-	sf: TS.SourceFile
-): TS.ObjectLiteralExpression | null => {
-	let result: TS.ObjectLiteralExpression | null = null;
+const withoutExtension = (path: string) => path.replace(/\.[cm]?[tj]sx?$/, '');
 
-	const visit = (node: TS.Node) => {
-		if (result) return;
-		if (
-			ts.isCallExpression(node) &&
-			ts.isIdentifier(node.expression) &&
-			node.expression.text === 'defineConfig'
-		) {
-			const [arg] = node.arguments;
-			if (arg && ts.isObjectLiteralExpression(arg)) {
-				result = arg;
+/* The object passed to `defineConfig(...)`, when `node` is that call. */
+const defineConfigArgument = (node: TS.Node) => {
+	if (
+		!ts.isCallExpression(node) ||
+		!ts.isIdentifier(node.expression) ||
+		node.expression.text !== 'defineConfig'
+	)
+		return null;
+	const [argument] = node.arguments;
 
-				return;
-			}
-		}
-		ts.forEachChild(node, visit);
-	};
-
-	ts.forEachChild(sf, visit);
-
-	return result;
+	return argument && ts.isObjectLiteralExpression(argument) ? argument : null;
 };
 
-const findPropertyInitializer = (
-	object: TS.ObjectLiteralExpression,
-	name: string
-): TS.Expression | null => {
-	for (const prop of object.properties) {
-		if (!ts.isPropertyAssignment(prop)) continue;
-		if (!prop.name) continue;
-		const key = ts.isIdentifier(prop.name)
-			? prop.name.text
-			: ts.isStringLiteral(prop.name)
-				? prop.name.text
-				: null;
-		if (key === name) return prop.initializer;
+/* The first `defineConfig({ … })` in the file, in document order. */
+const findDefineConfigCall = (sourceFile: TS.SourceFile) => {
+	const pending: TS.Node[] = [sourceFile];
+	while (pending.length > 0) {
+		const node = pending.pop();
+		if (node === undefined) break;
+		const found = defineConfigArgument(node);
+		if (found) return found;
+		const children: TS.Node[] = [];
+		ts.forEachChild(node, (child) => {
+			children.push(child);
+		});
+		// Popped from the end, so the first child goes on last.
+		pending.push(...children.reverse());
 	}
 
 	return null;
 };
 
-const findImportForBinding = (
-	sf: TS.SourceFile,
-	binding: string
-): { source: string; importedName: string } | null => {
-	for (const statement of sf.statements) {
+const findPropertyInitializer = (
+	object: TS.ObjectLiteralExpression,
+	name: string
+) => {
+	for (const property of object.properties) {
+		if (!ts.isPropertyAssignment(property)) continue;
+		if (!property.name) continue;
+		const key =
+			ts.isIdentifier(property.name) || ts.isStringLiteral(property.name)
+				? property.name.text
+				: null;
+		if (key === name) return property.initializer;
+	}
+
+	return null;
+};
+
+const findImportForBinding = (sourceFile: TS.SourceFile, binding: string) => {
+	for (const statement of sourceFile.statements) {
 		if (!ts.isImportDeclaration(statement)) continue;
 		if (!ts.isStringLiteral(statement.moduleSpecifier)) continue;
 		if (statement.importClause?.isTypeOnly) continue;
 		const named = statement.importClause?.namedBindings;
 		if (!named || !ts.isNamedImports(named)) continue;
-		for (const element of named.elements) {
-			if (element.isTypeOnly) continue;
-			if (element.name.text === binding) {
-				return {
-					importedName:
-						element.propertyName?.text ?? element.name.text,
-					source: statement.moduleSpecifier.text
-				};
-			}
-		}
+		const element = named.elements.find(
+			(candidate) =>
+				!candidate.isTypeOnly && candidate.name.text === binding
+		);
+		if (!element) continue;
+
+		return {
+			importedName: element.propertyName?.text ?? element.name.text,
+			source: statement.moduleSpecifier.text
+		};
 	}
 
 	return null;
@@ -105,7 +108,7 @@ const findImportForBinding = (
  *  root. Falls back to `<projectRoot>/absolute.config.{ts,mts,js,mjs}`.
  *  Returns null if no candidate exists — caller treats that as
  *  "no global providers". */
-const resolveConfigPath = (projectRoot: string): string | null => {
+const resolveConfigPath = (projectRoot: string) => {
 	const envOverride = process.env.ABSOLUTE_CONFIG;
 	if (envOverride) {
 		const resolved = isAbsolute(envOverride)
@@ -120,11 +123,8 @@ const resolveConfigPath = (projectRoot: string): string | null => {
 		join(projectRoot, 'absolute.config.js'),
 		join(projectRoot, 'absolute.config.mjs')
 	];
-	for (const candidate of candidates) {
-		if (existsSync(candidate)) return candidate;
-	}
 
-	return null;
+	return candidates.find((candidate) => existsSync(candidate)) ?? null;
 };
 
 export const parseAngularProvidersImport = (
@@ -137,7 +137,7 @@ export const parseAngularProvidersImport = (
 	if (!source.includes('angular')) return null;
 	if (!source.includes('providers')) return null;
 
-	const sf = ts.createSourceFile(
+	const sourceFile = ts.createSourceFile(
 		configPath,
 		source,
 		ts.ScriptTarget.Latest,
@@ -145,7 +145,7 @@ export const parseAngularProvidersImport = (
 		ts.ScriptKind.TS
 	);
 
-	const configObject = findDefineConfigCall(sf);
+	const configObject = findDefineConfigCall(sourceFile);
 	if (!configObject) return null;
 
 	const angularField = findPropertyInitializer(configObject, 'angular');
@@ -157,15 +157,18 @@ export const parseAngularProvidersImport = (
 	if (!ts.isIdentifier(providersField)) return null;
 
 	const binding = providersField.text;
-	const importInfo = findImportForBinding(sf, binding);
+	const importInfo = findImportForBinding(sourceFile, binding);
 	if (!importInfo) return null;
 
 	const configDir = dirname(configPath);
-	const absolutePath = importInfo.source.startsWith('.')
-		? join(configDir, importInfo.source).replace(/\.[cm]?[tj]sx?$/, '')
-		: isAbsolute(importInfo.source)
-			? importInfo.source.replace(/\.[cm]?[tj]sx?$/, '')
-			: importInfo.source;
+	const { source: specifier } = importInfo;
+	// A bare package specifier is left exactly as written.
+	const nonRelative = isAbsolute(specifier)
+		? withoutExtension(specifier)
+		: specifier;
+	const absolutePath = specifier.startsWith('.')
+		? withoutExtension(join(configDir, specifier))
+		: nonRelative;
 
 	return {
 		absolutePath,

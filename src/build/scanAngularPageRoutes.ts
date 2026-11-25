@@ -53,33 +53,38 @@ const isPageFile = (filePath: string) => {
 	return true;
 };
 
-const collectPageFiles = (pagesRoot: string): string[] => {
+const readEntries = (dir: string) => {
+	try {
+		return readdirSync(dir, { encoding: 'utf-8', withFileTypes: true });
+	} catch {
+		return [];
+	}
+};
+
+const isScannedDirectory = (entry: Dirent) =>
+	entry.isDirectory() &&
+	!SKIP_DIRS.has(entry.name) &&
+	!entry.name.startsWith('.');
+
+const collectPageFiles = (pagesRoot: string) => {
 	const out: string[] = [];
 	const stack: string[] = [pagesRoot];
 
 	while (stack.length > 0) {
 		const dir = stack.pop();
 		if (!dir) continue;
-
-		let entries: Dirent[];
-		try {
-			entries = readdirSync(dir, {
-				encoding: 'utf-8',
-				withFileTypes: true
-			});
-		} catch {
-			continue;
-		}
-
-		for (const entry of entries) {
-			if (entry.isDirectory()) {
-				if (SKIP_DIRS.has(entry.name)) continue;
-				if (entry.name.startsWith('.')) continue;
-				stack.push(join(dir, entry.name));
-			} else if (entry.isFile() && isPageFile(entry.name)) {
-				out.push(join(dir, entry.name));
-			}
-		}
+		const entries = readEntries(dir);
+		entries
+			.filter(isScannedDirectory)
+			.forEach((entry) => stack.push(join(dir, entry.name)));
+		entries
+			.filter(
+				(entry) =>
+					!entry.isDirectory() &&
+					entry.isFile() &&
+					isPageFile(entry.name)
+			)
+			.forEach((entry) => out.push(join(dir, entry.name)));
 	}
 
 	return out;
@@ -90,7 +95,7 @@ const hasTopLevelRoutesExport = (source: string, filePath: string) => {
 	// the AST parse.
 	if (!source.includes('routes')) return false;
 
-	const sf = ts.createSourceFile(
+	const sourceFile = ts.createSourceFile(
 		filePath,
 		source,
 		ts.ScriptTarget.Latest,
@@ -98,7 +103,7 @@ const hasTopLevelRoutesExport = (source: string, filePath: string) => {
 		ts.ScriptKind.TS
 	);
 
-	for (const statement of sf.statements) {
+	for (const statement of sourceFile.statements) {
 		if (!ts.isVariableStatement(statement)) continue;
 		// Only exported declarations.
 		const isExported = statement.modifiers?.some(
@@ -106,38 +111,38 @@ const hasTopLevelRoutesExport = (source: string, filePath: string) => {
 		);
 		if (!isExported) continue;
 
-		for (const declaration of statement.declarationList.declarations) {
-			if (!ts.isIdentifier(declaration.name)) continue;
-			if (declaration.name.text === 'routes') return true;
-		}
+		const declaresRoutes = statement.declarationList.declarations.some(
+			(declaration) =>
+				ts.isIdentifier(declaration.name) &&
+				declaration.name.text === 'routes'
+		);
+		if (declaresRoutes) return true;
 	}
 
 	return false;
 };
 
-export const scanAngularPageRoutes = (
-	pagesRoot: string
-): AngularPageRoutes[] => {
-	const files = collectPageFiles(pagesRoot);
-	const out: AngularPageRoutes[] = [];
-
-	for (const file of files) {
-		let source: string;
-		try {
-			source = readFileSync(file, 'utf-8');
-		} catch {
-			continue;
-		}
-
-		const hasRoutes = hasTopLevelRoutesExport(source, file);
-		const base = basename(file).replace(/\.[cm]?[tj]sx?$/, '');
-		const manifestKey = toPascal(base);
-		out.push({
-			hasRoutes,
-			manifestKey,
-			pageFile: file
-		});
+const readSource = (file: string) => {
+	try {
+		return readFileSync(file, 'utf-8');
+	} catch {
+		return undefined;
 	}
-
-	return out;
 };
+
+/* One page file's entry, or nothing when it cannot be read. */
+const pageRoutesOf = (file: string) => {
+	const source = readSource(file);
+	if (source === undefined) return [];
+	const base = basename(file).replace(/\.[cm]?[tj]sx?$/, '');
+	const page: AngularPageRoutes = {
+		hasRoutes: hasTopLevelRoutesExport(source, file),
+		manifestKey: toPascal(base),
+		pageFile: file
+	};
+
+	return [page];
+};
+
+export const scanAngularPageRoutes = (pagesRoot: string) =>
+	collectPageFiles(pagesRoot).flatMap(pageRoutesOf);
