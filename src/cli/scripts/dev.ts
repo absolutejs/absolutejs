@@ -404,8 +404,12 @@ const mobileReachableHost = (host: string) => {
 	return address;
 };
 
-/** Resolve dev-server settings with env-var precedence over config file.
- *  Env always wins so `ABSOLUTE_PORT=4000 bun dev` is unambiguous. */
+const ALL_INTERFACES = '0.0.0.0';
+
+/** Resolve dev-server settings: the command line, then the environment,
+ *  then the config file. `--port` and `--host` are the most explicit
+ *  thing said, so they win; between the other two the environment wins,
+ *  so `ABSOLUTE_PORT=4000 bun dev` is unambiguous. */
 const resolveDevConfig = (
 	configDev:
 		| {
@@ -416,15 +420,19 @@ const resolveDevConfig = (
 				https?: boolean;
 				tunnel?: { relay?: string; token?: string };
 		  }
-		| undefined
+		| undefined,
+	flags: Pick<AbsoluteDevOptions, 'host' | 'port'> = {}
 ): ResolvedDevConfig => {
 	const relay = env.ABSOLUTE_TUNNEL_RELAY ?? configDev?.tunnel?.relay;
 	const token = env.ABSOLUTE_TUNNEL_TOKEN ?? configDev?.tunnel?.token;
 
 	return {
-		host: env.ABSOLUTE_HOST ?? configDev?.host ?? 'localhost',
+		host: flags.host
+			? ALL_INTERFACES
+			: (env.ABSOLUTE_HOST ?? configDev?.host ?? 'localhost'),
 		https: env.ABSOLUTE_HTTPS === 'true' || configDev?.https === true,
 		port:
+			flags.port ||
 			Number(env.ABSOLUTE_PORT) ||
 			Number(env.PORT) ||
 			configDev?.port ||
@@ -445,8 +453,14 @@ export type AbsoluteDevOptions = {
 	/** Build every page during the boot build (`--eager` /
 	 *  `ABSOLUTE_DEV_EAGER=1`). Default: pages build on first request. */
 	eager?: boolean;
+	/** `--host`: listen on every interface, so other devices on the
+	 *  network can reach the dev server. */
+	host?: boolean;
 	iosDevice?: string;
 	mobile?: boolean;
+	/** `--port`: the port to listen on, ahead of ABSOLUTE_PORT, PORT and
+	 *  `dev.port`. */
+	port?: number;
 };
 
 const androidToolchainReady = (
@@ -534,14 +548,14 @@ export const dev = async (
 				normalizedMobileConfig
 			);
 		}
-		resolvedDev = resolveDevConfig(config?.dev);
+		resolvedDev = resolveDevConfig(config?.dev, options);
 		httpsEnabled = resolvedDev.https;
 		if (config?.buildDirectory) {
 			buildDirectory = resolvePath(process.cwd(), config.buildDirectory);
 		}
 	} catch {
 		// config load failed, fall back to env-only defaults
-		resolvedDev = resolveDevConfig(undefined);
+		resolvedDev = resolveDevConfig(undefined, options);
 		httpsEnabled = resolvedDev.https;
 	}
 	if ((options.androidDevice || options.iosDevice) && !mobileConfig) {
@@ -1904,7 +1918,7 @@ export const dev = async (
 		// File routes: the server entry imports the route module, so it has to
 		// exist before the dev child imports the entry.
 		ensureFileRouteModule(cfg);
-		const refreshedDevConfig = resolveDevConfig(cfg?.dev);
+		const refreshedDevConfig = resolveDevConfig(cfg?.dev, options);
 		if (
 			options.androidDevice &&
 			['localhost', '127.0.0.1', '::1'].includes(refreshedDevConfig.host)

@@ -59,8 +59,10 @@ const COMMAND_FLAGS: Readonly<
 	dev: {
 		'--android-device': 'value',
 		'--eager': 'boolean',
+		'--host': 'boolean',
 		'--ios-device': 'value',
-		'--no-mobile': 'boolean'
+		'--no-mobile': 'boolean',
+		'--port': 'value'
 	},
 	export: {
 		'--flat': 'boolean',

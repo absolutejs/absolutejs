@@ -75,17 +75,17 @@ describe('SIGKILLed dev CLI does not orphan the Bun child', () => {
 					'dev',
 					serverEntry,
 					'--config',
-					configPath
+					configPath,
+					/* The flag itself, so a real server start goes through
+					 * it. For a while this command exited at once here:
+					 * `--port` was not a flag `absolute dev` had. */
+					'--port',
+					String(port)
 				],
 				{
 					cwd: PROJECT_ROOT,
 					env: {
 						...process.env,
-						/* By environment: `absolute dev` has no `--port` flag. It was
-						 * passed here anyway and silently ignored, until the CLI
-						 * started rejecting flags it does not know (beta.288) — and
-						 * this command exited in 20ms, every night. */
-						ABSOLUTE_PORT: String(port),
 						FORCE_COLOR: '0',
 						NODE_ENV: 'development',
 						TELEMETRY_OFF: '1'
