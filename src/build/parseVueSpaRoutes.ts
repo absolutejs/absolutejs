@@ -64,7 +64,7 @@ const routeImports = (node: TS.ObjectLiteralExpression) =>
 		});
 	});
 
-const parseRoute = (node: TS.Expression): ParsedVueSpaRoute[] => {
+const parseRoute = (node: TS.Expression) => {
 	if (!ts.isObjectLiteralExpression(node)) return [];
 	const pathProperty = node.properties.find(
 		(property): property is TS.PropertyAssignment =>
@@ -96,7 +96,7 @@ const collectRoutes = (
 ) => {
 	for (const element of routes.elements) {
 		if (!ts.isObjectLiteralExpression(element)) continue;
-		const routes = parseRoute(element);
+		const parsed = parseRoute(element);
 		const ownPath = element.properties.find(
 			(property): property is TS.PropertyAssignment =>
 				ts.isPropertyAssignment(property) &&
@@ -107,7 +107,7 @@ const collectRoutes = (
 			pathText === null
 				? parentPath
 				: joinRoutePath(parentPath, pathText);
-		for (const route of routes)
+		for (const route of parsed)
 			entries.push({
 				...route,
 				path: joinRoutePath(parentPath, route.path)
@@ -122,7 +122,7 @@ const collectRoutes = (
 	}
 };
 
-export const parseVueSpaRoutes = (source: string): ParsedVueSpaRoute[] => {
+export const parseVueSpaRoutes = (source: string) => {
 	const sourceFile = ts.createSourceFile(
 		'absolute-vue-routes.ts',
 		source,

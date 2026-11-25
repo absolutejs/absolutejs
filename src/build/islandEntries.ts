@@ -176,9 +176,8 @@ const collectRegistryHelperImports = (
 
 	for (const element of bindings.elements) {
 		const importedName = element.propertyName?.text ?? element.name.text;
-		if (importedName === 'defineIslandRegistry') {
+		if (importedName === 'defineIslandRegistry')
 			registryFactoryNames.add(element.name.text);
-		}
 	}
 };
 

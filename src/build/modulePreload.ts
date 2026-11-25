@@ -63,6 +63,26 @@ const resolveSpecifier = (
 	return candidate.startsWith(buildPath) ? candidate : null;
 };
 
+const readModule = (file: string) => {
+	try {
+		return readFileSync(file, 'utf8');
+	} catch {
+		/* An import that resolves to nothing on disk is not worth
+		 * failing a build over; it just does not get preloaded. */
+		return null;
+	}
+};
+
+/** The files inside the build that `file` imports, in source order. */
+const importsOf = (root: string, file: string) => {
+	const source = readModule(file);
+	if (source === null) return [];
+
+	return [...specifiersIn(source)]
+		.map((specifier) => resolveSpecifier(root, file, specifier))
+		.filter((resolved) => resolved !== null);
+};
+
 /** Every module the entry will load, in breadth-first order, as public
  *  URLs. The entry itself is not included: the page already has a script
  *  tag for it, and preloading what is already being fetched is waste. */
@@ -74,23 +94,14 @@ export const moduleGraphFor = (buildPath: string, entryFile: string) => {
 
 	while (frontier.length > 0 && graph.length < MAX_GRAPH) {
 		const next: string[] = [];
-		for (const file of frontier) {
-			let source;
-			try {
-				source = readFileSync(file, 'utf8');
-			} catch {
-				/* An import that resolves to nothing on disk is not worth
-				 * failing a build over; it just does not get preloaded. */
-				continue;
-			}
-			for (const specifier of specifiersIn(source)) {
-				const resolved = resolveSpecifier(root, file, specifier);
-				if (resolved === null || seen.has(resolved)) continue;
+		frontier
+			.flatMap((file) => importsOf(root, file))
+			.forEach((resolved) => {
+				if (seen.has(resolved)) return;
 				seen.add(resolved);
 				graph.push(toPublicUrl(root, resolved));
 				next.push(resolved);
-			}
-		}
+			});
 		frontier = next;
 	}
 

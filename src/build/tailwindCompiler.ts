@@ -121,13 +121,25 @@ const recordDependency = async (deps: Map<string, number>, path: string) => {
    Anything not in that shape (subpath imports like `tailwindcss/preflight`)
    falls through to Bun's regular resolver, which handles `.css` subpaths
    correctly. */
+const isPlainObject = (value: unknown): value is Record<string, unknown> =>
+	typeof value === 'object' && value !== null;
+
+const readPackageJson = (path: string) => {
+	try {
+		const parsed: unknown = JSON.parse(readFileSync(path, 'utf-8'));
+
+		return isPlainObject(parsed) ? parsed : null;
+	} catch {
+		return null;
+	}
+};
+
 const resolveBareCssImport = (id: string, base: string) => {
 	const slashIndex = id.indexOf('/');
+	const unscopedName = slashIndex === -1 ? id : id.slice(0, slashIndex);
 	const pkgName = id.startsWith('@')
 		? id.split('/').slice(0, 2).join('/')
-		: slashIndex === -1
-			? id
-			: id.slice(0, slashIndex);
+		: unscopedName;
 	const subpath = id.slice(pkgName.length);
 
 	if (subpath !== '') {
@@ -142,16 +154,15 @@ const resolveBareCssImport = (id: string, base: string) => {
 	}
 
 	const pkgDir = dirname(pkgJsonPath);
-	let pkg: Record<string, unknown> = {};
-	try {
-		pkg = JSON.parse(readFileSync(pkgJsonPath, 'utf-8'));
-	} catch {
-		return Bun.resolveSync(id, base);
-	}
+	const pkg = readPackageJson(pkgJsonPath);
+	if (pkg === null) return Bun.resolveSync(id, base);
 
-	const exportsField = pkg.exports as
-		{ '.'?: { style?: string } } | undefined;
-	const styleFromExports = exportsField?.['.']?.style;
+	const rootExport: unknown = isPlainObject(pkg.exports)
+		? pkg.exports['.']
+		: undefined;
+	const styleFromExports = isPlainObject(rootExport)
+		? rootExport.style
+		: undefined;
 	const candidates = [
 		styleFromExports,
 		typeof pkg.style === 'string' ? pkg.style : undefined,
@@ -263,10 +274,9 @@ const fileMatchesSources = (file: string, sources: TailwindSource[]) => {
 		const absolutePattern = resolve(source.base, source.pattern);
 		// A literal `@source "./foo.html"` (no glob metachars) just needs
 		// path equality, not Bun.Glob matching.
-		if (!/[*?{[]/.test(absolutePattern)) {
-			if (absolutePattern === absFile) return true;
-			continue;
-		}
+		const isLiteral = !/[*?{[]/.test(absolutePattern);
+		if (isLiteral && absolutePattern === absFile) return true;
+		if (isLiteral) continue;
 		const glob = new Bun.Glob(absolutePattern);
 		if (glob.match(absFile)) return true;
 	}

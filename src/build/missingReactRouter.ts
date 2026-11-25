@@ -37,10 +37,10 @@ const owningPackageName = (filePath: string) => {
 	let dir = dirname(filePath);
 	while (true) {
 		const manifestPath = join(dir, 'package.json');
-		if (existsSync(manifestPath)) {
-			const name = readPackageName(manifestPath);
-			if (name !== undefined) return name;
-		}
+		const name = existsSync(manifestPath)
+			? readPackageName(manifestPath)
+			: undefined;
+		if (name !== undefined) return name;
 		const parent = dirname(dir);
 		if (parent === dir) return undefined;
 		dir = parent;

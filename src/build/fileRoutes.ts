@@ -284,7 +284,7 @@ const segmentOf = (segment: string): RouteSegment | { error: string } => {
 /* The Elysia path pieces an optional segment expands to: present, and
  * absent. Several optional segments multiply, which is why this returns a
  * list of paths rather than one. */
-const expandSegment = (segment: RouteSegment): (string | null)[] => {
+const expandSegment = (segment: RouteSegment) => {
 	if (segment.kind === 'group') return [null];
 	if (segment.kind === 'static') return [segment.value];
 	if (segment.kind === 'param') return [`:${segment.name}`];
@@ -354,7 +354,7 @@ export type FileRoutePathResult = {
 export const fileRoutePath = (
 	framework: FileRouteFramework,
 	relativePath: string
-): FileRoutePathResult | { error: string } => {
+) => {
 	const segments = stripPageExtension(framework, relativePath).split('/');
 	const last = segments[segments.length - 1];
 	const routeSegments = last === 'index' ? segments.slice(0, -1) : segments;
@@ -489,7 +489,7 @@ const routesFromFile = (
 			`${toPosix(relative(process.cwd(), layouts[0] ?? ''))}: layouts are applied to React, Svelte, Vue and Angular routes so far, so this file would be ignored. Remove it, or move the route to one of those route folders.`
 		);
 	}
-	const shared = {
+	const shared: Omit<ScannedFileRoute, 'path'> = {
 		framework: root.framework,
 		name: fileRoutePageName(root.framework, relativePath),
 		server: findServerModule(root.framework, source),
@@ -566,7 +566,9 @@ export const scanFileRoutes = (config: BuildConfig, root = process.cwd()) => {
 
 		return empty;
 	}
-	const scanned = resolved.roots.flatMap((root) => scanRoot(root, problems));
+	const scanned = resolved.roots.flatMap((routeRoot) =>
+		scanRoot(routeRoot, problems)
+	);
 	const routes = reportConflicts(scanned, problems).sort(compareRoutes);
 	remember(resolved.roots, routes);
 	const scan: FileRouteScan = { problems, routes };

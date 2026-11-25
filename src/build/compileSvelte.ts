@@ -104,13 +104,18 @@ type Cache = Map<string, Built>;
 // components. Islands compile with external CSS into their own tree, so
 // they keep their own caches: a component used both by a page and as an
 // island compiles once per mode.
-const persistentCaches = {
+type CachesByCssMode<Value> = {
+	external: Map<string, Value>;
+	injected: Map<string, Value>;
+};
+
+const persistentCaches: CachesByCssMode<Built> = {
 	external: new Map<string, Built>(),
 	injected: new Map<string, Built>()
 };
 
 // Content hash cache to detect unchanged source files
-const sourceHashCaches = {
+const sourceHashCaches: CachesByCssMode<string> = {
 	external: new Map<string, string>(),
 	injected: new Map<string, string>()
 };
@@ -440,9 +445,8 @@ export const compileSvelte = async (
 		const childSources = resolvedImports.filter(
 			(path): path is string => path !== null
 		);
-		const childBuilt = await Promise.all(
-			childSources.map((child) => build(child))
-		);
+		// For the cache they fill: each child is read back from it below.
+		await Promise.all(childSources.map((child) => build(child)));
 		// Build a map of original import specifiers to the correct path from the
 		// generated output file. Svelte child components may point to compiled
 		// siblings; plain TS/JS helpers should resolve back to their original

@@ -85,11 +85,14 @@ const collectFiles = (dir: string, found: string[]) => {
 	}
 	for (const entry of entries) {
 		const path = join(dir, entry.name);
-		if (entry.isDirectory()) {
-			if (!SKIP_DIRS.has(entry.name) && !entry.name.startsWith('.'))
-				collectFiles(path, found);
-			continue;
-		}
+		const isDirectory = entry.isDirectory();
+		if (
+			isDirectory &&
+			!SKIP_DIRS.has(entry.name) &&
+			!entry.name.startsWith('.')
+		)
+			collectFiles(path, found);
+		if (isDirectory) continue;
 		const dot = entry.name.lastIndexOf('.');
 		if (dot !== -1 && LINK_EXTENSIONS.has(entry.name.slice(dot)))
 			found.push(path);
@@ -99,37 +102,42 @@ const collectFiles = (dir: string, found: string[]) => {
 const lineOf = (source: string, index: number) =>
 	source.slice(0, index).split('\n').length;
 
+const readSource = (file: string) => {
+	try {
+		return readFileSync(file, 'utf-8');
+	} catch {
+		return undefined;
+	}
+};
+
+const linksIn = (projectRoot: string, file: string) => {
+	const source = readSource(file);
+	if (source === undefined) return [];
+	const links: FoundLink[] = [];
+	for (const match of source.matchAll(new RegExp(LINK_HREF_RE.source, 'g'))) {
+		const href = match[1] ?? match[2] ?? match[4];
+		// Not a same-origin path: an absolute URL, a fragment, a
+		// `mailto:`, `tel:`, or a relative link whose target depends on
+		// the page it is written in.
+		if (href === undefined || !href.startsWith('/')) continue;
+		// `//host/path` is protocol-relative, so another origin.
+		if (href.startsWith('//')) continue;
+		links.push({
+			file: relative(projectRoot, file).split(sep).join('/'),
+			href,
+			line: lineOf(source, match.index)
+		});
+	}
+
+	return links;
+};
+
 /** Every literal, same-origin link in the project's source. */
 export const collectLinks = (projectRoot: string) => {
 	const files: string[] = [];
 	collectFiles(projectRoot, files);
-	const links: FoundLink[] = [];
-	for (const file of files) {
-		let source: string;
-		try {
-			source = readFileSync(file, 'utf-8');
-		} catch {
-			continue;
-		}
-		const pattern = new RegExp(LINK_HREF_RE.source, 'g');
-		let match: RegExpExecArray | null;
-		while ((match = pattern.exec(source)) !== null) {
-			const href = match[1] ?? match[2] ?? match[4];
-			// Not a same-origin path: an absolute URL, a fragment, a
-			// `mailto:`, `tel:`, or a relative link whose target depends on
-			// the page it is written in.
-			if (href === undefined || !href.startsWith('/')) continue;
-			// `//host/path` is protocol-relative, so another origin.
-			if (href.startsWith('//')) continue;
-			links.push({
-				file: relative(projectRoot, file).split(sep).join('/'),
-				href,
-				line: lineOf(source, match.index)
-			});
-		}
-	}
 
-	return links;
+	return files.flatMap((file) => linksIn(projectRoot, file));
 };
 export const knownRoutePaths = (
 	config: BuildConfig,
@@ -152,11 +160,9 @@ export const pathMatchesPattern = (pattern: string, path: string) => {
 		if (part === '*') return true;
 		const actual = pathParts[index];
 		if (actual === undefined) return false;
-		if (part.startsWith(':')) {
-			if (actual === '') return false;
-			continue;
-		}
-		if (part !== actual) return false;
+		const isParameter = part.startsWith(':');
+		if (isParameter && actual === '') return false;
+		if (!isParameter && part !== actual) return false;
 	}
 
 	return pathParts.length === patternParts.length;
