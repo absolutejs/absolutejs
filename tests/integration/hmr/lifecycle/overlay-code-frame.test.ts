@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import { chmodSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { startDevServer, type DevServer } from '../../../helpers/devServer';
 import { mutateFile, restoreAllFiles } from '../../../helpers/file';
@@ -140,6 +140,9 @@ describe('open in editor', () => {
 	test('launches the configured editor with the file and line', async () => {
 		const { openInEditor } =
 			await import('../../../../src/dev/openInEditor');
+		/* Not there in a fresh checkout or a test shard's copy of the
+		 * tree, which is where this failed. */
+		mkdirSync(SCRATCH, { recursive: true });
 		writeFileSync(
 			recorder,
 			`#!/bin/sh\nprintf '%s\\n' "$@" > ${JSON.stringify(argvLog)}\n`
