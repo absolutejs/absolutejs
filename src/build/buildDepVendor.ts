@@ -1,7 +1,7 @@
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, readFileSync } from 'node:fs';
 import { isWorkspacePackageSpecifier } from './workspacePackages';
 import { isBuiltin } from 'node:module';
-import { join, relative } from 'node:path';
+import { dirname, join, relative } from 'node:path';
 import { rm } from 'node:fs/promises';
 import { build as bunBuild, Glob, type BunPlugin } from 'bun';
 import { generateVendorEntrySource } from './vendorEntrySource';
@@ -116,26 +116,31 @@ type ScannedSpecifiers = {
 	framework: string[];
 };
 
+/* The specifiers one file imports; none when it cannot be read or parsed. */
+const importPathsOf = async (file: string, transpiler: Bun.Transpiler) => {
+	try {
+		const content = await Bun.file(file).text();
+
+		return transpiler.scanImports(content).map((imp) => imp.path);
+	} catch {
+		// unreadable file, skip
+		return [];
+	}
+};
+
 const readFileSpecifiers = async (
 	file: string,
 	transpiler: Bun.Transpiler
 ): Promise<ScannedSpecifiers> => {
-	const dep: string[] = [];
-	const framework: string[] = [];
-	try {
-		const content = await Bun.file(file).text();
-		for (const imp of transpiler.scanImports(content)) {
-			if (isDepSpecifier(imp.path)) dep.push(imp.path);
-			else if (isFrameworkRootCandidate(imp.path))
-				framework.push(imp.path);
-		}
-	} catch {
-		// unreadable file, skip
-	}
+	const paths = await importPathsOf(file, transpiler);
 
-	return { dep, framework };
+	return {
+		dep: paths.filter(isDepSpecifier),
+		framework: paths.filter(
+			(path) => !isDepSpecifier(path) && isFrameworkRootCandidate(path)
+		)
+	};
 };
-
 const scanDirFiles = async (dir: string) => {
 	const empty: string[] = [];
 	const glob = new Glob('**/*.{ts,tsx,js,jsx}');
@@ -223,58 +228,58 @@ const scanBareImports = async (
 // for further per-spec processing by the caller. Resolution failures and
 // unreadable files are silent skips (matches the rest of the vendor
 // pipeline's "best-effort, never throw" stance).
-const collectBareImportsFromFile = async (
+const resolveFrom = (specifier: string, from: string) => {
+	try {
+		return Bun.resolveSync(specifier, from);
+	} catch {
+		return null;
+	}
+};
+
+/* The specifiers a file on disk imports, or null when it cannot be read
+ * or parsed. */
+const importsOfModule = (path: string, transpiler: Bun.Transpiler) => {
+	try {
+		return transpiler
+			.scanImports(readFileSync(path, 'utf-8'))
+			.map((imp) => imp.path);
+	} catch {
+		return null;
+	}
+};
+
+type QueuedModule = { depth: number; path: string };
+
+const collectBareImportsFromFile = (
 	entryPath: string,
 	transpiler: Bun.Transpiler,
 	maxDepth = 8
-): Promise<string[]> => {
-	const { readFileSync } = await import('node:fs');
-	const { dirname } = await import('node:path');
+) => {
 	const seenFiles = new Set<string>();
 	const bareOut = new Set<string>();
-	const queue: Array<{ path: string; depth: number }> = [
-		{ depth: 0, path: entryPath }
-	];
+	const queue: QueuedModule[] = [{ depth: 0, path: entryPath }];
 
 	while (queue.length > 0) {
-		const { path, depth } = queue.shift()!;
+		const next = queue.shift();
+		if (!next) break;
+		const { depth, path } = next;
 		if (seenFiles.has(path)) continue;
 		seenFiles.add(path);
 		if (depth > maxDepth) continue;
-
-		let content: string;
-		try {
-			content = readFileSync(path, 'utf-8');
-		} catch {
-			continue;
-		}
-		let imports;
-		try {
-			imports = transpiler.scanImports(content);
-		} catch {
-			continue;
-		}
+		const imports = importsOfModule(path, transpiler);
+		if (imports === null) continue;
 		const fromDir = dirname(path);
-		for (const imp of imports) {
-			const child = imp.path;
-			if (child.startsWith('.') || child.startsWith('/')) {
-				// Same-package relative — resolve from the importing file's
-				// directory (NOT the original entry's) so multi-level walks
-				// follow the actual filesystem tree. Resolution may fail for
-				// dynamic globs or platform-conditional imports; skip silently.
-				let resolved: string;
-				try {
-					resolved = Bun.resolveSync(child, fromDir);
-				} catch {
-					continue;
-				}
-				if (!seenFiles.has(resolved)) {
-					queue.push({ depth: depth + 1, path: resolved });
-				}
-			} else {
-				bareOut.add(child);
-			}
-		}
+		imports.forEach((child) => {
+			const isRelative = child.startsWith('.') || child.startsWith('/');
+			if (!isRelative) bareOut.add(child);
+			// Same-package relative — resolve from the importing file's
+			// directory (NOT the original entry's) so multi-level walks
+			// follow the actual filesystem tree. Resolution may fail for
+			// dynamic globs or platform-conditional imports; skip silently.
+			const resolved = isRelative ? resolveFrom(child, fromDir) : null;
+			if (resolved !== null && !seenFiles.has(resolved))
+				queue.push({ depth: depth + 1, path: resolved });
+		});
 	}
 
 	return Array.from(bareOut);
@@ -323,7 +328,6 @@ export const collectTransitiveImports = async (
 	alreadyVendored: Set<string>,
 	alreadyScanned: Set<string>
 ) => {
-	const { dirname } = await import('node:path');
 	const transpiler = new Bun.Transpiler({ loader: 'js' });
 	const newSpecs = new Set<string>();
 	const queue = [...specs].map((spec) => ({ from: process.cwd(), spec }));
@@ -337,30 +341,53 @@ export const collectTransitiveImports = async (
 		const key = `${next.from}\u0000${next.spec}`;
 		if (alreadyScanned.has(key)) continue;
 		alreadyScanned.add(key);
-		let resolved: string;
-		try {
-			resolved = Bun.resolveSync(next.spec, next.from);
-		} catch {
-			continue;
-		}
+		const resolved = resolveFrom(next.spec, next.from);
+		if (resolved === null) continue;
 		visited += 1;
-		const bareImports = await collectBareImportsFromFile(
-			resolved,
-			transpiler
-		);
 		const importerDirectory = dirname(resolved);
-		for (const child of bareImports) {
-			if (!isBareSpecifier(child)) continue;
-			if (isBuiltin(child)) continue;
-			if (isFrameworkSpecifier(child)) continue;
-			if (isAbsolutePackageSpecifier(child)) continue;
-			if (!alreadyVendored.has(child) && isResolvable(child))
-				newSpecs.add(child);
-			queue.push({ from: importerDirectory, spec: child });
-		}
+		collectBareImportsFromFile(resolved, transpiler)
+			.filter(
+				(child) =>
+					isBareSpecifier(child) &&
+					!isBuiltin(child) &&
+					!isFrameworkSpecifier(child) &&
+					!isAbsolutePackageSpecifier(child)
+			)
+			.forEach((child) => {
+				if (!alreadyVendored.has(child) && isResolvable(child))
+					newSpecs.add(child);
+				queue.push({ from: importerDirectory, spec: child });
+			});
 	}
 
 	return newSpecs;
+};
+
+type VendorBuildOutput = Awaited<ReturnType<typeof bunBuild>>;
+
+/* Pass after pass: each one walks what the last one found, and adds what
+ * it finds to `allSpecs`, until a pass finds nothing new or the limit is
+ * reached. */
+const discoverTransitiveSpecs = async (
+	frontier: Iterable<string>,
+	allSpecs: Set<string>,
+	alreadyScanned: Set<string>,
+	passesLeft = MAX_VENDOR_DISCOVERY_PASSES
+): Promise<void> => {
+	if (passesLeft === 0) return;
+	const additional = await collectTransitiveImports(
+		frontier,
+		allSpecs,
+		alreadyScanned
+	);
+	if (additional.size === 0) return;
+	for (const spec of additional) allSpecs.add(spec);
+	await discoverTransitiveSpecs(
+		additional,
+		allSpecs,
+		alreadyScanned,
+		passesLeft - 1
+	);
 };
 
 /** Per-entry externalization plugin.
@@ -519,55 +546,60 @@ const buildDepVendorPass = async (
 	const REQUIRE_CALL_RE = /__require\(\s*["']([^"']+)["']\s*\)/g;
 	const MAX_INLINE_PASSES = 4;
 
-	const buildEntryWithCjsRequireResolution = async (
+	/* The externals a build's output still reaches through `__require(…)`:
+	 * CommonJS requires Bun left as calls because the package was marked
+	 * external. */
+	const requiredExternals = (text: string, externals: Set<string>) => {
+		REQUIRE_CALL_RE.lastIndex = 0;
+
+		return new Set(
+			[...text.matchAll(REQUIRE_CALL_RE)].flatMap(([, requiredSpec]) =>
+				requiredSpec !== undefined && externals.has(requiredSpec)
+					? [requiredSpec]
+					: []
+			)
+		);
+	};
+
+	/* Build one entry; if its output requires an external, build it again
+	 * with that package inlined, up to `passesLeft` builds in all. The
+	 * last build's result is returned whatever it still requires. */
+	const buildWithExternals = async (
+		entryPath: string,
+		externals: Set<string>,
+		passesLeft: number
+	): Promise<VendorBuildOutput> => {
+		const result = await bunBuild({
+			define: VUE_FEATURE_FLAGS,
+			entrypoints: [entryPath],
+			external: [...externals],
+			format: 'esm',
+			minify: false,
+			naming: '[name].[ext]',
+			outdir: vendorDir,
+			plugins: [createStripPureAnnotationsPlugin()],
+			splitting: false,
+			target: 'browser',
+			throw: false
+		});
+		const [output] = result.outputs;
+		if (!result.success || !output) return result;
+		const required = requiredExternals(await output.text(), externals);
+		if (required.size === 0 || passesLeft <= 1) return result;
+		for (const spec of required) externals.delete(spec);
+
+		return buildWithExternals(entryPath, externals, passesLeft - 1);
+	};
+
+	const buildEntryWithCjsRequireResolution = (
 		entryPath: string,
 		specifier: string
-	) => {
-		const baseExternals = [
-			...FRAMEWORK_EXTERNALS,
-			...otherSpecsFor(specifier)
-		];
-		const externalsSet = new Set(baseExternals);
-		let lastResult: Awaited<ReturnType<typeof bunBuild>> | null = null;
-
-		for (let pass = 0; pass < MAX_INLINE_PASSES; pass++) {
-			lastResult = await bunBuild({
-				define: VUE_FEATURE_FLAGS,
-				entrypoints: [entryPath],
-				external: [...externalsSet],
-				format: 'esm',
-				minify: false,
-				naming: '[name].[ext]',
-				outdir: vendorDir,
-				plugins: [createStripPureAnnotationsPlugin()],
-				splitting: false,
-				target: 'browser',
-				throw: false
-			});
-
-			if (!lastResult.success) return lastResult;
-
-			const output = lastResult.outputs[0];
-			if (!output) return lastResult;
-
-			const text = await output.text();
-			REQUIRE_CALL_RE.lastIndex = 0;
-			const requiredSpecs = new Set<string>();
-			let match;
-			while ((match = REQUIRE_CALL_RE.exec(text)) !== null) {
-				const requiredSpec = match[1];
-				if (requiredSpec && externalsSet.has(requiredSpec)) {
-					requiredSpecs.add(requiredSpec);
-				}
-			}
-
-			if (requiredSpecs.size === 0) return lastResult;
-
-			for (const spec of requiredSpecs) externalsSet.delete(spec);
-		}
-
-		return lastResult!;
-	};
+	) =>
+		buildWithExternals(
+			entryPath,
+			new Set([...FRAMEWORK_EXTERNALS, ...otherSpecsFor(specifier)]),
+			MAX_INLINE_PASSES
+		);
 
 	// A package whose internal module-scoped state (registries, singletons)
 	// is shared across its OWN subpaths must build all those subpaths in ONE
@@ -616,7 +648,7 @@ const buildDepVendorPass = async (
 
 	const results = await Promise.all(
 		Array.from(groups.values()).map((groupEntries) => {
-			const only = groupEntries[0];
+			const [only] = groupEntries;
 			if (groupEntries.length === 1 && only)
 				return buildEntryWithCjsRequireResolution(
 					only.entryPath,
@@ -627,11 +659,12 @@ const buildDepVendorPass = async (
 		})
 	);
 
-	const aggregated = {
-		logs: results.flatMap((result) => result.logs),
-		outputs: results.flatMap((result) => result.outputs),
-		success: results.every((result) => result.success)
-	};
+	const aggregated: Pick<VendorBuildOutput, 'logs' | 'outputs' | 'success'> =
+		{
+			logs: results.flatMap((result) => result.logs),
+			outputs: results.flatMap((result) => result.outputs),
+			success: results.every((result) => result.success)
+		};
 
 	return aggregated;
 
@@ -687,17 +720,11 @@ export const buildDepVendor = async (
 	// transitive deps reachable only through a framework package
 	// (e.g. `@angular/fire/compat/auth` → `firebase/compat/auth` →
 	// `@firebase/auth-compat` → `@firebase/auth/internal`) are still discovered.
-	let frontier: Iterable<string> = [...allSpecs, ...frameworkRoots];
-	for (let pass = 0; pass < MAX_VENDOR_DISCOVERY_PASSES; pass++) {
-		const additional = await collectTransitiveImports(
-			frontier,
-			allSpecs,
-			alreadyScanned
-		);
-		if (additional.size === 0) break;
-		for (const spec of additional) allSpecs.add(spec);
-		frontier = additional;
-	}
+	await discoverTransitiveSpecs(
+		[...allSpecs, ...frameworkRoots],
+		allSpecs,
+		alreadyScanned
+	);
 
 	if (allSpecs.size === 0) return {};
 
@@ -744,17 +771,11 @@ export const computeDepVendorPaths = async (
 	// deps import — including non-framework subpaths that are only reachable
 	// through a framework root. Without this, page bundles end up with
 	// un-resolvable bare specifiers after externalization.
-	let frontier: Iterable<string> = [...allSpecs, ...frameworkRoots];
-	for (let pass = 0; pass < MAX_VENDOR_DISCOVERY_PASSES; pass++) {
-		const additional = await collectTransitiveImports(
-			frontier,
-			allSpecs,
-			alreadyScanned
-		);
-		if (additional.size === 0) break;
-		for (const spec of additional) allSpecs.add(spec);
-		frontier = additional;
-	}
+	await discoverTransitiveSpecs(
+		[...allSpecs, ...frameworkRoots],
+		allSpecs,
+		alreadyScanned
+	);
 
 	const paths: Record<string, string> = {};
 	for (const specifier of allSpecs) {
