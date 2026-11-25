@@ -69,6 +69,7 @@ const toPosix = (path: string) => normalizePath(path);
 const asJs = (path: string) =>
 	toPosix(path).replace(/\.(?:vue|svelte|ts|tsx|jsx|js|mjs)$/, '.js');
 
+export const MANIFEST_KEYS_DECLARATION = '.absolutejs/types/manifest.d.ts';
 export const deriveManifestKeys = async (
 	config: BuildConfig,
 	projectRoot = process.cwd()
@@ -289,9 +290,6 @@ export const deriveManifestKeys = async (
 
 	return { definite, patterns, possible };
 };
-
-/** Where the declaration is written, relative to the project root. */
-export const MANIFEST_KEYS_DECLARATION = '.absolutejs/types/manifest.d.ts';
 
 const PACKAGE = '@absolutejs/absolute';
 

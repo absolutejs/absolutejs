@@ -26,5 +26,6 @@ export const dedupeCssBlocks = (blocks: readonly string[]): string[] => {
 		seen.add(block);
 		result.push(block);
 	}
+
 	return result.reverse();
 };

@@ -131,9 +131,20 @@ export const collectLinks = (projectRoot: string) => {
 
 	return links;
 };
-
-/** Whether a concrete path is served by a route pattern. `:param` matches
- *  one non-empty segment and `*` the rest, as Elysia's router does. */
+export const knownRoutePaths = (
+	config: BuildConfig,
+	projectRoot: string,
+	registered?: readonly ExtractedRoute[]
+) => [
+	...new Set([
+		...scanFileRoutes(config, projectRoot).routes.map(
+			(entry) => entry.path
+		),
+		...(registered ?? scanRouteRegistrations(projectRoot))
+			.filter((entry) => entry.method === 'GET' || entry.method === 'ALL')
+			.map((entry) => entry.path)
+	])
+];
 export const pathMatchesPattern = (pattern: string, path: string) => {
 	const patternParts = pattern.split('/');
 	const pathParts = path.split('/');
@@ -150,23 +161,6 @@ export const pathMatchesPattern = (pattern: string, path: string) => {
 
 	return pathParts.length === patternParts.length;
 };
-
-/** The paths this project serves: its file routes and every route its own
- *  source registers. Not a plugin's own routes — see the note above. */
-export const knownRoutePaths = (
-	config: BuildConfig,
-	projectRoot: string,
-	registered?: readonly ExtractedRoute[]
-) => [
-	...new Set([
-		...scanFileRoutes(config, projectRoot).routes.map(
-			(entry) => entry.path
-		),
-		...(registered ?? scanRouteRegistrations(projectRoot))
-			.filter((entry) => entry.method === 'GET' || entry.method === 'ALL')
-			.map((entry) => entry.path)
-	])
-];
 
 const hasFileExtension = (path: string) => {
 	const last = path.split('/').pop() ?? '';

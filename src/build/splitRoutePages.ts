@@ -355,10 +355,9 @@ export const splitRoutePages = (source: string, fileName: string) => {
 	const prologueGap = insertAt > 0 ? '\n' : '';
 
 	return (
-		output.slice(0, insertAt) +
-		prologueGap +
-		`import { lazyRoute as ${LAZY_IMPORT} } from ${JSON.stringify(LAZY_SOURCE)};\n` +
-		`${definitions.join('\n')}\n` +
-		output.slice(insertAt)
+		`${
+			output.slice(0, insertAt) + prologueGap
+		}import { lazyRoute as ${LAZY_IMPORT} } from ${JSON.stringify(LAZY_SOURCE)};\n` +
+		`${definitions.join('\n')}\n${output.slice(insertAt)}`
 	);
 };

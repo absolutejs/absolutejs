@@ -65,23 +65,6 @@ const LINK_WITHOUT_REACT_ROUTER =
 
 /** Build error for a `react-router` import when the package isn't installed.
  *  `fromAbsolute`: the import is the package's own (`react/router`). */
-export const missingReactRouterMessage = (
-	specifier: string,
-	importer: string,
-	fromAbsolute: boolean
-) =>
-	fromAbsolute
-		? `[absolutejs] "@absolutejs/absolute/react/router" needs the optional peer dependency "react-router", which is not installed. ` +
-			'That entry exports <UniversalRouter>, which is built on react-router, so importing anything from it (even just <Link>) requires the package. ' +
-			`Install it (bun add react-router) to use <UniversalRouter>. ${LINK_WITHOUT_REACT_ROUTER}`
-		: `[absolutejs] Could not resolve "${specifier}" imported by ${importer}: react-router is not installed. ` +
-			`Install it (bun add react-router) to use it. ${LINK_WITHOUT_REACT_ROUTER}`;
-
-export const isReactRouterMissing = (projectRoot: string) =>
-	!isPackageInstalled('react-router', projectRoot);
-
-/** Fails the build with `missingReactRouterMessage` on any `react-router`
- *  import; null when react-router is installed (nothing to do). */
 export const createMissingReactRouterPlugin = (
 	projectRoot: string,
 	isMissing: (projectRoot: string) => boolean = isReactRouterMissing
@@ -107,3 +90,16 @@ export const createMissingReactRouterPlugin = (
 		}
 	};
 };
+export const isReactRouterMissing = (projectRoot: string) =>
+	!isPackageInstalled('react-router', projectRoot);
+export const missingReactRouterMessage = (
+	specifier: string,
+	importer: string,
+	fromAbsolute: boolean
+) =>
+	fromAbsolute
+		? `[absolutejs] "@absolutejs/absolute/react/router" needs the optional peer dependency "react-router", which is not installed. ` +
+			'That entry exports <UniversalRouter>, which is built on react-router, so importing anything from it (even just <Link>) requires the package. ' +
+			`Install it (bun add react-router) to use <UniversalRouter>. ${LINK_WITHOUT_REACT_ROUTER}`
+		: `[absolutejs] Could not resolve "${specifier}" imported by ${importer}: react-router is not installed. ` +
+			`Install it (bun add react-router) to use it. ${LINK_WITHOUT_REACT_ROUTER}`;

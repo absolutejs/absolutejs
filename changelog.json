@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "The framework's own compilers in `src/build/` were never linted: an ignore meant for build output matched the directory by name. The directory is linted now. 67 of its 100 files pass, 53 as they were and 14 after automatic fixes (export order, blank lines, template strings) and a handful of fixes by hand; the 33 that still fail are listed by name in `eslint.config.mjs`, to be fixed and removed one at a time. No behaviour changes.",
+					"kind": "internal",
+					"summary": "The compilers in `src/build/` are linted, apart from 33 listed files"
+				}
+			],
+			"date": "2026-11-25",
+			"version": "0.20.0-beta.363"
+		},
+		{
+			"changes": [
+				{
 					"detail": "Behind a proxy the server took the request URL and the `Host` header as they arrived. Two things were wrong. hreflang links from the i18n plugin were built from the request's own origin, so behind a platform that terminates TLS they came out `http://`; they now use the scheme the browser used, with nothing to configure. And a proxy that forwards to an upstream by name sends that name as `Host`, so i18n's domain strategy matched no domain and the form-action CSRF check, for a browser that sends no `Sec-Fetch-Site`, compared `Origin` with an internal name and refused the post. A new top-level `trustProxy: true` (or `ABSOLUTE_TRUST_PROXY=1`) says the server is behind a proxy you control: the host is then read from `x-forwarded-host` or `Forwarded: host=`, and rate limiting counts the forwarded client address unless `rateLimit.trustProxy` says otherwise. It is off by default and must stay off for a server clients reach directly, where those headers are the client's to choose; a forwarded value that is not a plain host is ignored even when trusted. See docs/TRUST_PROXY.md.",
 					"kind": "added",
 					"summary": "A `trustProxy` setting for the browser's real host behind a proxy, and hreflang links that are https behind one",

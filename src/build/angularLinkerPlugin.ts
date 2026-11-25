@@ -143,4 +143,4 @@ export const createAngularLinkerPlugin = (
 /** Default AOT-mode plugin instance — keep for callers that don't need
  *  to choose. Production AOT builds and any callsite that AOT-compiles
  *  user components alongside vendor should use this. */
-export const angularLinkerPlugin: BunPlugin = createAngularLinkerPlugin(false);
+export const angularLinkerPlugin = createAngularLinkerPlugin(false);

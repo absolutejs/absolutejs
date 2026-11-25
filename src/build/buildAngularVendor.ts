@@ -232,97 +232,6 @@ const resolveAngularSpecifiers = async (
  *  `firebase.auth.*` on its own firebase singleton, leaving the user's
  *  `import firebase from 'firebase/compat/app'` with `firebase.auth` undefined.
  *  Externalizing forces both pipelines to share the same /vendor chunks. */
-export const buildAngularVendor = async (
-	buildDir: string,
-	directories: string[] = [],
-	linkerJitMode = false,
-	depVendorSpecifiers: string[] = []
-) => {
-	const vendorDir = join(buildDir, 'angular', 'vendor');
-	mkdirSync(vendorDir, { recursive: true });
-
-	const tmpDir = join(buildDir, '_angular_vendor_tmp');
-	mkdirSync(tmpDir, { recursive: true });
-
-	const specifiers = await resolveAngularSpecifiers(
-		directories,
-		linkerJitMode
-	);
-
-	// Angular packages are proper ESM. `export *` re-exports only NAMED exports
-	// per ECMA spec, so we use the namespace-default-fallback pattern that's
-	// safe regardless of whether the package has a default export.
-	const entrypoints = await Promise.all(
-		specifiers.map(async (specifier) => {
-			const safeName = toSafeFileName(specifier);
-			const entryPath = join(tmpDir, `${safeName}.ts`);
-			await Bun.write(
-				entryPath,
-				await generateVendorEntrySource(specifier)
-			);
-
-			return entryPath;
-		})
-	);
-
-	const result = await bunBuild({
-		entrypoints,
-		external: depVendorSpecifiers,
-		format: 'esm',
-		minify: false,
-		naming: '[name].[ext]',
-		outdir: vendorDir,
-		plugins: [createAngularLinkerPlugin(linkerJitMode)],
-		splitting: true,
-		target: 'browser',
-		throw: false
-	});
-
-	await rm(tmpDir, { force: true, recursive: true });
-
-	if (!result.success) {
-		console.warn('⚠️ Angular vendor build had errors:', result.logs);
-	}
-
-	return specifiers;
-};
-export const computeAngularVendorPaths = (
-	specifiers: string[] = requiredAngularSpecifiers(true)
-) => {
-	const paths: Record<string, string> = {};
-	for (const specifier of specifiers) {
-		paths[specifier] = `/angular/vendor/${toSafeFileName(specifier)}.js`;
-	}
-
-	return paths;
-};
-
-/** Async variant that scans source + transitive deps before producing the
- *  vendor path map. Use this when the page-bundle build needs the full set of
- *  angular specs in its rewrite map (otherwise transitively-discovered subpaths
- *  like `@angular/core/rxjs-interop` end up as bare specifiers in the output). */
-export const computeAngularVendorPathsAsync = async (
-	directories: string[] = [],
-	linkerJitMode = true
-) => {
-	const specifiers = await resolveAngularSpecifiers(
-		directories,
-		linkerJitMode
-	);
-
-	return computeAngularVendorPaths(specifiers);
-};
-
-/** Server-side counterpart to `buildAngularVendor`. Outputs fully-linked
- *  Bun-target ESM bundles for every @angular/* package the project uses,
- *  *plus* `@angular/platform-server` and `@angular/ssr` (excluded from the
- *  browser vendor). The server bundle and `getAngularDeps()` import from
- *  these paths so SSR shares one Angular runtime instance with the page
- *  bundles — eliminates the dual-package hazard that produces NG0201.
- *
- *  After this build, `@angular/compiler` is no longer required at runtime
- *  for AOT-mode builds: every partial `ɵɵngDeclare*` has been linked into
- *  final ɵdir/ɵcmp/ɵfac definitions in the vendor output. */
 export const buildAngularServerVendor = async (
 	buildDir: string,
 	directories: string[] = [],
@@ -377,9 +286,60 @@ export const buildAngularServerVendor = async (
 
 	return specifiers;
 };
+export const buildAngularVendor = async (
+	buildDir: string,
+	directories: string[] = [],
+	linkerJitMode = false,
+	depVendorSpecifiers: string[] = []
+) => {
+	const vendorDir = join(buildDir, 'angular', 'vendor');
+	mkdirSync(vendorDir, { recursive: true });
 
-/** Absolute filesystem paths to server vendor files, for `rewriteImports`
- *  on server-side bundles and for runtime resolution in `getAngularDeps`. */
+	const tmpDir = join(buildDir, '_angular_vendor_tmp');
+	mkdirSync(tmpDir, { recursive: true });
+
+	const specifiers = await resolveAngularSpecifiers(
+		directories,
+		linkerJitMode
+	);
+
+	// Angular packages are proper ESM. `export *` re-exports only NAMED exports
+	// per ECMA spec, so we use the namespace-default-fallback pattern that's
+	// safe regardless of whether the package has a default export.
+	const entrypoints = await Promise.all(
+		specifiers.map(async (specifier) => {
+			const safeName = toSafeFileName(specifier);
+			const entryPath = join(tmpDir, `${safeName}.ts`);
+			await Bun.write(
+				entryPath,
+				await generateVendorEntrySource(specifier)
+			);
+
+			return entryPath;
+		})
+	);
+
+	const result = await bunBuild({
+		entrypoints,
+		external: depVendorSpecifiers,
+		format: 'esm',
+		minify: false,
+		naming: '[name].[ext]',
+		outdir: vendorDir,
+		plugins: [createAngularLinkerPlugin(linkerJitMode)],
+		splitting: true,
+		target: 'browser',
+		throw: false
+	});
+
+	await rm(tmpDir, { force: true, recursive: true });
+
+	if (!result.success) {
+		console.warn('⚠️ Angular vendor build had errors:', result.logs);
+	}
+
+	return specifiers;
+};
 export const computeAngularServerVendorPaths = (
 	buildDir: string,
 	specifiers: string[]
@@ -392,11 +352,6 @@ export const computeAngularServerVendorPaths = (
 
 	return paths;
 };
-
-/** Async server-vendor path map: scans source + transitive deps, then
- *  produces absolute filesystem paths for every @angular/* spec the project
- *  uses (plus the always-vendored server-only specs). Mirrors
- *  `computeAngularVendorPathsAsync` but for server-side rewriting. */
 export const computeAngularServerVendorPathsAsync = async (
 	buildDir: string,
 	directories: string[] = [],
@@ -412,4 +367,25 @@ export const computeAngularServerVendorPathsAsync = async (
 	}
 
 	return computeAngularServerVendorPaths(buildDir, Array.from(allSpecs));
+};
+export const computeAngularVendorPaths = (
+	specifiers: string[] = requiredAngularSpecifiers(true)
+) => {
+	const paths: Record<string, string> = {};
+	for (const specifier of specifiers) {
+		paths[specifier] = `/angular/vendor/${toSafeFileName(specifier)}.js`;
+	}
+
+	return paths;
+};
+export const computeAngularVendorPathsAsync = async (
+	directories: string[] = [],
+	linkerJitMode = true
+) => {
+	const specifiers = await resolveAngularSpecifiers(
+		directories,
+		linkerJitMode
+	);
+
+	return computeAngularVendorPaths(specifiers);
 };

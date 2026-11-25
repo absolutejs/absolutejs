@@ -47,6 +47,19 @@ const getRawText = (
  * so spelling the same operation as a normal call avoids the faulty tagged
  * template transform without changing backslashes or substitutions.
  */
+export const createBunStringRawUnicodePlugin = (): BunPlugin => ({
+	name: 'absolute-bun-string-raw-unicode',
+	setup(build) {
+		build.onLoad({ filter: /\.[cm]?[jt]sx?$/ }, async (args) => {
+			if (args.path.includes('/node_modules/')) return undefined;
+			const source = await Bun.file(args.path).text();
+			const contents = rewriteBunStringRawUnicode(source, args.path);
+			if (contents === source) return undefined;
+
+			return { contents, loader: getLoader(args.path) };
+		});
+	}
+});
 export const rewriteBunStringRawUnicode = (
 	source: string,
 	filePath = 'input.ts'
@@ -118,17 +131,3 @@ export const rewriteBunStringRawUnicode = (
 
 	return result;
 };
-
-export const createBunStringRawUnicodePlugin = (): BunPlugin => ({
-	name: 'absolute-bun-string-raw-unicode',
-	setup(build) {
-		build.onLoad({ filter: /\.[cm]?[jt]sx?$/ }, async (args) => {
-			if (args.path.includes('/node_modules/')) return undefined;
-			const source = await Bun.file(args.path).text();
-			const contents = rewriteBunStringRawUnicode(source, args.path);
-			if (contents === source) return undefined;
-
-			return { contents, loader: getLoader(args.path) };
-		});
-	}
-});

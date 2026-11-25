@@ -77,10 +77,7 @@ const propertyOf = (object: TS.ObjectLiteralExpression, name: string) =>
 				ts.isIdentifier(property.name) && property.name.text === name
 		);
 
-const stringValueOf = (
-	object: TS.ObjectLiteralExpression,
-	name: string
-): string | undefined => {
+const stringValueOf = (object: TS.ObjectLiteralExpression, name: string) => {
 	const initializer = propertyOf(object, name)?.initializer;
 	if (!initializer) return undefined;
 	if (ts.isStringLiteral(initializer)) return initializer.text;

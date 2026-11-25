@@ -21,31 +21,22 @@ const REPORTER_MARKER = 'data-absolute-vitals';
 
 /** Whether vitals are on for this build: production builds with `vitals`
  *  set, and dev builds only with `vitals.dev`. */
+export const DEFAULT_VITALS_SUMMARY_PATH = '/__absolute/vitals/summary';
 export const isVitalsEnabled = (
 	config: VitalsConfig | undefined,
 	isDev: boolean
 ) => Boolean(config) && (!isDev || config?.dev === true);
+export const resolveVitalsConfig = (config: VitalsConfig) => {
+	const sampleRate = config.sampleRate ?? 1;
+	if (!Number.isFinite(sampleRate) || sampleRate < 0 || sampleRate > 1) {
+		throw new TypeError('vitals.sampleRate must be a number from 0 to 1.');
+	}
 
-export const DEFAULT_VITALS_SUMMARY_PATH = '/__absolute/vitals/summary';
-
-/* The summary endpoint is on in dev and off in production unless asked for,
- * which is the one place in this feature where the two modes differ, so it
- * is worth saying why rather than calling it a default.
- *
- * In dev the answer is obvious: you turned collection on to look at the
- * numbers, and a second config key standing between you and them is how the
- * current state — collect and discard — came to ship in the first place.
- *
- * In production the endpoint is an unauthenticated read of every route that
- * has reported and how slow it is. That is a map of the app plus its
- * weakest pages, which is a choice to publish, not a default to inherit.
- * Turning it on is one key; putting it behind auth or an internal-only path
- * is the project's to do, and `onVital()` feeds a real metrics backend
- * without exposing anything.
- *
- * A production 404 here is loud rather than silent, which is why this
- * asymmetry is acceptable where `logging` being dropped from the production
- * runtime keys was not. */
+	return {
+		endpoint: config.endpoint ?? DEFAULT_VITALS_ENDPOINT,
+		sampleRate
+	};
+};
 export const resolveVitalsSummary = (
 	config: VitalsConfig,
 	isDev: boolean
@@ -57,18 +48,6 @@ export const resolveVitalsSummary = (
 	return {
 		maxRoutes: options.maxRoutes,
 		path: options.path ?? DEFAULT_VITALS_SUMMARY_PATH
-	};
-};
-
-export const resolveVitalsConfig = (config: VitalsConfig) => {
-	const sampleRate = config.sampleRate ?? 1;
-	if (!Number.isFinite(sampleRate) || sampleRate < 0 || sampleRate > 1) {
-		throw new TypeError('vitals.sampleRate must be a number from 0 to 1.');
-	}
-
-	return {
-		endpoint: config.endpoint ?? DEFAULT_VITALS_ENDPOINT,
-		sampleRate
 	};
 };
 

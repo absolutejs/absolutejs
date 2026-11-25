@@ -356,6 +356,19 @@ const packageOf = (path: string) => {
  * marker into a browser bundle is the package's bug, not something to go
  * and refactor in the project's own code, and saying "follow the imports
  * from your page" would send someone looking for a file they do not have. */
+export const createServerOnlyPlugin = (projectRoot: string): BunPlugin => ({
+	name: 'absolute-server-only',
+	setup(build) {
+		const root = realRoot(projectRoot);
+		build.onResolve({ filter: SERVER_ONLY_FILTER }, (args) => {
+			throw new Error(serverOnlyMessage(args.importer, root));
+		});
+	}
+});
+export const resolveClientProcessEnvMode = (
+	configured: ClientProcessEnvMode | undefined,
+	isDevServer: boolean
+) => configured ?? (isDevServer ? 'warn' : 'error');
 export const serverOnlyMessage = (importer: string, projectRoot: string) => {
 	const preamble = `[absolutejs] A browser bundling pass resolved an import of "@absolutejs/absolute/server-only", which marks a module that must not be part of a browser bundle.`;
 	const dependency = importer.includes(`${sep}node_modules${sep}`)
@@ -366,31 +379,3 @@ export const serverOnlyMessage = (importer: string, projectRoot: string) => {
 
 	return `${preamble} The import is in ${displayPath(importer, projectRoot) || 'a client entry point'}. Follow the imports from your page's client entry to that module: move the server-only work into a route handler or a form action, and pass what the page needs through its props.`;
 };
-
-/** Fails a browser pass that resolves the server-only marker.
- *
- *  Matching the specifier rather than the resolved file is deliberate: it
- *  fires before resolution, so it reports the same way whether or not the
- *  package's `browser` export condition is in play, and `args.importer` is
- *  the file to go and edit. */
-export const createServerOnlyPlugin = (projectRoot: string): BunPlugin => ({
-	name: 'absolute-server-only',
-	setup(build) {
-		const root = realRoot(projectRoot);
-		build.onResolve({ filter: SERVER_ONLY_FILTER }, (args) => {
-			throw new Error(serverOnlyMessage(args.importer, root));
-		});
-	}
-});
-
-/** `'error'` before a deploy, `'warn'` while developing — see the note at
- *  the top of this file on why dev does not fail the pass.
- *
- *  Keyed on the dev server (`options.injectHMR`) rather than on the
- *  resolved development mode, so it lines up exactly with the passes that
- *  degrade instead of aborting in `src/core/build.ts`. `absolute build`
- *  never sets it, whatever the ambient NODE_ENV says. */
-export const resolveClientProcessEnvMode = (
-	configured: ClientProcessEnvMode | undefined,
-	isDevServer: boolean
-) => configured ?? (isDevServer ? 'warn' : 'error');

@@ -1,8 +1,7 @@
 import { mkdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { rm } from 'node:fs/promises';
-import { build as bunBuild } from 'bun';
-import type { BunPlugin } from 'bun';
+import { build as bunBuild, type BunPlugin } from 'bun';
 
 /**
  * Ember vendor build.
@@ -200,7 +199,7 @@ const generateVendorEntrySource = (resolution: EmberSpecifierResolution) => {
 		lines.push(`export default __default__;`);
 	}
 
-	return lines.join('\n') + '\n';
+	return `${lines.join('\n')}\n`;
 };
 
 /**

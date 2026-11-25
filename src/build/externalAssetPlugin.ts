@@ -50,7 +50,7 @@ export const createExternalAssetPlugin = (
 			let match;
 			const sourceDir = dirname(args.path);
 			while ((match = urlPattern.exec(source)) !== null) {
-				const relPath = match[1];
+				const [, relPath] = match;
 				if (!relPath) continue;
 				const assetPath = resolve(sourceDir, relPath);
 				if (!existsSync(assetPath)) continue;

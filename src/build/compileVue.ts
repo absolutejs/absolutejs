@@ -434,9 +434,7 @@ type CompileMemo = Map<string, BuildResult | Promise<BuildResult>>;
  *  observes a partial write. */
 const pendingWrites = new Set<Promise<void>>();
 const trackWrite = (writeOperation: Promise<void>) => {
-	const tracked: Promise<void> = writeOperation.finally(() =>
-		pendingWrites.delete(tracked)
-	);
+	const tracked = writeOperation.finally(() => pendingWrites.delete(tracked));
 	pendingWrites.add(tracked);
 };
 
@@ -931,6 +929,9 @@ const compileVueFileUncached = async (
  * `finally` so a failed mount never leaves it installed. A page whose
  * `setupApp` installs its own `warnHandler` gets its warnings there
  * instead, as Vue intends. */
+export const VUE_DEV_HYDRATION_UNWATCH = [
+	'    console.warn = pageConsoleWarn;'
+];
 export const VUE_DEV_HYDRATION_WATCH = [
 	'  const hydrationWarnings = [];',
 	'  const pageConsoleWarn = console.warn;',
@@ -955,11 +956,6 @@ export const VUE_DEV_HYDRATION_WATCH = [
 	'      return pageConsoleWarn.apply(console, parts);',
 	'    };',
 	'  }'
-];
-
-/* Ends the watch above, whatever `mount` did. */
-export const VUE_DEV_HYDRATION_UNWATCH = [
-	'    console.warn = pageConsoleWarn;'
 ];
 
 const VUE_DEV_HYDRATION_REPORT = [

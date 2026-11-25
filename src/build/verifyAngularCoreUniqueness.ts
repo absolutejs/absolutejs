@@ -102,9 +102,10 @@ const classifySpecifier = (
 			? resolve(serverOutDir, specifier)
 			: resolve(artifactPath, '..', specifier);
 	}
+
 	return {
-		kind: 'resolved',
-		canonicalPath: absolute.replace(/\\/g, '/')
+		canonicalPath: absolute.replace(/\\/g, '/'),
+		kind: 'resolved'
 	};
 };
 
@@ -142,6 +143,7 @@ const collectAngularCoreShapes = async (
 			set.add(artifact.path);
 		}
 	}
+
 	return shapesToArtifacts;
 };
 
@@ -165,8 +167,9 @@ export const verifyAngularCoreUniqueness = async (
 	const message =
 		`Server bundle references ${shapes.size} distinct @angular/core resolutions; ` +
 		`every additional one becomes its own runtime module instance with its own ` +
-		`\`currentInjector\` global, which is what NG0203 tracks down to.\n` +
-		summary.join('\n');
+		`\`currentInjector\` global, which is what NG0203 tracks down to.\n${summary.join(
+			'\n'
+		)}`;
 
 	if (throwOnError) {
 		logError(message);

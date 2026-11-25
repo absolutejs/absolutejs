@@ -131,7 +131,7 @@ export const wrapSvelteRouteLayouts = (
 		});
 	}
 
-	const instance = ast.instance;
+	const { instance } = ast;
 	if (isNode(instance)) {
 		const contentStart = source.indexOf('>', instance.start) + 1;
 		edits.push({

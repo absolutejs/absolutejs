@@ -111,10 +111,10 @@ const isFrameworkRootCandidate = (path: string) =>
 	isFrameworkSpecifier(path) &&
 	!isAbsolutePackageSpecifier(path);
 
-interface ScannedSpecifiers {
+type ScannedSpecifiers = {
 	dep: string[];
 	framework: string[];
-}
+};
 
 const readFileSpecifiers = async (
 	file: string,
@@ -628,9 +628,9 @@ const buildDepVendorPass = async (
 	);
 
 	const aggregated = {
-		success: results.every((result) => result.success),
 		logs: results.flatMap((result) => result.logs),
-		outputs: results.flatMap((result) => result.outputs)
+		outputs: results.flatMap((result) => result.outputs),
+		success: results.every((result) => result.success)
 	};
 
 	return aggregated;
@@ -706,7 +706,7 @@ export const buildDepVendor = async (
 		vendorDir,
 		tmpDir
 	);
-	const success = result.success;
+	const { success } = result;
 	if (!success) {
 		console.warn('⚠️ Dependency vendor build had errors:', result.logs);
 	}

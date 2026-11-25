@@ -36,17 +36,14 @@ const requireOptionalPeer = new Function(
 ) as <T>(specifier: string) => T;
 const requireFromCwd = createRequire(join(process.cwd(), 'package.json'));
 
-export const isPreprocessableStylePath = (filePath: string) =>
-	STYLE_EXTENSION_PATTERN.test(filePath);
-
-export const isStyleModulePath = (filePath: string) =>
-	STYLE_MODULE_EXTENSION_PATTERN.test(filePath);
-
-export const isStylePath = (filePath: string) =>
-	/\.(css|s[ac]ss|less|styl(?:us)?)$/i.test(filePath);
-
 export const getStyleBaseName = (filePath: string) =>
 	filePath.replace(/\.(css|s[ac]ss|less|styl(?:us)?)$/i, '');
+export const isPreprocessableStylePath = (filePath: string) =>
+	STYLE_EXTENSION_PATTERN.test(filePath);
+export const isStyleModulePath = (filePath: string) =>
+	STYLE_MODULE_EXTENSION_PATTERN.test(filePath);
+export const isStylePath = (filePath: string) =>
+	/\.(css|s[ac]ss|less|styl(?:us)?)$/i.test(filePath);
 
 const getStyleLanguage = (filePathOrLanguage: string) => {
 	const normalized = filePathOrLanguage.toLowerCase();
@@ -151,6 +148,7 @@ const readTsconfigAliases = () => {
 	const empty = { aliases: [], baseUrl: cwd, cwd };
 	if (!existsSync(tsconfigPath)) {
 		tsconfigAliasCache = empty;
+
 		return empty;
 	}
 
@@ -174,6 +172,7 @@ const readTsconfigAliases = () => {
 
 const getAliasEntries = (config: StylePreprocessorConfig | undefined) => {
 	const tsconfig = readTsconfigAliases();
+
 	return {
 		aliases: [
 			...normalizeAliasEntries(config?.aliases),
@@ -213,6 +212,7 @@ const resolveAliasTargets = (
 const getLanguageExtensions = (language: StyleLanguage) => {
 	if (language === 'less') return ['.less', '.css'];
 	if (language === 'stylus') return ['.styl', '.stylus', '.css'];
+
 	return ['.scss', '.sass', '.css'];
 };
 
@@ -229,6 +229,7 @@ const getCandidatePaths = (basePath: string, language: StyleLanguage) => {
 		return paths.flatMap((path) => {
 			const dir = dirname(path);
 			const base = path.slice(dir.length + 1);
+
 			return [path, join(dir, `_${base}`)];
 		});
 	}
@@ -264,6 +265,7 @@ const isExternalCssUrl = (url: string) =>
 const splitCssUrl = (url: string) => {
 	const markerIndex = url.search(/[?#]/);
 	if (markerIndex === -1) return { marker: '', path: url };
+
 	return {
 		marker: url.slice(markerIndex),
 		path: url.slice(0, markerIndex)
@@ -293,6 +295,7 @@ const rebaseCssUrls = (
 				? rebased
 				: `./${rebased}`;
 			const nextQuote = quote || '"';
+
 			return `url(${nextQuote}${normalized}${marker}${nextQuote})`;
 		}
 	);
@@ -322,6 +325,7 @@ const rewriteAliasedStyleImports = (
 				language,
 				config
 			);
+
 			return resolved ? `${prefix}${quote}${resolved}${quote}` : match;
 		}
 	);
@@ -335,6 +339,7 @@ const preprocessLoadedStyle = (
 	config?: StylePreprocessorConfig
 ) => {
 	const rebased = rebaseCssUrls(contents, sourceFile, entryFile);
+
 	return language
 		? rewriteAliasedStyleImports(
 				rebased,
@@ -356,6 +361,7 @@ const extractCssModuleExports = (css: string) => {
 			const value = declaration.slice(separator + 1).trim();
 			if (key && value) exports[key] = value;
 		}
+
 		return '';
 	});
 
@@ -713,6 +719,7 @@ const createSassImporter = (
 			language,
 			config
 		);
+
 		return resolved ? new URL(pathToFileURL(resolve(resolved)).href) : null;
 	},
 	load(canonicalUrl: URL) {
@@ -967,7 +974,7 @@ export const compileStyleSource = async (
 			// `loadedUrls` always reflects every file Sass actually
 			// touched, including the entry, so we filter the entry
 			// out and add the rest.
-			const loadedUrls = (result.loadedUrls ?? []) as URL[];
+			const loadedUrls = result.loadedUrls ?? [];
 			for (const url of loadedUrls) {
 				if (url.protocol !== 'file:') continue;
 				const dep = fileURLToPath(url);
@@ -1232,6 +1239,7 @@ export const compileStyleFileIfNeeded = async (
 	if (!isPreprocessableStylePath(filePath)) {
 		const raw = await readFile(filePath, 'utf-8');
 		const processed = await runPostcss(raw, filePath, config);
+
 		// PostCSS only resolves `@import` when configured with
 		// `postcss-import`. We always resolve them here so the inlined
 		// `ɵcmp.styles` content is self-contained — no browser-side
@@ -1250,6 +1258,7 @@ export const compileStyleFileIfNeeded = async (
 		undefined,
 		config
 	);
+
 	// Sass leaves plain `.css` `@import` statements as-is per CSS spec;
 	// post-Sass output may still contain them.
 	return resolveCssImportsAsync(
@@ -1284,8 +1293,8 @@ const resolveCssImportsSync = (
 	content: string,
 	baseDir: string,
 	visited: Set<string>
-): string => {
-	return content.replace(CSS_IMPORT_PATTERN, (match, importPath) => {
+): string =>
+	content.replace(CSS_IMPORT_PATTERN, (match, importPath) => {
 		const fullPath = isAbsolute(importPath)
 			? importPath
 			: resolve(baseDir, importPath);
@@ -1298,7 +1307,6 @@ const resolveCssImportsSync = (
 
 		return resolveCssImportsSync(imported, dirname(fullPath), nextVisited);
 	});
-};
 
 const compileStyleFileSyncUnprefixed = (
 	filePath: string,
@@ -1342,13 +1350,14 @@ const compileStyleFileSyncUnprefixed = (
 		// entry itself plus everything it pulled in. Without this,
 		// editing a shared partial silently keeps the entry's stale
 		// CSS until a full restart.
-		const loadedUrls = (result.loadedUrls ?? []) as URL[];
+		const loadedUrls = result.loadedUrls ?? [];
 		for (const url of loadedUrls) {
 			if (url.protocol !== 'file:') continue;
 			const dep = fileURLToPath(url);
 			if (resolve(dep) === resolve(filePath)) continue;
 			addStyleImporter(filePath, dep);
 		}
+
 		// Sass leaves plain `.css` `@import` statements alone (per CSS
 		// spec, those are runtime-resolved). Resolve them here so the
 		// inlined `ɵcmp.styles` content is self-contained.
