@@ -112,3 +112,40 @@ describe('flag validation', () => {
 		expect(exitCode).toBe(1);
 	}, 120_000);
 });
+
+/* `absolute dev --port 4000` is the first thing most people try. It was
+ * never read: ignored in silence until the CLI began rejecting flags it
+ * does not know, and rejected after that. It is a real flag now, and a
+ * value that is not a port is said before anything is started. */
+describe('absolute dev --port', () => {
+	test.each([['abc'], ['0'], ['70000'], ['40.5']])(
+		'rejects %s as a port without starting a server',
+		async (value) => {
+			const { exitCode, stderr, stdout } = await run(
+				'dev',
+				'--port',
+				value
+			);
+
+			expect(`${stdout}\n${stderr}`).toContain(
+				`--port needs a port number between 1 and 65535, got "${value}".`
+			);
+			expect(`${stdout}\n${stderr}`).not.toContain('Unknown flag');
+			expect(exitCode).not.toBe(0);
+		},
+		120_000
+	);
+
+	test('with no value, says so', async () => {
+		const { exitCode, stderr } = await run('dev', '--port');
+
+		expect(stderr).toContain('--port needs a value after it.');
+		expect(exitCode).toBe(1);
+	}, 120_000);
+
+	test('is listed in the usage', async () => {
+		const { stdout } = await run('--help');
+
+		expect(stdout).toContain('dev [entry] [--port n] [--host]');
+	}, 120_000);
+});

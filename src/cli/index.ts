@@ -42,11 +42,26 @@ const stripNamedArgs = (...flags: string[]) =>
 		})
 	);
 
+const MAX_PORT = 65_535;
+
+/** `--port`'s value as a port number. Absent is fine; present and not a
+ *  port is an error, said before anything is started. */
+const parseDevPort = (value: string | undefined, given: boolean) => {
+	if (!given) return undefined;
+	const port = Number(value);
+	if (!Number.isInteger(port) || port < 1 || port > MAX_PORT)
+		throw new TypeError(
+			`--port needs a port number between 1 and ${MAX_PORT}, got ${value === undefined ? 'nothing' : `"${value}"`}.`
+		);
+
+	return port;
+};
+
 const printUsage = (write: (line: string) => void) => {
 	write('Usage: absolute <command>');
 	write('Commands:');
 	write(
-		'  dev [entry] [--eager] [--no-mobile] [--android-device serial] [--ios-device identifier] Start web and configured mobile development (--eager builds every page at boot instead of on first request)'
+		'  dev [entry] [--port n] [--host] [--eager] [--no-mobile] [--android-device serial] [--ios-device identifier] Start web and configured mobile development (--port picks the port, --host listens on the network, --eager builds every page at boot instead of on first request)'
 	);
 	write('  workspace dev [--no-tui] Start multi-service workspace dev');
 	write('  build [--outdir dir] [--profile] Build production assets');
@@ -217,18 +232,27 @@ if (command === 'dev') {
 			'--ios-device cannot be combined with --no-mobile.'
 		);
 	}
+	/* The flag most people try first. It was never read: before the CLI
+	 * rejected unknown flags it was silently ignored, and the server came
+	 * up on the default port whatever was asked for. */
+	const port = parseDevPort(parseNamedArg('--port'), args.includes('--port'));
 	const positionalArgs = stripNamedArgs(
 		'--config',
 		'--android-device',
-		'--ios-device'
-	).filter((arg) => arg !== '--no-mobile' && arg !== '--eager');
+		'--ios-device',
+		'--port'
+	).filter(
+		(arg) => arg !== '--no-mobile' && arg !== '--eager' && arg !== '--host'
+	);
 	const serverEntry = positionalArgs[0] ?? DEFAULT_SERVER_ENTRY;
 	const { dev } = await import('./scripts/dev');
 	await dev(serverEntry, configPath, {
 		androidDevice,
 		eager: args.includes('--eager'),
+		host: args.includes('--host'),
 		iosDevice,
-		mobile: !args.includes('--no-mobile')
+		mobile: !args.includes('--no-mobile'),
+		port
 	});
 } else if (command === 'bun-patch') {
 	// BUN-REACT-REFRESH-LEGACY: manages AbsoluteJS's patched Bun (./patchedBun.ts).

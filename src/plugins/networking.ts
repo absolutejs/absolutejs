@@ -307,7 +307,13 @@ export const networking = <A extends AnyElysia>(app: A) => {
 					env.ABSOLUTE_MOBILE_PREVIEW === '1'
 						? `${protocol}://${host === '0.0.0.0' ? 'localhost' : host}:${port}/__absolute/mobile-preview`
 						: undefined,
-				networkUrl: hostFlag
+				/* Whenever the server listens beyond this machine, however it
+				 * was told to: `--host` on this process, or a host of
+				 * 0.0.0.0 handed down by `absolute dev --host` or the
+				 * config. It used to need the flag on this process, so
+				 * `dev.host: '0.0.0.0'` listened on the network and never
+				 * said where. */
+				networkUrl: localIP
 					? `${protocol}://${localIP}:${port}/`
 					: undefined,
 				port,
