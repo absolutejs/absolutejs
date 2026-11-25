@@ -235,3 +235,53 @@ describe('what a refusal tells the client', () => {
 		expect(handled).toBe(1);
 	});
 });
+
+/* A deployment that says it is behind a proxy says so once, at the top
+ * level, and the limiter follows — unless it is told otherwise itself. */
+describe('the top-level trustProxy setting', () => {
+	const from = (app: ReturnType<typeof appWith>, client: string) =>
+		app.handle(
+			new Request('http://app.test/', {
+				headers: { 'x-forwarded-for': client }
+			})
+		);
+
+	const withDeploymentTrust = async (run: () => Promise<void>) => {
+		const previous = process.env.ABSOLUTE_TRUST_PROXY;
+		process.env.ABSOLUTE_TRUST_PROXY = '1';
+		try {
+			await run();
+		} finally {
+			if (previous === undefined) delete process.env.ABSOLUTE_TRUST_PROXY;
+			else process.env.ABSOLUTE_TRUST_PROXY = previous;
+		}
+	};
+
+	test('is what the limiter uses when it has no setting of its own', async () => {
+		await withDeploymentTrust(async () => {
+			const app = appWith({ limit: 1 });
+
+			expect((await from(app, '203.0.113.1')).status).toBe(200);
+			expect((await from(app, '203.0.113.1')).status).toBe(429);
+			/* A different client has its own allowance. */
+			expect((await from(app, '203.0.113.2')).status).toBe(200);
+		});
+	});
+
+	test('is overridden by rateLimit.trustProxy: false', async () => {
+		await withDeploymentTrust(async () => {
+			const app = appWith({ limit: 1, trustProxy: false });
+
+			expect((await from(app, '203.0.113.1')).status).toBe(200);
+			/* The header is not believed, so both share one key. */
+			expect((await from(app, '203.0.113.2')).status).toBe(429);
+		});
+	});
+
+	test('off by default: a forwarded address is not believed', async () => {
+		const app = appWith({ limit: 1 });
+
+		expect((await from(app, '203.0.113.1')).status).toBe(200);
+		expect((await from(app, '203.0.113.2')).status).toBe(429);
+	});
+});

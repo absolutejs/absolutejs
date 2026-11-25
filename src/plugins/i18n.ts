@@ -26,6 +26,7 @@ import {
 	type RequestTranslate,
 	type RequestLocale
 } from '../utils/localeRef';
+import { requestHost, requestOrigin } from '../utils/requestOrigin';
 
 /* Internationalization on the server.
  *
@@ -90,12 +91,8 @@ const pickNamespaces = (
 	return picked;
 };
 
-const hostOf = (request: Request) => {
-	const header = request.headers.get('host');
-	const host = header ?? new URL(request.url).host;
-
-	return host.replace(/:\d+$/, '').toLowerCase();
-};
+const hostOf = (request: Request) =>
+	requestHost(request).replace(/:\d+$/, '').toLowerCase();
 
 const appendVary = (current: unknown, values: string[]) => {
 	const existing =
@@ -373,7 +370,11 @@ export const i18nPlugin = <
 				locale,
 				source: resolution.source,
 				alternates: (path = url.pathname) =>
-					i18n.alternates(path, url.origin),
+					/* The origin the browser used. `url.origin` is this
+					 * process's own, which behind a TLS-terminating proxy
+					 * is `http://` and made every hreflang link plain
+					 * HTTP. */
+					i18n.alternates(path, requestOrigin(request)),
 				localizePath: (path, target = locale) =>
 					i18n.localizePath(path, target),
 				payload: (namespaces) => ({

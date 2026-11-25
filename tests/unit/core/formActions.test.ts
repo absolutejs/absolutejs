@@ -429,6 +429,38 @@ describe('form routes — protection', () => {
 		).toBe(false);
 	});
 
+	/* A proxy that forwards to an upstream by name sends that name as
+	 * Host. The browser's Origin is the public one, so the fallback
+	 * refused every same-site post from a browser that sends no
+	 * Sec-Fetch-Site. */
+	test('behind a trusted proxy, Origin is compared with the forwarded host', () => {
+		const make = (headers: Record<string, string>) =>
+			new Request('http://app:3000/users', { headers, method: 'POST' });
+		const sameSite = make({
+			host: 'app:3000',
+			origin: 'https://app.test',
+			'x-forwarded-host': 'app.test'
+		});
+		const crossSite = make({
+			host: 'app:3000',
+			origin: 'https://evil.test',
+			'x-forwarded-host': 'app.test'
+		});
+		const previous = process.env.ABSOLUTE_TRUST_PROXY;
+		try {
+			delete process.env.ABSOLUTE_TRUST_PROXY;
+			/* Not trusted: the header is ignored, and this fails closed. */
+			expect(isCrossOriginRequest(sameSite)).toBe(true);
+
+			process.env.ABSOLUTE_TRUST_PROXY = '1';
+			expect(isCrossOriginRequest(sameSite)).toBe(false);
+			expect(isCrossOriginRequest(crossSite)).toBe(true);
+		} finally {
+			if (previous === undefined) delete process.env.ABSOLUTE_TRUST_PROXY;
+			else process.env.ABSOLUTE_TRUST_PROXY = previous;
+		}
+	});
+
 	test('declared bodies over maxBodySize get 413', async () => {
 		const small = new Elysia().use(formActions()).post(
 			'/small',

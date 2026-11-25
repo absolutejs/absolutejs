@@ -72,6 +72,7 @@ const RUNTIME_KEYS = [
 	 * of this list, `tls` would work from absolute.config.ts in a test
 	 * and be dropped from the built config — the same way `basePath` was. */
 	'tls',
+	'trustProxy',
 	'vitals',
 	'vueDirectory'
 ] as const satisfies readonly (keyof BuildConfig)[];

@@ -37,6 +37,7 @@ import {
 	formActionRuntime,
 	type ActionFlash
 } from './formActionFlash';
+import { requestHost } from '../utils/requestOrigin';
 
 export { getActionState } from '../utils/formActionState';
 
@@ -118,8 +119,10 @@ const responseModeOf = (request: Request) => {
 	return mode;
 };
 
-const hostOf = (request: Request) =>
-	request.headers.get('host') ?? new URL(request.url).host;
+/* The host the browser asked for, which is what its Origin and Referer
+ * name. Behind a proxy that rewrites `Host` that is the forwarded one,
+ * read only when the deployment trusts its proxy (see requestOrigin.ts). */
+const hostOf = (request: Request) => requestHost(request);
 
 const originHost = (origin: string) => {
 	try {

@@ -847,6 +847,10 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 		config.basePathShared
 	)
 		process.env.ABSOLUTE_BASE_PATH_SHARED = config.basePathShared.join(',');
+	// Read through isProxyTrusted() by everything that needs the browser's
+	// own host or address; the environment's wins.
+	if (process.env.ABSOLUTE_TRUST_PROXY === undefined && config.trustProxy)
+		process.env.ABSOLUTE_TRUST_PROXY = '1';
 	// `networking()` reads TLS from the environment, and it runs after this.
 	if (!isDev) publishTlsConfig(config.tls);
 	// Angular zone.js mode must patch the process before the app listens.
