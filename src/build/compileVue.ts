@@ -779,23 +779,21 @@ const compileVueFileUncached = async (
 			)
 		: undefined;
 	vueCompileProfile.keyMs += performance.now() - cacheKeyStartedAt;
-	if (cacheKey) {
-		if (restored) {
-			vueCompileProfile.diskHits += 1;
-			const result = await timed('materialiseMs', () =>
-				materialiseVueCompileCacheEntry(
-					restored,
-					cacheKey,
-					isEntryPoint,
-					outputDirs,
-					fileBaseName
-				)
-			);
-			cacheMap.set(sourceFilePath, result);
-			persistentBuildCache.set(sourceFilePath, result);
+	if (cacheKey && restored) {
+		vueCompileProfile.diskHits += 1;
+		const result = await timed('materialiseMs', () =>
+			materialiseVueCompileCacheEntry(
+				restored,
+				cacheKey,
+				isEntryPoint,
+				outputDirs,
+				fileBaseName
+			)
+		);
+		cacheMap.set(sourceFilePath, result);
+		persistentBuildCache.set(sourceFilePath, result);
 
-			return result;
-		}
+		return result;
 	}
 
 	const clientOutputPath = vueRouteAwareOutputPath(
@@ -1009,36 +1007,42 @@ export const compileVue = async (
 	// entry); the dev bundle rebuild passes only the changed subset, and
 	// without this expansion bundling the shell fails with "Could not
 	// resolve ./Child.js" and the served bundles silently stay stale.
+	/* The route pages one entry lazily imports that exist on disk. */
+	const routeChildrenOf = async (entryPath: string) => {
+		const source = await file(entryPath)
+			.text()
+			.catch(() => null);
+		if (source === null) return [];
+		// The source as compiled: its router pages are lazy imports by
+		// now (vue/splitRoutePages.ts), and those are its children.
+		const { descriptor } = compiler.parse(addAutoRouterSetupApp(source), {
+			filename: entryPath
+		});
+
+		return parseVueSpaRoutes(descriptor.script?.content ?? '')
+			.map(({ importPath }) => resolve(dirname(entryPath), importPath))
+			.filter((childPath) => existsSync(childPath));
+	};
+	/* One entry off the end of the queue at a time, its unseen children
+	 * pushed back on: the order entries are discovered in is the order
+	 * they compile in, so it is kept exactly. */
+	const expandQueued = async (
+		queue: string[],
+		expanded: Set<string>
+	): Promise<void> => {
+		const entryPath = queue.pop();
+		if (entryPath === undefined) return;
+		const children = await routeChildrenOf(entryPath);
+		children.forEach((childPath) => {
+			if (expanded.has(childPath)) return;
+			expanded.add(childPath);
+			queue.push(childPath);
+		});
+		await expandQueued(queue, expanded);
+	};
 	const expandSpaRouteChildren = async (entries: string[]) => {
 		const expanded = new Set(entries.map((entry) => resolve(entry)));
-		const queue = [...expanded];
-		while (queue.length > 0) {
-			const entryPath = queue.pop();
-			if (!entryPath) continue;
-			let source: string;
-			try {
-				source = await file(entryPath).text();
-			} catch {
-				continue;
-			}
-			// The source as compiled: its router pages are lazy imports by
-			// now (vue/splitRoutePages.ts), and those are its children.
-			const { descriptor } = compiler.parse(
-				addAutoRouterSetupApp(source),
-				{
-					filename: entryPath
-				}
-			);
-			const routes = parseVueSpaRoutes(descriptor.script?.content ?? '');
-			for (const { importPath } of routes) {
-				const childPath = resolve(dirname(entryPath), importPath);
-				if (expanded.has(childPath) || !existsSync(childPath)) {
-					continue;
-				}
-				expanded.add(childPath);
-				queue.push(childPath);
-			}
-		}
+		await expandQueued([...expanded], expanded);
 
 		return [...expanded];
 	};
@@ -1333,12 +1337,11 @@ export const compileVue = async (
 	): Promise<void> => {
 		if (frontier.length === 0) return;
 		const nextFrontier: string[] = [];
-		for (const discovered of await readHelperWave(frontier)) {
-			for (const resolved of discovered) {
-				if (allTsHelperPaths.has(resolved)) continue;
-				allTsHelperPaths.add(resolved);
-				nextFrontier.push(resolved);
-			}
+		const wave = await readHelperWave(frontier);
+		for (const resolved of wave.flat()) {
+			if (allTsHelperPaths.has(resolved)) continue;
+			allTsHelperPaths.add(resolved);
+			nextFrontier.push(resolved);
 		}
 		await expandHelpers(nextFrontier);
 	};
@@ -1398,22 +1401,25 @@ export const compileVue = async (
 	// arrive.
 	const vueSpaRoutesBySource = new Map<string, ParsedVueSpaRoute[]>();
 	for (const page of compiledPages) {
-		if (page.spaRoutes && page.spaRoutes.length > 0) {
+		if (page.spaRoutes && page.spaRoutes.length > 0)
 			vueSpaRoutesBySource.set(page.sourcePath, page.spaRoutes);
-		}
 	}
 
 	return {
 		// Export HMR metadata from vueHmrMetadata map (populated during compilation)
 		hmrMetadata: new Map(vueHmrMetadata),
-		vueClientPaths: compiledPages.map((p) => p.clientPath).filter(isString),
+		vueClientPaths: compiledPages
+			.map((page) => page.clientPath)
+			.filter(isString),
 		vueCssPaths: compiledPages.flatMap((result) => result.cssPaths),
 		// Each entry's compiled stylesheet(s), keyed by its resolved source
 		// path: islands import theirs from the island entry.
 		vueCssPathsBySource: new Map(
 			compiledPages.map((page) => [page.sourcePath, page.cssPaths])
 		),
-		vueIndexPaths: compiledPages.map((p) => p.indexPath).filter(isString),
+		vueIndexPaths: compiledPages
+			.map((page) => page.indexPath)
+			.filter(isString),
 		vueServerPaths: compiledPages.map((result) => result.serverPath),
 		vueSpaRoutesBySource
 	};
