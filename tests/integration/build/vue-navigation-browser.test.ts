@@ -196,7 +196,15 @@ const withPage = async (
 		const { page } = session;
 		page.on('pageerror', (error) => seen.errors.push(error.message));
 		page.on('console', (message) => {
-			if (message.type() === 'error') seen.errors.push(message.text());
+			if (message.type() !== 'error') return;
+			/* With where it came from. "Failed to load resource: … 404"
+			 * names no resource, and this test failed in CI for weeks
+			 * on exactly that line with nothing to say which request it
+			 * was; the browser knows, and puts it in the location. */
+			const { url } = message.location();
+			seen.errors.push(
+				url ? `${message.text()} (${url})` : message.text()
+			);
 		});
 		page.on('request', (request) => {
 			if (request.resourceType() === 'document')
