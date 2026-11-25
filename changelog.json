@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "`src/build/buildAngularVendor.ts` passes the lint and is off the list of exceptions. The two functions that scan a project for the Angular packages to vendor were nested six blocks deep; each step is now its own small function. Their output was compared with the old version on a fixture and on the example app: identical, order included. 95 of the 100 compiler files are linted; 5 remain listed. No behaviour changes.",
+					"kind": "internal",
+					"summary": "The Angular vendor builder in `src/build/` passes the lint; 5 files remain"
+				}
+			],
+			"date": "2026-11-25",
+			"version": "0.20.0-beta.374"
+		},
+		{
+			"changes": [
+				{
 					"detail": "`src/build/islandRegistryTransform.ts` passes the lint and is off the list of exceptions. It had no tests of its own, so 12 were written first, pinning whole outputs, and run against the old version before the file was restructured. 94 of the 100 compiler files are linted; 6 remain listed. No behaviour changes.",
 					"kind": "internal",
 					"summary": "The island registry transform in `src/build/` passes the lint; 6 files remain"
