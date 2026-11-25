@@ -22,7 +22,9 @@ export type RateLimitConfig = {
 	 *  own key has no limit, so with this on in front of anything that is
 	 *  not a proxy setting that header, a fresh value per request is a
 	 *  fresh allowance per request. Turn it on only when a proxy you
-	 *  control sets it. */
+	 *  control sets it.
+	 *
+	 *  Left unset, it follows the top-level `trustProxy`. */
 	trustProxy?: boolean;
 	/** Window length in milliseconds. Default 60000. */
 	windowMs?: number;

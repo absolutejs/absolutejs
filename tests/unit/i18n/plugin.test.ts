@@ -212,6 +212,77 @@ describe('i18nPlugin — negotiate and domain strategies', () => {
 	});
 });
 
+/* Behind a proxy the request this process sees is not the one the
+ * browser made. Every reader here took the URL and the Host header as
+ * they arrived, so hreflang links came out `http://` behind a platform
+ * that terminates TLS, and behind a proxy that rewrites Host the domain
+ * strategy matched nothing. */
+describe('i18nPlugin — behind a proxy', () => {
+	const trusting = async <T>(run: () => Promise<T>) => {
+		const previous = process.env.ABSOLUTE_TRUST_PROXY;
+		process.env.ABSOLUTE_TRUST_PROXY = '1';
+		try {
+			return await run();
+		} finally {
+			if (previous === undefined) delete process.env.ABSOLUTE_TRUST_PROXY;
+			else process.env.ABSOLUTE_TRUST_PROXY = previous;
+		}
+	};
+
+	test('hreflang links are https when the proxy terminated TLS', async () => {
+		const { i18n } = createI18n();
+		const body = await (
+			await createApp(i18n).handle(
+				new Request('http://example.com/fr/about', {
+					headers: { 'x-forwarded-proto': 'https' }
+				})
+			)
+		).json();
+
+		expect(body.alternates).toContainEqual({
+			href: 'https://example.com/fr/about',
+			hreflang: 'fr'
+		});
+	});
+
+	test('domain: a trusted proxy that rewrites Host still selects the locale', async () => {
+		const { i18n } = createI18n({ strategy: 'domain' });
+		const body = await trusting(async () =>
+			(
+				await createApp(i18n).handle(
+					new Request('http://app:3000/about', {
+						headers: {
+							host: 'app:3000',
+							'x-forwarded-host': 'example.fr',
+							'x-forwarded-proto': 'https'
+						}
+					})
+				)
+			).json()
+		);
+
+		expect(body.locale).toBe('fr');
+		expect(body.source).toBe('domain');
+	});
+
+	/* Without the setting the header is a client's to choose. */
+	test('domain: a forwarded host is ignored when no proxy is trusted', async () => {
+		const { i18n } = createI18n({ strategy: 'domain' });
+		const body = await (
+			await createApp(i18n).handle(
+				new Request('http://example.com/about', {
+					headers: {
+						host: 'example.com',
+						'x-forwarded-host': 'example.fr'
+					}
+				})
+			)
+		).json();
+
+		expect(body.locale).toBe('en');
+	});
+});
+
 describe('defineI18n', () => {
 	test('missing keys in a locale fall back to the default catalog', async () => {
 		const loose: MessageCatalog = {

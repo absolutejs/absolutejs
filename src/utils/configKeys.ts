@@ -73,6 +73,7 @@ export const CONFIG_KEYS = [
 	'tailwind',
 	'telemetry',
 	'tls',
+	'trustProxy',
 	'visibility',
 	'vitals',
 	'vueDirectory'

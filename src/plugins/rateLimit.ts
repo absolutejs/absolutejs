@@ -1,3 +1,4 @@
+import { isProxyTrusted } from '../utils/requestOrigin';
 /* Rate limiting, as an Elysia plugin.
  *
  * What is limited by default, and what deliberately is not.
@@ -152,7 +153,10 @@ export const rateLimit = ({
 
 	const windowMs = config?.windowMs ?? DEFAULT_WINDOW_MS;
 	const maxKeys = config?.maxKeys;
-	const trustProxy = config?.trustProxy === true;
+	/* Its own setting when it has one, the deployment's otherwise: a
+	 * server that says it is behind a proxy should not have to say so
+	 * twice, and `trustProxy: false` here still opts this out. */
+	const trustProxy = config?.trustProxy ?? isProxyTrusted();
 	/* One limiter per distinct (limit, window), so rules do not share a
 	 * bucket and a per-path limit means what it says. */
 	const limiters = new Map<string, ReturnType<typeof createRateLimiter>>();

@@ -841,6 +841,25 @@ export type BaseBuildConfig = {
 	 *  `shutdown: false` restores the old behaviour — the process stops
 	 *  the instant it is signalled. See docs/GRACEFUL_SHUTDOWN.md. */
 	shutdown?: boolean | ShutdownConfig;
+	/** Say that the server sits behind a proxy you control — a load
+	 *  balancer, a CDN, nginx — and believe what it forwards.
+	 *
+	 *      trustProxy: true
+	 *
+	 *  With it, the host the browser asked for is read from
+	 *  `x-forwarded-host` (or `Forwarded: host=`) instead of `Host`, which
+	 *  is what i18n's domain strategy, hreflang links and the form-action
+	 *  CSRF check need behind a proxy that rewrites `Host`; and rate
+	 *  limiting counts `x-forwarded-for`'s client, unless
+	 *  `rateLimit.trustProxy` says otherwise.
+	 *
+	 *  Off by default, and it must stay off for a server clients reach
+	 *  directly: those headers are then the client's to choose.
+	 *  `ABSOLUTE_TRUST_PROXY=1` sets it from the environment. The
+	 *  original SCHEME needs no setting — `x-forwarded-proto` is always
+	 *  honoured, because it can only ever turn `Secure` cookies on.
+	 *  See docs/TRUST_PROXY.md. */
+	trustProxy?: boolean;
 	/** Serve HTTPS, and HTTP/2, from the production server itself.
 	 *
 	 *      tls: { cert: '/etc/ssl/site/fullchain.pem', key: '/etc/ssl/site/privkey.pem' }
