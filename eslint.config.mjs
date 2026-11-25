@@ -31,7 +31,7 @@ export default defineConfig([
 			// NOT build output: the framework's own compilers. They were
 			// never linted, because the old `**/build/**` matched them by
 			// name. The directory is linted now; these are the files that
-			// still fail (317 errors as of beta.364, most of them nesting
+			// still fail (288 errors as of beta.365, most of them nesting
 			// depth, which is restructuring and not tidying). Each is to be
 			// fixed and taken off this list — a file that is not listed is
 			// held to the same rules as the rest of src/.
@@ -39,7 +39,6 @@ export default defineConfig([
 			'src/build/buildDepVendor.ts',
 			'src/build/chainInlineSourcemaps.ts',
 			'src/build/compileAngular.ts',
-			'src/build/compileEmber.ts',
 			'src/build/compileVue.ts',
 			'src/build/islandRegistryTransform.ts',
 			'src/build/manifestKeys.ts',
@@ -48,10 +47,7 @@ export default defineConfig([
 			'src/build/scanAngularPageRoutes.ts',
 			'src/build/scanRouteRegistrations.ts',
 			'src/build/scanVueSsrOnlyPages.ts',
-			'src/build/splitRoutePages.ts',
 			'src/build/stylePreprocessor.ts',
-			'src/build/verifyAngularCoreUniqueness.ts',
-			'src/build/vueCompileCache.ts',
 			// Generated, cached, and vendored code — not authored by us.
 			'**/.absolutejs/**',
 			// Written by `absolute-changelog release`; its migration maps keep

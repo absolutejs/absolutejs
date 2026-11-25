@@ -44,15 +44,11 @@ const readImportSpecifiers = (text: string) => {
 	try {
 		return importScanner.scanImports(text).map((entry) => entry.path);
 	} catch {
-		const specifiers: string[] = [];
 		ANGULAR_CORE_IMPORT_RE.lastIndex = 0;
-		let match: RegExpExecArray | null;
-		while ((match = ANGULAR_CORE_IMPORT_RE.exec(text)) !== null) {
-			const specifier = match[1] ?? match[2] ?? '';
-			if (specifier) specifiers.push(specifier);
-		}
 
-		return specifiers;
+		return [...text.matchAll(ANGULAR_CORE_IMPORT_RE)]
+			.map((match) => match[1] ?? match[2] ?? '')
+			.filter((specifier) => specifier.length > 0);
 	}
 };
 
@@ -111,38 +107,45 @@ const classifySpecifier = (
 
 type ScannedArtifact = Pick<BuildArtifact, 'path' | 'text'>;
 
+const readArtifactText = async (artifact: ScannedArtifact) => {
+	try {
+		return await artifact.text();
+	} catch {
+		return null;
+	}
+};
+
+/* The key of every `@angular/core` shape one artifact's text refers to. */
+const shapeKeysIn = (
+	text: string,
+	artifactPath: string,
+	serverOutDir: string | undefined
+) =>
+	readImportSpecifiers(text).flatMap((specifier) => {
+		const shape = classifySpecifier(specifier, artifactPath, serverOutDir);
+		if (!shape) return [];
+
+		return [
+			shape.kind === 'bare' ? 'bare' : `resolved:${shape.canonicalPath}`
+		];
+	});
+
 const collectAngularCoreShapes = async (
 	artifacts: readonly ScannedArtifact[],
 	serverOutDir: string | undefined
-): Promise<Map<string, Set<string>>> => {
+) => {
+	const texts = await Promise.all(artifacts.map(readArtifactText));
 	// shape-key → set of artifact paths that referenced it
 	const shapesToArtifacts = new Map<string, Set<string>>();
-	for (const artifact of artifacts) {
-		let text: string;
-		try {
-			text = await artifact.text();
-		} catch {
-			continue;
+	artifacts.forEach((artifact, index) => {
+		const text = texts[index];
+		if (text === null || text === undefined) return;
+		for (const key of shapeKeysIn(text, artifact.path, serverOutDir)) {
+			const paths = shapesToArtifacts.get(key) ?? new Set<string>();
+			paths.add(artifact.path);
+			shapesToArtifacts.set(key, paths);
 		}
-		for (const specifier of readImportSpecifiers(text)) {
-			const shape = classifySpecifier(
-				specifier,
-				artifact.path,
-				serverOutDir
-			);
-			if (!shape) continue;
-			const key =
-				shape.kind === 'bare'
-					? 'bare'
-					: `resolved:${shape.canonicalPath}`;
-			let set = shapesToArtifacts.get(key);
-			if (!set) {
-				set = new Set();
-				shapesToArtifacts.set(key, set);
-			}
-			set.add(artifact.path);
-		}
-	}
+	});
 
 	return shapesToArtifacts;
 };
@@ -151,7 +154,7 @@ export const verifyAngularCoreUniqueness = async (
 	artifacts: readonly ScannedArtifact[],
 	serverOutDir: string | undefined,
 	throwOnError: boolean
-): Promise<void> => {
+) => {
 	const shapes = await collectAngularCoreShapes(artifacts, serverOutDir);
 	if (shapes.size <= 1) return;
 

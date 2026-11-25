@@ -69,23 +69,32 @@ export const hashParts = (parts: readonly string[]) => {
 export const vueCompileCacheEnabled = () =>
 	process.env.ABSOLUTE_COMPILE_CACHE !== '0';
 
+/* The version in `candidate`, when that file is this package's own
+ * manifest. A missing or unreadable one is not it. */
+const ownVersionIn = (candidate: string) => {
+	try {
+		const pkg: unknown = JSON.parse(readFileSync(candidate, 'utf-8'));
+		if (typeof pkg !== 'object' || pkg === null) return undefined;
+		const version: unknown = Reflect.get(pkg, 'version');
+
+		return Reflect.get(pkg, 'name') === '@absolutejs/absolute' &&
+			typeof version === 'string' &&
+			version.length > 0
+			? version
+			: undefined;
+	} catch {
+		return undefined;
+	}
+};
+
 const readOwnPackageVersion = () => {
 	const candidates = [
 		resolve(import.meta.dir, '..', '..', 'package.json'),
 		resolve(import.meta.dir, '..', 'package.json')
 	];
 	for (const candidate of candidates) {
-		try {
-			const pkg = JSON.parse(readFileSync(candidate, 'utf-8')) as {
-				name?: string;
-				version?: string;
-			};
-			if (pkg.name === '@absolutejs/absolute' && pkg.version) {
-				return pkg.version;
-			}
-		} catch {
-			/* try the next candidate */
-		}
+		const version = ownVersionIn(candidate);
+		if (version !== undefined) return version;
 	}
 
 	// Read through Reflect so this file needs no ambient global: the Angular
@@ -137,33 +146,37 @@ export const vueCompileCacheFingerprint = (parts: {
 
 /** Every recorded type dependency whose content no longer hashes to what
  *  the entry was built against. Unreadable counts as changed. */
-const staleTypeDeps = (typeDeps: Record<string, string>) => {
-	const stale: string[] = [];
-	for (const [path, hash] of Object.entries(typeDeps)) {
-		try {
-			if (hashContent(readFileSync(path, 'utf-8')) !== hash) {
-				stale.push(path);
-			}
-		} catch {
-			stale.push(path);
-		}
+const isStaleTypeDep = (path: string, hash: string) => {
+	try {
+		return hashContent(readFileSync(path, 'utf-8')) !== hash;
+	} catch {
+		return true;
 	}
-
-	return stale;
 };
+
+const staleTypeDeps = (typeDeps: Record<string, string>) =>
+	Object.entries(typeDeps)
+		.filter(([path, hash]) => isStaleTypeDep(path, hash))
+		.map(([path]) => path);
 
 const isEntryShape = (value: unknown): value is VueCompileCacheEntry => {
 	if (!value || typeof value !== 'object') return false;
-	const entry = value as Partial<VueCompileCacheEntry>;
+	const field = (name: keyof VueCompileCacheEntry) => {
+		const found: unknown = Reflect.get(value, name);
+
+		return found;
+	};
+	const result = field('result');
+	const typeDeps = field('typeDeps');
 
 	return (
-		typeof entry.key === 'string' &&
-		typeof entry.clientCode === 'string' &&
-		typeof entry.serverCode === 'string' &&
-		typeof entry.result === 'object' &&
-		entry.result !== null &&
-		typeof entry.typeDeps === 'object' &&
-		entry.typeDeps !== null
+		typeof field('key') === 'string' &&
+		typeof field('clientCode') === 'string' &&
+		typeof field('serverCode') === 'string' &&
+		typeof result === 'object' &&
+		result !== null &&
+		typeof typeDeps === 'object' &&
+		typeDeps !== null
 	);
 };
 
