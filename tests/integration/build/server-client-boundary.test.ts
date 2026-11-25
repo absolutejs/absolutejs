@@ -31,7 +31,7 @@ const project = async (name: string, secretsSource: string) => {
 	await mkdir(join(reactRoot, 'pages'), { recursive: true });
 	await writeFile(join(reactRoot, 'client', 'secrets.ts'), secretsSource);
 	await writeFile(
-		join(reactRoot, 'pages', 'home.tsx'),
+		join(reactRoot, 'pages', 'Home.tsx'),
 		`import { value } from '../client/secrets';
 export function Home() {
 	return <div>{value}</div>;

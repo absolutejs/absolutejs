@@ -57,8 +57,14 @@ describe('production client bundles', () => {
 			`import { whichBuild } from './chooses';
 self.postMessage(whichBuild());`
 		);
+		/* `Home.tsx`, capital H, like the other build tests. They share one
+		 * generated-index directory, and Bun (1.4.4) keeps a per-process
+		 * directory cache that survives a file being renamed by case only:
+		 * after one test built `home.tsx`, the next test's `Home.tsx` was
+		 * looked up as `home.tsx` and not found — on Linux, where names
+		 * are case-sensitive, so only in CI. */
 		await writeFile(
-			join(reactRoot, 'pages', 'home.tsx'),
+			join(reactRoot, 'pages', 'Home.tsx'),
 			`import { whichBuild } from '../client/chooses';
 export function Home() {
 	new Worker(new URL('../client/featureWorker.ts', import.meta.url));

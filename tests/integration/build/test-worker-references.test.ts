@@ -30,7 +30,7 @@ describe('production worker entry discovery', () => {
 			'self.postMessage("ready");'
 		);
 		await writeFile(
-			join(reactRoot, 'pages', 'home.tsx'),
+			join(reactRoot, 'pages', 'Home.tsx'),
 			'export function Home() { new Worker(new URL("../client/featureWorker.ts", import.meta.url)); return null; }'
 		);
 
