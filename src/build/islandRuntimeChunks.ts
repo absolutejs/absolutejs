@@ -75,14 +75,14 @@ const ownsSpecifier = (packages: readonly string[], specifier: string) =>
 const frameworkOwnersOf = (source: string) => {
 	const specifiers = new Set<string>();
 	for (const match of source.matchAll(SPECIFIER_RE)) {
-		const specifier = match[1];
+		const [, specifier] = match;
 		if (specifier !== undefined) specifiers.add(specifier);
 	}
 	const owners = new Set<string>();
+	const imported = [...specifiers];
 	for (const [framework, packages] of Object.entries(FRAMEWORK_PACKAGES)) {
-		for (const specifier of specifiers) {
-			if (ownsSpecifier(packages, specifier)) owners.add(framework);
-		}
+		if (imported.some((specifier) => ownsSpecifier(packages, specifier)))
+			owners.add(framework);
 	}
 
 	return owners;

@@ -31,43 +31,27 @@ export default defineConfig([
 			// NOT build output: the framework's own compilers. They were
 			// never linted, because the old `**/build/**` matched them by
 			// name. The directory is linted now; these are the files that
-			// still fail (365 errors as of beta.363, half of them nesting
+			// still fail (317 errors as of beta.364, most of them nesting
 			// depth, which is restructuring and not tidying). Each is to be
 			// fixed and taken off this list — a file that is not listed is
 			// held to the same rules as the rest of src/.
-			'src/build/auditLinks.ts',
 			'src/build/buildAngularVendor.ts',
 			'src/build/buildDepVendor.ts',
-			'src/build/bunStringRawUnicodePlugin.ts',
 			'src/build/chainInlineSourcemaps.ts',
 			'src/build/compileAngular.ts',
 			'src/build/compileEmber.ts',
-			'src/build/compileSvelte.ts',
 			'src/build/compileVue.ts',
-			'src/build/dedupeCssBlocks.ts',
-			'src/build/fileRouteSitemapPaths.ts',
-			'src/build/fileRoutes.ts',
-			'src/build/islandEntries.ts',
 			'src/build/islandRegistryTransform.ts',
-			'src/build/islandRuntimeChunks.ts',
 			'src/build/manifestKeys.ts',
-			'src/build/missingReactRouter.ts',
-			'src/build/modulePreload.ts',
 			'src/build/parseAngularConfigImports.ts',
-			'src/build/parseVueSpaRoutes.ts',
-			'src/build/pwa.ts',
-			'src/build/resolvePackageImport.ts',
-			'src/build/routeMap.ts',
 			'src/build/scanAngularHandlerCalls.ts',
 			'src/build/scanAngularPageRoutes.ts',
 			'src/build/scanRouteRegistrations.ts',
 			'src/build/scanVueSsrOnlyPages.ts',
 			'src/build/splitRoutePages.ts',
 			'src/build/stylePreprocessor.ts',
-			'src/build/tailwindCompiler.ts',
 			'src/build/verifyAngularCoreUniqueness.ts',
 			'src/build/vueCompileCache.ts',
-			'src/build/workspacePackages.ts',
 			// Generated, cached, and vendored code — not authored by us.
 			'**/.absolutejs/**',
 			// Written by `absolute-changelog release`; its migration maps keep

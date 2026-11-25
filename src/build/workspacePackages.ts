@@ -9,6 +9,37 @@ import { join, sep } from 'node:path';
 const NODE_MODULES_SEGMENT = `${sep}node_modules${sep}`;
 const verdicts = new Map<string, boolean>();
 
+const resolvesOutsideNodeModules = (specifier: string, projectRoot: string) => {
+	try {
+		const resolved = realpathSync(Bun.resolveSync(specifier, projectRoot));
+
+		return !resolved.includes(NODE_MODULES_SEGMENT);
+	} catch {
+		return false;
+	}
+};
+
+const readManifest = (projectRoot: string) => {
+	try {
+		const parsed: unknown = JSON.parse(
+			readFileSync(join(projectRoot, 'package.json'), 'utf-8')
+		);
+
+		return typeof parsed === 'object' && parsed !== null ? parsed : null;
+	} catch {
+		return null;
+	}
+};
+
+const linkedPackageDir = (projectRoot: string, name: string) => {
+	try {
+		return realpathSync(join(projectRoot, 'node_modules', name));
+	} catch {
+		// Not installed: nothing to watch.
+		return undefined;
+	}
+};
+
 export const isWorkspacePackageSpecifier = (
 	specifier: string,
 	projectRoot = process.cwd()
@@ -16,13 +47,7 @@ export const isWorkspacePackageSpecifier = (
 	const key = `${projectRoot}\u0000${specifier}`;
 	const known = verdicts.get(key);
 	if (known !== undefined) return known;
-	let verdict = false;
-	try {
-		const resolved = realpathSync(Bun.resolveSync(specifier, projectRoot));
-		verdict = !resolved.includes(NODE_MODULES_SEGMENT);
-	} catch {
-		verdict = false;
-	}
+	const verdict = resolvesOutsideNodeModules(specifier, projectRoot);
 	verdicts.set(key, verdict);
 
 	return verdict;
@@ -34,34 +59,25 @@ export const isWorkspacePackageSpecifier = (
  * editing the app does -- what `dev.watchDirs: ['../core']` was written by
  * hand to do. */
 export const workspacePackageDirs = (projectRoot = process.cwd()) => {
-	let manifest: Record<string, unknown>;
-	try {
-		manifest = JSON.parse(
-			readFileSync(join(projectRoot, 'package.json'), 'utf-8')
-		) as Record<string, unknown>;
-	} catch {
-		return [];
-	}
+	const manifest = readManifest(projectRoot);
+	if (manifest === null) return [];
 	const names = [
 		'dependencies',
 		'devDependencies',
 		'optionalDependencies'
 	].flatMap((field) => {
-		const deps = manifest[field];
+		const deps: unknown = Reflect.get(manifest, field);
 
 		return deps && typeof deps === 'object' ? Object.keys(deps) : [];
 	});
 	const dirs = new Set<string>();
 	for (const name of names) {
-		try {
-			const linked = realpathSync(
-				join(projectRoot, 'node_modules', name)
-			);
-			if (!`${linked}${sep}`.includes(NODE_MODULES_SEGMENT))
-				dirs.add(linked);
-		} catch {
-			// Not installed: nothing to watch.
-		}
+		const linked = linkedPackageDir(projectRoot, name);
+		if (
+			linked !== undefined &&
+			!`${linked}${sep}`.includes(NODE_MODULES_SEGMENT)
+		)
+			dirs.add(linked);
 	}
 
 	return [...dirs];

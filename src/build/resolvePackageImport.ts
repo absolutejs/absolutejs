@@ -70,15 +70,15 @@ export const resolvePackageImport = (
 
 		if (!importPath) return null;
 
-		if (currentPackageDir && importPath.startsWith('./dist/')) {
-			const sourceCandidate = resolve(
-				packageDir,
-				importPath.replace(/^\.\/dist\//, './src/')
-			);
-			if (existsSync(sourceCandidate)) {
-				return sourceCandidate;
-			}
-		}
+		const sourceCandidate =
+			currentPackageDir && importPath.startsWith('./dist/')
+				? resolve(
+						packageDir,
+						importPath.replace(/^\.\/dist\//, './src/')
+					)
+				: undefined;
+		if (sourceCandidate !== undefined && existsSync(sourceCandidate))
+			return sourceCandidate;
 
 		const resolved = resolve(packageDir, importPath);
 

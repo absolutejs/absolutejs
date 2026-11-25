@@ -81,11 +81,8 @@ export const writeRouteMapDeclaration = async (
 				)
 			)
 		].sort();
-		if (paths.length === 0) {
-			await rm(path, { force: true });
-
-			return null;
-		}
+		if (paths.length === 0) await rm(path, { force: true });
+		if (paths.length === 0) return null;
 		const source = routeMapDeclarationSource(paths);
 		const current = existsSync(path)
 			? await readFile(path, 'utf-8')

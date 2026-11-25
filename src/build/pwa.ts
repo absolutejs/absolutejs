@@ -8,6 +8,14 @@ import { RUNTIME_FILE_NAMES } from '../core/serverOnlyStaticFiles';
 const BOOTSTRAP_PUBLIC_PATH = '/__absolute/pwa/bootstrap.js';
 const BOOTSTRAP_MARKER = 'data-absolute-pwa';
 
+const decodeSegment = (part: string, field: string) => {
+	try {
+		return decodeURIComponent(part);
+	} catch {
+		throw new TypeError(`${field} contains invalid URL encoding.`);
+	}
+};
+
 const publicFilePath = (
 	value: string | undefined,
 	fallback: string,
@@ -34,12 +42,7 @@ const publicFilePath = (
 		);
 	}
 	for (const part of input.split('/')) {
-		let decoded: string;
-		try {
-			decoded = decodeURIComponent(part);
-		} catch {
-			throw new TypeError(`${field} contains invalid URL encoding.`);
-		}
+		const decoded = decodeSegment(part, field);
 		if (decoded === '.' || decoded === '..' || decoded.includes('\\')) {
 			throw new TypeError(
 				`${field} must not contain traversal segments.`
@@ -126,7 +129,7 @@ export const materializeAbsolutePwa = async ({
 	projectRoot: string;
 	/** Incremental HMR builds reuse the stable artifacts from the full build. */
 	write?: boolean;
-}): Promise<AbsolutePwaBuildArtifacts> => {
+}) => {
 	const serviceWorkerPath = publicFilePath(
 		config.serviceWorkerPath,
 		'/sw.js',

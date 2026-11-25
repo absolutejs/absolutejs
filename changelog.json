@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "Sixteen more compiler files in `src/build/` now pass the lint and are off the list of exceptions: the ones with five errors or fewer each. Most of the work was flattening nested blocks into guard clauses and small helpers, with a few type assertions replaced by guards. 83 of the 100 files are linted; 17 remain listed, with 317 errors between them. No behaviour changes.",
+					"kind": "internal",
+					"summary": "Sixteen more compiler files in `src/build/` pass the lint; 17 remain"
+				}
+			],
+			"date": "2026-11-25",
+			"version": "0.20.0-beta.364"
+		},
+		{
+			"changes": [
+				{
 					"detail": "The framework's own compilers in `src/build/` were never linted: an ignore meant for build output matched the directory by name. The directory is linted now. 67 of its 100 files pass, 53 as they were and 14 after automatic fixes (export order, blank lines, template strings) and a handful of fixes by hand; the 33 that still fail are listed by name in `eslint.config.mjs`, to be fixed and removed one at a time. No behaviour changes.",
 					"kind": "internal",
 					"summary": "The compilers in `src/build/` are linted, apart from 33 listed files"

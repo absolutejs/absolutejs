@@ -64,6 +64,31 @@ const loadEntries = async (serverModule: string, routePath: string) => {
 	}
 };
 
+type ScannedRoute = ReturnType<typeof scanFileRoutes>['routes'][number];
+
+/** The URLs one route serves: itself when it is static, one per param
+ *  set its `entries()` returns when it is dynamic. */
+const urlsOfRoute = async (entry: ScannedRoute) => {
+	const typePath = entry.typePath ?? entry.path;
+	if (!DYNAMIC_SEGMENT.test(typePath)) return [entry.path];
+	if (!entry.server) return [];
+	const { server } = entry;
+	const produced = await loadEntries(server, typePath);
+	if (!produced) return [];
+
+	return produced.flatMap((params) => {
+		const asked = asParams(params);
+		if (!asked) return [];
+		const filled = fillRoutePath(typePath, asked);
+		if (!('missing' in filled)) return [filled.url];
+		logWarn(
+			`entries() in ${server} returned a set without "${filled.missing}", so one URL of ${typePath} is not in the sitemap.`
+		);
+
+		return [];
+	});
+};
+
 /** Every URL the project's file routes serve that a build can know.
  *
  *  Static routes, plus one URL per param set a dynamic route's
@@ -74,32 +99,16 @@ export const fileRouteSitemapPaths = async (
 	projectRoot = process.cwd()
 ) => {
 	const { routes } = scanFileRoutes(config, projectRoot);
-	const urls: string[] = [];
-	for (const entry of routes) {
-		const typePath = entry.typePath ?? entry.path;
-		if (!DYNAMIC_SEGMENT.test(typePath)) {
-			urls.push(entry.path);
-			continue;
-		}
-		if (!entry.server) continue;
-
-		// read a database; running every route's entries() at once would
-		// open as many connections as the project has dynamic routes.
-		const produced = await loadEntries(entry.server, typePath);
-		if (!produced) continue;
-		for (const params of produced) {
-			const asked = asParams(params);
-			if (!asked) continue;
-			const filled = fillRoutePath(typePath, asked);
-			if ('missing' in filled) {
-				logWarn(
-					`entries() in ${entry.server} returned a set without "${filled.missing}", so one URL of ${typePath} is not in the sitemap.`
-				);
-				continue;
-			}
-			urls.push(filled.url);
-		}
-	}
+	// One route at a time, in order: entries() may read a database, and
+	// running every route's at once would open as many connections as the
+	// project has dynamic routes.
+	const urls = await routes.reduce(
+		async (previous, entry) => [
+			...(await previous),
+			...(await urlsOfRoute(entry))
+		],
+		Promise.resolve<string[]>([])
+	);
 
 	return [...new Set(urls)].sort();
 };
