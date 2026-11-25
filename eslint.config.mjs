@@ -31,11 +31,10 @@ export default defineConfig([
 			// NOT build output: the framework's own compilers. They were
 			// never linted, because the old `**/build/**` matched them by
 			// name. The directory is linted now; these are the files that
-			// still fail (127 errors as of beta.377, most of them nesting
+			// still fail (79 errors as of beta.378, most of them nesting
 			// depth, which is restructuring and not tidying). Each is to be
 			// fixed and taken off this list — a file that is not listed is
 			// held to the same rules as the rest of src/.
-			'src/build/chainInlineSourcemaps.ts',
 			'src/build/compileAngular.ts',
 			'src/build/stylePreprocessor.ts',
 			// Generated, cached, and vendored code — not authored by us.

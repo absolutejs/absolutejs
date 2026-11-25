@@ -15,8 +15,8 @@ import { inlineSourceMapComment } from './inlineSourceMapComment';
 const BASE64_CHARS =
 	'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 const BASE64_TO_INT = new Int8Array(128).fill(-1);
-for (let i = 0; i < BASE64_CHARS.length; i++) {
-	BASE64_TO_INT[BASE64_CHARS.charCodeAt(i)] = i;
+for (let index = 0; index < BASE64_CHARS.length; index++) {
+	BASE64_TO_INT[BASE64_CHARS.charCodeAt(index)] = index;
 }
 
 const decodeVlq = (str: string, startPos: number) => {
@@ -60,87 +60,140 @@ type Segment = {
 	sourceCol?: number;
 };
 
-const decodeMappings = (mappings: string): Segment[][] => {
-	const lines: Segment[][] = [];
-	let current: Segment[] = [];
-	let lastGenCol = 0;
-	let lastSourceIdx = 0;
-	let lastSourceLine = 0;
-	let lastSourceCol = 0;
-	let pos = 0;
-	const len = mappings.length;
-	while (pos < len) {
-		const ch = mappings[pos];
-		if (ch === ';') {
-			lines.push(current);
-			current = [];
-			lastGenCol = 0;
-			pos++;
-			continue;
-		}
-		if (ch === ',') {
-			pos++;
-			continue;
-		}
-		const d1 = decodeVlq(mappings, pos);
-		pos = d1.pos;
-		lastGenCol += d1.value;
-		const segment: Segment = { genCol: lastGenCol };
-		if (pos < len && mappings[pos] !== ',' && mappings[pos] !== ';') {
-			const d2 = decodeVlq(mappings, pos);
-			pos = d2.pos;
-			const d3 = decodeVlq(mappings, pos);
-			pos = d3.pos;
-			const d4 = decodeVlq(mappings, pos);
-			pos = d4.pos;
-			lastSourceIdx += d2.value;
-			lastSourceLine += d3.value;
-			lastSourceCol += d4.value;
-			segment.sourceIdx = lastSourceIdx;
-			segment.sourceLine = lastSourceLine;
-			segment.sourceCol = lastSourceCol;
-			// Skip optional name VLQ — we don't chain names.
-			while (
-				pos < len &&
-				mappings[pos] !== ',' &&
-				mappings[pos] !== ';'
-			) {
-				pos = decodeVlq(mappings, pos).pos;
-			}
-		}
-		current.push(segment);
+/* Where a decode has got to: the position in the string, and the
+ * running totals the format's deltas are added to. `genCol` restarts on
+ * every line; the three source fields run through the whole map. */
+type DecodeState = {
+	genCol: number;
+	pos: number;
+	sourceCol: number;
+	sourceIdx: number;
+	sourceLine: number;
+};
+
+/* Compared as char codes: this runs once or more per segment of maps
+ * that reach tens of megabytes, and indexing the string to compare
+ * one-character strings measured about a tenth slower. */
+const COMMA = 44;
+const SEMICOLON = 59;
+
+const isSegmentEnd = (mappings: string, pos: number) => {
+	if (pos >= mappings.length) return true;
+	const code = mappings.charCodeAt(pos);
+
+	return code === COMMA || code === SEMICOLON;
+};
+
+/* One segment, starting at `state.pos` and leaving it just past the
+ * segment: the generated column, then — when present — source index,
+ * line and column. */
+const decodeSegment = (mappings: string, state: DecodeState) => {
+	const generated = decodeVlq(mappings, state.pos);
+	state.pos = generated.pos;
+	state.genCol += generated.value;
+	if (isSegmentEnd(mappings, state.pos)) {
+		const unmapped: Segment = { genCol: state.genCol };
+
+		return unmapped;
 	}
-	lines.push(current);
+
+	const source = decodeVlq(mappings, state.pos);
+	const line = decodeVlq(mappings, source.pos);
+	const column = decodeVlq(mappings, line.pos);
+	state.pos = column.pos;
+	state.sourceIdx += source.value;
+	state.sourceLine += line.value;
+	state.sourceCol += column.value;
+	// Skip optional name VLQ — we don't chain names.
+	while (!isSegmentEnd(mappings, state.pos))
+		state.pos = decodeVlq(mappings, state.pos).pos;
+	// Built whole, not filled in field by field: one object shape for
+	// every mapped segment.
+	const segment: Segment = {
+		genCol: state.genCol,
+		sourceCol: state.sourceCol,
+		sourceIdx: state.sourceIdx,
+		sourceLine: state.sourceLine
+	};
+
+	return segment;
+};
+
+const startNextLine = (lines: Segment[][], state: DecodeState) => {
+	const line: Segment[] = [];
+	lines.push(line);
+	state.genCol = 0;
+	state.pos += 1;
+
+	return line;
+};
+
+const decodeMappings = (mappings: string) => {
+	let current: Segment[] = [];
+	const lines: Segment[][] = [current];
+	const state: DecodeState = {
+		genCol: 0,
+		pos: 0,
+		sourceCol: 0,
+		sourceIdx: 0,
+		sourceLine: 0
+	};
+	while (state.pos < mappings.length) {
+		const code = mappings.charCodeAt(state.pos);
+		if (code === SEMICOLON) current = startNextLine(lines, state);
+		else if (code === COMMA) state.pos += 1;
+		else current.push(decodeSegment(mappings, state));
+	}
 
 	return lines;
 };
 
-const encodeMappings = (lines: Segment[][]) => {
-	let lastSourceIdx = 0;
-	let lastSourceLine = 0;
-	let lastSourceCol = 0;
+/* The running totals an encode subtracts from. */
+type EncodeState = { sourceCol: number; sourceIdx: number; sourceLine: number };
+
+/* A segment's source half: empty when it maps to nothing. Line and
+ * column are always present when the index is. */
+const encodeSource = (segment: Segment, last: EncodeState) => {
+	if (segment.sourceIdx === undefined) return '';
+	const sourceLine = segment.sourceLine ?? 0;
+	const sourceCol = segment.sourceCol ?? 0;
+	const encoded =
+		encodeVlq(segment.sourceIdx - last.sourceIdx) +
+		encodeVlq(sourceLine - last.sourceLine) +
+		encodeVlq(sourceCol - last.sourceCol);
+	last.sourceIdx = segment.sourceIdx;
+	last.sourceLine = sourceLine;
+	last.sourceCol = sourceCol;
+
+	return encoded;
+};
+
+const encodeLine = (line: Segment[], last: EncodeState) => {
+	let lastGenCol = 0;
 	const parts: string[] = [];
-	for (const line of lines) {
-		let lastGenCol = 0;
-		const segs: string[] = [];
-		for (const seg of line) {
-			let s = encodeVlq(seg.genCol - lastGenCol);
-			lastGenCol = seg.genCol;
-			if (seg.sourceIdx !== undefined) {
-				s += encodeVlq(seg.sourceIdx - lastSourceIdx);
-				s += encodeVlq(seg.sourceLine! - lastSourceLine);
-				s += encodeVlq(seg.sourceCol! - lastSourceCol);
-				lastSourceIdx = seg.sourceIdx;
-				lastSourceLine = seg.sourceLine!;
-				lastSourceCol = seg.sourceCol!;
-			}
-			segs.push(s);
-		}
-		parts.push(segs.join(','));
+	for (const segment of line) {
+		parts.push(
+			encodeVlq(segment.genCol - lastGenCol) + encodeSource(segment, last)
+		);
+		lastGenCol = segment.genCol;
 	}
 
-	return parts.join(';');
+	return parts.join(',');
 };
+
+const encodeMappings = (lines: Segment[][]) => {
+	const last: EncodeState = { sourceCol: 0, sourceIdx: 0, sourceLine: 0 };
+
+	return lines.map((line) => encodeLine(line, last)).join(';');
+};
+
+const isMapped = (segment: Segment) => segment.sourceIdx !== undefined;
+
+const positionOf = (segment: Segment) => ({
+	col: segment.sourceCol ?? 0,
+	line: segment.sourceLine ?? 0,
+	sourceIdx: segment.sourceIdx ?? 0
+});
 
 const traceInner = (
 	innerLines: Segment[][],
@@ -157,41 +210,17 @@ const traceInner = (
 	// line.
 	const targetLineSegs = innerLines[targetLine];
 	if (!targetLineSegs) return null;
-	for (let i = targetLineSegs.length - 1; i >= 0; i--) {
-		const seg = targetLineSegs[i];
-		if (seg && seg.genCol <= targetCol && seg.sourceIdx !== undefined) {
-			return {
-				col: seg.sourceCol!,
-				line: seg.sourceLine!,
-				sourceIdx: seg.sourceIdx
-			};
-		}
-	}
-	for (const seg of targetLineSegs) {
-		if (seg.sourceIdx !== undefined) {
-			return {
-				col: seg.sourceCol!,
-				line: seg.sourceLine!,
-				sourceIdx: seg.sourceIdx
-			};
-		}
-	}
+	const onLine =
+		targetLineSegs.findLast(
+			(segment) => segment.genCol <= targetCol && isMapped(segment)
+		) ?? targetLineSegs.find(isMapped);
+	if (onLine) return positionOf(onLine);
 	// Step 2: target line has no segments at all. Walk back to the
 	// nearest prior line with a mapping. Standard sourcemap-resolver
 	// behaviour (V8/JSC honour this).
-	for (let li = targetLine - 1; li >= 0; li--) {
-		const line = innerLines[li];
-		if (!line) continue;
-		for (let i = line.length - 1; i >= 0; i--) {
-			const seg = line[i];
-			if (seg && seg.sourceIdx !== undefined) {
-				return {
-					col: seg.sourceCol!,
-					line: seg.sourceLine!,
-					sourceIdx: seg.sourceIdx
-				};
-			}
-		}
+	for (let lineIndex = targetLine - 1; lineIndex >= 0; lineIndex--) {
+		const earlier = innerLines[lineIndex]?.findLast(isMapped);
+		if (earlier) return positionOf(earlier);
 	}
 
 	return null;
@@ -208,16 +237,32 @@ type SourceMap = {
 const SOURCEMAP_INLINE_RE =
 	/\n?\/\/# sourceMappingURL=data:application\/json(?:;[^,]+)?;base64,([A-Za-z0-9+/=]+)\s*$/;
 
-const extractInlineMap = (text: string): SourceMap | null => {
-	const match = text.match(SOURCEMAP_INLINE_RE);
-	if (!match) return null;
-	const encoded = match[1];
-	if (!encoded) return null;
+/* Enough of the shape to chain through: an array of sources and a
+ * mappings string. Anything else is not a map this module can use, and
+ * is treated as there being no map. */
+const isSourceMap = (value: unknown): value is SourceMap =>
+	typeof value === 'object' &&
+	value !== null &&
+	'sources' in value &&
+	Array.isArray(value.sources) &&
+	'mappings' in value &&
+	typeof value.mappings === 'string';
+
+const parseSourceMap = (json: string) => {
 	try {
-		return JSON.parse(Buffer.from(encoded, 'base64').toString('utf-8'));
+		const parsed: unknown = JSON.parse(json);
+
+		return isSourceMap(parsed) ? parsed : null;
 	} catch {
 		return null;
 	}
+};
+
+const extractInlineMap = (text: string) => {
+	const [, encoded] = text.match(SOURCEMAP_INLINE_RE) ?? [];
+	if (!encoded) return null;
+
+	return parseSourceMap(Buffer.from(encoded, 'base64').toString('utf-8'));
 };
 
 /* Build a line-shift remap from `before` text (compileScript output)
@@ -238,36 +283,52 @@ const extractInlineMap = (text: string): SourceMap | null => {
  * first matching `import * from "vue"` line in `after`. Lines that
  * have no match (blank lines transpiler dropped, type-only lines
  * transpiler stripped) get -1 and their mappings are discarded. */
+const normaliseLine = (line: string) =>
+	line.trim().replace(/["']/g, '`').replace(/;\s*$/, '');
+
+const isVueImport = (line: string) =>
+	/^\s*import\s+.*\bfrom\s+["']vue["']\s*;?\s*$/.test(line);
+
+/* The index of `wanted` in `lines[from, to)`, or -1. */
+const indexWithin = (
+	lines: string[],
+	wanted: string,
+	from: number,
+	end: number
+) => {
+	for (let probe = from; probe < end; probe++)
+		if (lines[probe] === wanted) return probe;
+
+	return -1;
+};
+
+/* How far ahead of the last match a line is looked for. */
+const LINE_SEARCH_HORIZON = 30;
+
 export const buildLineRemap = (before: string, after: string) => {
-	const bLines = before.split('\n');
-	const aLines = after.split('\n');
-	const norm = (s: string) =>
-		s.trim().replace(/["']/g, '`').replace(/;\s*$/, '');
-	const isVueImport = (s: string) =>
-		/^\s*import\s+.*\bfrom\s+["']vue["']\s*;?\s*$/.test(s);
-	const mergedVueImportLine = aLines.findIndex(isVueImport);
+	const beforeLines = before.split('\n');
+	const afterLines = after.split('\n');
+	const mergedVueImportLine = afterLines.findIndex(isVueImport);
 	// Normalise `after` once: every `before` line probes up to 30
 	// candidates, and re-normalising each candidate per probe was the
 	// single largest self-time item in a Vue compile profile.
-	const aNorm = aLines.map(norm);
-	const remap: number[] = new Array(bLines.length).fill(-1);
-	let ai = 0;
-	for (let bi = 0; bi < bLines.length; bi++) {
-		const bLine = bLines[bi];
-		if (bLine === undefined || bLine.trim() === '') continue;
-		if (isVueImport(bLine)) {
-			remap[bi] = mergedVueImportLine;
-			continue;
-		}
-		const bNorm = norm(bLine);
-		const horizon = Math.min(aLines.length, ai + 30);
-		for (let probe = ai; probe < horizon; probe++) {
-			if (aNorm[probe] === bNorm) {
-				remap[bi] = probe;
-				ai = probe + 1;
-				break;
-			}
-		}
+	const afterNormalised = afterLines.map(normaliseLine);
+	const remap: number[] = new Array(beforeLines.length).fill(-1);
+	let cursor = 0;
+	for (const [index, line] of beforeLines.entries()) {
+		if (line.trim() === '') continue;
+		const isImport = isVueImport(line);
+		if (isImport) remap[index] = mergedVueImportLine;
+		if (isImport) continue;
+		const found = indexWithin(
+			afterNormalised,
+			normaliseLine(line),
+			cursor,
+			Math.min(afterLines.length, cursor + LINE_SEARCH_HORIZON)
+		);
+		if (found < 0) continue;
+		remap[index] = found;
+		cursor = found + 1;
 	}
 
 	return remap;
@@ -275,11 +336,13 @@ export const buildLineRemap = (before: string, after: string) => {
 export const chainSourcemap = (
 	outer: SourceMap,
 	fetchInner: (sourcePath: string) => SourceMap | null
-): SourceMap => {
+) => {
 	const outerSegs = decodeMappings(outer.mappings);
-	const innerMaps = outer.sources.map((s) => (s ? fetchInner(s) : null));
-	const innerDecoded = innerMaps.map((m) =>
-		m ? decodeMappings(m.mappings) : null
+	const innerMaps = outer.sources.map((source) =>
+		source ? fetchInner(source) : null
+	);
+	const innerDecoded = innerMaps.map((inner) =>
+		inner ? decodeMappings(inner.mappings) : null
 	);
 
 	const newSources: string[] = [];
@@ -301,72 +364,64 @@ export const chainSourcemap = (
 	// the inner sourcemap has no mappings for).
 	const innerSrcRemap: number[][] = [];
 	const outerFallbackIdx: number[] = [];
-	outer.sources.forEach((src, i) => {
-		const inner = innerMaps[i];
-		if (inner) {
-			innerSrcRemap[i] = inner.sources.map((innerSrc, j) =>
-				innerSrc === null
-					? -1
-					: addSource(innerSrc, inner.sourcesContent?.[j] ?? null)
-			);
-		} else {
-			innerSrcRemap[i] = [];
-		}
-		outerFallbackIdx[i] =
+	outer.sources.forEach((src, index) => {
+		const inner = innerMaps[index];
+		innerSrcRemap[index] = inner
+			? inner.sources.map((innerSrc, innerIndex) =>
+					innerSrc === null
+						? -1
+						: addSource(
+								innerSrc,
+								inner.sourcesContent?.[innerIndex] ?? null
+							)
+				)
+			: [];
+		outerFallbackIdx[index] =
 			src === null
 				? -1
-				: addSource(src, outer.sourcesContent?.[i] ?? null);
+				: addSource(src, outer.sourcesContent?.[index] ?? null);
 	});
 
-	const chained: Segment[][] = outerSegs.map((line) =>
-		line.map((seg) => {
-			if (seg.sourceIdx === undefined) return { genCol: seg.genCol };
-			const fallbackIdx = outerFallbackIdx[seg.sourceIdx] ?? -1;
-			const innerLines = innerDecoded[seg.sourceIdx];
-			if (innerLines) {
-				const t = traceInner(
+	const chainSegment = (segment: Segment) => {
+		const { genCol, sourceIdx } = segment;
+		if (sourceIdx === undefined) return { genCol };
+		const innerLines = innerDecoded[sourceIdx];
+		const traced = innerLines
+			? traceInner(
 					innerLines,
-					seg.sourceLine!,
-					seg.sourceCol!
-				);
-				if (t) {
-					const innerRemap = innerSrcRemap[seg.sourceIdx];
-					const remappedIdx = innerRemap?.[t.sourceIdx] ?? -1;
-
-					return {
-						genCol: seg.genCol,
-						sourceCol: t.col,
-						sourceIdx: remappedIdx,
-						sourceLine: t.line
-					};
-				}
-
-				// Inner trace miss — fall back to outer attribution
-				// so Bun's runtime still has something to show.
-				return {
-					genCol: seg.genCol,
-					sourceCol: seg.sourceCol,
-					sourceIdx: fallbackIdx,
-					sourceLine: seg.sourceLine
-				};
-			}
-
+					segment.sourceLine ?? 0,
+					segment.sourceCol ?? 0
+				)
+			: null;
+		// No inner map, or an inner trace miss — fall back to outer
+		// attribution so Bun's runtime still has something to show.
+		if (!traced)
 			return {
-				genCol: seg.genCol,
-				sourceCol: seg.sourceCol,
-				sourceIdx: fallbackIdx,
-				sourceLine: seg.sourceLine
+				genCol,
+				sourceCol: segment.sourceCol,
+				sourceIdx: outerFallbackIdx[sourceIdx] ?? -1,
+				sourceLine: segment.sourceLine
 			};
-		})
-	);
 
-	return {
+		return {
+			genCol,
+			sourceCol: traced.col,
+			sourceIdx: innerSrcRemap[sourceIdx]?.[traced.sourceIdx] ?? -1,
+			sourceLine: traced.line
+		};
+	};
+	const chained: Segment[][] = outerSegs.map((line) =>
+		line.map(chainSegment)
+	);
+	const chainedMap: SourceMap = {
 		mappings: encodeMappings(chained),
 		names: outer.names,
 		sources: newSources,
 		sourcesContent: newSourcesContent,
 		version: 3
 	};
+
+	return chainedMap;
 };
 export const inlineLineMapComment = (
 	sourcePath: string,
@@ -497,14 +552,17 @@ export const chainBundleInlineSourcemaps = async (
  * `sourcesContent[]`) so the external map resolves to original `.vue`/`.ts`
  * source rather than the intermediate compile output. Rewrites the `.map`
  * file in place. No-op if the file isn't a valid source map. */
-export const chainExternalSourcemap = (mapFilePath: string) => {
-	let outerMap: SourceMap;
+const readSourceMapFile = (mapFilePath: string) => {
 	try {
-		outerMap = JSON.parse(readFileSync(mapFilePath, 'utf-8')) as SourceMap;
+		return parseSourceMap(readFileSync(mapFilePath, 'utf-8'));
 	} catch {
-		return;
+		return null;
 	}
-	if (!Array.isArray(outerMap.sources)) return;
+};
+
+export const chainExternalSourcemap = (mapFilePath: string) => {
+	const outerMap = readSourceMapFile(mapFilePath);
+	if (!outerMap) return;
 	const chained = chainSourcemap(outerMap, (src) => {
 		const idx = outerMap.sources.indexOf(src);
 		if (idx < 0) return null;

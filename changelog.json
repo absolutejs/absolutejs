@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "`src/build/chainInlineSourcemaps.ts` passes the lint and is off the list of exceptions. It decodes, chains and re-encodes source maps, so the restructured code was compared with the old on 16,000 generated maps and texts and on the example app's real maps (no difference), and timed against it on 17 MB of mappings (no slower; the first version of the restructure was about a tenth slower and was reworked until it was not). Thirteen tests now pin outputs the old code produced. One behaviour differs, for invalid input only: a bundle whose inline map is valid JSON but not a source map is now left alone, where the old code threw. 98 of the 100 compiler files are linted; 2 remain listed.",
+					"kind": "internal",
+					"summary": "The sourcemap chaining in `src/build/` passes the lint; 2 files remain"
+				}
+			],
+			"date": "2026-11-25",
+			"version": "0.20.0-beta.378"
+		},
+		{
+			"changes": [
+				{
 					"detail": "`src/build/buildDepVendor.ts` passes the lint and is off the list of exceptions. It decides which dependencies are vendored and builds them, so the change was checked by output: the vendor path map for the example app is identical, order included, and all 184 vendor files a build of the example app produces are identical by hash before and after. 97 of the 100 compiler files are linted; 3 remain listed. No behaviour changes.",
 					"kind": "internal",
 					"summary": "The dependency vendor builder in `src/build/` passes the lint; 3 files remain"
