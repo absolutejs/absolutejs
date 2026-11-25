@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "`absolute proof run --signing-key <key> -- <command>` runs any command (a test suite, most often) and, when it passes, writes a signed proof of that pass; `absolute proof verify --trusted-key <key> -- <command>` lets CI accept the proof in seconds instead of running the command again. A proof is bound to the whole working tree (every file Git would track, the proof itself excepted), the exact command and the exact Bun (`Bun.version`, build label included). `run` refuses to sign when the command changed files while it ran. The signature is Ed25519, the signing key must live outside the repository, and the payload is domain-separated from `lint-proof`'s so neither signature can pass for the other. `lint-proof` now shares the same key and tree code; its behaviour and messages are unchanged.",
+					"kind": "added",
+					"summary": "Signed proofs for any command, so CI can skip re-running a test suite"
+				}
+			],
+			"date": "2026-11-25",
+			"version": "0.20.0-beta.380"
+		},
+		{
+			"changes": [
+				{
 					"detail": "`src/build/stylePreprocessor.ts` passes the lint and is off the list of exceptions. The compile function is split by language (Sass, Less, Stylus), and the import resolver and the synchronous Sass path are flattened. One rule is switched off for this file, with the reason written beside it: the 15 type assertions on Sass, Less, Stylus, PostCSS and autoprefixer, which are optional peers loaded by name and cannot be typed by import. Checked by output: 188 compiles of a purpose-built corpus (every language, five configurations, error cases, the dependency graph) are identical before and after, and so is every built stylesheet and script of the example app. 99 of the 100 compiler files are linted; `compileAngular.ts` remains. No behaviour changes.",
 					"kind": "internal",
 					"summary": "The style preprocessor in `src/build/` passes the lint; 1 file remains"

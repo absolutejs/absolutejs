@@ -109,6 +109,9 @@ const printUsage = (write: (line: string) => void) => {
 		'  lint-proof <run|verify> -- <command> Record or verify an exact-source local lint pass'
 	);
 	write(
+		'  proof <run|verify> -- <command> Record or verify a signed pass of any command (a test suite) on this exact tree and Bun'
+	);
+	write(
 		'  generate <page|api|component> <name> [--framework <fw>] Scaffold a page, API plugin, or component'
 	);
 	write(
@@ -314,6 +317,10 @@ if (command === 'dev') {
 	sendTelemetryEvent('cli:command', { command });
 	const { runLintProof } = await import('./scripts/lintProof');
 	process.exitCode = await runLintProof(args);
+} else if (command === 'proof') {
+	sendTelemetryEvent('cli:command', { command });
+	const { runCommandProof } = await import('./scripts/commandProof');
+	process.exitCode = await runCommandProof(args);
 } else if (command === 'fmt') {
 	sendTelemetryEvent('cli:command', { command });
 	const { fmt } = await import('./scripts/fmt');
