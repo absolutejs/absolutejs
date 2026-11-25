@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "`src/build/compileAngular.ts` passes the lint, and with it all 100 files of the framework's own compilers do: the list of exceptions in `eslint.config.mjs` is empty. The providers injection, the wrapper hash input and several nested scanners became module-level functions; three functions nothing called were removed. Checked by output: the example app and 20 Angular fixture pages were compiled in AOT and JIT mode with the old and the new compiler, including router options, and all 169 output files are identical, as is every file of a full build of the example app. No behaviour changes.",
+					"kind": "internal",
+					"summary": "Every file in `src/build/` is linted; the last one was the Angular compiler"
+				}
+			],
+			"date": "2026-11-25",
+			"version": "0.20.0-beta.380"
+		},
+		{
+			"changes": [
+				{
 					"detail": "`src/build/stylePreprocessor.ts` passes the lint and is off the list of exceptions. The compile function is split by language (Sass, Less, Stylus), and the import resolver and the synchronous Sass path are flattened. One rule is switched off for this file, with the reason written beside it: the 15 type assertions on Sass, Less, Stylus, PostCSS and autoprefixer, which are optional peers loaded by name and cannot be typed by import. Checked by output: 188 compiles of a purpose-built corpus (every language, five configurations, error cases, the dependency graph) are identical before and after, and so is every built stylesheet and script of the example app. 99 of the 100 compiler files are linted; `compileAngular.ts` remains. No behaviour changes.",
 					"kind": "internal",
 					"summary": "The style preprocessor in `src/build/` passes the lint; 1 file remains"

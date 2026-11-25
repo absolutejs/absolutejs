@@ -28,14 +28,11 @@ export default defineConfig([
 			'build/**',
 			'example/build/**',
 			'tests/fixtures/**/build/**',
-			// NOT build output: the framework's own compilers. They were
-			// never linted, because the old `**/build/**` matched them by
-			// name. The directory is linted now; these are the files that
-			// still fail (39 errors as of beta.379, most of them nesting
-			// depth, which is restructuring and not tidying). Each is to be
-			// fixed and taken off this list — a file that is not listed is
-			// held to the same rules as the rest of src/.
-			'src/build/compileAngular.ts',
+			// `src/build/` is NOT build output, though it was treated as such
+			// until beta.358: the old `**/build/**` matched the framework's
+			// own compilers by name, so they were never linted. All 100 files
+			// are linted now, with no file excepted. Keep it that way: a
+			// directory named `build` is source unless it is listed above.
 			// Generated, cached, and vendored code — not authored by us.
 			'**/.absolutejs/**',
 			// Written by `absolute-changelog release`; its migration maps keep
