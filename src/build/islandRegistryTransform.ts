@@ -64,17 +64,16 @@ const collectRegistryFactory = (sourceFile: TS.SourceFile) => {
 			continue;
 		const bindings = statement.importClause?.namedBindings;
 		if (!bindings) continue;
-		if (ts.isNamespaceImport(bindings)) {
+		if (ts.isNamespaceImport(bindings))
 			namespaceNames.add(bindings.name.text);
-			continue;
-		}
 		if (!ts.isNamedImports(bindings)) continue;
-		for (const element of bindings.elements) {
-			const imported = element.propertyName?.text ?? element.name.text;
-			if (imported === 'defineIslandRegistry') {
-				factoryNames.add(element.name.text);
-			}
-		}
+		bindings.elements
+			.filter(
+				(element) =>
+					(element.propertyName?.text ?? element.name.text) ===
+					'defineIslandRegistry'
+			)
+			.forEach((element) => factoryNames.add(element.name.text));
 	}
 
 	return { factoryNames, namespaceNames };
@@ -95,36 +94,47 @@ const isDefineIslandRegistryCall = (
 	);
 };
 
+/* `node` itself, when it is `defineIslandRegistry({ … })`. */
+const registryCallAt = (
+	node: TS.Node,
+	factoryNames: Set<string>,
+	namespaceNames: Set<string>
+) => {
+	if (!ts.isCallExpression(node)) return null;
+	const [firstArg] = node.arguments;
+
+	return isDefineIslandRegistryCall(
+		node.expression,
+		factoryNames,
+		namespaceNames
+	) &&
+		firstArg &&
+		ts.isObjectLiteralExpression(firstArg)
+		? node
+		: null;
+};
+
+/* The first such call in the file, in document order. */
 const findDefineIslandRegistryCall = (
 	sourceFile: TS.SourceFile,
 	factoryNames: Set<string>,
 	namespaceNames: Set<string>
-): TS.CallExpression | null => {
-	let found: TS.CallExpression | null = null;
+) => {
+	const pending: TS.Node[] = [sourceFile];
+	while (pending.length > 0) {
+		const node = pending.pop();
+		if (node === undefined) break;
+		const call = registryCallAt(node, factoryNames, namespaceNames);
+		if (call) return call;
+		const children: TS.Node[] = [];
+		ts.forEachChild(node, (child) => {
+			children.push(child);
+		});
+		// Popped from the end, so the first child goes on last.
+		pending.push(...children.reverse());
+	}
 
-	const visit = (node: TS.Node) => {
-		if (found) return;
-		const [firstArg] = ts.isCallExpression(node) ? node.arguments : [];
-		if (
-			ts.isCallExpression(node) &&
-			isDefineIslandRegistryCall(
-				node.expression,
-				factoryNames,
-				namespaceNames
-			) &&
-			firstArg &&
-			ts.isObjectLiteralExpression(firstArg)
-		) {
-			found = node;
-
-			return;
-		}
-		ts.forEachChild(node, visit);
-	};
-
-	visit(sourceFile);
-
-	return found;
+	return null;
 };
 
 const quoteKey = (key: string) =>
@@ -140,11 +150,86 @@ const definitionLiteral = (reference: { export?: string; source: string }) => {
 
 type Edit = { end: number; start: number; text: string };
 
+type BuildReference = { export?: string; source: string };
+
+/* One registry entry to rewrite: the edit, and the local name it stops
+ * referring to (so its import can go once nothing else uses it). */
+type Replacement = { edit: Edit; localName: string };
+
+const replacementOf = (
+	node: TS.Node,
+	sourceFile: TS.SourceFile,
+	text: string,
+	localName: string
+) => {
+	const replacement: Replacement = {
+		edit: { end: node.getEnd(), start: node.getStart(sourceFile), text },
+		localName
+	};
+
+	return replacement;
+};
+
+/* `{ Counter }` is replaced whole, key included; `{ key: Counter }` keeps
+ * its key and has only the value replaced. Anything else — a call, a
+ * spread, a literal — is not a component reference and is left alone. */
+const componentReplacement = (
+	property: TS.ObjectLiteralElementLike,
+	framework: IslandFramework,
+	definitionLookup: Map<string, BuildReference>,
+	sourceFile: TS.SourceFile
+) => {
+	if (ts.isShorthandPropertyAssignment(property)) {
+		const key = property.name.text;
+		const reference = definitionLookup.get(`${framework}:${key}`);
+
+		return reference
+			? replacementOf(
+					property,
+					sourceFile,
+					`${quoteKey(key)}: ${definitionLiteral(reference)}`,
+					key
+				)
+			: null;
+	}
+	if (
+		!ts.isPropertyAssignment(property) ||
+		!ts.isIdentifier(property.initializer)
+	)
+		return null;
+	const key = getObjectPropertyName(property.name);
+	const reference = key
+		? definitionLookup.get(`${framework}:${key}`)
+		: undefined;
+
+	return reference
+		? replacementOf(
+				property.initializer,
+				sourceFile,
+				definitionLiteral(reference),
+				property.initializer.text
+			)
+		: null;
+};
+
+/* Every local name one import declaration binds. */
+const importedLocalNames = (clause: TS.ImportClause) => {
+	const bindings = clause.namedBindings;
+	const named =
+		bindings && ts.isNamedImports(bindings)
+			? bindings.elements.map((element) => element.name.text)
+			: [];
+	const namespace =
+		bindings && ts.isNamespaceImport(bindings) ? [bindings.name.text] : [];
+
+	return [...(clause.name ? [clause.name.text] : []), ...named, ...namespace];
+};
+
 export const transformIslandRegistrySource = (
 	source: string,
 	filePath: string,
 	info: IslandRegistryTransformInfo
-): string | null => {
+) => {
 	if (!source.includes('defineIslandRegistry')) return null;
 
 	const scriptKind =
@@ -173,10 +258,7 @@ export const transformIslandRegistrySource = (
 		return null;
 	}
 
-	const definitionLookup = new Map<
-		string,
-		{ export?: string; source: string }
-	>();
+	const definitionLookup = new Map<string, BuildReference>();
 	for (const definition of info.definitions) {
 		if (!definition.buildReference) continue;
 		definitionLookup.set(
@@ -199,46 +281,20 @@ export const transformIslandRegistrySource = (
 		if (!ts.isObjectLiteralExpression(frameworkProperty.initializer))
 			continue;
 
-		for (const componentProperty of frameworkProperty.initializer
-			.properties) {
-			let componentKey: string | null = null;
-			let localName: string | null = null;
-			let replaceNode: TS.Node | null = null;
-			let replacementText = '';
-
-			if (ts.isShorthandPropertyAssignment(componentProperty)) {
-				componentKey = componentProperty.name.text;
-				localName = componentProperty.name.text;
-				const reference = definitionLookup.get(
-					`${framework}:${componentKey}`
-				);
-				if (!reference) continue;
-				replaceNode = componentProperty;
-				replacementText = `${quoteKey(componentKey)}: ${definitionLiteral(reference)}`;
-			} else if (
-				ts.isPropertyAssignment(componentProperty) &&
-				ts.isIdentifier(componentProperty.initializer)
-			) {
-				componentKey = getObjectPropertyName(componentProperty.name);
-				localName = componentProperty.initializer.text;
-				if (!componentKey) continue;
-				const reference = definitionLookup.get(
-					`${framework}:${componentKey}`
-				);
-				if (!reference) continue;
-				replaceNode = componentProperty.initializer;
-				replacementText = definitionLiteral(reference);
-			} else {
-				continue;
-			}
-
-			edits.push({
-				end: replaceNode.getEnd(),
-				start: replaceNode.getStart(sourceFile),
-				text: replacementText
+		frameworkProperty.initializer.properties
+			.map((componentProperty) =>
+				componentReplacement(
+					componentProperty,
+					framework,
+					definitionLookup,
+					sourceFile
+				)
+			)
+			.filter((replacement) => replacement !== null)
+			.forEach(({ edit, localName }) => {
+				edits.push(edit);
+				replacedLocals.add(localName);
 			});
-			replacedLocals.add(localName);
-		}
 	}
 
 	if (edits.length === 0) return null;
@@ -251,28 +307,17 @@ export const transformIslandRegistrySource = (
 		const clause = statement.importClause;
 		if (!clause) continue;
 
-		const localNames: string[] = [];
-		if (clause.name) localNames.push(clause.name.text);
-		const bindings = clause.namedBindings;
-		if (bindings && ts.isNamedImports(bindings)) {
-			for (const element of bindings.elements) {
-				localNames.push(element.name.text);
-			}
-		} else if (bindings && ts.isNamespaceImport(bindings)) {
-			localNames.push(bindings.name.text);
-		}
-
+		const localNames = importedLocalNames(clause);
 		if (localNames.length === 0) continue;
-		if (localNames.every((name) => replacedLocals.has(name))) {
-			edits.push({
-				end: statement.getEnd(),
-				start: statement.getStart(sourceFile),
-				text: ''
-			});
-		}
+		if (!localNames.every((name) => replacedLocals.has(name))) continue;
+		edits.push({
+			end: statement.getEnd(),
+			start: statement.getStart(sourceFile),
+			text: ''
+		});
 	}
 
-	edits.sort((a, b) => b.start - a.start);
+	edits.sort((left, right) => right.start - left.start);
 	let output = source;
 	for (const edit of edits) {
 		output =
