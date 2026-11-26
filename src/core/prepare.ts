@@ -28,6 +28,12 @@ import { absoluteRequestContext } from './requestContext';
 import { cacheTagEmitter, routesTagged } from './cacheTags';
 import { revalidateEndpoint } from './revalidateEndpoint';
 import {
+	isRevalidateTokenMissing,
+	REVALIDATE_TOKEN_ENV,
+	revalidateTokenFor,
+	staticDirectoryFor
+} from './staticRuntimeOptions';
+import {
 	prerenderDirectoryProblem,
 	usablePrerenderDirectory
 } from './prerenderDirectory';
@@ -1023,7 +1029,7 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 	// `static.directory` (prerenderDirectory.ts).
 	const prerenderDir = usablePrerenderDirectory(
 		buildDir,
-		config.static?.directory,
+		staticDirectoryFor(config.static),
 		logWarn
 	);
 	const prerenderMap = loadPrerenderMap(prerenderDir);
@@ -1043,6 +1049,10 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 	 * one `revalidatePath` creates needs somewhere to be served from. */
 	if (prerenderMap.size > 0 || config.static !== undefined) {
 		warnIfPagesCannotBeUpdated(prerenderDir, config.static);
+		if (isRevalidateTokenMissing(config.static))
+			logWarn(
+				`static.revalidateToken was set when this app was built, but a token is never stored in build output. Set ${REVALIDATE_TOKEN_ENV} to enable /__absolute/revalidate.`
+			);
 		const {
 			PRERENDER_BYPASS_HEADER,
 			PRERENDER_BYPASS_TOKEN,
@@ -1230,7 +1240,7 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 			.use(assetCachePlugin)
 			.use(imageOptimizer(config.images, buildDir))
 			// Before the pre-rendered pages, behind the rate limiter.
-			.use(revalidateEndpoint(config.static?.revalidateToken))
+			.use(revalidateEndpoint(revalidateTokenFor(config.static)))
 			.use(prerenderPlugin)
 			.use(precompressedFiles)
 			.use(staticFiles)

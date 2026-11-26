@@ -239,6 +239,13 @@ its own; older ones are removed.
 Use an absolute path. A relative one is resolved against the directory
 the server is started from.
 
+**Set it per machine with `ABSOLUTE_STATIC_DIRECTORY`.** A production
+server does not read `absolute.config.ts`; it reads what the build wrote
+down from it. So `directory: process.env.PAGES_DIR` in the config is
+whatever that variable was on the machine that built the app, fixed into
+a prebuilt directory or a compiled binary. The environment variable is
+read when the server starts and wins over the config.
+
 ### When the directory cannot be written
 
 A re-render that cannot write its page used to fail without a word. The
@@ -258,12 +265,8 @@ Either way the server starts and serves what it has.
 server can call them. For a CMS webhook, a job or another service, set a
 token and the server accepts requests:
 
-```ts
-// absolute.config.ts
-static: {
-	routes: ['/', '/blog/*'],
-	revalidateToken: process.env.REVALIDATE_TOKEN
-}
+```sh
+ABSOLUTE_REVALIDATE_TOKEN="$(openssl rand -hex 32)"
 ```
 
 ```sh
@@ -297,7 +300,7 @@ covers. Nothing is rendered for them.
 
 It is a public URL that makes the server render pages.
 
-- **Off unless a token is set.** Without `revalidateToken` the path is not
+- **Off unless a token is set.** Without one the path is not
   a route. An empty token, or one shorter than 16 characters, counts as
   not set, and the short one is reported at startup.
 - **Bearer token, compared in constant time.** A wrong or missing token
@@ -309,8 +312,18 @@ It is a public URL that makes the server render pages.
 - **Rate limited** like any other route, when the app configures
   `rateLimit`.
 
-The token is a secret: read it from the environment, not from the config
-file itself.
+### Where the token comes from
+
+**Set `ABSOLUTE_REVALIDATE_TOKEN` in the server's environment.** It is
+read when the server starts and wins over the config.
+
+`static.revalidateToken` in the config works when the app is built and
+started in one step with `absolute start`, which hands the value to the
+server it launches. It does not reach a server started from an existing
+build (`absolute start --prebuilt`) or a compiled binary, because the
+token is never written into build output: a secret has no business in a
+build folder, an image made from it, or a binary. A server built with a
+token and started without one says so at startup, and has no endpoint.
 
 ## What a caller is promised
 

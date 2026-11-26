@@ -31,6 +31,7 @@ const repoRoot = resolve(import.meta.dir, '..', '..', '..');
 const CLI_ENTRY = join(repoRoot, 'src', 'cli', 'index.ts');
 const FRAMEWORK = join(repoRoot, 'src', 'index.ts').replace(/\\/g, '/');
 const PORT = 4614;
+const TOKEN = 'static-directory-test-token';
 
 const configFor = (
 	directory: string
@@ -38,7 +39,11 @@ const configFor = (
 
 export default defineConfig({
 	buildDirectory: './build',
-	static: { directory: '${directory}', routes: ['/count'] }
+	static: {
+		directory: '${directory}',
+		revalidateToken: '${TOKEN}',
+		routes: ['/count']
+	}
 });
 `;
 
@@ -105,7 +110,7 @@ const collect = async (stream: ReadableStream<Uint8Array>) => {
 	for await (const chunk of stream) output += decoder.decode(chunk);
 };
 
-const start = async (prebuilt: boolean) => {
+const start = async (prebuilt: boolean, extra: Record<string, string> = {}) => {
 	output = '';
 	const started = Bun.spawn(
 		[
@@ -122,7 +127,8 @@ const start = async (prebuilt: boolean) => {
 				FORCE_COLOR: '0',
 				NODE_ENV: 'production',
 				PORT: String(PORT),
-				TELEMETRY_OFF: '1'
+				TELEMETRY_OFF: '1',
+				...extra
 			},
 			stderr: 'pipe',
 			stdout: 'pipe'
@@ -145,6 +151,16 @@ const shown = async (path: string) => {
 
 	return /count:\d+/.exec(html)?.[0] ?? html;
 };
+
+const callEndpoint = (token: string) =>
+	fetch(url('/__absolute/revalidate'), {
+		body: JSON.stringify({ paths: ['/count'] }),
+		headers: {
+			authorization: `Bearer ${token}`,
+			'content-type': 'application/json'
+		},
+		method: 'POST'
+	});
 
 const builtPage = () =>
 	readFile(join(root, 'build', '_prerendered', 'count.html'), 'utf-8');
@@ -204,6 +220,61 @@ describe('static.directory under absolute start', () => {
 		expect(
 			readdirSync(pages).filter((name) => !name.startsWith('.'))
 		).toHaveLength(1);
+	}, 300_000);
+
+	/* `absolute start` built this app and launched its server in one
+	 * step, so the config's token reached the server — through the
+	 * server's environment, not through anything on disk. */
+	test('the token is not written into the build', async () => {
+		const files = readdirSync(join(root, 'build'), { recursive: true })
+			.map(String)
+			.filter((name) => /\.(json|js|mjs)$/.test(name));
+		const holding = await Promise.all(
+			files.map(async (name) =>
+				(await readFile(join(root, 'build', name), 'utf-8')).includes(
+					TOKEN
+				)
+					? name
+					: undefined
+			)
+		);
+
+		expect(files).toContain('absolute-runtime.json');
+		expect(holding.filter((name) => name !== undefined)).toEqual([]);
+	});
+
+	/* The last test restarted from the build alone (`--prebuilt`), which
+	 * reads what the build wrote. The token is not there, so the
+	 * endpoint is not either — and the server says what is missing. */
+	test('a server started from the build without the token has no endpoint, and says why', async () => {
+		expect((await callEndpoint(TOKEN)).status).toBe(404);
+		expect(output).toContain('ABSOLUTE_REVALIDATE_TOKEN');
+	});
+
+	/* What a deployment does: the path and the secret come from the
+	 * machine the server runs on, not from the one that built it. */
+	test('the environment supplies the token and the directory at start', async () => {
+		await stop();
+		const elsewhere = join(root, 'pages-on-this-machine');
+		await start(true, {
+			ABSOLUTE_REVALIDATE_TOKEN: 'a-token-from-the-environment',
+			ABSOLUTE_STATIC_DIRECTORY: elsewhere
+		});
+
+		// A different directory: seeded from the build, so the page
+		// is the build's and not the one revalidated in the other.
+		expect(await shown('/count')).toBe('count:0');
+		expect(readdirSync(elsewhere).length).toBeGreaterThan(0);
+		// The environment's token is the one that works; the config's,
+		// which this server never saw, does not.
+		expect(
+			(await callEndpoint('a-token-from-the-environment')).status
+		).toBe(200);
+		expect((await callEndpoint(TOKEN)).status).toBe(401);
+		expect(output).not.toContain('Set ABSOLUTE_REVALIDATE_TOKEN');
+
+		await stop();
+		await start(true);
 	}, 300_000);
 
 	const isRoot = process.getuid?.() === 0;

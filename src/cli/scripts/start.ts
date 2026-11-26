@@ -31,6 +31,7 @@ import { normalizeAbsoluteMobileConfig } from '../../mobile/config';
 import { deferBuildLockSignalExit } from '../../utils/buildDirectoryLock';
 import { loadConfig } from '../../utils/loadConfig';
 import { staticRouteExpander } from '../../build/staticRouteExpansion';
+import { REVALIDATE_TOKEN_ENV } from '../../core/staticRuntimeOptions';
 import type { ExpandStaticRoutes } from '../../../types/staticRoutes';
 import {
 	readProductionRuntime,
@@ -217,6 +218,10 @@ type RunPreparedServerOptions = {
 	port: number;
 	prebuilt: boolean;
 	resolvedOutdir: string;
+	/** The config's revalidation token, when this run loaded the config
+	 *  from source. Handed to the server through its environment, never
+	 *  written down. */
+	revalidateToken?: string;
 	serverEntry: string;
 	totalDuration: number;
 };
@@ -285,6 +290,7 @@ const runPreparedServer = async ({
 	port,
 	prebuilt,
 	resolvedOutdir,
+	revalidateToken,
 	serverEntry,
 	totalDuration
 }: RunPreparedServerOptions) => {
@@ -337,6 +343,10 @@ const runPreparedServer = async ({
 				ABSOLUTE_VERSION: absoluteVersion,
 				FORCE_COLOR: '1',
 				NODE_ENV: 'production',
+				// The environment's own value wins over the config's.
+				...(revalidateToken && !process.env[REVALIDATE_TOKEN_ENV]
+					? { [REVALIDATE_TOKEN_ENV]: revalidateToken }
+					: {}),
 				...(configPath ? { ABSOLUTE_CONFIG: configPath } : {})
 			},
 			stderr: 'inherit',
@@ -891,6 +901,7 @@ export const start = async (
 		port,
 		prebuilt: false,
 		resolvedOutdir,
+		revalidateToken: buildConfig.static?.revalidateToken,
 		serverEntry,
 		totalDuration
 	});

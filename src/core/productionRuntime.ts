@@ -15,6 +15,7 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { BuildConfig } from '../../types/build';
+import { withoutRevalidateToken } from './staticRuntimeOptions';
 
 export const PRODUCTION_RUNTIME_FILE = 'absolute-runtime.json';
 const PRODUCTION_RUNTIME_VERSION = 1;
@@ -102,6 +103,9 @@ export const productionRuntimeConfigOf = (config: BuildConfig) => {
 	const picked: Record<string, unknown> = {};
 	for (const key of RUNTIME_KEYS)
 		if (config[key] !== undefined) picked[key] = config[key];
+	// A secret is not written into build output; the server takes it
+	// from its environment (staticRuntimeOptions.ts).
+	if (config.static) picked.static = withoutRevalidateToken(config.static);
 	if (config.angular?.changeDetection)
 		picked.angular = { changeDetection: config.angular.changeDetection };
 
