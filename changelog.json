@@ -5,6 +5,23 @@
 		{
 			"changes": [
 				{
+					"detail": "A page can opt out of server rendering. `ssr: false` on `handleReactPageRequest`, `handleSveltePageRequest`, `handleVuePageRequest` or `handleAngularPageRequest` sends the document shell — head, props and scripts — and the browser renders the page; for a file route, `export const ssr = false` from the route's server module does the same. It is for a page built on a library that needs `window`, or a signed-in page whose first paint is a spinner either way. Everything around the render is unchanged: the route's handler, guards, `beforeHandle`, `load` and redirects run on the server as before, and props reach the page through the shell. A React file route's page module is not imported on the server at all, since a library that touches `window` as it loads fails at import rather than at render. Each framework's client entry already had a branch that mounts into an empty document instead of hydrating, used by the mobile client; this sets the same flag from a web page handler. Combining it with Vue's `client: 'none'` throws, and it is reported on an HTML or HTMX route, where it would do nothing. There is no app-wide switch. See docs/CLIENT_ONLY_PAGES.md.",
+					"kind": "added",
+					"summary": "`ssr: false` renders a page in the browser only",
+					"symbols": [
+						"PageSsrOption",
+						"FileRouteServerModule",
+						"FileRouteRenderInput",
+						"FileRouteDefinition"
+					]
+				}
+			],
+			"date": "2026-11-26",
+			"version": "0.20.0-beta.392"
+		},
+		{
+			"changes": [
+				{
 					"detail": "A file route folder can be guarded as a whole. A `layout.server.ts` in a route folder exports `beforeHandle`, and it runs for every route in that folder and below it, outermost folder first, before the route's own `beforeHandle` and `load`; the first to return a value answers the request. Until now the only guard a file route had was its own, so protecting everything under `/admin` meant repeating the check in every route's server module, and a route added later without it was public. It is found the way a layout is, so `(members)/layout.server.ts` guards a group without adding a path segment; it needs no layout component beside it, and HTML and HTMX route folders may have one too. A `load` exported from it is never called, and the route scan reports it. The new docs/MIDDLEWARE.md covers this alongside the other three places request code goes (hooks in the server entry, `guard()`, a route's own `beforeHandle`) and the things that are config rather than code.",
 					"kind": "added",
 					"summary": "`layout.server.ts` guards every file route in its folder",

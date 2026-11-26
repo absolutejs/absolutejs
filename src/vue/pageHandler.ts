@@ -1,3 +1,5 @@
+import { clientOnlyResponse } from '../core/clientOnlyPage';
+import type { PageSsrOption } from '../../types/pageRendering';
 import {
 	clearingSetupStateOnFailure,
 	clearLeakedVueSetupState
@@ -74,29 +76,30 @@ import { reportServerError } from '../core/errorReporter';
 import { ABS_RENDER_ATTRS, withRenderSpan } from '../core/renderTracing';
 import type { RenderSpan } from '../../types/tracing';
 
-type VuePageRenderOptions = StreamingSlotEnhancerOptions & {
-	collectStreamingSlots?: boolean;
-	/** Stream this page's HTML instead of rendering it atomically: the
-	 *  shell arrives before the page's slowest async boundary resolves
-	 *  (measured at 11ms to first byte against 616ms buffered, on a page
-	 *  with a 600ms boundary).
-	 *
-	 *  The default is atomic for a reason worth knowing before switching:
-	 *  a render that fails ASYNCHRONOUSLY — an async component or a
-	 *  `setup` that throws after the first chunk has gone out — can no
-	 *  longer be answered with an error page, because the 200 and the
-	 *  opening markup are already committed. Buffered, the same failure
-	 *  returns a 500. Streaming makes that trade on purpose, the way
-	 *  React's streaming renderer does; a failure BEFORE the first chunk
-	 *  is still answerable either way, because the stream is primed
-	 *  before the response is committed. */
-	streaming?: boolean;
-	/** Buffer this page's stream so it can carry a content-hash `ETag` and
-	 *  serve a `304` on repeat visits, at the cost of streaming's fast first
-	 *  byte. Only worth it on pages static enough that the 304 beats the
-	 *  stream. See {@link PageCacheOptions.bufferStreamForEtag}. */
-	bufferStreamForEtag?: boolean;
-};
+type VuePageRenderOptions = StreamingSlotEnhancerOptions &
+	PageSsrOption & {
+		collectStreamingSlots?: boolean;
+		/** Stream this page's HTML instead of rendering it atomically: the
+		 *  shell arrives before the page's slowest async boundary resolves
+		 *  (measured at 11ms to first byte against 616ms buffered, on a page
+		 *  with a 600ms boundary).
+		 *
+		 *  The default is atomic for a reason worth knowing before switching:
+		 *  a render that fails ASYNCHRONOUSLY — an async component or a
+		 *  `setup` that throws after the first chunk has gone out — can no
+		 *  longer be answered with an error page, because the 200 and the
+		 *  opening markup are already committed. Buffered, the same failure
+		 *  returns a 500. Streaming makes that trade on purpose, the way
+		 *  React's streaming renderer does; a failure BEFORE the first chunk
+		 *  is still answerable either way, because the stream is primed
+		 *  before the response is committed. */
+		streaming?: boolean;
+		/** Buffer this page's stream so it can carry a content-hash `ETag` and
+		 *  serve a `304` on repeat visits, at the cost of streaming's fast first
+		 *  byte. Only worth it on pages static enough that the 304 beats the
+		 *  stream. See {@link PageCacheOptions.bufferStreamForEtag}. */
+		bufferStreamForEtag?: boolean;
+	};
 /** Hydration mode for the page bundle.
  *  - `'auto'` (default): emit `<script>window.__INITIAL_PROPS__=…</script>`
  *    plus the page's `<script type="module">` index, mounting Vue on the
@@ -192,6 +195,38 @@ const getSsrOnlyHmrShim = async () => {
 	const nonce = nonceAttr();
 
 	return `<script${nonce}>window.__HMR_FRAMEWORK__="vue";</script><script${nonce} data-hmr-client>${bundle}</script>`;
+};
+
+type ClientOnlyVuePage = {
+	clientMode: 'auto' | 'none';
+	/** A complete `<head>`, with the page's compiled CSS already inlined. */
+	head: string;
+	indexPath: string | undefined;
+	label: string;
+	props: unknown;
+};
+
+/* `ssr: false`: the shell, with the mount point and the teleport target
+ * a rendered page would have, and nothing in either. */
+const clientOnlyVuePage = ({
+	clientMode,
+	head,
+	indexPath,
+	label,
+	props
+}: ClientOnlyVuePage) => {
+	if (clientMode === 'none' || !indexPath)
+		throw new Error(
+			'handleVuePageRequest: `ssr: false` and `client: "none"` together leave nothing to render the page. Drop one of them.'
+		);
+	setPageEntry(indexPath);
+
+	return clientOnlyResponse({
+		bootstrap: `window.__INITIAL_PROPS__=${serializeInitialProps(props, `The Vue page ${label}`)};`,
+		head,
+		root: `<div id="root"></div><div id="${ABSOLUTE_TELEPORT_TARGET_ID}"></div>`,
+		tail: `<script${nonceAttr()} type="module" src="${indexPath}"></script>`
+	});
 };
 
 export const handleVuePageRequest = async <Component extends VueComponent>(
@@ -315,6 +350,17 @@ const renderVuePageRequest = async <Component extends VueComponent>(
 	try {
 		const spaNotFound = await renderSpaNotFound('vue', pageName, request);
 		if (spaNotFound) return withPageCacheHeaders(spaNotFound, request);
+		if (input.ssr === false)
+			return withPageCacheHeaders(
+				clientOnlyVuePage({
+					clientMode,
+					head: resolvedHeadTag,
+					indexPath: resolvedIndexPath,
+					label: input.pagePath,
+					props: maybeProps
+				}),
+				request
+			);
 		const handlerCallsite =
 			resolvedOptions?.collectStreamingSlots === true
 				? undefined

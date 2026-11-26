@@ -26,7 +26,7 @@ export const angularFileRoute = <
 	defineFileRouteWith(
 		'angular',
 		route,
-		async ({ manifest, props, request }) =>
+		async ({ manifest, props, request, ssr }) =>
 			handleAngularPageRequest({
 				indexPath: assetUnchecked(manifest, `${route.name}Index`),
 				pagePath: assetUnchecked(manifest, route.name),
@@ -37,6 +37,7 @@ export const angularFileRoute = <
 				 * returning the context is what satisfies it. A route with
 				 * no server module passes `{}`, which is what a page with
 				 * no required context expects. */
-				requestContext: props
+				requestContext: props,
+				ssr
 			})
 	);

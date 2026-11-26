@@ -562,4 +562,97 @@ describe('fileRoutes', () => {
 			expect(guarded.beforeHandle).toBeUndefined();
 		});
 	});
+
+	/* `export const ssr = false` in a route's server module: the page is
+	 * rendered by the browser. The runtime's part is to say so to the
+	 * adapter — and to keep everything else about the request as it was. */
+	describe('ssr = false', () => {
+		const renderSeen = async (input: FileRouteRenderInput) =>
+			Response.json({ props: input.props, ssr: input.ssr ?? 'unset' });
+
+		const routeWith = (module: Record<string, unknown>) =>
+			defineFileRouteWith(
+				'react',
+				{
+					name: 'RouteDashboard',
+					path: '/dashboard',
+					source: 'react/routes/dashboard.tsx',
+					server: async () => module
+				},
+				renderSeen
+			);
+
+		test('reaches the adapter, with the props load returned', async () => {
+			const app = new Elysia().use(
+				fileRoutes(
+					[routeWith({ ssr: false, load: () => ({ team: 'core' }) })],
+					{}
+				)
+			);
+
+			expect(await (await request(app, '/dashboard')).json()).toEqual({
+				props: { team: 'core' },
+				ssr: false
+			});
+		});
+
+		test.each([
+			['absent', {}],
+			['true', { ssr: true }],
+			['anything but the literal false', { ssr: 0 }]
+		])('is left unset when the export is %s', async (_label, module) => {
+			const app = new Elysia().use(fileRoutes([routeWith(module)], {}));
+
+			expect(await (await request(app, '/dashboard')).json()).toEqual({
+				props: {},
+				ssr: 'unset'
+			});
+		});
+
+		test('a guard and a load redirect still answer first', async () => {
+			const guarded = new Elysia().use(
+				fileRoutes(
+					[
+						routeWith({
+							ssr: false,
+							beforeHandle: () =>
+								new Response('sign in', { status: 401 })
+						})
+					],
+					{}
+				)
+			);
+			const redirected = new Elysia().use(
+				fileRoutes(
+					[
+						routeWith({
+							ssr: false,
+							load: ({ redirect }: FileRouteContext) =>
+								redirect('/login')
+						})
+					],
+					{}
+				)
+			);
+
+			expect((await request(guarded, '/dashboard')).status).toBe(401);
+			const response = await request(redirected, '/dashboard');
+			expect(response.status).toBe(302);
+			expect(response.headers.get('location')).toBe('/login');
+		});
+
+		test('a route with no server module renders on the server', async () => {
+			const plain = defineFileRouteWith(
+				'react',
+				{
+					name: 'RoutePlain',
+					path: '/plain',
+					source: 'react/routes/plain.tsx'
+				},
+				renderSeen
+			);
+
+			expect(plain.ssr).toBeUndefined();
+		});
+	});
 });

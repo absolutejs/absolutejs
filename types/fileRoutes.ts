@@ -121,6 +121,10 @@ export type FileRouteServerModule<
 	entries?: () => MaybePromise<readonly FileRouteParams<Path>[]>;
 	/** Returns the props the page renders with. */
 	load?: (context: FileRouteContext<Path>) => MaybePromise<Props | Response>;
+	/** `false` skips the server render for this route: the server sends
+	 *  the document shell and the browser renders the page. `load` and
+	 *  `beforeHandle` still run on the server. See `PageSsrOption`. */
+	ssr?: boolean;
 };
 
 /** The shape of a folder's `layout.server.ts` module: a guard for every
@@ -164,6 +168,8 @@ export type FileRouteRenderInput = {
 	manifest: Record<string, string>;
 	props: Record<string, unknown>;
 	request: Request;
+	/** `false` when the route's server module exports `ssr = false`. */
+	ssr?: boolean;
 };
 
 export type FileRouteDefinition = {
@@ -180,5 +186,8 @@ export type FileRouteDefinition = {
 	catchAll?: string;
 	beforeHandle?: (context: FileRouteContext) => unknown;
 	load?: (context: FileRouteContext) => Promise<unknown>;
+	/** Whether the route's page is rendered on the server. Absent means
+	 *  it is. */
+	ssr?: () => Promise<boolean>;
 	render: (input: FileRouteRenderInput) => Promise<Response>;
 };

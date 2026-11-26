@@ -1,3 +1,6 @@
+import { clientOnlyResponse } from '../core/clientOnlyPage';
+import type { PageSsrOption } from '../../types/pageRendering';
+import { SVELTE_PAGE_ROOT_ID } from './renderToReadableStream';
 import { HTML_CONTENT_TYPE } from '../constants';
 import { requestRenderUrl } from '../utils/requestRenderUrl';
 import { nonceAttr } from '../utils/cspNonceRef';
@@ -77,7 +80,8 @@ export type SveltePageRenderOptions = {
 	 *  byte. Only worth it on pages static enough that the 304 beats the
 	 *  stream. See {@link PageCacheOptions.bufferStreamForEtag}. */
 	bufferStreamForEtag?: boolean;
-} & StreamingSlotEnhancerOptions;
+} & PageSsrOption &
+	StreamingSlotEnhancerOptions;
 
 type HasNoSvelteProps<Props> = [Props] extends [never]
 	? true
@@ -109,6 +113,38 @@ export type SveltePageRequestInput<
 
 const resolveRequestPathname = (request: Request | undefined) =>
 	requestRenderUrl(request);
+
+type ClientOnlySveltePage = {
+	head: string;
+	indexPath: string;
+	label: string;
+	pagePath: string;
+	props: unknown;
+};
+
+/* `ssr: false`. The page's compiled CSS still goes in the head: it is a
+ * file beside the server module, not something the render produces, and
+ * without it the page mounts unstyled until its entry has loaded the same
+ * rules. `<svelte:head>` content is the component's, so it arrives when
+ * the browser mounts it. */
+const clientOnlySveltePage = async ({
+	head,
+	indexPath,
+	label,
+	pagePath,
+	props
+}: ClientOnlySveltePage) => {
+	const siblingCss = await readSiblingCss(pagePath);
+	const cssBlock = siblingCss
+		? `<style data-absolute-page-css${nonceAttr()}>${siblingCss}</style>`
+		: '';
+
+	return clientOnlyResponse({
+		bootstrap: `window.__INITIAL_PROPS__=${serializeInitialProps(props, `The Svelte page ${label}`)};import(${JSON.stringify(indexPath)});`,
+		head: `<head>${cssBlock}${head}</head>`,
+		root: `<div id="${SVELTE_PAGE_ROOT_ID}"></div>`
+	});
+};
 
 export const handleSveltePageRequest = async <
 	Component extends SvelteComponent<never>
@@ -210,6 +246,20 @@ const renderSveltePageRequest = async <
 			request
 		);
 		if (spaNotFound) return withPageCacheHeaders(spaNotFound, request);
+		if (input.ssr === false)
+			return withPageCacheHeaders(
+				await clientOnlySveltePage({
+					head: withDeferredStylesheets(
+						resolvedOptions?.headContent ?? '',
+						deferredAssets
+					),
+					indexPath: resolvedIndexPath,
+					label: input.pagePath,
+					pagePath: resolvedPagePath,
+					props: resolvedProps
+				}),
+				request
+			);
 		const handlerCallsite =
 			resolvedOptions?.collectStreamingSlots === true
 				? undefined

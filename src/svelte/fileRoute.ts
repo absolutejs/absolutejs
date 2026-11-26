@@ -24,11 +24,15 @@ export const svelteFileRoute = <
 		server?: () => Promise<ServerModule>;
 	}
 ) =>
-	defineFileRouteWith('svelte', route, async ({ manifest, props, request }) =>
-		handleSveltePageRequest<Component<Record<string, unknown>>>({
-			indexPath: assetUnchecked(manifest, `${route.name}Index`),
-			pagePath: assetUnchecked(manifest, route.name),
-			props,
-			request
-		})
+	defineFileRouteWith(
+		'svelte',
+		route,
+		async ({ manifest, props, request, ssr }) =>
+			handleSveltePageRequest<Component<Record<string, unknown>>>({
+				indexPath: assetUnchecked(manifest, `${route.name}Index`),
+				pagePath: assetUnchecked(manifest, route.name),
+				props,
+				request,
+				ssr
+			})
 	);

@@ -261,6 +261,14 @@ export const load = async ({ params }: FileRouteContext<'/blog/:slug'>) => {
   `headers`, `request`, `set`, `path`, `redirect(url, status?)`. Request
   params are checked against the path's names at run time before `load` or
   `beforeHandle` sees them.
+- **`ssr = false` (built).** A route's server module may
+  `export const ssr = false`: the server sends the document shell and the
+  browser renders the page. `beforeHandle` and `load` still run on the
+  server, so guards, redirects and props are unchanged. A React route's
+  page module is then never imported on the server, which is what lets a
+  route built on a browser-only library work at all. It does nothing for
+  an HTML or HTMX route, and the scan reports it there. See
+  docs/CLIENT_ONLY_PAGES.md.
 - **Folder guards (built).** A `layout.server.ts` in a route folder exports
   `beforeHandle`, and it runs for every route in that folder and below,
   outermost folder first, before the route's own `beforeHandle`. The first

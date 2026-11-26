@@ -583,6 +583,26 @@ const guardProblems = (routes: readonly ScannedFileRoute[]) =>
 				`${toPosix(relative(process.cwd(), guard))}: a layout.server module is run for its \`beforeHandle\` only; this \`load\` is never called. Load a route's data in its own <route>.server.ts.`
 		);
 
+/* `export const ssr = false` asks the browser to render the page, and an
+ * HTML or HTMX route has nothing for it to render with: the file is the
+ * page. Said rather than ignored, since the route would otherwise look
+ * as if it had been switched over. */
+const SSR_EXPORT_RE = /^\s*export\s+(?:const|let|var)\s+ssr\b/m;
+
+const staticSsrProblems = (routes: readonly ScannedFileRoute[]) =>
+	[
+		...new Set(
+			routes
+				.filter((route) => STATIC_ONLY_FRAMEWORKS.has(route.framework))
+				.flatMap((route) => (route.server ? [route.server] : []))
+		)
+	]
+		.filter((server) => SSR_EXPORT_RE.test(readFileSync(server, 'utf8')))
+		.map(
+			(server) =>
+				`${toPosix(relative(process.cwd(), server))}: \`ssr\` does nothing for an HTML or HTMX route, which is served as the file it is.`
+		);
+
 const compareRoutes = (left: ScannedFileRoute, right: ScannedFileRoute) =>
 	left.path.localeCompare(right.path) ||
 	left.framework.localeCompare(right.framework);
@@ -616,7 +636,7 @@ export const scanFileRoutes = (config: BuildConfig, root = process.cwd()) => {
 		scanRoot(routeRoot, problems)
 	);
 	const routes = reportConflicts(scanned, problems).sort(compareRoutes);
-	problems.push(...guardProblems(routes));
+	problems.push(...guardProblems(routes), ...staticSsrProblems(routes));
 	remember(resolved.roots, routes);
 	const scan: FileRouteScan = { problems, routes };
 

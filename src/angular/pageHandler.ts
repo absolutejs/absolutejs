@@ -1,3 +1,6 @@
+import { CLIENT_RENDER_MODE_SCRIPT } from '../core/clientOnlyPage';
+import { nonceAttr } from '../utils/cspNonceRef';
+import type { PageSsrOption } from '../../types/pageRendering';
 import { requestRenderUrl } from '../utils/requestRenderUrl';
 import { htmlLangAttributes } from '../utils/localeRef';
 import { AsyncLocalStorage } from 'node:async_hooks';
@@ -67,9 +70,10 @@ import { reportServerError } from '../core/errorReporter';
 import { ABS_RENDER_ATTRS, withRenderSpan } from '../core/renderTracing';
 import type { RenderSpan } from '../../types/tracing';
 
-type AngularPageRenderOptions = StreamingSlotEnhancerOptions & {
-	collectStreamingSlots?: boolean;
-};
+type AngularPageRenderOptions = PageSsrOption &
+	StreamingSlotEnhancerOptions & {
+		collectStreamingSlots?: boolean;
+	};
 /** True when the request-context type has no required keys — used to
  *  flip the `requestContext` argument between required and optional.
  *  Pages whose `Context` has only optional fields (or where the caller
@@ -494,6 +498,27 @@ const renderAngularPageRequest = async <Page = unknown>(
 			headTag: resolvedHeadTag,
 			requestContext: maybeRequestContext
 		});
+
+		if (input.ssr === false) {
+			/* No root element is written: the generated bootstrap reads
+			 * the component's selector from its own definition and adds
+			 * the element when the document has none, so the server
+			 * need not load the page module to learn it. The request
+			 * context, base href and entry go in exactly as for a
+			 * rendered page, through the same injection. */
+			const shell = injectSsrScripts(
+				`<!DOCTYPE html><html${htmlLangAttributes()}>${resolvedHeadTag}<body><script${nonceAttr()}>${CLIENT_RENDER_MODE_SCRIPT}</script></body></html>`,
+				requestId,
+				resolvedIndexPath,
+				maybeRequestContext,
+				runtimeBaseHref
+			);
+
+			return withPageCacheHeaders(
+				new Response(shell, withHtmlContentType(responseInit)),
+				request
+			);
+		}
 
 		try {
 			const handlerCallsite =
