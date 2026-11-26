@@ -238,8 +238,11 @@ const prerenderStaticPages = async (
 	const prerenderStart = performance.now();
 	process.stdout.write(cliTag('\x1b[36m', 'Pre-rendering static pages'));
 
-	const { formatPrerenderFailure, prerenderWithServer } =
-		await import('../../core/prerender');
+	const {
+		formatPrerenderFailure,
+		formatPrerenderWarning,
+		prerenderWithServer
+	} = await import('../../core/prerender');
 
 	try {
 		killStaleProcesses(prerenderPort);
@@ -269,6 +272,9 @@ const prerenderStaticPages = async (
 		);
 		for (const failure of result.failures) {
 			console.warn(cliTag('\x1b[33m', formatPrerenderFailure(failure)));
+		}
+		for (const warning of result.warnings) {
+			console.warn(cliTag('\x1b[33m', formatPrerenderWarning(warning)));
 		}
 	} catch (err) {
 		console.error(

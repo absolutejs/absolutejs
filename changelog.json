@@ -5,6 +5,20 @@
 		{
 			"changes": [
 				{
+					"detail": "A pre-rendered page that reads the request is now reported. A page in `static.routes` is rendered once, for a request the pre-renderer made, with no cookies and the pre-renderer's own headers, and that copy is served to everyone. A page that calls `cookies()` or `headers()` while it renders is therefore wrong for every visitor and nothing fails: one that greets the signed-in user says \"Sign in\" to all of them, and one that builds a link from the `host` header points them at the address the build ran on. `absolute start`, `absolute compile` and `absolute export` now print a line per such route naming what it read (`cookies().get('session')`, `headers().get('host')`), and a running server logs the same line the first time it re-renders one. The page is still pre-rendered. Reads inside a dynamic slot are not reported, since a pre-render does not run those. Only reads through `cookies()` and `headers()` are seen; a page that takes the request from its handler and reads it directly is not noticed. A visitor's request is unaffected: the reads are noted only for the pre-renderer's own request and are never sent to anyone else. See docs/REVALIDATION.md.",
+					"kind": "added",
+					"summary": "A pre-rendered page that reads `cookies()` or `headers()` is reported by the build",
+					"symbols": [
+						"AbsoluteRequestStore"
+					]
+				}
+			],
+			"date": "2026-11-26",
+			"version": "0.20.0-beta.414"
+		},
+		{
+			"changes": [
+				{
 					"detail": "Two page stores ship with the framework, for keeping pre-rendered pages in step across machines that share no disk: `redisPageStore` and `s3PageStore`. Both are built on Bun's own clients and add no dependency. Name one in the config with `static.store: { type: 'redis' }` or `{ type: 's3', bucket }`; the config holds nothing secret, and credentials come from the environment the server starts with (`REDIS_URL`; `S3_ACCESS_KEY_ID` and `S3_SECRET_ACCESS_KEY`, with `S3_BUCKET`, `S3_ENDPOINT` and `S3_REGION` unless the config gives them, or the `AWS_` names). Or build one in code around a client of your own and pass it to `registerPageStore`, which wins over the config. The Redis store writes a page's body and its version with one command so the two cannot disagree, reports the version it wrote so a machine never fetches its own page back, and is for a single Redis or a primary with replicas, not a Redis Cluster. The S3 store keeps one object per page, tells a missing object from an unreachable bucket so an outage is not read as every page being gone, and works with any service that speaks S3. Both take `prefix` and `interval`. See docs/REVALIDATION.md.",
 					"kind": "added",
 					"summary": "Redis and S3 page stores ship built in, chosen by `static.store` or built in code",

@@ -14,11 +14,21 @@ import type {
 import { PARTIAL_SHELL_HEADER, writePartialHoles } from './partialPrerender';
 import { ACTION_FLASH_COOKIE } from '../utils/formActionState';
 import { renderedNonce, writeRenderedNonce } from './prerenderNonce';
-import { writeCacheTags } from './cacheTags';
+import { readRequestReads, writeCacheTags } from './cacheTags';
+import { logWarn } from '../utils/logger';
 
 export type PrerenderFailure = {
 	/** Why the route couldn't be pre-rendered */
 	reason: string;
+	route: string;
+};
+
+/** A route that WAS pre-rendered, and should not have been as it is:
+ *  it read the request while being rendered, so the copy every visitor
+ *  is served was made for the pre-renderer's request, not theirs. */
+export type PrerenderWarning = {
+	/** What it read: `cookies().get('session')`, … */
+	reads: string[];
 	route: string;
 };
 
@@ -29,6 +39,8 @@ export type PrerenderResult = {
 	dir: string;
 	/** Routes that couldn't be pre-rendered; they render per request */
 	failures: PrerenderFailure[];
+	/** Routes that were pre-rendered but read the request to do it. */
+	warnings: PrerenderWarning[];
 };
 
 type LogFn = (message: string) => void;
@@ -371,6 +383,17 @@ export const removePrerendered = (prerenderDir: string, route: string) => {
 	);
 };
 
+/* A re-render has no build output to put a warning in, so it goes to
+ * the log — once per route for the life of the server. A page on a
+ * 60-second interval would otherwise say the same thing every minute. */
+const warnedOfReads = new Set<string>();
+
+const warnOfRequestReads = (route: string, reads: string[]) => {
+	if (reads.length === 0 || warnedOfReads.has(route)) return;
+	warnedOfReads.add(route);
+	logWarn(formatPrerenderWarning({ reads, route }));
+};
+
 const saveRerender = async (
 	res: Response,
 	prerenderDir: string,
@@ -385,6 +408,7 @@ const saveRerender = async (
 	const html = await res.text();
 	if (!isCompleteHtml(html)) return outcome('failed');
 	await writeRendered(res, html, prerenderDir, routeToFilename(route));
+	warnOfRequestReads(route, readRequestReads(res));
 
 	return outcome('replaced');
 };
@@ -416,6 +440,11 @@ const describeError = (error: unknown) =>
  *  route that couldn't be pre-rendered. */
 export const formatPrerenderFailure = ({ reason, route }: PrerenderFailure) =>
 	`Could not pre-render ${route}: ${reason}. It renders on each request instead.`;
+
+/** The line printed for a route that was pre-rendered although it read
+ *  the request. */
+export const formatPrerenderWarning = ({ reads, route }: PrerenderWarning) =>
+	`${route} read the request while it was pre-rendered: ${reads.join(', ')}. The page is stored as it was rendered for the pre-renderer's own request, with no cookies and its headers, and every visitor is served that copy. Move the read into a dynamic slot, or take ${route} out of static.routes.`;
 
 /** Fetch, render, and save a single route during pre-rendering. Returns why
  *  the route couldn't be pre-rendered, or undefined once it's saved. */
@@ -465,6 +494,8 @@ const prerenderRoute = async (
 	await writeCacheTags(filePath, res);
 	await writeTimestamp(filePath);
 	result.routes.set(route, filePath);
+	const reads = readRequestReads(res);
+	if (reads.length > 0) result.warnings.push({ reads, route });
 
 	const partial =
 		holes.length > 0
@@ -551,7 +582,8 @@ export const prerender = async (
 		// A pattern that could not be turned into pages is reported
 		// with the pages that could not be rendered.
 		failures: [...listed.failures],
-		routes: new Map()
+		routes: new Map(),
+		warnings: []
 	};
 
 	/* A crawl discovers routes by following links from `/`, and every step

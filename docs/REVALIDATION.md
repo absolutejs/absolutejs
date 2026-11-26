@@ -74,6 +74,36 @@ whatever it reads. Pages are rendered four at a time.
 A page that did not exist at build time is rendered per request until
 `revalidatePath` is called for it, which gives it a file: see below.
 
+## A pre-rendered page must not read the request
+
+A pre-rendered page is rendered once, for a request the pre-renderer
+made, and that copy is served to everyone. So a page that calls
+`cookies()` or `headers()` while it renders is wrong for every visitor,
+and nothing fails: a page that greets the signed-in user says "Sign in"
+to all of them, and one that builds a link from the `host` header points
+them at the address the build ran on.
+
+The pre-renderer reports it. `absolute start`, `compile` and `export`
+print a line per route:
+
+```
+/account read the request while it was pre-rendered: cookies().get('session').
+The page is stored as it was rendered for the pre-renderer's own request, with
+no cookies and its headers, and every visitor is served that copy. Move the
+read into a dynamic slot, or take /account out of static.routes.
+```
+
+A running server logs the same line the first time it re-renders such a
+page.
+
+The page is still pre-rendered: this is a warning, since a read can be
+harmless (a header used only for logging). It sees reads made through
+`cookies()` and `headers()`. A page that takes the request from its
+handler's arguments and reads it directly is not noticed.
+
+A read inside a **dynamic slot** is fine and is not reported: a
+pre-render does not run those, and they render for each visitor.
+
 ## `revalidatePath(path)`
 
 Makes the pre-rendered copy of `path` match what the app serves now. The

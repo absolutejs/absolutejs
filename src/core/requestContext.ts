@@ -48,6 +48,11 @@ export type AbsoluteRequestStore = {
 	responseStarted?: boolean;
 	/** Tags `cacheTag()` declared while this request was rendered. */
 	cacheTags?: Set<string>;
+	/** What `headers()` and `cookies()` read while this request was
+	 *  rendered, when it is a pre-render (cacheTags.ts). */
+	requestReads?: Set<string>;
+	/** Whether this request is a pre-render, worked out once. */
+	isPrerenderCapture?: boolean;
 };
 type AbsoluteRequestStorage = AsyncLocalStorage<AbsoluteRequestStore>;
 
