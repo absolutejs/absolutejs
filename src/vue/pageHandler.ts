@@ -1,3 +1,7 @@
+import {
+	clearingSetupStateOnFailure,
+	clearLeakedVueSetupState
+} from './clearLeakedSetupState';
 import { HTML_CONTENT_TYPE } from '../constants';
 import { requestRenderUrl } from '../utils/requestRenderUrl';
 import { escapeScriptContent } from '../utils/escapeScriptContent';
@@ -160,7 +164,7 @@ const resolveRequestRenderUrl = (request: Request | undefined) =>
 
 const primeVueStream = async (stream: ReadableStream) => {
 	const reader = stream.getReader();
-	const firstChunk = await reader.read();
+	const firstChunk = await clearingSetupStateOnFailure(reader.read());
 
 	return { firstChunk, reader };
 };
@@ -503,7 +507,9 @@ const renderVuePageRequest = async <Component extends VueComponent>(
 				resolvedOptions?.streaming === true ||
 				resolvedOptions?.collectStreamingSlots === true;
 			if (!streamThisPage) {
-				const body = await renderToString(app, ssrContext);
+				const body = await clearingSetupStateOnFailure(
+					renderToString(app, ssrContext)
+				);
 				// `<Teleport to="body">` content goes first in <body>, where
 				// hydration looks for it (teleports.ts).
 				const bodyTeleports = sortTeleports(ssrContext.teleports).body;
@@ -560,6 +566,7 @@ const renderVuePageRequest = async <Component extends VueComponent>(
 									: (controller.enqueue(value), pumpLoop())
 							)
 							.catch((err) => {
+								void clearLeakedVueSetupState();
 								console.error(
 									'[SSR] Vue streaming render error:',
 									err
@@ -600,6 +607,10 @@ const renderVuePageRequest = async <Component extends VueComponent>(
 			bufferStreamForEtag: input.bufferStreamForEtag
 		});
 	} catch (error) {
+		// Wherever the render failed — `renderToWebStream` throws from its
+		// own constructor when the root's setup does — Vue is left marked
+		// as mid-setup. Clear that before anything else renders.
+		await clearLeakedVueSetupState();
 		console.error('[SSR] Vue render error:', error);
 		reportServerError({ error, framework: 'vue', kind: 'page' });
 

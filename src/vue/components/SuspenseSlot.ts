@@ -19,11 +19,13 @@ import {
 const renderVueNodesToHtml = async (nodes: VNodeChild) => {
 	const { createSSRApp, h: createVNode } = await import('vue');
 	const { renderToString } = await import('vue/server-renderer');
+	const { clearingSetupStateOnFailure } =
+		await import('../clearLeakedSetupState');
 
 	const app = createSSRApp({
 		render: () => createVNode('div', undefined, nodes ?? undefined)
 	});
-	const html = await renderToString(app);
+	const html = await clearingSetupStateOnFailure(renderToString(app));
 
 	return html.replace(/^<div>|<\/div>$/g, '');
 };

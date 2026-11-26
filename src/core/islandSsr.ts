@@ -79,7 +79,10 @@ export const renderVueIslandToHtml = <Props extends Record<string, unknown>>(
 			render: () => createVueVNode(component, props)
 		});
 
-		return import('vue/server-renderer').then(({ renderToString }) =>
-			renderToString(app, ssrContext)
+		return Promise.all([
+			import('vue/server-renderer'),
+			import('../vue/clearLeakedSetupState')
+		]).then(([{ renderToString }, { clearingSetupStateOnFailure }]) =>
+			clearingSetupStateOnFailure(renderToString(app, ssrContext))
 		);
 	});
