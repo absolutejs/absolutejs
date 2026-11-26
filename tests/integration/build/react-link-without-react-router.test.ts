@@ -175,6 +175,11 @@ const server = Bun.serve({
 		if (pathname === '/other') {
 			return handleReactPageRequest({ index: manifest.LinkOtherIndex, Page: LinkOther, request });
 		}
+		// What an app assembled by prepare() answers when it ships no
+		// loading convention; see tests/helpers/unservedPath.ts.
+		if (pathname === '/__absolute/loading') {
+			return new Response(null, { status: 204 });
+		}
 		const filePath = join(buildDir, pathname);
 		if (extname(pathname) === '' || !existsSync(filePath)) {
 			return new Response('not found', { status: 404 });

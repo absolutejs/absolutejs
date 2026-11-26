@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "Test-only. The intermittent `404` in `vue-navigation-browser.test.ts` is explained: the URL the test began recording in beta.371 was `/__absolute/loading`. A soft navigation that outlasts 150ms fetches the `loading` convention from that path, and an app assembled by `prepare()` answers 204 when it ships none. Ten browser tests in `tests/integration/build` serve their fixture with a hand-written fetch handler instead, which answered 404, and the browser logged that as a failed resource — so any of them that asserts a clean console failed whenever a navigation happened to be slow. They now answer that one path the way the framework does (`tests/helpers/unservedPath.ts`). Not a framework defect: the layer already treats any non-OK answer as no indicator.",
+					"kind": "internal",
+					"summary": "Hand-rolled test servers answer the loading-convention endpoint, ending an intermittent console 404"
+				}
+			],
+			"date": "2026-11-26",
+			"version": "0.20.0-beta.387"
+		},
+		{
+			"changes": [
+				{
 					"detail": "`absolute dev --port abc` (or any value that is not a port between 1 and 65535) printed its message underneath six lines of the CLI's own source and a stack trace, as if the CLI had crashed. It now prints the message and the `absolute --help` hint, like every other flag problem, and exits 1.",
 					"kind": "fixed",
 					"summary": "A bad `--port` value for `absolute dev` is a usage error, not a stack trace"

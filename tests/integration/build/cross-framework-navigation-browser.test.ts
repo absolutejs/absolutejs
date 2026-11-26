@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { unservedPath } from '../../helpers/unservedPath';
 import { existsSync } from 'node:fs';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { extname, join, relative, resolve } from 'node:path';
@@ -195,7 +196,7 @@ const createApp = (
 			});
 		}
 
-		return new Response('not found', { status: 404 });
+		return unservedPath(pathname);
 	};
 
 	return async (request: Request) => {
