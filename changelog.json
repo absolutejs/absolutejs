@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "An app with no pages could not start in production. A build with no entry points logged \"No entry points found, manifest will be empty\" and then wrote no `manifest.json` at all, and the production server reads that file unconditionally, so `absolute start` died with ENOENT. That is any API-only app, and any app whose every page is a `Response` a route builds itself. The build now writes an empty manifest, which also replaces one that a previous build with pages left behind.",
+					"kind": "fixed",
+					"summary": "A production app with no pages starts: a build with nothing to build still writes its manifest"
+				}
+			],
+			"date": "2026-11-26",
+			"version": "0.20.0-beta.401"
+		},
+		{
+			"changes": [
+				{
 					"detail": "`revalidatePath(path)` re-renders a pre-rendered page now and replaces the file visitors are served, for when the app knows the page's data changed; `revalidateAll()` does it for every pre-rendered page and reports which were replaced and which failed. Until now a route in `static.routes` changed only when `static.revalidate` ran out, or at the next deploy. `revalidatePath` resolves to `true` once the new page is in place and to `false` when nothing was replaced (not a pre-rendered route, a failed render, or nothing pre-rendered at all, as in dev); it does not throw. A caller is given a render that started after it asked: a re-render already under way may have read the old data, so the call waits for the next one, which every caller arriving in that wait shares. Re-renders, the interval's included, are now written beside the pre-render directory and moved into place, so a request never reads a half-written page, a failed render leaves the previous page, and a sidecar the new render did not produce (a page that no longer has dynamic holes) is removed. Limits: only routes pre-rendered at build time, and only the server the call runs in. See docs/REVALIDATION.md.",
 					"kind": "added",
 					"summary": "`revalidatePath` and `revalidateAll` re-render pre-rendered pages on demand, atomically",
