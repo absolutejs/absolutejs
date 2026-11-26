@@ -5,6 +5,36 @@
 		{
 			"changes": [
 				{
+					"detail": "`createApiClient<typeof server>()` from `@absolutejs/absolute/client` calls the app's own routes from the browser with their types. `api.get`, `api.post`, `api.put`, `api.patch` and `api.delete` take a route's path as registered, and its `params`, `query` and `body` are checked against the route: an unknown path, a method the path does not answer, a missing param, a wrong body and an undeclared query key are compile errors. A call resolves to `{ data, error, status, response }` and does not reject for an HTTP error or a failed request: `data` is typed from the route's success response, `error` is `{ status, value }` typed per status for the errors the route declares, and a request that got no answer is `status: 0`. Only an aborted call rejects. Bodies are sent as JSON unless they are a `FormData`, `Blob`, `URLSearchParams`, string or buffer; answers are read by content type. A call other than `get` carries the CSRF token when the page has one. `invalidate: true` refreshes the page's data after a call that succeeded. Nothing is added on the server: a route is the server function, with its guards and validation unchanged. The app is imported as a type, so no server code reaches a bundle; an app annotated `AnyElysia` has no route types to read. See docs/API_CLIENT.md.",
+					"kind": "added",
+					"summary": "`createApiClient` calls the app's own routes from the browser, typed from the routes",
+					"symbols": [
+						"createApiClient",
+						"ApiCallArguments",
+						"ApiCallOptions",
+						"ApiClient",
+						"ApiClientOptions",
+						"ApiDataOf",
+						"ApiDeclaredErrorOf",
+						"ApiErrorOf",
+						"ApiMethod",
+						"ApiMethodCall",
+						"ApiNetworkError",
+						"ApiPaths",
+						"ApiRequestOptions",
+						"ApiResult",
+						"ApiResultOf",
+						"ApiRouteAt",
+						"ApiUndeclaredError"
+					]
+				}
+			],
+			"date": "2026-11-26",
+			"version": "0.20.0-beta.399"
+		},
+		{
+			"changes": [
+				{
 					"detail": "The browser test for pages rendered with `ssr: false` failed on some nightly runs with a 404 for an island bootstrap file. The build manifest is one global per process and the test files in a shard share a process, so the page was given the island runtime of whichever fixture had run before it, a file its own build never produced. Whether it failed depended on which files the shard ran first. The test now sets its own manifest, as the island tests do. Test only: an app has one build and one manifest, so nothing in the package was wrong.",
 					"kind": "internal",
 					"summary": "The `ssr: false` browser test no longer depends on which test ran before it"

@@ -1,5 +1,6 @@
 export { createIslandManifestResolver } from './islandResolver';
 export { getStreamSwapRuntimeScript } from './streamSwap';
+export { createApiClient } from './apiClient';
 export { createFormActionClient } from './formActionClient';
 export { invalidate } from './invalidate';
 export {
@@ -35,3 +36,17 @@ export type {
 	FormActionEventDetail,
 	SubmitFormActionOptions
 } from './formActions';
+export type {
+	ApiCallOptions,
+	ApiClient,
+	ApiClientOptions,
+	ApiDataOf,
+	ApiErrorOf,
+	ApiMethod,
+	ApiNetworkError,
+	ApiPaths,
+	ApiResult,
+	ApiResultOf,
+	ApiRouteAt,
+	ApiUndeclaredError
+} from '../../types/apiClient';
