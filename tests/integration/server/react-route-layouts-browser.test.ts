@@ -408,4 +408,48 @@ describe('a React file route under nested layouts', () => {
 			await session.close();
 		}
 	}, 300_000);
+
+	/* File routes with `export const ssr = false`: the server sent a
+	 * shell, so everything asserted here is the browser's render. The
+	 * React page reads `window` as its module loads; the Svelte and Vue
+	 * pages mount inside their folder's layouts. */
+	test.each([
+		['/live/board', 'board', 'BOARD_PROP'],
+		['/live/feed', 'feed', 'FEED_PROP'],
+		['/live/panel', 'panel', 'PANEL_PROP']
+	])(
+		'renders %s in the browser, with the props load returned',
+		async (path, name, label) => {
+			const log: PageLog = { entries: [] };
+			const session = await openPage(`http://localhost:${PORT}${path}`, {
+				onPage: recordPage(log),
+				waitUntil: 'load'
+			});
+			try {
+				const { page } = session;
+				await page.waitForSelector(`#live-${name}`, {
+					timeout: 30_000
+				});
+
+				expect(await page.locator(`#${name}-label`).textContent()).toBe(
+					label
+				);
+				await page.click(`#${name}-clicks`);
+				await page.waitForFunction(
+					(selector) =>
+						document
+							.querySelector(selector)
+							?.textContent?.trim() === 'clicks 1',
+					`#${name}-clicks`,
+					{ timeout: 10_000 }
+				);
+				// Mounted once, into the empty root.
+				expect(await page.locator(`#live-${name}`).count()).toBe(1);
+				expect(log.entries).toEqual([]);
+			} finally {
+				await session.close();
+			}
+		},
+		300_000
+	);
 });

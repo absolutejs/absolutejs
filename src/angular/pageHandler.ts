@@ -12,7 +12,10 @@ import {
 	HTML_CONTENT_TYPE,
 	RANDOM_ID_END_INDEX
 } from '../constants';
-import { injectIslandPageContext } from '../core/islandPageContext';
+import {
+	injectIslandContextForClientRender,
+	injectIslandPageContext
+} from '../core/islandPageContext';
 import { readHeadStylesheets, readHeadTitle } from '../core/routeAssets';
 import { injectInlineCss, readSiblingCss } from '../utils/inlinePageCss';
 import { ssrErrorPage } from '../utils/ssrErrorPage';
@@ -515,7 +518,10 @@ const renderAngularPageRequest = async <Page = unknown>(
 			);
 
 			return withPageCacheHeaders(
-				new Response(shell, withHtmlContentType(responseInit)),
+				new Response(
+					injectIslandContextForClientRender(shell),
+					withHtmlContentType(responseInit)
+				),
 				request
 			);
 		}

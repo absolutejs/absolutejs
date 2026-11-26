@@ -65,7 +65,8 @@ Leave it off unless the page cannot do without it.
   browser.
 - **Styles.** Stylesheets linked from the head, and the page's compiled
   CSS, are in the shell or loaded by the page's entry as usual.
-- **Dev and production** both honour it.
+- **Dev and production** both honour it, and an edit to a client-only
+  page shows in the open browser as it does for any other page.
 
 ## For file routes
 
@@ -86,8 +87,9 @@ Leave it off unless the page cannot do without it.
   such a page. Data the page needs comes from its props, or is fetched in
   the browser.
 
-Hot reloading of a client-only page, and islands inside one, have not
-been tested.
+Islands work inside a client-only page. The server cannot know which
+islands such a page will render, so its shell carries the island runtime
+and every island stylesheet whenever the app has islands at all.
 
 ## Not included
 
