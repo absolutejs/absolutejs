@@ -24,6 +24,9 @@ renders on the server.
 They need the plugin `prepare()` returns to be mounted, which every
 AbsoluteJS app does (`.use(absolutejs)`).
 
+To fetch something once per request from wherever it is needed, wrap the
+function that reads these in a loader: see [DATA_LOADING.md](./DATA_LOADING.md).
+
 ## `headers()`
 
 The request's headers, for reading: `get`, `has`, `entries`, `keys`,
