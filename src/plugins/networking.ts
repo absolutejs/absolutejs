@@ -1,3 +1,4 @@
+import { routeSourceOf } from '../core/routeSources';
 import { headFallback } from './headFallback';
 import { argv } from 'node:process';
 import { env } from 'bun';
@@ -165,7 +166,8 @@ export const networking = <A extends AnyElysia>(app: A) => {
 		app.get('/__absolute/routes', () =>
 			app.routes.map((route) => ({
 				method: route.method,
-				path: route.path
+				path: route.path,
+				source: routeSourceOf(route.handler) ?? null
 			}))
 		);
 	}
