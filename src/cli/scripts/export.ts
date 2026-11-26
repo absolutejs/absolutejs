@@ -231,7 +231,8 @@ export const runExport = async (args: readonly string[]) => {
 			NODE_ENV: 'production',
 			...(configPath ? { ABSOLUTE_CONFIG: configPath } : {})
 		},
-		(message) => console.log(message)
+		(message) => console.log(message),
+		prepared.expandStaticRoutes
 	);
 
 	const prerendered: StaticExportPage[] = [...result.routes].map(

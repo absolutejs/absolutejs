@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { existsSync } from 'node:fs';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -296,6 +297,31 @@ describe('file routes in production', () => {
 		// A dynamic route with no `entries()` is left out, not guessed at.
 		expect(paths.some((path) => path.includes(':'))).toBe(false);
 		expect(paths).not.toContain('/shop/widget');
+	});
+
+	/* `static.routes` holds the pattern `/blog/:slug`, and the route's
+	 * `entries()` names two slugs: those two pages are pre-rendered, and
+	 * nothing is rendered for the pattern itself — which is what the
+	 * pass did when it took every entry as a literal path. */
+	test('pre-renders a pattern’s pages from the route’s entries()', async () => {
+		const prerendered = (name: string) =>
+			join(root, 'start-build', '_prerendered', name);
+
+		expect(
+			await readFile(prerendered('blog/hello.html'), 'utf-8')
+		).toContain('POST_HELLO');
+		expect(
+			await readFile(prerendered('blog/world.html'), 'utf-8')
+		).toContain('POST_WORLD');
+		expect(existsSync(prerendered('blog/:slug.html'))).toBe(false);
+		// Served from those files, and a slug entries() did not name is
+		// still rendered per request.
+		expect((await get(PROD_PORT, '/blog/hello')).body).toContain(
+			'POST_HELLO'
+		);
+		expect((await get(PROD_PORT, '/blog/unlisted')).body).toContain(
+			'POST_UNLISTED'
+		);
 	});
 
 	test('serves the route pages client bundles', async () => {

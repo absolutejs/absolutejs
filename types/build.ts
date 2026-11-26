@@ -8,6 +8,7 @@ import type { HealthConfig } from './health';
 import type { ImageConfig } from './image';
 import type { LinksConfig } from './links';
 import type { LoggingConfig } from './logging';
+import type { AbsoluteRoutePath } from './routeMap';
 import type { RateLimitConfig } from './rateLimit';
 import type { HeaderRule, RedirectRule, RewriteRule } from './routingRules';
 import type { ShutdownConfig } from './shutdown';
@@ -481,9 +482,22 @@ export type TailwindConfig = {
 	output: string;
 };
 
+/** A path in `static.routes`. Any string is accepted — a route
+ *  registered in `server.ts` is not in the route map — but the project's
+ *  file routes are offered as completions, patterns included. */
+// `string & {}` keeps the literal union from being absorbed into `string`.
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
+export type StaticRoutePath = AbsoluteRoutePath | (string & {});
+
 export type StaticConfig = {
-	/** Routes to pre-render at build time. Use "all" to crawl from / and discover all linked pages. */
-	routes: string[] | 'all';
+	/** Routes to pre-render at build time. Use "all" to crawl from / and
+	 *  discover all linked pages.
+	 *
+	 *  A path with a param in it (`/blog/:slug`) names a dynamic file
+	 *  route, and stands for one page per param set that route's
+	 *  `entries()` returns. Written as `route()` takes it: `:name`, and
+	 *  `:name?` for an `[[optional]]` segment. */
+	routes: StaticRoutePath[] | 'all';
 	/** Revalidation interval in seconds. When set, stale pages are re-rendered in the background (ISR). */
 	revalidate?: number;
 };

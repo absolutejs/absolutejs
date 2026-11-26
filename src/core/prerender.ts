@@ -7,6 +7,10 @@ import {
 } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { StaticConfig } from '../../types/build';
+import type {
+	ExpandStaticRoutes,
+	StaticRouteExpansion
+} from '../../types/staticRoutes';
 import { PARTIAL_SHELL_HEADER, writePartialHoles } from './partialPrerender';
 import { ACTION_FLASH_COOKIE } from '../utils/formActionState';
 import { renderedNonce, writeRenderedNonce } from './prerenderNonce';
@@ -369,6 +373,34 @@ const recordPrerenderRoute = async (
 	log?.(`  ${formatPrerenderFailure(failure)}`);
 };
 
+const PRERENDER_CONCURRENCY = 4;
+
+/* The literal paths to render: a crawl from `/`, or the configured list
+ * with each pattern replaced by the pages its route's `entries()` names
+ * (build/staticRouteExpansion.ts). Without an expander the list is taken
+ * as written, as it always was. */
+const listedRoutes = async (
+	staticConfig: StaticConfig,
+	baseUrl: string,
+	expandRoutes: ExpandStaticRoutes | undefined,
+	log: LogFn | undefined
+) => {
+	const literal = (routes: string[]) => {
+		const expansion: StaticRouteExpansion = { failures: [], routes };
+
+		return expansion;
+	};
+	if (staticConfig.routes === 'all') {
+		log?.('Crawling routes...');
+
+		return literal(await crawlRoutes(baseUrl));
+	}
+
+	return expandRoutes
+		? expandRoutes(staticConfig.routes)
+		: literal(staticConfig.routes);
+};
+
 /**
  * Pre-render routes by fetching them from a running server and saving the HTML to disk.
  *
@@ -378,24 +410,22 @@ export const prerender = async (
 	port: number,
 	outDir: string,
 	staticConfig: StaticConfig,
-	log?: LogFn
+	log?: LogFn,
+	expandRoutes?: ExpandStaticRoutes
 ) => {
 	const prerenderDir = join(outDir, '_prerendered');
 	mkdirSync(prerenderDir, { recursive: true });
 
 	const baseUrl = `http://localhost:${port}`;
 
-	let routes: string[];
-	if (staticConfig.routes === 'all') {
-		log?.('Crawling routes...');
-		routes = await crawlRoutes(baseUrl);
-	} else {
-		({ routes } = staticConfig);
-	}
+	const listed = await listedRoutes(staticConfig, baseUrl, expandRoutes, log);
+	const { routes } = listed;
 
 	const result: PrerenderResult = {
 		dir: prerenderDir,
-		failures: [],
+		// A pattern that could not be turned into pages is reported
+		// with the pages that could not be rendered.
+		failures: [...listed.failures],
 		routes: new Map()
 	};
 
@@ -416,12 +446,20 @@ export const prerender = async (
 		return result;
 	}
 
-	await routes.reduce(
-		(chain, route) =>
-			chain.then(() =>
-				recordPrerenderRoute(baseUrl, route, prerenderDir, result, log)
-			),
-		Promise.resolve()
+	/* A few at a time. One at a time was fine for a hand-written list;
+	 * a pattern can stand for thousands of pages, and every one of them
+	 * used to wait for the one before it while the server sat mostly
+	 * idle. Bounded, because each render may open a database connection
+	 * and the app under render is one process. */
+	const waiting = [...routes];
+	const renderNext = async (): Promise<void> => {
+		const route = waiting.shift();
+		if (route === undefined) return;
+		await recordPrerenderRoute(baseUrl, route, prerenderDir, result, log);
+		await renderNext();
+	};
+	await Promise.all(
+		Array.from({ length: PRERENDER_CONCURRENCY }, () => renderNext())
 	);
 
 	return result;
@@ -549,7 +587,8 @@ export const prerenderWithServer = async (
 	outDir: string,
 	staticConfig: StaticConfig,
 	env: Record<string, string>,
-	log?: LogFn
+	log?: LogFn,
+	expandRoutes?: ExpandStaticRoutes
 ) => {
 	const serverOutput: string[] = [];
 	// Pin the server to exactly `port` on localhost. networking() resolves its bind
@@ -585,7 +624,13 @@ export const prerenderWithServer = async (
 		throw createServerStartupError(serverOutput);
 	}
 
-	const result = await prerender(port, outDir, staticConfig, log);
+	const result = await prerender(
+		port,
+		outDir,
+		staticConfig,
+		log,
+		expandRoutes
+	);
 
 	serverProcess.kill();
 	await serverProcess.exited;

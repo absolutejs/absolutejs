@@ -5,6 +5,24 @@
 		{
 			"changes": [
 				{
+					"detail": "A path with a param in `static.routes`, such as `/blog/:slug`, now stands for one page per param set that file route's `entries()` returns, so a dynamic file route can be pre-rendered without listing every URL by hand. `entries()` is the export the sitemap already reads. The pattern is written as `route()` takes it (`:name`, `:name?` for an optional segment, the file's name for a catch-all), the path the server registers (`/docs/*`) is accepted too, and the config offers the project's file routes as completions. Until now such an entry was fetched as a literal URL and wrote one page for the pattern itself. A pattern that cannot become pages is printed as a pre-render failure and never skipped: no file route has that path, the route has no server module or no `entries()`, `entries()` threw or did not return an array. A param set missing a param costs that page only. The expansion runs in `absolute start`, `absolute compile` and `absolute export`. Pre-rendering also renders four pages at a time, where it used to render one after another. A route registered in `server.ts` has no `entries()` and still needs its pages listed. See docs/REVALIDATION.md.",
+					"kind": "added",
+					"summary": "A pattern in `static.routes` pre-renders a dynamic file route from its `entries()`",
+					"symbols": [
+						"StaticRoutePath",
+						"StaticConfig",
+						"ExpandStaticRoutes",
+						"StaticRouteExpansion",
+						"StaticRouteFailure"
+					]
+				}
+			],
+			"date": "2026-11-26",
+			"version": "0.20.0-beta.403"
+		},
+		{
+			"changes": [
+				{
 					"detail": "A test compiles an app with no pages (an API route and one page a route builds as a `Response`) with `absolute compile`, then runs the executable and requests it. beta.401 fixed the missing manifest that made this fail, and until now only a manual check covered the compile path. Test only.",
 					"kind": "internal",
 					"summary": "`absolute compile` is tested on an app with no pages"
