@@ -10,14 +10,18 @@ import { existsSync, readdirSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { RevalidationOutcome } from '../../../types/revalidate';
+import type {
+	RevalidateAllResult,
+	RevalidationOutcome
+} from '../../../types/revalidate';
 import { removePrerendered, rerenderRoute } from '../../../src/core/prerender';
 import {
 	createRevalidationQueue,
 	createStaticRouteMatcher,
 	registerRevalidator,
 	revalidateAll,
-	revalidatePath
+	revalidatePath,
+	revalidateTag
 } from '../../../src/core/revalidate';
 
 /* On-demand revalidation in three layers: the queue that decides which
@@ -141,8 +145,14 @@ describe('revalidatePath and revalidateAll', () => {
 		creatable?: string[];
 		outcomes?: Record<string, RevalidationOutcome>;
 		routes: string[];
+		tagged?: Record<string, string[]>;
 	};
-	const register = ({ creatable = [], outcomes = {}, routes }: Registered) =>
+	const register = ({
+		creatable = [],
+		outcomes = {},
+		routes,
+		tagged = {}
+	}: Registered) =>
 		registerRevalidator({
 			canCreate: (route) => creatable.includes(route),
 			revalidate: (route) => {
@@ -150,7 +160,10 @@ describe('revalidatePath and revalidateAll', () => {
 
 				return Promise.resolve(outcomes[route] ?? 'replaced');
 			},
-			routes: () => routes
+			routes: () => routes,
+			routesTagged: (tags) => [
+				...new Set(tags.flatMap((tag) => tagged[tag] ?? []))
+			]
 		});
 
 	afterEach(() => {
@@ -232,6 +245,81 @@ describe('revalidatePath and revalidateAll', () => {
 			revalidated: ['/', '/blog']
 		});
 		expect(rendered).toEqual(['/', '/blog', '/about', '/old']);
+	});
+});
+
+describe('revalidateTag', () => {
+	const rendered: string[] = [];
+	const register = (
+		tagged: Record<string, string[]>,
+		failing: string[] = []
+	) =>
+		registerRevalidator({
+			canCreate: () => false,
+			revalidate: (route) => {
+				rendered.push(route);
+
+				return Promise.resolve(
+					failing.includes(route) ? 'failed' : 'replaced'
+				);
+			},
+			routes: () => ['/', '/blog', '/blog/hello', '/about'],
+			routesTagged: (tags) => [
+				...new Set(tags.flatMap((tag) => tagged[tag] ?? []))
+			]
+		});
+
+	afterEach(() => {
+		rendered.length = 0;
+		registerRevalidator(undefined);
+	});
+
+	test('re-renders the pages carrying the tag, and only those', async () => {
+		register({ posts: ['/', '/blog', '/blog/hello'] });
+
+		expect(await revalidateTag('posts')).toEqual({
+			failed: [],
+			removed: [],
+			revalidated: ['/', '/blog', '/blog/hello']
+		});
+		expect(rendered).not.toContain('/about');
+	});
+
+	test('several tags re-render a page carrying more than one of them once', async () => {
+		register({
+			'post:hello': ['/blog/hello'],
+			posts: ['/blog', '/blog/hello']
+		});
+
+		await revalidateTag('posts', 'post:hello');
+
+		expect(rendered).toEqual(['/blog', '/blog/hello']);
+	});
+
+	test('says which of its pages failed', async () => {
+		register({ posts: ['/blog', '/blog/hello'] }, ['/blog']);
+
+		expect(await revalidateTag('posts')).toEqual({
+			failed: ['/blog'],
+			removed: [],
+			revalidated: ['/blog/hello']
+		});
+	});
+
+	/* A change to data no pre-rendered page shows has nothing to
+	 * refresh. That is the common case in dev and must not be an error. */
+	test('a tag no page carries, or no pre-rendering at all, is three empty lists', async () => {
+		register({});
+		const none: RevalidateAllResult = {
+			failed: [],
+			removed: [],
+			revalidated: []
+		};
+
+		expect(await revalidateTag('unused')).toEqual(none);
+		registerRevalidator(undefined);
+		expect(await revalidateTag('posts')).toEqual(none);
+		expect(rendered).toEqual([]);
 	});
 });
 
@@ -359,6 +447,22 @@ describe('a re-render replacing a page’s files', () => {
 		expect(
 			Number(await readFile(live('blog.meta'), 'utf-8'))
 		).toBeGreaterThan(1);
+	});
+
+	test('keeps the tags the render declared, and drops them when it declares none', async () => {
+		await writeFile(live('tagged.html'), page('OLD'));
+		answers.set('/tagged', () =>
+			html('NEW', { 'x-absolute-cache-tags': 'posts,post%3Ahello' })
+		);
+
+		await rerenderRoute('/tagged', port(), prerenderDir);
+		expect(await readFile(live('tagged.tags'), 'utf-8')).toBe(
+			'posts\npost:hello\n'
+		);
+
+		answers.set('/tagged', () => html('NEWER'));
+		await rerenderRoute('/tagged', port(), prerenderDir);
+		expect(existsSync(live('tagged.tags'))).toBe(false);
 	});
 
 	/* A page that had holes and a nonce and is rendered without them

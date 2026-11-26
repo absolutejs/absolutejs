@@ -31,7 +31,9 @@ const isRevalidator = (value: unknown): value is Revalidator =>
 	'routes' in value &&
 	typeof value.routes === 'function' &&
 	'canCreate' in value &&
-	typeof value.canCreate === 'function';
+	typeof value.canCreate === 'function' &&
+	'routesTagged' in value &&
+	typeof value.routesTagged === 'function';
 
 const currentRevalidator = () => {
 	const value: unknown = Reflect.get(globalThis, REVALIDATOR_KEY);
@@ -143,13 +145,10 @@ export const createStaticRouteMatcher = (
 		literal.has(route) || patterns.some((pattern) => pattern.test(route));
 };
 
-/** Re-render every pre-rendered page. Resolves to the routes whose page
- *  was replaced, the ones that are no longer pages and were taken out of
- *  the cache, and the ones whose render failed, which keep their
- *  previous page. */
-export const revalidateAll = async () => {
-	const revalidator = currentRevalidator();
-	const routes = revalidator?.routes() ?? [];
+const revalidateRoutes = async (
+	revalidator: Revalidator | undefined,
+	routes: readonly string[]
+) => {
 	const outcomes = await Promise.all(
 		routes.map(async (route) => ({
 			outcome: (await revalidator?.revalidate(route)) ?? 'failed',
@@ -167,6 +166,16 @@ export const revalidateAll = async () => {
 	};
 
 	return result;
+};
+
+/** Re-render every pre-rendered page. Resolves to the routes whose page
+ *  was replaced, the ones that are no longer pages and were taken out of
+ *  the cache, and the ones whose render failed, which keep their
+ *  previous page. */
+export const revalidateAll = () => {
+	const revalidator = currentRevalidator();
+
+	return revalidateRoutes(revalidator, revalidator?.routes() ?? []);
 };
 
 /** Make the pre-rendered copy of `path` match what the app serves now.
@@ -199,4 +208,21 @@ export const revalidatePath = async (path: string) => {
 	if (!known) return false;
 
 	return (await revalidator.revalidate(route)) !== 'failed';
+};
+
+/** Re-render every pre-rendered page that declared one of these tags
+ *  with `cacheTag()`.
+ *
+ *      await db.posts.update(id, changes);
+ *      await revalidateTag('posts');
+ *
+ *  Resolves like `revalidateAll`: the routes whose page was replaced,
+ *  the ones that are no longer pages and were taken down, and the ones
+ *  whose render failed and keep their previous page. A tag no page
+ *  carries resolves to three empty lists; it is not an error, since a
+ *  change to data nothing pre-rendered shows has nothing to refresh. */
+export const revalidateTag = (...tags: string[]) => {
+	const revalidator = currentRevalidator();
+
+	return revalidateRoutes(revalidator, revalidator?.routesTagged(tags) ?? []);
 };
