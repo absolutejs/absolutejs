@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { unservedPath } from '../../helpers/unservedPath';
 import { existsSync } from 'node:fs';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { extname, join, relative, resolve } from 'node:path';
@@ -238,8 +239,7 @@ const createApp =
 				pagePath: manifest.PersistPlain ?? '',
 				request
 			});
-		if (extname(pathname) === '')
-			return new Response('not found', { status: 404 });
+		if (extname(pathname) === '') return unservedPath(pathname);
 		const filePath = join(buildDir, pathname);
 		if (!existsSync(filePath)) return new Response(null, { status: 404 });
 
