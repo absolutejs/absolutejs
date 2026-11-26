@@ -5,6 +5,7 @@ import { maskLiterals } from '../../build/maskLiterals';
 import { loadIslandRegistryBuildInfo } from '../../build/islandEntries';
 import { resolveProductionServerDefine } from '../../build/resolveBuildMode';
 import { staticRouteExpander } from '../../build/staticRouteExpansion';
+import { withoutRevalidateToken } from '../../core/staticRuntimeOptions';
 import { createIslandRegistryDefinitionPlugin } from '../../build/islandRegistryTransform';
 import { createRoutePagesPlugin } from '../../build/routePagesPlugin';
 import { createBunStringRawUnicodePlugin } from '../../build/bunStringRawUnicodePlugin';
@@ -891,8 +892,15 @@ const generateEntrypoint = (
 		.map(([route, varName]) => `\t"${route}": ${varName},`)
 		.join('\n');
 	const runtimeBuildId = `${version}-${Date.now().toString(36)}`;
+	// The revalidation token is not embedded in the binary; the server
+	// takes it from its environment (staticRuntimeOptions.ts).
 	const runtimeConfigSource = JSON.stringify(
-		buildConfig,
+		{
+			...buildConfig,
+			...(buildConfig.static
+				? { static: withoutRevalidateToken(buildConfig.static) }
+				: {})
+		},
 		(_key, value) =>
 			typeof value === 'function' || typeof value === 'symbol'
 				? undefined
