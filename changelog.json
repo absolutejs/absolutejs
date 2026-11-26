@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "`absolute dev --port abc` (or any value that is not a port between 1 and 65535) printed its message underneath six lines of the CLI's own source and a stack trace, as if the CLI had crashed. It now prints the message and the `absolute --help` hint, like every other flag problem, and exits 1.",
+					"kind": "fixed",
+					"summary": "A bad `--port` value for `absolute dev` is a usage error, not a stack trace"
+				}
+			],
+			"date": "2026-11-26",
+			"version": "0.20.0-beta.386"
+		},
+		{
+			"changes": [
+				{
 					"detail": "Test-only. `react-route-layouts-browser.test.ts` timed out once in the nightly on the Svelte route, waiting for a click to register, with nothing recorded but the timeout. It does not reproduce: 36 page loads at 20x CPU throttle with a click the moment `load` fired lost none. So no cause is claimed. The Svelte and Vue cases now wait for their page's own hydrated mark before clicking, as the React case always did, and a click that still does not register fails with the button's text and everything the page logged from before navigation: console errors and warnings, uncaught errors, failed requests and HTTP error responses. `openPage` gained an `onPage` hook so a listener can be attached before the page navigates.",
 					"kind": "internal",
 					"summary": "The route-layouts browser test waits for hydration and reports what the page logged when a click is lost"
