@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "The chunked lint (`absolute eslint --chunked`) started one ESLint process per 20 files, so every process re-read its cache and rebuilt the TypeScript program for type-aware rules: onSpark took 173 s across 146 processes with nothing to lint and 17 minutes cold. Files whose clean verdict ESLint has already cached (same content, toolchain, config and arguments) are now left out before any process starts, so an unchanged tree lints in about a second; a failing cached verdict is always linted again so it is reported, and a run that stops part-way never marks its cache as trustworthy. Chunk size now adapts to memory: each process reports its peak RSS and the next chunk grows or shrinks toward 60% of a per-process budget (the machine memory share over the concurrency, capped at the child heap), starting at 50 files. onSpark cold: 609 s in 20 processes. `--chunk-size <n>` still fixes the size.",
+					"kind": "changed",
+					"summary": "The chunked lint skips files with a clean cached verdict and sizes chunks to memory"
+				}
+			],
+			"date": "2026-11-26",
+			"version": "0.20.0-beta.412"
+		},
+		{
+			"changes": [
+				{
 					"detail": "`registerPageStore(store)` keeps pre-rendered pages in step across machines that share no disk. Each machine goes on serving from its own files, so nothing is added to the path of a request. A page a machine re-renders, creates or takes down is also written to the store; a machine starting up pulls whatever the store has that it does not, so one added later or back from an outage is not left serving the build's pages; and while running, each machine asks the store what changed every 5 seconds (`{ interval }`) and pulls it. A page is rendered once and copied with its nonce, dynamic holes and tags, so `revalidateTag` works on every machine. A store is four functions over string keys and bodies (`get`, `put`, `delete`, `list`), which an object store, a key-value store or a table can all provide; `list` reports a version per object that is only compared for equality. The store is the truth: two machines revalidating one page at once both write it and both end up serving what the store kept. A store that cannot be reached does not take pages down or stop a server starting; it is logged once when it fails and once when it recovers. Everything is kept under the build's own id, and builds older than the last three are cleared. It is registered in code, before `prepare()`, because a production server does not read `absolute.config.ts`. No store implementation ships in this release. See docs/REVALIDATION.md.",
 					"kind": "added",
 					"summary": "`registerPageStore` keeps pre-rendered pages in step across machines that share no disk",
