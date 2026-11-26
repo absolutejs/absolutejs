@@ -211,8 +211,11 @@ export const runExport = async (args: readonly string[]) => {
 	const exportDir = resolve(namedArg(args, '--to') ?? DEFAULT_EXPORT_DIR);
 	assertSafeDestination(exportDir, buildDir);
 
-	const { formatPrerenderFailure, prerenderWithServer } =
-		await import('../../core/prerender');
+	const {
+		formatPrerenderFailure,
+		formatPrerenderWarning,
+		prerenderWithServer
+	} = await import('../../core/prerender');
 	const staticConfig = prepared.staticConfig ?? { routes: 'all' as const };
 	/* A free port from the OS rather than `PORT + 1`. The fixed offset
 	 * collided with an unrelated dev server on this machine, and because
@@ -290,6 +293,11 @@ export const runExport = async (args: readonly string[]) => {
 		);
 	}
 
+	/* Said, but not a failure of the export: the page is there. It is
+	 * the wrong page for a visitor with cookies, which on a static host
+	 * is every page, so it is worth a line. */
+	for (const warning of result.warnings)
+		console.warn(`\x1b[33m${formatPrerenderWarning(warning)}\x1b[0m`);
 	if (result.failures.length === 0) return;
 
 	/* A route that failed to render is a page the export does not contain,

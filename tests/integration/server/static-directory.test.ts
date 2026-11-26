@@ -42,13 +42,19 @@ export default defineConfig({
 	static: {
 		directory: '${directory}',
 		revalidateToken: '${TOKEN}',
-		routes: ['/count']
+		routes: ['/count', '/personal']
 	}
 });
 `;
 
 const SERVER_TS = `import { Elysia } from 'elysia';
-import { networking, prepare, revalidatePath } from '${FRAMEWORK}';
+import {
+	cookies,
+	headers,
+	networking,
+	prepare,
+	revalidatePath
+} from '${FRAMEWORK}';
 
 const { absolutejs } = await prepare();
 
@@ -64,6 +70,16 @@ export const server = new Elysia()
 	.use(absolutejs)
 	.get('/count', page)
 	.get('/live', page)
+	// Pre-rendered, and it should not be: it is different for each
+	// visitor, and the pre-renderer is not one of them.
+	.get(
+		'/personal',
+		() =>
+			new Response(
+				\`<!doctype html><html><head><title>P</title></head><body><p>hello \${cookies().get('user') ?? 'stranger'} at \${headers().get('host')}</p></body></html>\`,
+				{ headers: { 'content-type': 'text/html; charset=utf-8' } }
+			)
+	)
 	.post('/bump', async () => {
 		count += 1;
 
@@ -188,6 +204,28 @@ beforeAll(async () => {
 afterAll(async () => {
 	await stop();
 	if (root) await rm(root, { force: true, recursive: true });
+});
+
+describe('a pre-rendered page that reads the request', () => {
+	/* `/personal` greets whoever the cookie names. Pre-rendered, it
+	 * greets nobody, for everybody, and nothing else would say so. */
+	test('is named in the build’s output, with what it read', async () => {
+		expect(output).toContain(
+			'/personal read the request while it was pre-rendered'
+		);
+		expect(output).toContain("cookies().get('user')");
+		expect(output).toContain("headers().get('host')");
+		// A page that reads nothing is not mentioned.
+		expect(output).not.toContain('/count read the request');
+	});
+
+	test('and is served as the pre-renderer saw it, whoever asks', async () => {
+		const response = await fetch(url('/personal'), {
+			headers: { cookie: 'user=ada' }
+		});
+
+		expect(await response.text()).toContain('hello stranger');
+	});
 });
 
 describe('static.directory under absolute start', () => {

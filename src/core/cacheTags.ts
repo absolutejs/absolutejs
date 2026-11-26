@@ -4,7 +4,10 @@ import { join } from 'node:path';
 import { Elysia } from 'elysia';
 import { isPrerendering } from '../utils/isPrerendering';
 import { filenameToRoute } from './prerenderPaths';
-import { getAbsoluteRequestStore } from './requestContext';
+import {
+	type AbsoluteRequestStore,
+	getAbsoluteRequestStore
+} from './requestContext';
 
 /* Cache tags: a page says what data it shows, and a change says what
  * data it touched.
@@ -24,6 +27,7 @@ import { getAbsoluteRequestStore } from './requestContext';
  * a clustered server share that directory and nothing else. */
 
 export const CACHE_TAGS_HEADER = 'X-Absolute-Cache-Tags';
+export const REQUEST_READS_HEADER = 'X-Absolute-Request-Reads';
 
 const TAGS_EXTENSION = '.tags';
 const LINE_BREAK = /[\r\n]/;
@@ -113,14 +117,18 @@ export const cacheTagEmitter = () =>
 			if (!store || store.request !== request) return undefined;
 			if (!(responseValue instanceof Response)) {
 				const declared = encodeCacheTags(store.cacheTags ?? []);
+				const read = encodeCacheTags(store.requestReads ?? []);
 				if (declared !== '') set.headers[CACHE_TAGS_HEADER] = declared;
+				if (read !== '') set.headers[REQUEST_READS_HEADER] = read;
 
 				return undefined;
 			}
 			const body = await responseValue.arrayBuffer();
 			const headers = new Headers(responseValue.headers);
 			const declared = encodeCacheTags(store.cacheTags ?? []);
+			const read = encodeCacheTags(store.requestReads ?? []);
 			if (declared !== '') headers.set(CACHE_TAGS_HEADER, declared);
+			if (read !== '') headers.set(REQUEST_READS_HEADER, read);
 
 			return new Response(body, {
 				headers,
@@ -142,6 +150,36 @@ export const encodeCacheTags = (tags: Iterable<string>) =>
 /** The tags the pre-rendered page at `htmlPath` was rendered with. */
 export const readCacheTags = (htmlPath: string) =>
 	readTagsFile(tagsPath(htmlPath));
+
+/** What a pre-render's response says the page read from the request. */
+export const readRequestReads = (response: Response) =>
+	decodeCacheTags(response.headers.get(REQUEST_READS_HEADER));
+
+/* A pre-rendered page that reads the request.
+ *
+ * A page listed in `static.routes` is rendered once, for a request the
+ * pre-renderer made: no cookies, and the pre-renderer's own headers.
+ * Whatever the page did with `cookies()` or `headers()` it did with
+ * those, and that one copy is what every visitor is served. A page
+ * that greets the signed-in user says "Sign in" to everyone; one that
+ * builds a link from the `host` header points every visitor at the
+ * address the build ran on. Nothing fails and nothing looks wrong on
+ * the developer's own machine.
+ *
+ * So the read is noted, and the pre-renderer is told. Only for a
+ * pre-render: on a visitor's request there is nothing to note and this
+ * costs one flag check. Reads inside a dynamic slot never get here —
+ * a pre-render does not run those; they render per request. */
+export const recordRequestRead = (
+	store: AbsoluteRequestStore,
+	what: string
+) => {
+	store.isPrerenderCapture ??= wantsCacheTags(store.request);
+	if (!store.isPrerenderCapture) return;
+	const reads = store.requestReads ?? new Set<string>();
+	reads.add(what);
+	store.requestReads = reads;
+};
 
 /** The pre-rendered routes carrying any of `tags`, read from the
  *  directory each time it is asked.

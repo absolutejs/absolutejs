@@ -29,6 +29,7 @@ import type {
 	RequestCookies
 } from '../../types/requestHelpers';
 import { isHttpsRequest } from '../utils/isHttpsRequest';
+import { recordRequestRead, wantsCacheTags } from './cacheTags';
 import {
 	type AbsoluteRequestStore,
 	getAbsoluteRequestStore,
@@ -53,10 +54,59 @@ const storeFor = (helper: string) => {
 	return store;
 };
 
+/* The same headers, noting what is asked of them. Used only while a
+ * page is being pre-rendered, where a read of the request is a mistake
+ * worth reporting (cacheTags.ts); a visitor's request gets the plain
+ * object. */
+const NAMED_READS = new Set<string | symbol>(['get', 'has']);
+const UNRECORDED = new Set<string | symbol>(['getSetCookie']);
+
+const noteHeaderRead = (
+	store: AbsoluteRequestStore,
+	method: string | symbol,
+	args: unknown[]
+) => {
+	if (UNRECORDED.has(method)) return;
+	const [name] = args;
+	if (NAMED_READS.has(method) && typeof name === 'string')
+		recordRequestRead(
+			store,
+			`headers().${String(method)}('${name.toLowerCase()}')`
+		);
+	// Listing them all reads every one.
+	else recordRequestRead(store, 'headers()');
+};
+
+/* A proxy rather than a hand-written copy: it is the request's own
+ * `Headers` in every respect, with each call noted on the way. */
+const notingReads = (store: AbsoluteRequestStore) => {
+	const noting: ReadonlyRequestHeaders = new Proxy(store.request.headers, {
+		get: (target, property) => {
+			const member: unknown = Reflect.get(target, property, target);
+			if (typeof member !== 'function') return member;
+
+			return (...args: unknown[]) => {
+				noteHeaderRead(store, property, args);
+
+				return Reflect.apply(member, target, args);
+			};
+		}
+	});
+
+	return noting;
+};
+
+const isPrerenderCapture = (store: AbsoluteRequestStore) => {
+	store.isPrerenderCapture ??= wantsCacheTags(store.request);
+
+	return store.isPrerenderCapture;
+};
+
 /** The current request's headers. */
 export const headers = () => {
-	const readable: ReadonlyRequestHeaders =
-		storeFor('headers').request.headers;
+	const store = storeFor('headers');
+	if (isPrerenderCapture(store)) return notingReads(store);
+	const readable: ReadonlyRequestHeaders = store.request.headers;
 
 	return readable;
 };
@@ -208,9 +258,21 @@ export const cookies = () => {
 				value: undefined
 			});
 		},
-		get: (name) => currentValues(store).get(name),
-		getAll: () => Object.fromEntries(currentValues(store)),
-		has: (name) => currentValues(store).has(name),
+		get: (name) => {
+			recordRequestRead(store, `cookies().get('${name}')`);
+
+			return currentValues(store).get(name);
+		},
+		getAll: () => {
+			recordRequestRead(store, 'cookies().getAll()');
+
+			return Object.fromEntries(currentValues(store));
+		},
+		has: (name) => {
+			recordRequestRead(store, `cookies().has('${name}')`);
+
+			return currentValues(store).has(name);
+		},
 		set: (name, value, options = {}) => {
 			const attributes = attributesOf(name, options, store.request);
 			queue(store, options, {

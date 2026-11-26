@@ -45,6 +45,7 @@ import {
 } from '../../constants';
 import {
 	formatPrerenderFailure,
+	formatPrerenderWarning,
 	prerenderWithServer
 } from '../../core/prerender';
 import { getDurationString } from '../../utils/getDurationString';
@@ -1788,6 +1789,9 @@ export default server;
 	);
 	for (const failure of prerenderResult.failures) {
 		console.warn(cliTag('\x1b[33m', formatPrerenderFailure(failure)));
+	}
+	for (const warning of prerenderResult.warnings) {
+		console.warn(cliTag('\x1b[33m', formatPrerenderWarning(warning)));
 	}
 
 	copyFrameworkRuntimePackages(buildConfig, resolvedOutdir);
