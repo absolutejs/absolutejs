@@ -5,6 +5,20 @@
 		{
 			"changes": [
 				{
+					"detail": "`static.directory` keeps the pre-rendered pages a server serves and re-renders outside the build, in place of the build's own `_prerendered/`. Point it at a writable path when the build directory is read-only, or at a volume several machines share so that a revalidation on one reaches the others, which check the disk before serving the way clustered workers do. A restart then keeps what was revalidated since the build. Each build uses its own folder inside the directory, copied from the build's pages the first time that build starts and named after them, so every machine running one build shares a folder and the next build gets a new one; a page names the hashed assets of the build that rendered it, so none is carried over. The folders of the two builds before the current one are kept for a rolling deploy and older ones are removed. Separately, a server whose pre-rendered pages cannot be written now says so at startup. A re-render that could not write used to fail silently: `revalidatePath` resolved `false`, the interval's render was swallowed, and the page never changed. If `static.directory` itself cannot be created, the server says that and serves the build's pages. It starts in both cases. See docs/REVALIDATION.md.",
+					"kind": "added",
+					"summary": "`static.directory` keeps pre-rendered pages outside the build; an unwritable page directory is reported at startup",
+					"symbols": [
+						"StaticConfig"
+					]
+				}
+			],
+			"date": "2026-11-26",
+			"version": "0.20.0-beta.409"
+		},
+		{
+			"changes": [
+				{
 					"detail": "`POST /__absolute/revalidate` lets something outside the app, such as a CMS webhook or a job, revalidate pre-rendered pages. It exists only when `static.revalidateToken` is set; an empty token or one shorter than 16 characters counts as not set, and the short one is reported at startup. The caller sends the token as a bearer token, compared in constant time; a wrong or missing token is a 401 whatever the body says. The JSON body takes `paths`, `tags`, `all: true` and `background: true`, and the answer is `{ revalidated, removed, failed, skipped }`. `background` answers 202 at once and does the work afterwards, for a caller that will not wait, and logs any failure. One call may name at most 100 paths and tags. A path `static.routes` does not cover is listed in `skipped` and nothing is rendered for it, so the token cannot be used to pre-render arbitrary URLs. The endpoint sits behind the app's rate limiter like any other route. The partial pre-rendering plan named the path `/_absolute/revalidate`; it is `/__absolute/revalidate`, matching every other internal route. See docs/REVALIDATION.md.",
 					"kind": "added",
 					"summary": "A token-protected endpoint revalidates pre-rendered pages from outside the app",

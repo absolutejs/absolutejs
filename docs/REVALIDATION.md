@@ -206,6 +206,52 @@ Tags are sent only to the pre-renderer: the build's own pre-render
 server, and the running server re-rendering its own pages. They are
 never in a response to a visitor.
 
+## Where the pages are kept: `static.directory`
+
+By default the server serves and re-renders the pages in the build's own
+`_prerendered/` folder. Set `static.directory` to keep them somewhere
+else:
+
+```ts
+static: {
+	routes: ['/', '/blog/*'],
+	directory: '/var/lib/myapp/pages'
+}
+```
+
+Two reasons to:
+
+- **The build directory cannot be written**, as in a read-only image or a
+  locked-down container. Point it at any writable path.
+- **Several machines serve the app.** Point it at a volume they share,
+  and a revalidation on one reaches the others: each checks the disk
+  before serving, the same way clustered workers do.
+
+It also means a restart keeps what was revalidated since the build.
+
+Each build uses its own folder inside the directory, copied from the
+build's pages the first time that build starts. A page names the hashed
+assets of the build that rendered it, so pages are never carried from one
+build to the next. The folders of the two builds before the current one
+are kept, since a rolling deploy leaves the previous build serving from
+its own; older ones are removed.
+
+Use an absolute path. A relative one is resolved against the directory
+the server is started from.
+
+### When the directory cannot be written
+
+A re-render that cannot write its page used to fail without a word. The
+server now checks at startup and logs it:
+
+- if pages cannot be updated where they are, it says so, and says that
+  `revalidatePath`, `revalidateTag` and `static.revalidate` will leave
+  every page as it is;
+- if `static.directory` cannot be created or filled at all, it says so
+  and serves the build's own pages instead.
+
+Either way the server starts and serves what it has.
+
 ## From outside the app: the revalidation endpoint
 
 `revalidatePath` and `revalidateTag` are functions, so only code in the
@@ -284,10 +330,9 @@ file itself.
   for a path the config lists or a pattern matches, and for nothing else.
 - **A page created after the build is lost on a redeploy** until it is
   created again, unless the next build's `entries()` names it.
-- **One machine.** The call re-renders through the server it runs in and
-  rewrites the files in that server's build directory. Several instances
-  on different machines each hold their own copy, so call it on each, or
-  put the pre-render directory on storage they share.
+- **One directory.** The call re-renders through the server it runs in
+  and rewrites the pages in that server's directory. Machines that do not
+  share one each hold their own copy: see `static.directory` below.
 - **Clustered workers agree through the disk.** Workers of one clustered
   server share the directory, and each checks it before serving: a page
   one worker took down is rendered by the others rather than served, and
