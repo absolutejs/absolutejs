@@ -36,4 +36,5 @@ export * from './script';
 export * from './shutdown';
 export * from './sitemap';
 export * from './websocket';
+export * from './apiClient';
 export * from './formAction';

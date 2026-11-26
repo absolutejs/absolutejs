@@ -20,6 +20,7 @@ export {
 	type FormActionsPlugin
 } from './formActions';
 export { formActionRuntime } from './formActionFlash';
+export { createApiClient } from '../client/apiClient';
 export { createFormActionClient } from '../client/formActionClient';
 export { onHotDispose } from '../dev/hotResources';
 export { getCspNonce } from './cspNonce';
