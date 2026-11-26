@@ -24,6 +24,11 @@ import { join, resolve } from 'node:path';
  * No `static.revalidate` interval is set, so nothing but these calls
  * can have replaced a file.
  *
+ * The fixture has no framework directory and no page file: every page
+ * is a `Response` a route builds. That such an app starts at all is
+ * asserted by this test running — a build with no entry points used to
+ * write no manifest, and the production server died reading it.
+ *
  * The CLI and the fixture's imports are this checkout's sources, not
  * the package name, which would run whatever was built into `dist/`
  * last. */
@@ -37,9 +42,6 @@ const CONFIG = `import { defineConfig } from '${FRAMEWORK}';
 
 export default defineConfig({
 	buildDirectory: './build',
-	// One page for the build to find: a build with no entry points
-	// writes no manifest, and the production server needs one to start.
-	htmlDirectory: './html',
 	static: { routes: ['/count', '/docs/count'] }
 });
 `;
@@ -140,11 +142,6 @@ const prerendered = (name: string) => join(root, 'build', '_prerendered', name);
 
 beforeAll(async () => {
 	root = await mkdtemp(join(tmpdir(), 'absolute-revalidate-path-'));
-	await mkdir(join(root, 'html', 'pages'), { recursive: true });
-	await writeFile(
-		join(root, 'html', 'pages', 'Placeholder.html'),
-		'<!doctype html><html><head><title>p</title></head><body></body></html>'
-	);
 	await writeFile(join(root, 'absolute.config.ts'), CONFIG);
 	await writeFile(join(root, 'server.ts'), SERVER_TS);
 	await writeFile(

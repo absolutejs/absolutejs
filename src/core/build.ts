@@ -2573,6 +2573,15 @@ const buildUnlocked = async ({
 				vue: allVueEntries.length
 			}
 		});
+		/* Empty, but written. The production server reads this file to
+		 * start, so a build that wrote none left an app with no pages —
+		 * an API, or one whose every page is a `Response` it builds
+		 * itself — unable to start at all. An empty manifest is also the
+		 * truth, and it replaces one a previous build with pages left. */
+		if (!isIncremental) {
+			mkdirSync(buildPath, { recursive: true });
+			writeFileSync(join(buildPath, 'manifest.json'), '{}');
+		}
 		writeBuildTrace(buildPath);
 
 		return {};
