@@ -24,6 +24,12 @@ export type UseFormActionOptions<Data = unknown> = {
 	 *  through a cookie and props, so any action state is accepted; the
 	 *  hook's type parameters type it. */
 	initialState?: ActionState | null;
+	/** Refresh the page's data once the action succeeds, by fetching the
+	 *  page again and swapping it in place (`invalidate()`). Default
+	 *  false: the page is mounted again, so this binding's own `data`
+	 *  and success state do not outlive the refresh. Use it where the
+	 *  outcome shows in the page's data. */
+	invalidate?: boolean;
 	/** What to show as `data` while the submission is in flight, derived
 	 *  from what is being sent. Called once per submission, before the
 	 *  request starts; the real result replaces it, and a failure clears
@@ -93,6 +99,8 @@ export const useFormAction = <Data = unknown, Fields extends string = string>(
 	// function on every render.
 	const optimisticRef = useRef(options.optimistic);
 	optimisticRef.current = options.optimistic;
+	const invalidateRef = useRef(options.invalidate);
+	invalidateRef.current = options.invalidate;
 
 	useEffect(() => () => controllerRef.current?.abort(), []);
 
@@ -116,6 +124,7 @@ export const useFormAction = <Data = unknown, Fields extends string = string>(
 					path,
 					body,
 					{
+						invalidate: invalidateRef.current === true,
 						signal: controller.signal
 					}
 				);

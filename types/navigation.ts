@@ -16,8 +16,10 @@
 export type DocumentNavigationOutcome =
 	'cancelled' | 'reloaded' | 'superseded' | 'swapped';
 
-/** What started a document navigation. */
-export type DocumentNavigationType = 'link' | 'navigate' | 'traverse';
+/** What started a document navigation. `'refresh'` is `invalidate()`:
+ *  the current page fetched again and swapped in place. */
+export type DocumentNavigationType =
+	'link' | 'navigate' | 'refresh' | 'traverse';
 
 export type EnableNavigationOptions = {
 	/** Decide per URL whether the layer may soft-navigate to it. Return

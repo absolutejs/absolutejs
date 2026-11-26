@@ -127,6 +127,7 @@ export const useFormAction = <Data = unknown, Fields extends string = string>(
 		try {
 			return adopt(
 				await submitFormAction<Data, Fields>(path, body, {
+					invalidate: options.invalidate === true,
 					signal: own.signal
 				}),
 				own

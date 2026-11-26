@@ -3,12 +3,14 @@ import { csrfHeaders } from '../utils/csrfTokenRef';
 import {
 	ACTION_ERROR_ATTRIBUTE,
 	ACTION_FORM_ATTRIBUTE,
+	ACTION_INVALIDATE_ATTRIBUTE,
 	ACTION_MESSAGE_ATTRIBUTE,
 	ACTION_REQUEST_HEADER,
 	ACTION_STATUS_ATTRIBUTE,
 	ACTION_SUCCESS_ATTRIBUTE,
 	isActionResult
 } from '../utils/formActionProtocol';
+import { invalidate } from './invalidate';
 
 /* Browser side of form actions. `submitFormAction` posts a FormData and
  * returns the typed result; `enhanceForms` upgrades plain
@@ -17,7 +19,37 @@ import {
  * normally and the server renders the result. */
 
 export type SubmitFormActionOptions = {
+	/** Refresh the page's data once the action succeeds: the page is
+	 *  fetched again and swapped in place (`invalidate()`), so what it
+	 *  shows includes what the action just changed. Not done for a result
+	 *  that redirects, which loads a page anyway.
+	 *
+	 *  Off unless asked for, because the refresh mounts the page again:
+	 *  a success message held in the form's own state would be gone as
+	 *  soon as it appeared. Use it where the outcome is visible in the
+	 *  page's data — the new row in the list. */
+	invalidate?: boolean;
 	signal?: AbortSignal;
+};
+
+/* After the caller has the result, not before: whoever awaited the
+ * submission gets to act on it while its page is still the one mounted.
+ * A timer and not a microtask, because a microtask queued here runs
+ * ahead of the caller's own continuation. */
+const refreshAfter = <Result extends ActionResult>(
+	result: Result,
+	options: SubmitFormActionOptions
+) => {
+	if (
+		options.invalidate === true &&
+		result.status === 'success' &&
+		!result.redirect
+	)
+		setTimeout(() => {
+			void invalidate();
+		}, 0);
+
+	return result;
 };
 
 const failure = (message: string): ActionErrorState => ({
@@ -83,7 +115,8 @@ export const submitFormAction = async <
 		return result;
 	}
 	const payload = await readPayload(response);
-	if (isActionResult<Data, Fields>(payload)) return payload;
+	if (isActionResult<Data, Fields>(payload))
+		return refreshAfter(payload, options);
 	const result: Result = failure(
 		`The server could not handle the form (HTTP ${response.status}).`
 	);
@@ -203,6 +236,7 @@ export const enhanceForm = (form: HTMLFormElement) => {
 		const body = new FormData(form, event.submitter);
 		setPending(form, true);
 		const result = await submitFormAction(formActionUrl(form), body, {
+			invalidate: form.hasAttribute(ACTION_INVALIDATE_ATTRIBUTE),
 			signal: current.signal
 		}).catch(() => undefined);
 		if (controller !== current) return;

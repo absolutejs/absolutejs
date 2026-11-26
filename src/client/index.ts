@@ -1,6 +1,7 @@
 export { createIslandManifestResolver } from './islandResolver';
 export { getStreamSwapRuntimeScript } from './streamSwap';
 export { createFormActionClient } from './formActionClient';
+export { invalidate } from './invalidate';
 export {
 	createIslandStore,
 	getIslandStoreServerSnapshot,

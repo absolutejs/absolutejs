@@ -159,6 +159,7 @@ type Runtime = {
 
 type PublicRuntime = {
 	disable: () => void;
+	refresh: () => Promise<DocumentNavigationOutcome>;
 	navigate: (
 		href: string,
 		options?: NavigateDocumentOptions
@@ -490,6 +491,22 @@ const takePrefetched = async (url: URL) => {
 	return response.ok ? response : undefined;
 };
 
+/* A refresh exists because the page's data changed, so it may not be
+ * answered from anything fetched before that: not a prefetched copy of
+ * this page (taken here and dropped, or the next visit would be served
+ * the stale one), and not the HTTP cache. */
+const fetchFreshDocument = async (url: URL, signal: AbortSignal) => {
+	const stale = await takePrefetched(url).catch(() => undefined);
+	await stale?.body?.cancel().catch(() => undefined);
+
+	return fetch(url.href, {
+		cache: 'reload',
+		credentials: 'same-origin',
+		headers: { Accept: 'text/html' },
+		signal
+	});
+};
+
 const fetchDocument = async (url: URL, signal: AbortSignal) =>
 	(await takePrefetched(url)) ??
 	fetch(url.href, {
@@ -524,8 +541,15 @@ const adoptResponseNonce = (
 	};
 };
 
-const loadDocument = async (nav: Runtime, url: URL, signal: AbortSignal) => {
-	const response = await fetchDocument(url, signal);
+const loadDocument = async (
+	nav: Runtime,
+	url: URL,
+	signal: AbortSignal,
+	fresh: boolean
+) => {
+	const response = await (fresh
+		? fetchFreshDocument(url, signal)
+		: fetchDocument(url, signal));
 	const contentType = response.headers.get('content-type') ?? '';
 	const finalUrl = new URL(response.url || url.href);
 	finalUrl.hash = url.hash;
@@ -931,7 +955,11 @@ const reload = (
 	 * and intercept, which would hand the failure straight back to the
 	 * code that just failed. */
 	nav.handingOff = true;
-	if (committed || request.type === 'traverse') window.location.reload();
+	/* A refresh reloads rather than `replace`s its own address: with a
+	 * `#fragment` in it, replacing a URL with itself is a same-document
+	 * navigation and fetches nothing. */
+	if (committed || request.type === 'traverse' || request.type === 'refresh')
+		window.location.reload();
 	else if (request.replace) window.location.replace(request.url.href);
 	else window.location.assign(request.url.href);
 
@@ -985,9 +1013,13 @@ const readPromise = (value: unknown, name: string) => {
 	return promise instanceof Promise ? promise : undefined;
 };
 
-const runSwap = async (nav: Runtime, swap: () => Promise<void>) => {
+const runSwap = async (
+	nav: Runtime,
+	swap: () => Promise<void>,
+	animate: boolean
+) => {
 	const start: unknown = Reflect.get(document, 'startViewTransition');
-	if (!shouldAnimate(nav) || typeof start !== 'function') {
+	if (!animate || !shouldAnimate(nav) || typeof start !== 'function') {
 		await swap();
 
 		return;
@@ -996,6 +1028,14 @@ const runSwap = async (nav: Runtime, swap: () => Promise<void>) => {
 	readPromise(transition, 'ready')?.catch(() => undefined);
 	readPromise(transition, 'finished')?.catch(() => undefined);
 	await readPromise(transition, 'updateCallbackDone');
+};
+
+const restoreFocus = (focusedId: string | undefined) => {
+	if (!focusedId) return false;
+	const again = document.getElementById(focusedId);
+	again?.focus({ preventScroll: true });
+
+	return again !== null;
 };
 
 const swapDocument = async (
@@ -1047,8 +1087,15 @@ const swapDocument = async (
 		restoreMedia(media);
 		applyScroll(request, loaded.url);
 	};
-	await runSwap(nav, swap);
-	const focusMoved = resetFocus();
+	/* A refresh is the same page with newer data. It is not animated —
+	 * a cross-fade between two copies of one page is a flicker — and it
+	 * is not a new page to a keyboard or screen reader user either: focus
+	 * goes back to where it was when that element is still there, and
+	 * nothing is announced. */
+	const refreshing = request.type === 'refresh';
+	const focusedId = refreshing ? document.activeElement?.id : undefined;
+	await runSwap(nav, swap, !refreshing);
+	const focusMoved = refreshing ? restoreFocus(focusedId) : resetFocus();
 	/* Before the incoming page's scripts run, not after: a `lazyOnload`
 	 * bootstrap checks the document for its tag on a timer, and
 	 * `runScripts` awaits each module's load event — so appending
@@ -1085,7 +1132,7 @@ const swapDocument = async (
 		markPageWithoutTeardown();
 	await waitForPageReady(loadsModules(scripts));
 	reapplyScroll(request, loaded.url);
-	announcePage(focusMoved);
+	if (!refreshing) announcePage(focusMoved);
 
 	return true;
 };
@@ -1199,7 +1246,12 @@ const performNavigation = async (nav: Runtime, request: NavigationRequest) => {
 		() => !isCurrent(nav, token)
 	);
 	try {
-		const loaded = await loadDocument(nav, request.url, controller.signal);
+		const loaded = await loadDocument(
+			nav,
+			request.url,
+			controller.signal,
+			request.type === 'refresh'
+		);
 		if (!isCurrent(nav, token)) return outcome('superseded');
 		if (!loaded) return reload(nav, request, false);
 		nav.navigating = true;
@@ -1513,6 +1565,16 @@ const navigateWith =
 		});
 	};
 
+/* The current page again, from the server: same address, same history
+ * entry, same scroll position. */
+const refreshWith = (nav: Runtime) =>
+	performNavigation(nav, {
+		replace: true,
+		scroll: { left: window.scrollX, top: window.scrollY },
+		type: 'refresh',
+		url: new URL(window.location.href)
+	});
+
 /**
  * Install cross-framework document navigation for this tab. Idempotent:
  * every page can call it (each framework bundle carries its own copy of
@@ -1551,7 +1613,8 @@ export const enableNavigation = (options: EnableNavigationOptions = {}) => {
 	if (navigationApi) listenForNavigations(nav, navigationApi);
 	const publicRuntime: PublicRuntime = {
 		navigate: navigateWith(nav),
-		disable: () => teardownRuntime(nav)
+		disable: () => teardownRuntime(nav),
+		refresh: () => refreshWith(nav)
 	};
 	Reflect.set(globalThis, RUNTIME_KEY, publicRuntime);
 	// A static page takes part by making this call like any other page;
