@@ -1,29 +1,26 @@
-import {
-	createHash,
-	createPrivateKey,
-	createPublicKey,
-	sign,
-	verify
-} from 'node:crypto';
+import { createHash, createPublicKey, sign, verify } from 'node:crypto';
 import {
 	existsSync,
-	lstatSync,
 	mkdirSync,
-	mkdtempSync,
 	readFileSync,
-	realpathSync,
 	renameSync,
-	rmSync,
 	writeFileSync
 } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { delimiter, dirname, relative, resolve } from 'node:path';
+import { dirname, relative, resolve } from 'node:path';
 import {
 	createEslintCacheFingerprint,
 	createEslintConfigDigest,
 	findEslintConfigPath
 } from './eslint';
 import { gitVisibleFiles, resolveLintTargets } from './eslintChunked';
+import {
+	createSourceTree,
+	proofPathInTree,
+	publicKeyId,
+	readEd25519PrivateKey,
+	readEd25519PublicKey,
+	visibleFiles
+} from './proofCore';
 
 const DEFAULT_PROOF_LOCATION = '.absolutejs/lint-proof.json';
 const PROOF_CONTRACT_VERSION = 2;
@@ -54,11 +51,6 @@ type ProofResult =
 
 type ValidationResult = { valid: true } | { reason: string; valid: false };
 
-type RunGitOptions = {
-	cwd: string;
-	env?: Record<string, string>;
-};
-
 type CreateLintProofOptions = {
 	cwd?: string;
 	proofLocation?: string;
@@ -79,30 +71,6 @@ type ParsedArgs = {
 	trustedKeyLocation?: string;
 };
 
-const runGit = (args: string[], options: RunGitOptions) => {
-	const proc = Bun.spawnSync(['git', ...args], {
-		cwd: options.cwd,
-		env: { ...process.env, ...options.env },
-		stderr: 'pipe',
-		stdout: 'pipe'
-	});
-	if (proc.exitCode !== 0) {
-		const detail = proc.stderr.toString().trim();
-		throw new Error(detail || `git ${args.join(' ')} failed`);
-	}
-
-	return proc.stdout.toString().trim();
-};
-
-const gitRoot = (cwd: string) =>
-	resolve(runGit(['rev-parse', '--show-toplevel'], { cwd }));
-
-const isInside = (parent: string, candidate: string) => {
-	const path = relative(parent, candidate);
-
-	return path === '' || (!path.startsWith('../') && path !== '..');
-};
-
 const attestationPayload = (proof: LintProof) =>
 	Buffer.from(
 		[
@@ -116,51 +84,6 @@ const attestationPayload = (proof: LintProof) =>
 			})
 		].join('\0')
 	);
-
-const publicKeyId = (key: ReturnType<typeof createPublicKey>) =>
-	createHash('sha256')
-		.update(key.export({ format: 'der', type: 'spki' }))
-		.digest('hex');
-
-const readEd25519PrivateKey = (cwd: string, location: string) => {
-	const path = resolve(cwd, location);
-	if (isInside(realpathSync(gitRoot(cwd)), realpathSync(path))) {
-		throw new Error(
-			'lint proof signing key must live outside the Git working tree'
-		);
-	}
-	const key = createPrivateKey(readFileSync(path));
-	if (key.asymmetricKeyType !== 'ed25519') {
-		throw new Error(
-			'lint proof signing key must be an Ed25519 private key'
-		);
-	}
-
-	return key;
-};
-
-const readEd25519PublicKey = (cwd: string, location: string) => {
-	const key = createPublicKey(readFileSync(resolve(cwd, location)));
-	if (key.asymmetricKeyType !== 'ed25519') {
-		throw new Error('trusted lint proof key must be an Ed25519 public key');
-	}
-
-	return key;
-};
-
-const stageFiles = (
-	files: string[],
-	root: string,
-	env: Record<string, string>
-) => {
-	const batchSize = 200;
-	for (let index = 0; index < files.length; index += batchSize) {
-		runGit(['add', '-f', '--', ...files.slice(index, index + batchSize)], {
-			cwd: root,
-			env
-		});
-	}
-};
 
 /**
  * The `absolute eslint --chunked` args inside a recorded lint command, or null
@@ -222,70 +145,17 @@ export const createLintSourceTree = (
 	proofLocation = DEFAULT_PROOF_LOCATION,
 	command: string[] = []
 ) => {
-	const root = gitRoot(cwd);
-	const proofPath = resolve(cwd, proofLocation);
-	const proofRelative = relative(root, proofPath).replaceAll('\\', '/');
-	if (
-		proofRelative === '..' ||
-		proofRelative.startsWith('../') ||
-		proofRelative === ''
-	) {
-		throw new Error('lint proof must live inside the Git working tree');
-	}
-
-	const temporaryDirectory = mkdtempSync(
-		resolve(tmpdir(), 'absolute-lint-proof-')
+	const { proofRelative, root } = proofPathInTree(
+		cwd,
+		proofLocation,
+		'lint proof'
 	);
-	const temporaryIndex = resolve(temporaryDirectory, 'index');
-	const temporaryObjects = resolve(temporaryDirectory, 'objects');
-	mkdirSync(temporaryObjects, { recursive: true });
-	const repositoryObjectsPath = runGit(
-		['rev-parse', '--git-path', 'objects'],
-		{ cwd: root }
+
+	return createSourceTree(
+		root,
+		lintScopedFiles(command, root) ?? visibleFiles(root),
+		proofRelative
 	);
-	const repositoryObjects = resolve(root, repositoryObjectsPath);
-	const existingAlternates =
-		process.env.GIT_ALTERNATE_OBJECT_DIRECTORIES?.trim();
-	const env: Record<string, string> = {
-		GIT_ALTERNATE_OBJECT_DIRECTORIES: [
-			repositoryObjects,
-			...(existingAlternates ? [existingAlternates] : [])
-		].join(delimiter),
-		GIT_INDEX_FILE: temporaryIndex,
-		GIT_OBJECT_DIRECTORY: temporaryObjects
-	};
-
-	try {
-		runGit(['read-tree', '--empty'], { cwd: root, env });
-		const scoped = lintScopedFiles(command, root);
-		const visible =
-			scoped ??
-			runGit(
-				[
-					'ls-files',
-					'--cached',
-					'--others',
-					'--exclude-standard',
-					'-z'
-				],
-				{ cwd: root }
-			).split('\0');
-		const files = visible.filter((path) => {
-			if (!path || path === proofRelative) return false;
-			try {
-				lstatSync(resolve(root, path));
-
-				return true;
-			} catch {
-				return false;
-			}
-		});
-		stageFiles(files, root, env);
-
-		return runGit(['write-tree'], { cwd: root, env });
-	} finally {
-		rmSync(temporaryDirectory, { force: true, recursive: true });
-	}
 };
 
 /**
@@ -330,7 +200,8 @@ export const writeLintProof = (
 	if (options.signingKeyLocation) {
 		const privateKey = readEd25519PrivateKey(
 			cwd,
-			options.signingKeyLocation
+			options.signingKeyLocation,
+			'lint proof'
 		);
 		const publicKey = createPublicKey(privateKey);
 		proof.attestation = {
@@ -393,7 +264,11 @@ const verifyAttestation = (
 		};
 	let trustedKey: ReturnType<typeof createPublicKey>;
 	try {
-		trustedKey = readEd25519PublicKey(cwd, trustedKeyLocation);
+		trustedKey = readEd25519PublicKey(
+			cwd,
+			trustedKeyLocation,
+			'lint proof'
+		);
 	} catch (error) {
 		return {
 			reason:
