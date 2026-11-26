@@ -8,7 +8,9 @@ import type { DbScripts } from '../../../types/cli';
 import {
 	DEFAULT_PORT,
 	MAX_ERROR_LENGTH,
-	MILLISECONDS_IN_A_SECOND
+	MILLISECONDS_IN_A_SECOND,
+	SIGINT_EXIT_CODE,
+	SIGTERM_EXIT_CODE
 } from '../../constants';
 import { getDurationString } from '../../utils/getDurationString';
 import { stripStringsAndComments } from '../../utils/stripStringsAndComments';
@@ -26,6 +28,7 @@ import { finalizeAbsoluteMobileCompatibilityBuild } from '../../mobile/buildPipe
 import { createAbsoluteMobileRouteMetadataPlugin } from '../../mobile/routeMetadataTransform';
 import { installAbsoluteMobileAuthEnvironment } from '../../mobile/nativeAuth';
 import { normalizeAbsoluteMobileConfig } from '../../mobile/config';
+import { deferBuildLockSignalExit } from '../../utils/buildDirectoryLock';
 import { loadConfig } from '../../utils/loadConfig';
 import {
 	readProductionRuntime,
@@ -405,8 +408,22 @@ const runPreparedServer = async ({
 		process.exit(exitCode);
 	};
 
-	process.on('SIGINT', () => cleanup(0));
-	process.on('SIGTERM', () => cleanup(0));
+	/* The build directory lock registered its own signal handlers while the
+	 * build ran, ahead of these, and they exit the process — so `cleanup`
+	 * never ran: workers were signalled from the `exit` listener below and
+	 * left to drain with nothing waiting for them, the instance stayed in
+	 * the registry and a managed database was never stopped. From here on
+	 * shutdown is this function's. */
+	deferBuildLockSignalExit();
+	/* A second signal exits at once. Until now any signal did, by way of
+	 * the lock's handler; waiting on `cleanup` must not cost the operator
+	 * the ability to stop a shutdown that is stuck. */
+	const onSignal = (immediateExitCode: number) => {
+		if (cleaning) process.exit(immediateExitCode);
+		void cleanup(0);
+	};
+	process.on('SIGINT', () => onSignal(SIGINT_EXIT_CODE));
+	process.on('SIGTERM', () => onSignal(SIGTERM_EXIT_CODE));
 	/* However this process ends, the server it spawned ends with it. Another
 	 * signal handler can exit first: the build directory lock's releases
 	 * the lock and exits, and it is registered while the build runs, before

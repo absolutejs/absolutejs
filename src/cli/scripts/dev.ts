@@ -40,6 +40,7 @@ import { resolveDevBunExecutable } from '../patchedBun';
 import { sendTelemetryEvent } from '../telemetryEvent';
 import {
 	acquireBuildDirectoryLock,
+	deferBuildLockSignalExit,
 	updateLockMetadata
 } from '../../utils/buildDirectoryLock';
 import {
@@ -2744,8 +2745,22 @@ export const dev = async (
 		restart: () => restartServer()
 	});
 
-	process.on('SIGINT', () => cleanup(0));
-	process.on('SIGTERM', () => cleanup(0));
+	/* The build directory lock, acquired at the top of this function,
+	 * registered signal handlers that exit — ahead of these, so `cleanup`
+	 * never ran on a signal: the CLI was gone in 2ms with the dev server
+	 * still alive and its lock already released, the 2s SIGKILL fallback
+	 * for a server that will not stop never armed, and the database,
+	 * mobile sessions and registry entry were left as they were. */
+	deferBuildLockSignalExit();
+	/* A second signal exits at once. Until now any signal did, by way of
+	 * the lock's handler; waiting on `cleanup` must not cost the operator
+	 * the ability to stop a shutdown that is stuck. */
+	const onSignal = (immediateExitCode: number) => {
+		if (cleaning) process.exit(immediateExitCode);
+		void cleanup(0);
+	};
+	process.on('SIGINT', () => onSignal(SIGINT_EXIT_CODE));
+	process.on('SIGTERM', () => onSignal(SIGTERM_EXIT_CODE));
 	process.on('exit', () => {
 		// Best-effort sync cascade so SIGKILL on the parent process group
 		// doesn't strand the child. (process.on('exit') is sync-only.)
