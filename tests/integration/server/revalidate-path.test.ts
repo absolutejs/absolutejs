@@ -51,10 +51,13 @@ export default defineConfig({
 
 const SERVER_TS = `import { Elysia } from 'elysia';
 import {
+	cacheTag,
+	defineLoader,
 	networking,
 	prepare,
 	revalidateAll,
-	revalidatePath
+	revalidatePath,
+	revalidateTag
 } from '${FRAMEWORK}';
 
 const { absolutejs } = await prepare();
@@ -62,9 +65,17 @@ const { absolutejs } = await prepare();
 let count = 0;
 const posts = new Map<string, string>();
 
-const page = () =>
+/* The read is what carries the tag: any page that shows the counter is
+   marked by calling this, without knowing it is. */
+const readCount = defineLoader(async () => {
+	cacheTag('counter');
+
+	return count;
+});
+
+const page = async () =>
 	new Response(
-		\`<!doctype html><html><head><title>Count</title></head><body><p id="count">count:\${count}</p></body></html>\`,
+		\`<!doctype html><html><head><title>Count</title></head><body><p id="count">count:\${await readCount()}</p></body></html>\`,
 		{ headers: { 'content-type': 'text/html; charset=utf-8' } }
 	);
 
@@ -83,6 +94,11 @@ export const server = new Elysia()
 		count += 1;
 
 		return { count, revalidated: await revalidatePath('/count') };
+	})
+	.post('/bump-tagged/:tag', async ({ params }) => {
+		count += 1;
+
+		return { count, ...(await revalidateTag(params.tag)) };
 	})
 	.post('/bump-all', async () => {
 		count += 1;
@@ -311,6 +327,47 @@ describe('revalidatePath under absolute start', () => {
 		expect(existsSync(prerendered('post/never-existed.html'))).toBe(false);
 	});
 
+	/* Both count pages read the counter through one loader, and the
+	 * loader declares the tag. The handler below names no page at all:
+	 * it says which DATA changed, and the pages that show it follow. */
+	test('the build stores each page’s tags beside it', async () => {
+		expect(await readFile(prerendered('count.tags'), 'utf-8')).toBe(
+			'counter\n'
+		);
+	});
+
+	test('revalidateTag re-renders every page that declared the tag', async () => {
+		const result = await post('/bump-tagged/counter');
+
+		expect(result).toEqual({
+			count: 4,
+			failed: [],
+			removed: [],
+			revalidated: ['/count', '/docs/count']
+		});
+		expect(await shown('/count')).toBe('count:4');
+		expect(await shown('/docs/count')).toBe('count:4');
+	});
+
+	test('a tag no page carries re-renders nothing', async () => {
+		expect(await post('/bump-tagged/unused')).toEqual({
+			count: 5,
+			failed: [],
+			removed: [],
+			revalidated: []
+		});
+		// Changed on the server; the pages were not told.
+		expect(await shown('/count')).toBe('count:4');
+	});
+
+	test('a visitor is not sent a page’s tags', async () => {
+		const response = await fetch(url('/live'), {
+			headers: { 'X-Absolute-Partial-Shell': '1' }
+		});
+
+		expect(response.headers.has('x-absolute-cache-tags')).toBe(false);
+	});
+
 	/* With `cluster` on, every worker has its own list of pre-rendered
 	 * routes and they share one directory. "Another worker" here is
 	 * this test changing the directory behind the server's back, which
@@ -324,7 +381,7 @@ describe('revalidatePath under absolute start', () => {
 
 		// Was a 500: the route was still listed and its file was gone.
 		expect(response.status).toBe(200);
-		expect(await response.text()).toContain('count:3');
+		expect(await response.text()).toContain('count:5');
 	});
 
 	test('a page another worker created is served from its file', async () => {

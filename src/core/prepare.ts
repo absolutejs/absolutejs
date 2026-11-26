@@ -25,6 +25,7 @@ import { installAngularZoneRuntime } from '../angular/zoneRuntime';
 import { setIconVersionResolver } from '../utils/iconVersion';
 import { setCurrentIslandManifest } from './islandPageContext';
 import { absoluteRequestContext } from './requestContext';
+import { cacheTagEmitter, routesTagged } from './cacheTags';
 import { health, resolveHealthConfig } from '../plugins/health';
 import { rateLimit } from '../plugins/rateLimit';
 import { routingRules } from '../plugins/routingRules';
@@ -545,6 +546,7 @@ const prepareDev = async (
 		// page/static/user routes (which mount after `.use(absolutejs)`).
 		.use(requestInspector)
 		.use(absoluteRequestContext)
+		.use(cacheTagEmitter())
 		.use(requestLog(config.logging))
 		.use(
 			rateLimit({
@@ -1076,7 +1078,8 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 		registerRevalidator({
 			canCreate,
 			revalidate: revalidation.revalidate,
-			routes: () => [...prerenderMap.keys()]
+			routes: () => [...prerenderMap.keys()],
+			routesTagged: (tags) => routesTagged(prerenderDir, tags)
 		});
 		// Partial prerendering renders a shell's dynamic holes through the
 		// app itself (partialPrerenderServe.ts), captured once it starts.
@@ -1169,6 +1172,7 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 		}).use(formActionMacro());
 		absolutejs
 			.use(absoluteRequestContext)
+			.use(cacheTagEmitter())
 			.use(requestLog(config.logging))
 			.use(
 				rateLimit({
@@ -1222,6 +1226,7 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 	}).use(formActionMacro());
 	absolutejs
 		.use(absoluteRequestContext)
+		.use(cacheTagEmitter())
 		.use(requestLog(config.logging))
 		.use(
 			rateLimit({

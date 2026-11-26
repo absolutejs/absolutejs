@@ -13,6 +13,8 @@ export type Revalidator = {
 	revalidate: (route: string) => Promise<RevalidationOutcome>;
 	/** The routes that are pre-rendered now. */
 	routes: () => string[];
+	/** The pre-rendered routes whose page declared any of `tags`. */
+	routesTagged: (tags: readonly string[]) => string[];
 };
 
 export type RevalidateAllResult = {

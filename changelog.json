@@ -5,6 +5,23 @@
 		{
 			"changes": [
 				{
+					"detail": "`cacheTag(...tags)` marks the page being rendered as showing some data, and `revalidateTag(...tags)` re-renders every pre-rendered page carrying any of those tags. Called beside the read, from a loader, a route's `load`, a handler or anything they call, a tag reaches every page that uses that code, so the code making a change no longer has to name each URL it shows up on. `cacheTag` does nothing outside a request and on a page that is not pre-rendered. `revalidateTag` resolves to `{ revalidated, removed, failed }` like `revalidateAll`, and to three empty lists for a tag no page carries. Tags are kept in a `.tags` file beside the page's HTML and read from there on each call, so clustered workers agree on them; a re-render replaces them, and removes the file when the page declares none. A tag declared after a streamed page's response has started is still recorded, because the response to a pre-render is read to the end before its headers go. Tags are sent only to the pre-renderer (the build's pre-render server, or a request carrying the running server's own bypass token) and never to a visitor. A page is tagged with what it read when it was rendered, so a list needs a collection tag as well as item tags. See docs/REVALIDATION.md.",
+					"kind": "added",
+					"summary": "`cacheTag` and `revalidateTag`: revalidate pre-rendered pages by the data they show",
+					"symbols": [
+						"cacheTag",
+						"revalidateTag",
+						"Revalidator",
+						"AbsoluteRequestStore"
+					]
+				}
+			],
+			"date": "2026-11-26",
+			"version": "0.20.0-beta.407"
+		},
+		{
+			"changes": [
+				{
 					"detail": "With `cluster` on, a page that `revalidatePath` took down in one worker was answered with a 500 by the others. Each worker keeps its own list of pre-rendered routes and they share one directory, so the other workers still listed the route and tried to serve a file that had been deleted. Introduced in beta.404, when `revalidatePath` learned to remove a page. The server now checks the disk before serving a pre-rendered file: a listed route whose file is gone is dropped and the request is rendered. The same check runs the other way, so a page one worker created is served from its file by the others, where they used to render it for every visitor, and a page created through one worker can be taken down through another. A file is adopted only for a path `static.routes` covers and only inside the pre-render directory, and a path with a file extension is never looked for. The cost is one `stat` per request for a pre-rendered page, and one per miss on a path that could be one. Reproduced by changing the directory behind a running server; not run on a real cluster, which only balances on Linux.",
 					"kind": "fixed",
 					"summary": "Clustered workers agree with the disk about which pages are pre-rendered: no 500 for a page another worker removed"

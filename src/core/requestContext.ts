@@ -46,6 +46,8 @@ export type AbsoluteRequestStore = {
 	/** True once this request's response has been handed over: a cookie
 	 *  set after that has no header left to travel in. */
 	responseStarted?: boolean;
+	/** Tags `cacheTag()` declared while this request was rendered. */
+	cacheTags?: Set<string>;
 };
 type AbsoluteRequestStorage = AsyncLocalStorage<AbsoluteRequestStore>;
 

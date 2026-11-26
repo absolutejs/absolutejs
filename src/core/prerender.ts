@@ -14,6 +14,7 @@ import type {
 import { PARTIAL_SHELL_HEADER, writePartialHoles } from './partialPrerender';
 import { ACTION_FLASH_COOKIE } from '../utils/formActionState';
 import { renderedNonce, writeRenderedNonce } from './prerenderNonce';
+import { writeCacheTags } from './cacheTags';
 
 export type PrerenderFailure = {
 	/** Why the route couldn't be pre-rendered */
@@ -204,7 +205,7 @@ const crawlRoutes = async (baseUrl: string) => {
  * Beside the pre-render directory rather than inside it: everything in
  * there is read as a page when the server starts, and a staging file a
  * crash left behind would become a route. */
-const SIDECAR_EXTENSIONS = ['.nonce', '.holes', '.meta'];
+const SIDECAR_EXTENSIONS = ['.nonce', '.holes', '.tags', '.meta'];
 
 const stagingDirFor = (prerenderDir: string) =>
 	join(
@@ -250,6 +251,7 @@ const writeRendered = async (
 		await Bun.write(staged, html);
 		await writeRenderedNonce(staged, renderedNonce(res));
 		await writePartialHoles(staged, res);
+		await writeCacheTags(staged, res);
 		await writeTimestamp(staged);
 		publishStaged(staged, join(prerenderDir, fileName));
 	} finally {
@@ -404,6 +406,8 @@ const prerenderRoute = async (
 	// for each request's own (prerenderNonce.ts).
 	await writeRenderedNonce(filePath, renderedNonce(res));
 	const holes = await writePartialHoles(filePath, res);
+	// What the page said it shows, for `revalidateTag` (cacheTags.ts).
+	await writeCacheTags(filePath, res);
 	await writeTimestamp(filePath);
 	result.routes.set(route, filePath);
 

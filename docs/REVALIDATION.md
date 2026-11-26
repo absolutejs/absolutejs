@@ -142,6 +142,70 @@ Re-renders every pre-rendered page and resolves to
 in `removed` is no longer a page and had its file deleted; one in `failed`
 keeps its previous page.
 
+## Tags: `cacheTag` and `revalidateTag`
+
+`revalidatePath` needs the code making a change to know every URL it
+shows up on. Editing a post touches its own page, the blog index and the
+home page's "latest" list, and the one the handler forgets stays stale.
+Tags turn that round: a page says what data it shows, and a change says
+what data it touched.
+
+```ts
+import { cacheTag, defineLoader, revalidateTag } from '@absolutejs/absolute';
+
+// where the data is READ
+export const posts = defineLoader(async () => {
+	cacheTag('posts');
+	return db.posts.all();
+});
+
+export const post = defineLoader(async (slug: string) => {
+	cacheTag(`post:${slug}`);
+	return db.posts.find(slug);
+});
+
+// where it is CHANGED
+app.post('/admin/posts/:slug', async ({ body, params }) => {
+	await db.posts.update(params.slug, body);
+	await revalidateTag('posts', `post:${params.slug}`);
+});
+```
+
+Every pre-rendered page that used one of those loaders is re-rendered.
+The handler names no page.
+
+- **`cacheTag(...tags)`** marks the page being rendered. Call it beside
+  the read, from a loader, a route's `load`, a handler or anything they
+  call. It does nothing outside a request and on a page that is not
+  pre-rendered, so a loader can call it unconditionally.
+- **`revalidateTag(...tags)`** re-renders every pre-rendered page
+  carrying any of the tags, and resolves like `revalidateAll()`:
+  `{ revalidated, removed, failed }`. A tag no page carries resolves to
+  three empty lists; it is not an error.
+
+### Tag the list as well as the item
+
+A page is tagged with what it read **when it was rendered**. A home page
+that listed posts 1 to 5 knows nothing of post 6, so
+`revalidateTag('post:6')` does not reach it. Give anything that lists
+things a tag for the collection (`posts`) and revalidate that when one is
+added or removed.
+
+### Where tags are kept, and who sees them
+
+The tags a render declared are stored in a `.tags` file beside the
+page's HTML, and read from there each time `revalidateTag` is called.
+Clustered workers therefore agree on them, and a new build re-renders
+every page and records its tags afresh.
+
+A page that streams may call `cacheTag` after its response has started;
+the tag is still recorded, because a pre-render reads the whole page
+before it stores anything.
+
+Tags are sent only to the pre-renderer: the build's own pre-render
+server, and the running server re-rendering its own pages. They are
+never in a response to a visitor.
+
 ## What a caller is promised
 
 - **A render that started after you asked.** If a re-render of the same
