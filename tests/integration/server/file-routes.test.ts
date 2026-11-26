@@ -216,6 +216,24 @@ const expectRoutes = async (port: number) => {
 		(await get(port, '/vault/deep/box?key=open&level=2')).body
 	).toContain('FILE_VAULT_BOX');
 
+	/* `export const ssr = false`: a shell, with the props `load` returned
+	 * and none of the page. Each of these pages reads `window`, the React
+	 * one as its module loads, so a 200 here is also the server never
+	 * having rendered or imported it. */
+	for (const [path, marker, label] of [
+		['/live/board', 'live-board', 'BOARD_PROP'],
+		['/live/feed', 'live-feed', 'FEED_PROP'],
+		['/live/panel', 'live-panel', 'PANEL_PROP']
+	] as const) {
+		const shell = await get(port, path);
+		expect(shell.status).toBe(200);
+		expect(shell.body).toContain(
+			'window.__ABSOLUTE_PAGE_RENDER_MODE__="client"'
+		);
+		expect(shell.body).toContain(`"label":"${label}"`);
+		expect(shell.body).not.toContain(`id="${marker}"`);
+	}
+
 	// Explicit routes win, registered before or after fileRoutes().
 	expect((await get(port, '/about')).body).toBe('EXPLICIT_ABOUT');
 	expect((await get(port, '/explicit-first')).body).toBe('EXPLICIT_FIRST');

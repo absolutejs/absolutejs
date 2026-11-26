@@ -362,6 +362,36 @@ export default function Post({ title, view }: PostProps) {
 	);
 }
 `,
+	/* `ssr = false`: the browser renders these, and the server sends a
+	 * shell. The React page reads `window` as its MODULE loads, not just
+	 * when it renders — the case of a browser-only library — so it also
+	 * proves the page module is never imported on the server. Its `load`
+	 * still runs there and hands over the label. */
+	'react/routes/live/board.server.ts': `export const ssr = false;
+
+export const load = () => ({ label: 'BOARD_PROP' });
+`,
+	'react/routes/live/board.tsx': `import { useState } from 'react';
+
+// Throws on a server, at import: there is no window there.
+const loadedAt = window.location.pathname;
+
+export default function Board({ label }: { label: string; url?: string }) {
+	const [clicks, setClicks] = useState(0);
+
+	return (
+		${reactDocument(
+			'Board',
+			`<main id="live-board" data-loaded-at={loadedAt}>
+					<p id="board-label">{label}</p>
+					<button id="board-clicks" onClick={() => setClicks(clicks + 1)}>
+						clicks {clicks}
+					</button>
+				</main>`
+		)}
+	);
+}
+`,
 	/* Folder guards. `vault/layout.server.ts` stands in front of every
 	 * route under `/vault`, and `vault/deep/layout.server.ts` in front of
 	 * the ones under `/vault/deep` as well, so the deep route is reached
@@ -471,6 +501,22 @@ export const load = ({ params }: FileRouteContext<'/guides/:topic'>) => ({
 
 <div id="svelte-root-layout">{@render children()}</div>
 `,
+	'svelte/routes/live/feed.server.ts': `export const ssr = false;
+
+export const load = () => ({ label: 'FEED_PROP' });
+`,
+	'svelte/routes/live/feed.svelte': `<script lang="ts">
+	let { label }: { label: string; url?: string } = $props();
+	let clicks = $state(0);
+	// Throws on a server: there is no window there.
+	const where = window.location.pathname;
+</script>
+
+<main id="live-feed" data-where={where}>
+	<p id="feed-label">{label}</p>
+	<button id="feed-clicks" onclick={() => (clicks += 1)}>clicks {clicks}</button>
+</main>
+`,
 	'tsconfig.json': JSON.stringify(
 		{
 			compilerOptions: {
@@ -500,6 +546,26 @@ export const load = ({ params }: FileRouteContext<'/guides/:topic'>) => ({
 	 * available to the template without being registered. */
 	'vue/routes/layout.vue': `<template>
 	<div id="vue-root-layout"><slot /></div>
+</template>
+`,
+	'vue/routes/live/panel.server.ts': `export const ssr = false;
+
+export const load = () => ({ label: 'PANEL_PROP' });
+`,
+	'vue/routes/live/panel.vue': `<script setup lang="ts">
+import { ref } from 'vue';
+
+const { label } = defineProps<{ label: string; url?: string }>();
+const clicks = ref(0);
+// Throws on a server: there is no window there.
+const where = window.location.pathname;
+</script>
+
+<template>
+	<main id="live-panel" :data-where="where">
+		<p id="panel-label">{{ label }}</p>
+		<button id="panel-clicks" @click="clicks += 1">clicks {{ clicks }}</button>
+	</main>
 </template>
 `,
 	'vue/routes/shop/_Tag.vue': `<script setup lang="ts">

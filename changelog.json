@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "Islands now work inside a page with `ssr: false`. They did not: the island runtime and manifest are added to a page when its server-rendered markup contains an island, and a client-only page has no server markup, so the island's placeholder appeared when the browser rendered the page and nothing ever mounted into it. The shell of a client-only page now carries the island runtime, manifest and island stylesheets whenever the app has islands; an app with none is unaffected. A second defect was specific to Svelte pages and older than `ssr: false`: when a Svelte page is rendered from nothing in the browser, an island slot that exists but is empty was taken as markup to reuse, so the placeholder was never written. That also affected a Svelte page mounted by the mobile client. Found by testing the three cases the `ssr: false` release listed as untested; hot reloading a client-only page was the second and works in all four frameworks, and a file route with `ssr = false` through the built package is now part of the nightly's file-routes fixture.",
+					"kind": "fixed",
+					"summary": "Islands mount inside a page rendered with `ssr: false`"
+				}
+			],
+			"date": "2026-11-26",
+			"version": "0.20.0-beta.393"
+		},
+		{
+			"changes": [
+				{
 					"detail": "A page can opt out of server rendering. `ssr: false` on `handleReactPageRequest`, `handleSveltePageRequest`, `handleVuePageRequest` or `handleAngularPageRequest` sends the document shell — head, props and scripts — and the browser renders the page; for a file route, `export const ssr = false` from the route's server module does the same. It is for a page built on a library that needs `window`, or a signed-in page whose first paint is a spinner either way. Everything around the render is unchanged: the route's handler, guards, `beforeHandle`, `load` and redirects run on the server as before, and props reach the page through the shell. A React file route's page module is not imported on the server at all, since a library that touches `window` as it loads fails at import rather than at render. Each framework's client entry already had a branch that mounts into an empty document instead of hydrating, used by the mobile client; this sets the same flag from a web page handler. Combining it with Vue's `client: 'none'` throws, and it is reported on an HTML or HTMX route, where it would do nothing. There is no app-wide switch. See docs/CLIENT_ONLY_PAGES.md.",
 					"kind": "added",
 					"summary": "`ssr: false` renders a page in the browser only",

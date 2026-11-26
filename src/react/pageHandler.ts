@@ -120,6 +120,7 @@ const clientOnlyReactPage = (
 	return clientOnlyResponse({
 		bootstrap: `${propsScript}${buildRefreshSetup()}`,
 		head: `<head>${basePathHeadTags(getBasePath(), readCspNonce())}</head>`,
+		islandHost: 'react',
 		root: '',
 		tail: `<script${nonceAttr()} type="module" src="${withBasePath(index)}"></script>`
 	});

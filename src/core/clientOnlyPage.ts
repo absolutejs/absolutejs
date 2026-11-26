@@ -14,6 +14,10 @@
  * mismatch error, not a blank page. */
 
 import { HTML_CONTENT_TYPE } from '../constants';
+import {
+	injectIslandContextForClientRender,
+	type IslandHost
+} from './islandPageContext';
 import { nonceAttr } from '../utils/cspNonceRef';
 import { escapeScriptContent } from '../utils/escapeScriptContent';
 import { htmlLangAttributes } from '../utils/localeRef';
@@ -27,6 +31,9 @@ type ClientOnlyDocument = {
 	bootstrap: string;
 	/** A complete `<head>…</head>`. */
 	head: string;
+	/** Set by the framework whose own root renders the whole document
+	 *  (React), so the island runtime waits for it. */
+	islandHost?: IslandHost;
 	/** What goes in `<body>` ahead of the scripts: the empty element the
 	 *  framework mounts into, if it needs one. */
 	root: string;
@@ -47,6 +54,10 @@ export const clientOnlyDocument = ({
  *  headers are the caller's to add, through the same wrapper a rendered
  *  page goes through. */
 export const clientOnlyResponse = (document: ClientOnlyDocument) =>
-	new Response(clientOnlyDocument(document), {
-		headers: { 'Content-Type': HTML_CONTENT_TYPE }
-	});
+	new Response(
+		injectIslandContextForClientRender(
+			clientOnlyDocument(document),
+			document.islandHost
+		),
+		{ headers: { 'Content-Type': HTML_CONTENT_TYPE } }
+	);

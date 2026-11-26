@@ -70,5 +70,10 @@ export const resolveIslandHtml = (
 		`[data-absolute-island-slot="${slotId}"]`
 	);
 
-	return slot?.innerHTML ?? buildFallbackMarkup(props);
+	/* An EMPTY slot is not markup to reuse. This is only asked when the
+	 * slot holds no island (see `absoluteIslandSlot`), and on a page the
+	 * browser renders from nothing the slot is there and empty — `??`
+	 * took that empty string as the answer, so the island's placeholder
+	 * was never written and nothing ever mounted. */
+	return slot?.innerHTML || buildFallbackMarkup(props);
 };

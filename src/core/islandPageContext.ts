@@ -571,6 +571,24 @@ const blurScriptFor = (html: string | undefined) => {
 	return `<script${nonceAttr()}>globalThis[Symbol.for('absolutejs.blurPlaceholders')] = ${escapeScriptContent(JSON.stringify(used))}</script>`;
 };
 
+export const injectIslandContextForClientRender = (
+	html: string,
+	host?: IslandHost
+) => {
+	const manifest = globalThis.__absoluteManifest;
+	if (!manifest || !getIslandBootstrapPath(manifest)) return html;
+	const styleLinks = getIslandStyleManifestEntries(manifest)
+		.map(
+			([key, href]) =>
+				`<link rel="stylesheet" href="${href}" data-island-style="${key}"${nonceAttr()}>`
+		)
+		.join('');
+
+	return injectHeadMarkup(
+		html,
+		`${styleLinks}${buildIslandsHeadMarkup(manifest, undefined, host)}`
+	);
+};
 export const injectIslandPageContext = (
 	html: string,
 	options?: { hasIslands?: boolean }
