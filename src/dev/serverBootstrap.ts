@@ -10,6 +10,7 @@ import {
 } from '../utils/bootTimeline';
 import { installHotRejectionGuard } from './hotRejectionGuard';
 import { printImportCostHint } from './importCost/hint';
+import { preloadTypebox } from './preloadTypebox';
 import {
 	isMissingAbsoluteServerEntryCopyError,
 	isStaleAbsoluteServerEntryCopy
@@ -175,6 +176,9 @@ if (
 	const runtimeEntry = existsSync(compiledRuntime)
 		? compiledRuntime
 		: join(import.meta.dir, '..', 'index.ts');
+	// The runtime's graph reaches TypeBox, which the app's own imports may
+	// `require()` synchronously while that graph is still loading.
+	await preloadTypebox(entryDir);
 	markBoot('prebuild import issued');
 	void import(runtimeEntry)
 		.then((runtime: { startDevPrebuild?: () => Promise<unknown> }) => {

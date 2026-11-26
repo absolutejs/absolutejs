@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "`absolute dev` no longer crashes intermittently at startup with `require() async module \".../typebox/build/type/index.mjs\" is unsupported`. The dev bootstrap imports the framework runtime in parallel with the app's server entry; Elysia 2 loads TypeBox with a synchronous `require()` on the first `t.*` call, and Bun rejects a `require()` of a module an `import` is still loading. An app whose imports build schemas at module scope, such as an auth plugin, died whenever the two overlapped: 5 of 12 boots of the example app. The bootstrap now loads TypeBox to completion before it issues the parallel import, resolved from Elysia's own location. 30 of 30 boots start after the change; with the parallel prebuild disabled (`ABSOLUTE_DEV_PREBUILD=0`) the crash never occurred, which is what identified the cause.",
+					"kind": "fixed",
+					"summary": "`absolute dev` no longer crashes at startup when the app builds Elysia schemas while the runtime is loading"
+				}
+			],
+			"date": "2026-11-26",
+			"version": "0.20.0-beta.382"
+		},
+		{
+			"changes": [
+				{
 					"detail": "`src/build/compileAngular.ts` passes the lint, and with it all 100 files of the framework's own compilers do: the list of exceptions in `eslint.config.mjs` is empty. The providers injection, the wrapper hash input and several nested scanners became module-level functions; three functions nothing called were removed. Checked by output: the example app and 20 Angular fixture pages were compiled in AOT and JIT mode with the old and the new compiler, including router options, and all 169 output files are identical, as is every file of a full build of the example app. No behaviour changes.",
 					"kind": "internal",
 					"summary": "Every file in `src/build/` is linted; the last one was the Angular compiler"
