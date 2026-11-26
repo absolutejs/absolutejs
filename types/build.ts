@@ -500,6 +500,14 @@ export type StaticConfig = {
 	routes: StaticRoutePath[] | 'all';
 	/** Revalidation interval in seconds. When set, stale pages are re-rendered in the background (ISR). */
 	revalidate?: number;
+	/** Where the running server keeps its pre-rendered pages, in place
+	 *  of the build's own `_prerendered/`. Set it when the build
+	 *  directory cannot be written, or to a volume several machines
+	 *  share so a revalidation on one reaches the others. Each build
+	 *  uses its own folder inside it. An absolute path is safest: a
+	 *  relative one is resolved against the directory the server is
+	 *  started from. */
+	directory?: string;
 	/** Enables `POST /__absolute/revalidate`, so something outside the
 	 *  app — a CMS webhook, a job — can revalidate paths and tags by
 	 *  sending this value as a bearer token. A secret: take it from the

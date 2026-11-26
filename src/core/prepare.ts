@@ -27,6 +27,10 @@ import { setCurrentIslandManifest } from './islandPageContext';
 import { absoluteRequestContext } from './requestContext';
 import { cacheTagEmitter, routesTagged } from './cacheTags';
 import { revalidateEndpoint } from './revalidateEndpoint';
+import {
+	prerenderDirectoryProblem,
+	usablePrerenderDirectory
+} from './prerenderDirectory';
 import { health, resolveHealthConfig } from '../plugins/health';
 import { rateLimit } from '../plugins/rateLimit';
 import { routingRules } from '../plugins/routingRules';
@@ -634,6 +638,23 @@ const prerenderedFiles = (directory: string, prefix = ''): string[] => {
 	});
 };
 
+/* A re-render that cannot write used to fail without a word: the call
+ * resolved `false`, the interval's background render was swallowed, and
+ * the page stayed as the build left it. Said once, at startup, to an app
+ * that has asked for its pages to change — one that only pre-renders at
+ * build time never writes here and is told nothing. */
+const warnIfPagesCannotBeUpdated = (
+	prerenderDir: string,
+	staticConfig: BuildConfig['static']
+) => {
+	if (staticConfig === undefined) return;
+	const problem = prerenderDirectoryProblem(prerenderDir);
+	if (problem === undefined) return;
+	logWarn(
+		`Pre-rendered pages cannot be updated: ${prerenderDir} is not writable (${problem}). revalidatePath, revalidateTag and static.revalidate will leave every page as it is. Set static.directory to a writable path.`
+	);
+};
+
 const loadPrerenderMap = (prerenderDir: string) => {
 	const map = new Map<string, string>();
 	if (!existsSync(prerenderDir)) return map;
@@ -998,7 +1019,13 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 
 	// Check for pre-rendered pages (from SSG or compile)
 	stepStartedAt = performance.now();
-	const prerenderDir = join(buildDir, '_prerendered');
+	// The build's own `_prerendered/`, or this build's folder under
+	// `static.directory` (prerenderDirectory.ts).
+	const prerenderDir = usablePrerenderDirectory(
+		buildDir,
+		config.static?.directory,
+		logWarn
+	);
 	const prerenderMap = loadPrerenderMap(prerenderDir);
 	const mobileCompatibilityPlugin =
 		await loadMobileCompatibilityPlugin(buildDir);
@@ -1015,6 +1042,7 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 	 * blog built before its first post has no pages yet, and the first
 	 * one `revalidatePath` creates needs somewhere to be served from. */
 	if (prerenderMap.size > 0 || config.static !== undefined) {
+		warnIfPagesCannotBeUpdated(prerenderDir, config.static);
 		const {
 			PRERENDER_BYPASS_HEADER,
 			PRERENDER_BYPASS_TOKEN,
