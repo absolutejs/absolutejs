@@ -14,6 +14,28 @@ const heldLocks = new Map<
 const HELD_LOCKS_ENV = 'ABSOLUTE_HELD_BUILD_DIRECTORY_LOCKS';
 
 let exitHandlersRegistered = false;
+let signalExitDeferred = false;
+
+/** Hands the decision to exit on SIGINT/SIGTERM to the caller.
+ *
+ *  The handlers below exit the process, because a signal listener
+ *  suppresses the default terminate and a build interrupted half-way has
+ *  nothing else to wait for. But they are registered by the first build
+ *  and never removed, and listeners run in registration order — so a
+ *  process that builds and THEN does something long-lived could never run
+ *  its own shutdown: this exit always came first. `absolute start` is
+ *  that process. Its handlers stop every worker and wait for each to
+ *  drain its in-flight requests; they never got the chance, and the CLI
+ *  exited with 143 while its server was still finishing.
+ *
+ *  After this call a signal does nothing here. Held locks are released
+ *  when the process actually exits (the `exit` listener), not at the
+ *  signal — the caller may still be stopping the server that is using
+ *  the directory. The caller must have its own SIGINT and SIGTERM
+ *  listeners that exit, or the process will not stop. */
+export const deferBuildLockSignalExit = () => {
+	signalExitDeferred = true;
+};
 
 const registerExitHandlersOnce = () => {
 	if (exitHandlersRegistered) return;
@@ -32,10 +54,12 @@ const registerExitHandlersOnce = () => {
 
 	process.on('exit', releaseAllSync);
 	process.on('SIGINT', () => {
+		if (signalExitDeferred) return;
 		releaseAllSync();
 		process.exit(130);
 	});
 	process.on('SIGTERM', () => {
+		if (signalExitDeferred) return;
 		releaseAllSync();
 		process.exit(143);
 	});

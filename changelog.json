@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "`absolute start` and `absolute dev` now run their own shutdown when signalled. Both were meant to, and neither did: the build directory lock registers SIGINT and SIGTERM handlers during the build, they ran first, and they exit the process. (1) `absolute start` exited at once with 143 while the server it had spawned was still answering in-flight requests — measured with a request 300ms into 1500ms of work, the CLI was gone at 304ms. Where the CLI is the process a supervisor watches, such as a container's first process, its exit ends the container and the draining server with it, which is the dropped-request case graceful shutdown exists to prevent. It now exits after the last worker has, with code 0. (2) `absolute dev`, stopped by a signal rather than its `q` key, was gone in 2ms with its dev server still alive and the build lock already released; the SIGKILL fallback for a server that will not stop never armed. It now stops the server first. In both, the skipped path also left the instance in the `absolute ps` registry and never stopped a managed database. A second signal during shutdown exits immediately with the conventional code (130 or 143), so a stuck shutdown can still be interrupted. `deferBuildLockSignalExit()` in `src/utils/buildDirectoryLock.ts` is how a long-lived caller takes over the exit; a build interrupted by a signal still exits as before.",
+					"kind": "fixed",
+					"summary": "`absolute start` waits for in-flight requests before exiting on SIGTERM, and `absolute dev` stops its server first"
+				}
+			],
+			"date": "2026-11-26",
+			"version": "0.20.0-beta.384"
+		},
+		{
+			"changes": [
+				{
 					"detail": "Two fixes in the style pipeline. (1) A CSS `@import` with a media query, `layer()` or `supports()` — `@import \"./print.css\" print;` — was inlined as if it had no condition, so its rules applied everywhere, and the qualifier was left behind as stray text (`print;`). Only the bare form is inlined now; a qualified import passes through whole, which is what the comments in the code already claimed. (2) A Sass or Stylus compile error named a line of the compiler's JavaScript as if it were a line of the stylesheet: a four-line `.scss` file failed at `bad.scss:8310:24`, because every Error in Bun carries `line` and `column` for the code that threw and those were read first. The location is now read per compiler: Sass from its span (counted from 1), Less from its own line with the column counted from 1 (it was counted from 0, so `:3:9` is now `:3:10`), and none for Stylus, whose message already names the line. An error inside an imported partial no longer puts the partial's line after the entry file's path.",
 					"kind": "fixed",
 					"summary": "Qualified CSS `@import`s are no longer inlined unconditionally, and Sass errors report the stylesheet line"
