@@ -417,6 +417,12 @@ export const load = ({ params }: FileRouteContext<'/guides/:topic'>) => ({
 	'svelte/routes/guides/[topic].svelte': `<script lang="ts">
 	let { topic }: { topic: string; url?: string } = $props();
 	let clicks = $state(0);
+
+	// Browser only, once the page is live: what a test waits for before
+	// it clicks.
+	$effect(() => {
+		Reflect.set(window, '__guideHydrated', true);
+	});
 </script>
 
 <svelte:head><title>Guide</title></svelte:head>
@@ -480,11 +486,17 @@ export const load = ({ params }: FileRouteContext<'/shop/:item'>) => ({
 });
 `,
 	'vue/routes/shop/[item].vue': `<script setup lang="ts">
-import { ref } from 'vue';
+import { onMounted, ref } from 'vue';
 import Tag from './_Tag.vue';
 
 const { item } = defineProps<{ item: string; url?: string }>();
 const clicks = ref(0);
+
+// Browser only, once the page is live: what a test waits for before it
+// clicks.
+onMounted(() => {
+	Reflect.set(window, '__itemHydrated', true);
+});
 </script>
 
 <template>
