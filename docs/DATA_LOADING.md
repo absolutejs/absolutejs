@@ -151,3 +151,64 @@ reported for you; the error is yours to handle.
 `partial` tolerates a source being down. A `NotFound`, or a `Response`
 thrown as a redirect, is still thrown: those answer the request, and
 swallowing one would render a page for something that does not exist.
+
+## `invalidate()`: after the data changes
+
+A page gets its data once, as it is rendered. After the browser changes
+that data, the page on screen shows how things were. `invalidate()` asks
+the server for the page again and swaps the answer in:
+
+```ts
+import { invalidate } from '@absolutejs/absolute/client';
+
+await fetch('/api/todos', { body, method: 'POST' });
+await invalidate();
+```
+
+The route's `load` runs again and the page shows the result. The address,
+the history entry and the scroll position stay as they were, focus goes
+back to the element that had it (matched by `id`), and there is no view
+transition. It never answers from the HTTP cache or from a prefetched copy
+of the page.
+
+It works on every kind of page — React, Svelte, Vue, Angular, HTML, HTMX —
+because the browser keeps no second copy of the data: the server remains
+the one place a page's data is put together.
+
+### After a form action
+
+A form action can do it for you once it succeeds:
+
+```tsx
+const add = actions.useFormAction('/actions/add-todo', { invalidate: true });
+```
+
+```html
+<form action="/actions/add-todo" method="post" data-absolute-action data-action-invalidate>
+```
+
+The option is on every binding (`useFormAction` in React, Vue and Angular,
+`formAction` in Svelte) and on `submitFormAction`. It is skipped for a
+result that redirects, and for a failed submission, whose errors stay on
+screen.
+
+It is **off by default**, for the reason below.
+
+### What it costs
+
+The page is mounted again. State the page's own components hold starts
+over: an open menu, text typed into an uncontrolled field, and a form
+binding's own `data` and success state. So turn `invalidate` on for a form
+whose outcome shows in the page's data (the new row in the list), not for
+one that shows a "saved" message from its own state.
+
+An island marked `persist` keeps its state, as it does across any soft
+navigation.
+
+### Without the navigation layer
+
+On a page that has not called `enableNavigation()`, or one that cannot be
+torn down, `invalidate()` reloads the page. The promise resolves to how it
+ended: `'swapped'`, `'reloaded'`, `'superseded'` (a newer navigation or
+refresh started first) or `'cancelled'` (an `absolute:before-navigate`
+listener refused it; the event's `type` is `'refresh'`).

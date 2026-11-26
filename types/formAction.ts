@@ -33,6 +33,12 @@ export type FormActionBindingOptions<Data = unknown> = {
 	 *  arrives through a cookie and props, so any action state is
 	 *  accepted; the binding's type parameters type it. */
 	initialState?: ActionState | null;
+	/** Refresh the page's data once the action succeeds, by fetching the
+	 *  page again and swapping it in place (`invalidate()`). Default
+	 *  false: the page is mounted again, so this binding's own `data`
+	 *  and success state do not outlive the refresh. Use it where the
+	 *  outcome shows in the page's data. */
+	invalidate?: boolean;
 	/** What to show as `data` while the submission is in flight, derived
 	 *  from what is being sent. Called once per submission, before the
 	 *  request starts; the real result replaces it, and a failure clears
