@@ -14,6 +14,7 @@ import { Elysia, ElysiaError, InternalServerError, NotFound } from 'elysia';
 import type { staticPlugin } from '@elysia/static';
 import type { BuildConfig, MobileConfig } from '../../types/build';
 import type { ConventionsMap } from '../../types/conventions';
+import type { RevalidationOutcome } from '../../types/revalidate';
 import { HTTP_STATUS_INTERNAL_SERVER_ERROR } from '../constants';
 import { withOpenApi } from '../plugins/openApiPlugin';
 import { withTelemetry } from '../plugins/telemetryPlugin';
@@ -1007,12 +1008,17 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 	);
 	recordStep('load prerender map', stepStartedAt);
 
-	if (prerenderMap.size > 0) {
+	/* Also for an app that pre-rendered nothing but is configured to: a
+	 * blog built before its first post has no pages yet, and the first
+	 * one `revalidatePath` creates needs somewhere to be served from. */
+	if (prerenderMap.size > 0 || config.static !== undefined) {
 		const {
 			PRERENDER_BYPASS_HEADER,
 			PRERENDER_BYPASS_TOKEN,
 			readTimestamp,
+			removePrerendered,
 			rerenderRoute,
+			routeToFilename,
 			shouldSkipPrerendered
 		} = await import('./prerender');
 
@@ -1023,12 +1029,42 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 
 		// One render per route at a time, shared by the interval below
 		// and by `revalidatePath` (revalidate.ts).
-		const { createRevalidationQueue, registerRevalidator } =
-			await import('./revalidate');
-		const revalidation = createRevalidationQueue((route) =>
-			rerenderRoute(route, port, prerenderDir)
+		const {
+			createRevalidationQueue,
+			createStaticRouteMatcher,
+			registerRevalidator
+		} = await import('./revalidate');
+		/* The map of pre-rendered routes is no longer fixed at startup:
+		 * a page a re-render produced is added to it, and one that is
+		 * no longer a page is taken out — before its file is deleted,
+		 * so no request is handed a file that has gone. */
+		const bringUpToDate = async (route: string) => {
+			const rendered = await rerenderRoute(route, port, prerenderDir);
+			const failed: RevalidationOutcome = 'failed';
+			const removed: RevalidationOutcome = 'removed';
+			const replaced: RevalidationOutcome = 'replaced';
+			if (rendered === 'failed') return failed;
+			if (rendered === 'replaced') {
+				prerenderMap.set(
+					route,
+					join(prerenderDir, routeToFilename(route))
+				);
+
+				return replaced;
+			}
+			// Nothing was cached and nothing is: not a change.
+			if (!prerenderMap.delete(route)) return failed;
+			removePrerendered(prerenderDir, route);
+
+			return removed;
+		};
+		const failedOutcome: RevalidationOutcome = 'failed';
+		const revalidation = createRevalidationQueue(
+			bringUpToDate,
+			failedOutcome
 		);
 		registerRevalidator({
+			canCreate: createStaticRouteMatcher(config.static?.routes),
 			revalidate: revalidation.revalidate,
 			routes: () => [...prerenderMap.keys()]
 		});

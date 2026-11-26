@@ -261,6 +261,77 @@ const writeRendered = async (
  * Re-render a single route by fetching it from the running server
  * with the bypass header so it hits SSR instead of the cache.
  */
+/* What the server said when asked for a page again, sorted by what it
+ * means for the copy on disk.
+ *
+ * A page that rendered replaces it. A server error, a timeout or a
+ * document cut short says nothing about the page — the app is having a
+ * bad moment — so the copy stays; serving yesterday's page beats serving
+ * none. But a 404, a 410, a redirect, a 401: those are the app saying
+ * this address is no longer a page. Keeping the copy then serves, for as
+ * long as the server runs, something the app has taken down. That was
+ * the behaviour until now: a deleted post stayed up until the next
+ * deploy, and `revalidatePath` on it reported failure and changed
+ * nothing.
+ *
+ * The three statuses left out of "gone" are a server asking to be
+ * retried, not answering about the page. */
+export type RerenderOutcome = 'failed' | 'gone' | 'replaced';
+
+const outcome = (value: RerenderOutcome) => value;
+
+const HTTP_REDIRECT_FLOOR = 300;
+const HTTP_SERVER_ERROR_FLOOR = 500;
+const HTTP_REQUEST_TIMEOUT = 408;
+const HTTP_TOO_EARLY = 425;
+const HTTP_TOO_MANY_REQUESTS = 429;
+const RETRY_LATER = new Set([
+	HTTP_REQUEST_TIMEOUT,
+	HTTP_TOO_EARLY,
+	HTTP_TOO_MANY_REQUESTS
+]);
+
+const isNoLongerAPage = (res: Response) => {
+	const { status } = res;
+	if (res.ok)
+		return !(res.headers.get('content-type') ?? '').includes('text/html');
+
+	return (
+		status >= HTTP_REDIRECT_FLOOR &&
+		status < HTTP_SERVER_ERROR_FLOOR &&
+		!RETRY_LATER.has(status)
+	);
+};
+
+/** Deletes a pre-rendered page and its sidecars. The caller stops
+ *  serving the route from the cache FIRST: a request that still found
+ *  the route would be handed a file that is no longer there. */
+export const removePrerendered = (prerenderDir: string, route: string) => {
+	const live = join(prerenderDir, routeToFilename(route));
+	rmSync(live, { force: true });
+	SIDECAR_EXTENSIONS.forEach((extension) =>
+		rmSync(sidecar(live, extension), { force: true })
+	);
+};
+
+const saveRerender = async (
+	res: Response,
+	prerenderDir: string,
+	route: string
+) => {
+	if (isNoLongerAPage(res)) {
+		await res.body?.cancel().catch(() => undefined);
+
+		return outcome('gone');
+	}
+	if (!res.ok) return outcome('failed');
+	const html = await res.text();
+	if (!isCompleteHtml(html)) return outcome('failed');
+	await writeRendered(res, html, prerenderDir, routeToFilename(route));
+
+	return outcome('replaced');
+};
+
 export const rerenderRoute = async (
 	route: string,
 	port: number,
@@ -274,15 +345,10 @@ export const rerenderRoute = async (
 			},
 			redirect: 'manual'
 		});
-		if (!res.ok) return false;
 
-		const html = await res.text();
-		if (!isCompleteHtml(html)) return false;
-		await writeRendered(res, html, prerenderDir, routeToFilename(route));
-
-		return true;
+		return await saveRerender(res, prerenderDir, route);
 	} catch {
-		return false;
+		return outcome('failed');
 	}
 };
 

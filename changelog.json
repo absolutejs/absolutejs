@@ -5,6 +5,24 @@
 		{
 			"changes": [
 				{
+					"detail": "`revalidatePath` now takes a page down and puts a new one up. A pre-rendered page whose content was deleted used to stay up for as long as the server ran: the re-render got a 404, counted it as a failed render, and deliberately kept the old page, so revalidating it reported failure and changed nothing. A re-render answered with a 404, a 410, a redirect, a 401 or 403, or anything that is not HTML now means the path is no longer a page: its file is deleted and the route is rendered per request. A server error, a 408, a 425 or a 429 still keeps the previous page. The other way round, a page that did not exist at build time, such as a post published after the deploy, can now be given a file: `revalidatePath` creates one for any path `static.routes` covers (a path it lists, one a pattern matches, or any path under `routes: 'all'`). That works for a route registered in `server.ts` as well, which the build cannot enumerate. An app configured with `static` but with nothing pre-rendered at build time can now have its first page created. `revalidatePath` resolves to `true` for a page replaced, created or removed, and to `false` when nothing changed. `revalidateAll()` gains `removed`, the routes that are no longer pages. A re-render of a 200 that is not HTML used to be written to the page's file; it no longer is. See docs/REVALIDATION.md.",
+					"kind": "added",
+					"summary": "`revalidatePath` removes a page that no longer exists and creates one for a path `static.routes` covers",
+					"symbols": [
+						"revalidatePath",
+						"revalidateAll",
+						"RevalidateAllResult",
+						"RevalidationOutcome",
+						"Revalidator"
+					]
+				}
+			],
+			"date": "2026-11-26",
+			"version": "0.20.0-beta.404"
+		},
+		{
+			"changes": [
+				{
 					"detail": "A path with a param in `static.routes`, such as `/blog/:slug`, now stands for one page per param set that file route's `entries()` returns, so a dynamic file route can be pre-rendered without listing every URL by hand. `entries()` is the export the sitemap already reads. The pattern is written as `route()` takes it (`:name`, `:name?` for an optional segment, the file's name for a catch-all), the path the server registers (`/docs/*`) is accepted too, and the config offers the project's file routes as completions. Until now such an entry was fetched as a literal URL and wrote one page for the pattern itself. A pattern that cannot become pages is printed as a pre-render failure and never skipped: no file route has that path, the route has no server module or no `entries()`, `entries()` threw or did not return an array. A param set missing a param costs that page only. The expansion runs in `absolute start`, `absolute compile` and `absolute export`. Pre-rendering also renders four pages at a time, where it used to render one after another. A route registered in `server.ts` has no `entries()` and still needs its pages listed. See docs/REVALIDATION.md.",
 					"kind": "added",
 					"summary": "A pattern in `static.routes` pre-renders a dynamic file route from its `entries()`",

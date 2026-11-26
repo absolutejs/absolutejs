@@ -131,7 +131,7 @@ const expandPattern = async (
 	if (!route)
 		return failed(
 			pattern,
-			'no file route has this path. A pattern is filled in from a file route’s entries(); a route registered in server.ts has none, so list its pages one by one'
+			'no file route has this path. A pattern is filled in from a file route’s entries(); a route registered in server.ts has none, so the build pre-renders none of its pages. List them one by one to pre-render them now, or let revalidatePath create each one'
 		);
 	if (!route.server)
 		return failed(

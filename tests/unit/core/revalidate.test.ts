@@ -10,9 +10,11 @@ import { existsSync, readdirSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { rerenderRoute } from '../../../src/core/prerender';
+import type { RevalidationOutcome } from '../../../types/revalidate';
+import { removePrerendered, rerenderRoute } from '../../../src/core/prerender';
 import {
 	createRevalidationQueue,
+	createStaticRouteMatcher,
 	registerRevalidator,
 	revalidateAll,
 	revalidatePath
@@ -55,7 +57,7 @@ const tick = () => Bun.sleep(0);
 describe('the revalidation queue', () => {
 	test('renders a route that is idle, once', async () => {
 		const { render, started } = manualRenderer();
-		const queue = createRevalidationQueue(render);
+		const queue = createRevalidationQueue(render, false);
 
 		const done = queue.revalidate('/blog');
 		expect(queue.isBusy('/blog')).toBe(true);
@@ -71,7 +73,7 @@ describe('the revalidation queue', () => {
 	 * "succeeded" would be a lie about the page. */
 	test('a caller during a render gets the NEXT render, not that one', async () => {
 		const { render, started } = manualRenderer();
-		const queue = createRevalidationQueue(render);
+		const queue = createRevalidationQueue(render, false);
 		const settled: string[] = [];
 
 		void queue.revalidate('/blog').then(() => settled.push('first'));
@@ -91,7 +93,7 @@ describe('the revalidation queue', () => {
 
 	test('a burst during one render shares a single following render', async () => {
 		const { render, started } = manualRenderer();
-		const queue = createRevalidationQueue(render);
+		const queue = createRevalidationQueue(render, false);
 
 		void queue.revalidate('/blog');
 		const burst = [
@@ -109,7 +111,7 @@ describe('the revalidation queue', () => {
 
 	test('routes do not wait for each other', async () => {
 		const { render, started } = manualRenderer();
-		const queue = createRevalidationQueue(render);
+		const queue = createRevalidationQueue(render, false);
 
 		void queue.revalidate('/blog');
 		void queue.revalidate('/about');
@@ -118,9 +120,13 @@ describe('the revalidation queue', () => {
 	});
 
 	test('a render that fails, or throws, is false and frees the route', async () => {
-		const failing = createRevalidationQueue(() => Promise.resolve(false));
-		const throwing = createRevalidationQueue(() =>
-			Promise.reject(new Error('render exploded'))
+		const failing = createRevalidationQueue(
+			() => Promise.resolve(false),
+			false
+		);
+		const throwing = createRevalidationQueue<boolean>(
+			() => Promise.reject(new Error('render exploded')),
+			false
 		);
 
 		expect(await failing.revalidate('/blog')).toBe(false);
@@ -131,12 +137,18 @@ describe('the revalidation queue', () => {
 
 describe('revalidatePath and revalidateAll', () => {
 	const rendered: string[] = [];
-	const register = (routes: string[], failing: string[] = []) =>
+	type Registered = {
+		creatable?: string[];
+		outcomes?: Record<string, RevalidationOutcome>;
+		routes: string[];
+	};
+	const register = ({ creatable = [], outcomes = {}, routes }: Registered) =>
 		registerRevalidator({
+			canCreate: (route) => creatable.includes(route),
 			revalidate: (route) => {
 				rendered.push(route);
 
-				return Promise.resolve(!failing.includes(route));
+				return Promise.resolve(outcomes[route] ?? 'replaced');
 			},
 			routes: () => routes
 		});
@@ -147,14 +159,14 @@ describe('revalidatePath and revalidateAll', () => {
 	});
 
 	test('re-renders a pre-rendered route', async () => {
-		register(['/', '/blog']);
+		register({ routes: ['/', '/blog'] });
 
 		expect(await revalidatePath('/blog')).toBe(true);
 		expect(rendered).toEqual(['/blog']);
 	});
 
 	test('reads a trailing slash, a query and a full URL as the route', async () => {
-		register(['/', '/blog']);
+		register({ routes: ['/', '/blog'] });
 
 		await revalidatePath('/blog/');
 		await revalidatePath('/blog?page=2#top');
@@ -164,15 +176,35 @@ describe('revalidatePath and revalidateAll', () => {
 		expect(rendered).toEqual(['/blog', '/blog', '/blog', '/']);
 	});
 
-	test('is false, and renders nothing, for a route that is not pre-rendered', async () => {
-		register(['/blog']);
+	test('is false, and renders nothing, for a path static.routes does not cover', async () => {
+		register({ routes: ['/blog'] });
 
 		expect(await revalidatePath('/dashboard')).toBe(false);
 		expect(rendered).toEqual([]);
 	});
 
+	/* A post published after the build: not pre-rendered, but its path
+	 * is one the config covers, so asking creates its page. */
+	test('renders a path that is not pre-rendered yet when the config covers it', async () => {
+		register({ creatable: ['/blog/new-post'], routes: ['/blog/old'] });
+
+		expect(await revalidatePath('/blog/new-post')).toBe(true);
+		expect(rendered).toEqual(['/blog/new-post']);
+	});
+
+	/* A deleted post: the page being taken down IS the cache made
+	 * current, so it is a success, not a failure. */
+	test('is true when the page was removed because it is no longer one', async () => {
+		register({
+			outcomes: { '/blog/gone': 'removed' },
+			routes: ['/blog/gone']
+		});
+
+		expect(await revalidatePath('/blog/gone')).toBe(true);
+	});
+
 	test('is false when the render fails', async () => {
-		register(['/blog'], ['/blog']);
+		register({ outcomes: { '/blog': 'failed' }, routes: ['/blog'] });
 
 		expect(await revalidatePath('/blog')).toBe(false);
 	});
@@ -181,17 +213,77 @@ describe('revalidatePath and revalidateAll', () => {
 	 * a route handler that calls this must not start throwing there. */
 	test('does nothing where no page is pre-rendered', async () => {
 		expect(await revalidatePath('/blog')).toBe(false);
-		expect(await revalidateAll()).toEqual({ failed: [], revalidated: [] });
+		expect(await revalidateAll()).toEqual({
+			failed: [],
+			removed: [],
+			revalidated: []
+		});
 	});
 
-	test('revalidateAll re-renders every route and says which failed', async () => {
-		register(['/', '/blog', '/about'], ['/about']);
+	test('revalidateAll re-renders every route and sorts them by what happened', async () => {
+		register({
+			outcomes: { '/about': 'failed', '/old': 'removed' },
+			routes: ['/', '/blog', '/about', '/old']
+		});
 
 		expect(await revalidateAll()).toEqual({
 			failed: ['/about'],
+			removed: ['/old'],
 			revalidated: ['/', '/blog']
 		});
-		expect(rendered).toEqual(['/', '/blog', '/about']);
+		expect(rendered).toEqual(['/', '/blog', '/about', '/old']);
+	});
+});
+
+describe('which paths may be given a page they do not have yet', () => {
+	test('none, when nothing is configured as static', () => {
+		expect(createStaticRouteMatcher(undefined)('/blog/a')).toBe(false);
+	});
+
+	test('any, under routes: all', () => {
+		expect(createStaticRouteMatcher('all')('/anything/at/all')).toBe(true);
+	});
+
+	test('a listed path, and nothing beside it', () => {
+		const covers = createStaticRouteMatcher(['/', '/about']);
+
+		expect(covers('/about')).toBe(true);
+		expect(covers('/')).toBe(true);
+		expect(covers('/about/team')).toBe(false);
+		expect(covers('/abou')).toBe(false);
+	});
+
+	test('a pattern covers one segment per param', () => {
+		const covers = createStaticRouteMatcher(['/blog/:slug']);
+
+		expect(covers('/blog/new-post')).toBe(true);
+		expect(covers('/blog')).toBe(false);
+		expect(covers('/blog/2026/new-post')).toBe(false);
+		expect(covers('/blogs/new-post')).toBe(false);
+	});
+
+	test('an optional param covers the path with it and without', () => {
+		const covers = createStaticRouteMatcher(['/shop/:category?']);
+
+		expect(covers('/shop')).toBe(true);
+		expect(covers('/shop/hats')).toBe(true);
+		expect(covers('/shop/hats/red')).toBe(false);
+	});
+
+	test('a wildcard covers everything below it', () => {
+		const covers = createStaticRouteMatcher(['/docs/*']);
+
+		expect(covers('/docs/guide/routing')).toBe(true);
+		expect(covers('/docs')).toBe(false);
+	});
+
+	/* A literal segment is text, not a pattern: a `.` in it must not
+	 * match any character. */
+	test('reads the rest of a path literally', () => {
+		const covers = createStaticRouteMatcher(['/v1.0/:page']);
+
+		expect(covers('/v1.0/intro')).toBe(true);
+		expect(covers('/v1x0/intro')).toBe(false);
 	});
 });
 
@@ -242,7 +334,9 @@ describe('a re-render replacing a page’s files', () => {
 			})
 		);
 
-		expect(await rerenderRoute('/blog', port(), prerenderDir)).toBe(true);
+		expect(await rerenderRoute('/blog', port(), prerenderDir)).toBe(
+			'replaced'
+		);
 
 		expect(await readFile(live('blog.html'), 'utf-8')).toBe(page('NEW'));
 		expect(await readFile(live('blog.nonce'), 'utf-8')).toBe('abc123');
@@ -263,7 +357,9 @@ describe('a re-render replacing a page’s files', () => {
 		await writeFile(live('about.nonce'), 'stale');
 		answers.set('/about', () => html('NEW'));
 
-		expect(await rerenderRoute('/about', port(), prerenderDir)).toBe(true);
+		expect(await rerenderRoute('/about', port(), prerenderDir)).toBe(
+			'replaced'
+		);
 
 		expect(existsSync(live('about.holes'))).toBe(false);
 		expect(existsSync(live('about.nonce'))).toBe(false);
@@ -275,7 +371,7 @@ describe('a re-render replacing a page’s files', () => {
 		answers.set('/docs/guide', () => html('NEW'));
 
 		expect(await rerenderRoute('/docs/guide', port(), prerenderDir)).toBe(
-			true
+			'replaced'
 		);
 
 		expect(await readFile(live('docs/guide.html'), 'utf-8')).toBe(
@@ -296,11 +392,88 @@ describe('a re-render replacing a page’s files', () => {
 				})
 		);
 
-		expect(await rerenderRoute('/down', port(), prerenderDir)).toBe(false);
-		expect(await rerenderRoute('/cut', port(), prerenderDir)).toBe(false);
+		expect(await rerenderRoute('/down', port(), prerenderDir)).toBe(
+			'failed'
+		);
+		expect(await rerenderRoute('/cut', port(), prerenderDir)).toBe(
+			'failed'
+		);
 
 		expect(await readFile(live('down.html'), 'utf-8')).toBe(page('OLD'));
 		expect(await readFile(live('cut.html'), 'utf-8')).toBe(page('OLD'));
+	});
+
+	/* The app saying "this is not a page any more" is different from
+	 * the app failing to say anything. The first must not leave the old
+	 * copy up; the second must. */
+	test('reports a 404, a 410, a redirect or a non-HTML answer as gone', async () => {
+		answers.set('/missing', () => new Response('nope', { status: 404 }));
+		answers.set('/retired', () => new Response('', { status: 410 }));
+		answers.set(
+			'/moved',
+			() =>
+				new Response(null, { headers: { location: '/' }, status: 302 })
+		);
+		answers.set('/members', () => new Response('', { status: 401 }));
+		answers.set('/data', () => Response.json({ not: 'a page' }));
+
+		const outcomes = await Promise.all(
+			['/missing', '/retired', '/moved', '/members', '/data'].map(
+				(route) => rerenderRoute(route, port(), prerenderDir)
+			)
+		);
+
+		expect(outcomes).toEqual(['gone', 'gone', 'gone', 'gone', 'gone']);
+	});
+
+	/* "Try again later" is not an answer about the page. */
+	test('treats a server error, a timeout and a rate limit as a failure', async () => {
+		answers.set('/boom', () => new Response('', { status: 500 }));
+		answers.set('/slow', () => new Response('', { status: 408 }));
+		answers.set('/busy', () => new Response('', { status: 429 }));
+		answers.set('/early', () => new Response('', { status: 425 }));
+		answers.set('/gateway', () => new Response('', { status: 502 }));
+
+		const outcomes = await Promise.all(
+			['/boom', '/slow', '/busy', '/early', '/gateway'].map((route) =>
+				rerenderRoute(route, port(), prerenderDir)
+			)
+		);
+
+		expect(new Set(outcomes)).toEqual(new Set(['failed']));
+	});
+
+	/* A re-render that finds the page gone decides; it does not delete.
+	 * The server stops serving the route first, then removes the files. */
+	test('a gone page’s files stay until they are removed, then all go', async () => {
+		await writeFile(live('old.html'), page('OLD'));
+		await writeFile(live('old.meta'), '1');
+		await writeFile(live('old.nonce'), 'abc');
+		await writeFile(live('old.holes'), 'slot-a\n');
+		answers.set('/old', () => new Response('nope', { status: 404 }));
+
+		expect(await rerenderRoute('/old', port(), prerenderDir)).toBe('gone');
+		expect(existsSync(live('old.html'))).toBe(true);
+
+		removePrerendered(prerenderDir, '/old');
+
+		expect(
+			['old.html', 'old.meta', 'old.nonce', 'old.holes'].filter((name) =>
+				existsSync(live(name))
+			)
+		).toEqual([]);
+	});
+
+	test('creates the page for a route that had none', async () => {
+		answers.set('/blog/new-post', () => html('FRESH'));
+
+		expect(
+			await rerenderRoute('/blog/new-post', port(), prerenderDir)
+		).toBe('replaced');
+
+		expect(await readFile(live('blog/new-post.html'), 'utf-8')).toBe(
+			page('FRESH')
+		);
 	});
 
 	/* Everything in the pre-render directory is read as a page when the
