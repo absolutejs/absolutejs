@@ -246,6 +246,73 @@ whatever that variable was on the machine that built the app, fixed into
 a prebuilt directory or a compiled binary. The environment variable is
 read when the server starts and wins over the config.
 
+## Machines that share no disk: a page store
+
+`static.directory` keeps machines in step when they can mount the same
+volume. Where they cannot, register a **page store**: something they can
+all reach over the network.
+
+```ts
+import { prepare, registerPageStore } from '@absolutejs/absolute';
+
+registerPageStore(store);              // before prepare()
+const { absolutejs } = await prepare();
+```
+
+Each machine goes on serving from its own files, exactly as one machine
+does. The store adds what a second machine cannot do alone:
+
+- a page a machine re-renders, creates or takes down is also written to
+  the store;
+- a machine starting up pulls whatever the store has that it does not,
+  so one added later, or back from an outage, is not serving the
+  build's pages while the rest serve newer ones;
+- while it runs, each machine asks the store what changed every 5
+  seconds and pulls it. `registerPageStore(store, { interval: 1000 })`
+  changes that.
+
+A page is rendered once and copied, with its nonce, holes and tags, so
+`revalidateTag` works on every machine. The others are behind by at most
+the interval.
+
+### Writing a store
+
+A store is four functions over string keys and string bodies:
+
+```ts
+import type { PageStore } from '@absolutejs/absolute';
+
+const store: PageStore = {
+	get: async (key) => /* the body, or undefined */,
+	put: async (key, body) => /* store it; may return its new version */,
+	delete: async (key) => /* remove it */,
+	list: async (prefix) => /* [{ key, version }] for keys starting with prefix */
+};
+```
+
+`version` is anything that changes when the object does: an ETag, a
+timestamp, a counter. It is compared for equality and nothing else.
+`put` may return the version it wrote; a store that can saves the writer
+one fetch, and one that cannot loses nothing.
+
+### What to expect
+
+- **The store is the truth.** If two machines revalidate one page at the
+  same moment, both write it, the store keeps the last, and both end up
+  serving that one.
+- **A store outage does not take pages down.** Each machine keeps serving
+  and revalidating its own; what stops is the copying. It is logged once
+  when it starts and once when it recovers, and resumes by itself.
+- **A slow store does not delay a revalidation.** The page is sent after
+  `revalidatePath` has resolved.
+- **A server waits up to 5 seconds for its first pull**, then starts
+  serving either way.
+- **Builds do not mix.** Everything is kept under the build's own id, and
+  the store is cleared of builds older than the last three.
+- **Register it in code, not in `absolute.config.ts`.** A production
+  server reads what the build wrote down from the config, and a store is
+  functions.
+
 ### When the directory cannot be written
 
 A re-render that cannot write its page used to fail without a word. The

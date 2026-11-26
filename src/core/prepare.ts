@@ -34,9 +34,12 @@ import {
 	staticDirectoryFor
 } from './staticRuntimeOptions';
 import {
+	prerenderBuildId,
 	prerenderDirectoryProblem,
 	usablePrerenderDirectory
 } from './prerenderDirectory';
+import { startPageSync } from './pageSync';
+import { isPrerendering } from '../utils/isPrerendering';
 import { health, resolveHealthConfig } from '../plugins/health';
 import { rateLimit } from '../plugins/rateLimit';
 import { routingRules } from '../plugins/routingRules';
@@ -1056,10 +1059,12 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 		const {
 			PRERENDER_BYPASS_HEADER,
 			PRERENDER_BYPASS_TOKEN,
+			readPrerenderedFiles,
 			readTimestamp,
 			removePrerendered,
 			rerenderRoute,
 			routeToFilename,
+			writePrerenderedFiles,
 			shouldSkipPrerendered
 		} = await import('./prerender');
 
@@ -1086,6 +1091,34 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 			prerenderDir,
 			routes: prerenderMap
 		});
+		/* Machines that share no disk are kept in step through a store
+		 * the app registered (pageSync.ts). Not for the build's own
+		 * pre-render server, which is making the pages, not serving them. */
+		const pageSync = isPrerendering()
+			? undefined
+			: startPageSync({
+					build: prerenderBuildId(buildDir),
+					local: {
+						read: (route) =>
+							readPrerenderedFiles(prerenderDir, route),
+						remove: (route) => {
+							prerenderMap.delete(route);
+							removePrerendered(prerenderDir, route);
+						},
+						write: async (route, files) => {
+							await writePrerenderedFiles(
+								prerenderDir,
+								route,
+								files
+							);
+							prerenderMap.set(
+								route,
+								join(prerenderDir, routeToFilename(route))
+							);
+						}
+					},
+					warn: logWarn
+				});
 		const bringUpToDate = async (route: string) => {
 			const rendered = await rerenderRoute(route, port, prerenderDir);
 			const failed: RevalidationOutcome = 'failed';
@@ -1097,6 +1130,9 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 					route,
 					join(prerenderDir, routeToFilename(route))
 				);
+				// Not awaited: a slow store must not hold up the
+				// caller, and a failure is reported, not thrown.
+				void pageSync?.pushed(route);
 
 				return replaced;
 			}
@@ -1106,9 +1142,11 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 			if (!prerendered.has(route)) return failed;
 			prerenderMap.delete(route);
 			removePrerendered(prerenderDir, route);
+			void pageSync?.removed(route);
 
 			return removed;
 		};
+		await pageSync?.ready;
 		const failedOutcome: RevalidationOutcome = 'failed';
 		const revalidation = createRevalidationQueue(
 			bringUpToDate,

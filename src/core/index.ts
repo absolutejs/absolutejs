@@ -8,6 +8,7 @@ export { defineLoader, loadAll, LoaderError } from './loaders';
 export { cookies, headers } from './requestHelpers';
 export { revalidateAll, revalidatePath, revalidateTag } from './revalidate';
 export { cacheTag } from './cacheTags';
+export { registerPageStore } from './pageStore';
 export { registerHealthCheck } from './healthChecks';
 export { onServerError } from './errorReporter';
 export { ABS_RENDER_ATTRS, registerTracer } from './renderTracing';
