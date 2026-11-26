@@ -17,6 +17,13 @@ export type Revalidator = {
 	routesTagged: (tags: readonly string[]) => string[];
 };
 
+/** What the revalidation endpoint answers with. */
+export type RevalidateRequestResult = RevalidateAllResult & {
+	/** Paths that were asked for and are not ones `static.routes`
+	 *  covers: nothing was rendered for them. */
+	skipped: string[];
+};
+
 export type RevalidateAllResult = {
 	/** Routes whose render failed; they keep their previous page. */
 	failed: string[];

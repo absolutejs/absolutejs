@@ -500,6 +500,12 @@ export type StaticConfig = {
 	routes: StaticRoutePath[] | 'all';
 	/** Revalidation interval in seconds. When set, stale pages are re-rendered in the background (ISR). */
 	revalidate?: number;
+	/** Enables `POST /__absolute/revalidate`, so something outside the
+	 *  app — a CMS webhook, a job — can revalidate paths and tags by
+	 *  sending this value as a bearer token. A secret: take it from the
+	 *  environment, at least 16 characters. Without it the endpoint does
+	 *  not exist. */
+	revalidateToken?: string;
 };
 
 export type CompileNativeAssetConfig = {

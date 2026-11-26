@@ -5,6 +5,21 @@
 		{
 			"changes": [
 				{
+					"detail": "`POST /__absolute/revalidate` lets something outside the app, such as a CMS webhook or a job, revalidate pre-rendered pages. It exists only when `static.revalidateToken` is set; an empty token or one shorter than 16 characters counts as not set, and the short one is reported at startup. The caller sends the token as a bearer token, compared in constant time; a wrong or missing token is a 401 whatever the body says. The JSON body takes `paths`, `tags`, `all: true` and `background: true`, and the answer is `{ revalidated, removed, failed, skipped }`. `background` answers 202 at once and does the work afterwards, for a caller that will not wait, and logs any failure. One call may name at most 100 paths and tags. A path `static.routes` does not cover is listed in `skipped` and nothing is rendered for it, so the token cannot be used to pre-render arbitrary URLs. The endpoint sits behind the app's rate limiter like any other route. The partial pre-rendering plan named the path `/_absolute/revalidate`; it is `/__absolute/revalidate`, matching every other internal route. See docs/REVALIDATION.md.",
+					"kind": "added",
+					"summary": "A token-protected endpoint revalidates pre-rendered pages from outside the app",
+					"symbols": [
+						"StaticConfig",
+						"RevalidateRequestResult"
+					]
+				}
+			],
+			"date": "2026-11-26",
+			"version": "0.20.0-beta.408"
+		},
+		{
+			"changes": [
+				{
 					"detail": "`cacheTag(...tags)` marks the page being rendered as showing some data, and `revalidateTag(...tags)` re-renders every pre-rendered page carrying any of those tags. Called beside the read, from a loader, a route's `load`, a handler or anything they call, a tag reaches every page that uses that code, so the code making a change no longer has to name each URL it shows up on. `cacheTag` does nothing outside a request and on a page that is not pre-rendered. `revalidateTag` resolves to `{ revalidated, removed, failed }` like `revalidateAll`, and to three empty lists for a tag no page carries. Tags are kept in a `.tags` file beside the page's HTML and read from there on each call, so clustered workers agree on them; a re-render replaces them, and removes the file when the page declares none. A tag declared after a streamed page's response has started is still recorded, because the response to a pre-render is read to the end before its headers go. Tags are sent only to the pre-renderer (the build's pre-render server, or a request carrying the running server's own bypass token) and never to a visitor. A page is tagged with what it read when it was rendered, so a list needs a collection tag as well as item tags. See docs/REVALIDATION.md.",
 					"kind": "added",
 					"summary": "`cacheTag` and `revalidateTag`: revalidate pre-rendered pages by the data they show",
