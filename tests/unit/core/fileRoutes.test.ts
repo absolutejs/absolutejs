@@ -412,4 +412,154 @@ describe('fileRoutes', () => {
 		expect(denied.status).toBe(401);
 		expect(allowed.status).toBe(200);
 	});
+
+	/* Folder guards: `layout.server.ts` modules, outermost first, in
+	 * front of the route's own `beforeHandle`. */
+	describe('folder guards', () => {
+		const guardedRoute = (
+			order: string[],
+			answers: Record<string, unknown> = {}
+		) =>
+			defineFileRouteWith(
+				'react',
+				{
+					guards: ['root', 'admin'].map((name) => async () => ({
+						beforeHandle: () => {
+							order.push(name);
+
+							return answers[name];
+						}
+					})),
+					name: 'RouteAdminUsers',
+					path: '/admin/users',
+					source: 'react/routes/admin/users.tsx',
+					server: async () => ({
+						beforeHandle: () => {
+							order.push('route');
+
+							return answers.route;
+						},
+						load: () => {
+							order.push('load');
+
+							return { ok: true };
+						}
+					})
+				},
+				renderJson
+			);
+
+		test('run outermost first, then the route guard, then load', async () => {
+			const order: string[] = [];
+			const app = new Elysia().use(fileRoutes([guardedRoute(order)], {}));
+			const response = await request(app, '/admin/users');
+
+			expect(await response.json()).toEqual({ ok: true });
+			expect(order).toEqual(['root', 'admin', 'route', 'load']);
+		});
+
+		test('the first guard to answer stops everything after it', async () => {
+			const order: string[] = [];
+			const app = new Elysia().use(
+				fileRoutes(
+					[
+						guardedRoute(order, {
+							root: new Response('sign in', { status: 401 })
+						})
+					],
+					{}
+				)
+			);
+			const response = await request(app, '/admin/users');
+
+			expect(response.status).toBe(401);
+			expect(await response.text()).toBe('sign in');
+			expect(order).toEqual(['root']);
+		});
+
+		test('an inner guard answers after the outer one let it through', async () => {
+			const order: string[] = [];
+			const app = new Elysia().use(
+				fileRoutes(
+					[
+						guardedRoute(order, {
+							admin: new Response('forbidden', { status: 403 })
+						})
+					],
+					{}
+				)
+			);
+			const response = await request(app, '/admin/users');
+
+			expect(response.status).toBe(403);
+			expect(order).toEqual(['root', 'admin']);
+		});
+
+		test('a guard can redirect with the context it is given', async () => {
+			const guarded = defineFileRouteWith(
+				'html',
+				{
+					guards: [
+						async () => ({
+							beforeHandle: ({
+								headers,
+								redirect
+							}: FileRouteContext) =>
+								headers.cookie?.includes('session=')
+									? undefined
+									: redirect('/login')
+						})
+					],
+					name: 'RouteMembers',
+					path: '/members',
+					source: 'html/routes/members/index.html'
+				},
+				renderJson
+			);
+			const app = new Elysia().use(fileRoutes([guarded], {}));
+
+			const anonymous = await request(app, '/members');
+			expect(anonymous.status).toBe(302);
+			expect(anonymous.headers.get('location')).toBe('/login');
+
+			const signedIn = await app.handle(
+				new Request('http://localhost/members', {
+					headers: { cookie: 'session=abc' }
+				})
+			);
+			expect(signedIn.status).toBe(200);
+		});
+
+		/* A guard module with no `beforeHandle`, or one that failed to
+		 * load to anything, is not a reason to refuse or to crash. */
+		test('a guard module that exports no beforeHandle lets the request through', async () => {
+			const guarded = defineFileRouteWith(
+				'react',
+				{
+					guards: [async () => ({}), async () => undefined],
+					name: 'RouteOpen',
+					path: '/open',
+					source: 'react/routes/open.tsx'
+				},
+				renderJson
+			);
+			const app = new Elysia().use(fileRoutes([guarded], {}));
+
+			expect((await request(app, '/open')).status).toBe(200);
+		});
+
+		test('a route with no guards and no server module registers no hook', () => {
+			const guarded = defineFileRouteWith(
+				'react',
+				{
+					name: 'RoutePlain',
+					path: '/plain',
+					source: 'react/routes/plain.tsx'
+				},
+				renderJson
+			);
+
+			expect(guarded.beforeHandle).toBeUndefined();
+		});
+	});
 });

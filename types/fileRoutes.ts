@@ -123,6 +123,21 @@ export type FileRouteServerModule<
 	load?: (context: FileRouteContext<Path>) => MaybePromise<Props | Response>;
 };
 
+/** The shape of a folder's `layout.server.ts` module: a guard for every
+ *  route in that folder and below it.
+ *
+ *  It runs before each of those routes' own `beforeHandle`, outermost
+ *  folder first, and a returned value answers the request instead of the
+ *  page — a redirect to `/login`, a 403. Returning nothing lets the
+ *  request through to the next guard.
+ *
+ *  The context's `params` are the request's, untyped: one guard serves
+ *  routes with different params, so it cannot be written against one
+ *  route's path. */
+export type FileRouteGuardModule = {
+	beforeHandle?: (context: FileRouteContext) => unknown;
+};
+
 type RequiredKeysOf<Value> = {
 	[Key in keyof Value]-?: undefined extends Value[Key] ? never : Key;
 }[keyof Value];

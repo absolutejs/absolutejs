@@ -362,6 +362,35 @@ export default function Post({ title, view }: PostProps) {
 	);
 }
 `,
+	/* Folder guards. `vault/layout.server.ts` stands in front of every
+	 * route under `/vault`, and `vault/deep/layout.server.ts` in front of
+	 * the ones under `/vault/deep` as well, so the deep route is reached
+	 * only through both, outer first. Keyed on the query string so a test
+	 * needs no cookie jar. */
+	'react/routes/vault/deep/box.tsx': `export default function Box() {
+	return (
+		${reactDocument('Box', '<p>FILE_VAULT_BOX</p>')}
+	);
+}
+`,
+	'react/routes/vault/deep/layout.server.ts': `import type { FileRouteContext } from '@absolutejs/absolute';
+
+export const beforeHandle = ({ query }: FileRouteContext) =>
+	query.level === '2'
+		? undefined
+		: new Response('DEEP_GUARD_REFUSED', { status: 403 });
+`,
+	'react/routes/vault/door.tsx': `export default function Door() {
+	return (
+		${reactDocument('Door', '<p>FILE_VAULT_DOOR</p>')}
+	);
+}
+`,
+	'react/routes/vault/layout.server.ts': `import type { FileRouteContext } from '@absolutejs/absolute';
+
+export const beforeHandle = ({ query, redirect }: FileRouteContext) =>
+	query.key === 'open' ? undefined : redirect('/');
+`,
 	'server.ts': SERVER,
 	'svelte/routes/docs/_Badge.svelte': `<script lang="ts">
 	let { label }: { label: string } = $props();

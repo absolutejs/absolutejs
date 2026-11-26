@@ -582,6 +582,125 @@ describe('route module', () => {
 		}
 	});
 
+	/* A `layout.server.ts` guards its folder and everything below it,
+	 * found the way a layout is — including through a `(group)`, and in
+	 * a static route folder, which has no layouts but can still need a
+	 * login. */
+	test('collects the folder guards in front of each route, outermost first', async () => {
+		const root = await makeProject({
+			'html/routes/members/index.html': '',
+			'html/routes/members/layout.server.ts':
+				'export const beforeHandle = () => undefined;',
+			'react/routes/(admin)/layout.server.ts':
+				'export const beforeHandle = () => undefined;',
+			'react/routes/(admin)/users/[id].tsx': '',
+			'react/routes/(admin)/users/layout.server.js':
+				'export const beforeHandle = () => undefined;',
+			'react/routes/index.tsx': '',
+			'react/routes/layout.server.ts':
+				'export const beforeHandle = () => undefined;'
+		});
+		const cwd = process.cwd();
+		process.chdir(root);
+		try {
+			const { problems, routes } = scanFileRoutes({
+				fileRoutes: true,
+				htmlDirectory: 'html',
+				reactDirectory: 'react'
+			});
+			const guardsOf = (path: string) =>
+				(routes.find((route) => route.path === path)?.guards ?? []).map(
+					(guard) => toPosix(relative(process.cwd(), guard))
+				);
+
+			expect(problems).toEqual([]);
+			expect(guardsOf('/users/:id')).toEqual([
+				'react/routes/layout.server.ts',
+				'react/routes/(admin)/layout.server.ts',
+				'react/routes/(admin)/users/layout.server.js'
+			]);
+			expect(guardsOf('/')).toEqual(['react/routes/layout.server.ts']);
+			expect(guardsOf('/members')).toEqual([
+				'html/routes/members/layout.server.ts'
+			]);
+			// A guard is never itself a route.
+			expect(routes.map((route) => route.path).sort()).toEqual([
+				'/',
+				'/members',
+				'/users/:id'
+			]);
+
+			const module = renderFileRouteModule(
+				routes,
+				join(process.cwd(), 'src', 'routes.gen.ts')
+			);
+			expect(module).toContain(
+				[
+					'\t\tguards: [',
+					"\t\t\t() => import('../react/routes/layout.server'),",
+					"\t\t\t() => import('../react/routes/(admin)/layout.server'),",
+					"\t\t\t() => import('../react/routes/(admin)/users/layout.server'),",
+					'\t\t],'
+				].join('\n')
+			);
+		} finally {
+			process.chdir(cwd);
+		}
+	});
+
+	test('a route with no guard above it carries none', async () => {
+		const root = await makeProject({
+			'react/routes/admin/index.tsx': '',
+			'react/routes/admin/layout.server.ts':
+				'export const beforeHandle = () => undefined;',
+			'react/routes/pricing.tsx': ''
+		});
+		const cwd = process.cwd();
+		process.chdir(root);
+		try {
+			const { routes } = scanFileRoutes({
+				fileRoutes: true,
+				reactDirectory: 'react'
+			});
+			const pricing = routes.find((route) => route.path === '/pricing');
+
+			expect(pricing?.guards).toBeUndefined();
+			expect(
+				renderFileRouteModule(
+					pricing ? [pricing] : [],
+					join(process.cwd(), 'src', 'routes.gen.ts')
+				)
+			).not.toContain('guards');
+		} finally {
+			process.chdir(cwd);
+		}
+	});
+
+	/* Other frameworks run a `load` in a layout's server module. Here it
+	 * would never be called, and nothing would say so. */
+	test('reports a load in a guard module, once, since it is never run', async () => {
+		const root = await makeProject({
+			'react/routes/admin/a.tsx': '',
+			'react/routes/admin/b.tsx': '',
+			'react/routes/admin/layout.server.ts':
+				'export const beforeHandle = () => undefined;\nexport const load = async () => ({ team: 1 });\n'
+		});
+		const cwd = process.cwd();
+		process.chdir(root);
+		try {
+			const { problems } = scanFileRoutes({
+				fileRoutes: true,
+				reactDirectory: 'react'
+			});
+
+			expect(problems).toEqual([
+				"react/routes/admin/layout.server.ts: a layout.server module is run for its `beforeHandle` only; this `load` is never called. Load a route's data in its own <route>.server.ts."
+			]);
+		} finally {
+			process.chdir(cwd);
+		}
+	});
+
 	test('an app with no routes still exports an empty tree', () => {
 		expect(renderFileRouteModule([], '/app/routes.gen.ts')).toContain(
 			'export const routeTree: readonly FileRouteDefinition[] = [];'

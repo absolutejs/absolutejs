@@ -40,6 +40,8 @@ export type ScannedFileRoute = {
 	/** The name a `[...catchAll]` segment declared; the runtime copies
 	 *  Elysia's `*` param onto it. */
 	catchAll?: string;
+	/** `layout.server.ts` modules guarding this route, outermost first. */
+	guards?: string[];
 	/** `layout.<ext>` files wrapping this route, outermost first. */
 	layouts?: string[];
 	/** Co-located `<route>.server.ts`, absolute, when present. */
@@ -234,6 +236,33 @@ const layoutsFor = (root: FileRouteRoot, relativePath: string) => {
 	}
 
 	return chain;
+};
+
+/* The folder guards in front of a route, outermost first.
+ *
+ * A `layout.server.ts` guards its own folder and everything below it,
+ * the way a `layout.<ext>` wraps them — and it is found the same way,
+ * so `(admin)/layout.server.ts` guards every route in the group without
+ * adding a path segment. It needs no layout component beside it: a
+ * guard is a server concern, which is also why every framework's route
+ * folder may have one, the static ones included. */
+const GUARD_FILES = SERVER_EXTENSIONS.map((suffix) => `layout${suffix}`);
+
+const guardsFor = (root: FileRouteRoot, relativePath: string) => {
+	const segments = relativePath.split('/').slice(0, -1);
+	const depths = Array.from(
+		{ length: segments.length + 1 },
+		(_, depth) => depth
+	);
+
+	return depths.flatMap((depth) => {
+		const dir = join(root.dir, ...segments.slice(0, depth));
+		const found = GUARD_FILES.map((file) => join(dir, file)).find(
+			(candidate) => existsSync(candidate)
+		);
+
+		return found ? [found] : [];
+	});
 };
 
 /* One path segment of a route file, classified.
@@ -479,6 +508,7 @@ const routesFromFile = (
 		return none;
 	}
 	const layouts = layoutsFor(root, relativePath);
+	const guards = guardsFor(root, relativePath);
 	/* A layout that cannot be applied is worse than no layout: the page
 	 * renders without its chrome and nothing says so. React composes them
 	 * at run time, Svelte and Vue in the page's source; the rest do not
@@ -496,6 +526,7 @@ const routesFromFile = (
 		source,
 		typePath: mapped.typePath,
 		...(mapped.catchAll === undefined ? {} : { catchAll: mapped.catchAll }),
+		...(guards.length > 0 ? { guards } : {}),
 		...(layouts.length > 0 && LAYOUT_FRAMEWORKS.has(root.framework)
 			? { layouts }
 			: {})
@@ -537,6 +568,21 @@ const reportConflicts = (routes: ScannedFileRoute[], problems: string[]) => {
 	return [...byPath.values()];
 };
 
+/* A `layout.server.ts` is read for `beforeHandle` and nothing else. A
+ * `load` there looks like it should feed the layout its data, as it does
+ * in other frameworks, and here it would simply never run — so it is
+ * said, once per file, rather than left to be discovered. */
+const GUARD_LOAD_RE =
+	/^\s*export\s+(?:const|let|var|async\s+function|function)\s+load\b/m;
+
+const guardProblems = (routes: readonly ScannedFileRoute[]) =>
+	[...new Set(routes.flatMap((route) => route.guards ?? []))]
+		.filter((guard) => GUARD_LOAD_RE.test(readFileSync(guard, 'utf8')))
+		.map(
+			(guard) =>
+				`${toPosix(relative(process.cwd(), guard))}: a layout.server module is run for its \`beforeHandle\` only; this \`load\` is never called. Load a route's data in its own <route>.server.ts.`
+		);
+
 const compareRoutes = (left: ScannedFileRoute, right: ScannedFileRoute) =>
 	left.path.localeCompare(right.path) ||
 	left.framework.localeCompare(right.framework);
@@ -570,6 +616,7 @@ export const scanFileRoutes = (config: BuildConfig, root = process.cwd()) => {
 		scanRoot(routeRoot, problems)
 	);
 	const routes = reportConflicts(scanned, problems).sort(compareRoutes);
+	problems.push(...guardProblems(routes));
 	remember(resolved.roots, routes);
 	const scan: FileRouteScan = { problems, routes };
 
@@ -678,6 +725,17 @@ const renderRoute = (route: ScannedFileRoute, outputDir: string) => {
 		...typeArguments,
 		`\t>({`,
 		...(route.catchAll ? [`\t\tcatchAll: ${quote(route.catchAll)},`] : []),
+		/* Outermost first: the order they run in. */
+		...(route.guards && route.guards.length > 0
+			? [
+					`\t\tguards: [`,
+					...route.guards.map(
+						(guard) =>
+							`\t\t\t() => import(${quote(importSpecifier(outputDir, guard))}),`
+					),
+					`\t\t],`
+				]
+			: []),
 		/* Outermost first, so the adapter and the hydration index can
 		 * compose them in the same order the server rendered them. */
 		...(route.layouts && route.layouts.length > 0

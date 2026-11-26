@@ -5,6 +5,20 @@
 		{
 			"changes": [
 				{
+					"detail": "A file route folder can be guarded as a whole. A `layout.server.ts` in a route folder exports `beforeHandle`, and it runs for every route in that folder and below it, outermost folder first, before the route's own `beforeHandle` and `load`; the first to return a value answers the request. Until now the only guard a file route had was its own, so protecting everything under `/admin` meant repeating the check in every route's server module, and a route added later without it was public. It is found the way a layout is, so `(members)/layout.server.ts` guards a group without adding a path segment; it needs no layout component beside it, and HTML and HTMX route folders may have one too. A `load` exported from it is never called, and the route scan reports it. The new docs/MIDDLEWARE.md covers this alongside the other three places request code goes (hooks in the server entry, `guard()`, a route's own `beforeHandle`) and the things that are config rather than code.",
+					"kind": "added",
+					"summary": "`layout.server.ts` guards every file route in its folder",
+					"symbols": [
+						"FileRouteGuardModule"
+					]
+				}
+			],
+			"date": "2026-11-26",
+			"version": "0.20.0-beta.391"
+		},
+		{
+			"changes": [
+				{
 					"detail": "Three new config keys, applied by the running server in `absolute dev` and `absolute start` with no code in the server entry. `redirects: [{ from, to, status? }]` sends one URL to another (308 by default; a path or a full `https://` URL), checked before any route so it can answer for a path nothing serves. `rewrites: [{ from, to }]` serves one URL with the route at another without the address changing, method and body included. `headers: [{ path, headers }]` adds response headers to the paths a pattern matches; a header the route sets itself is kept, except on files the framework serves from the build directory, where the rule wins so that `/assets/*` caching can be set. Patterns are the file router's: `:name` for one segment and a final `*` for the rest. Malformed rules, rules that can never match and redirect loops stop the server at startup with every problem listed. Paths under `/__absolute/` and `/_absolute/` are never redirected or rewritten. `absolute export` writes the rules as `_redirects` and `_headers`, which Netlify and Cloudflare Pages apply. See docs/ROUTING_RULES.md.",
 					"kind": "added",
 					"summary": "`redirects`, `rewrites` and `headers` config keys",
