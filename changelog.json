@@ -9,7 +9,10 @@
 					"kind": "added",
 					"summary": "`invalidate()` refreshes the page's data after a change; form actions can do it on success",
 					"symbols": [
-						"invalidate"
+						"invalidate",
+						"FormActionBindingOptions",
+						"SubmitFormActionOptions",
+						"UseFormActionOptions"
 					]
 				}
 			],
