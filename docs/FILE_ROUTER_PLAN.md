@@ -461,8 +461,14 @@ reactFileRoute<'/blog/:slug', typeof import('./react/routes/blog/[slug]'),
   restart. The page itself builds on first request like any lazy dev page.
 - **Typecheck (Phase 1, done).** `absolute typecheck` and `absolute dev`
   write the route module first, so a fresh clone type-checks.
-- **`absolute routes` (Phase 1 works).** File routes are real Elysia routes,
-  so they are listed. Phase 2 adds a source column from the route tree.
+- **`absolute routes` (done).** File routes are real Elysia routes, so they
+  are listed, and each row names where the route comes from: the route file
+  for a file route (`react/routes/plans/pricing.tsx`), the registration call
+  for any other (`server.ts:42:3`). `--json` carries it as
+  `source: { kind: 'file' | 'call', location }`. Recorded per handler in
+  `src/core/routeSources.ts`, so a plugin prefix or group does not lose it. A
+  route registered inside a dependency is attributed to the line of the app
+  that mounted it.
 - **`absolute ls`** lists pages per framework from `pages/`. Phase 2 adds a
   "Routes" group per framework from the route scan.
 - **Sitemap (Phase 2).** `scanRouteRegistrations` only finds literal
@@ -494,8 +500,8 @@ Exit criteria (all met, see section 4):
 **Phase 2 — More segments, more frameworks, tooling.**
 Exit criteria: ~~`[...rest]`, `[[optional]]`, `(group)` mapped and typed~~
 **done**; ~~Vue and HTML/HTMX route folders~~ **done**; ~~sitemap includes
-static file routes and `entries()`~~ **done — see 2.3**; `absolute
-ls`/`absolute routes` show route sources; ~~typed plugin-derived
+static file routes and `entries()`~~ **done — see 2.3**; ~~`absolute routes` shows route sources~~ **done**; `absolute ls` lists
+a "Routes" group per framework (open); ~~typed plugin-derived
 context~~ **done**; the `actions` hook wired to the form-actions runtime
 (waiting on that runtime, which is parallel work).
 

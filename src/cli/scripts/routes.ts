@@ -2,6 +2,7 @@ import { discoverInstances } from '../discoverInstances';
 import { enrichInstances } from '../instanceStatus';
 import { colors, padLine } from '../tuiPrimitives';
 import type { LiveInstance } from '../../../types/cli';
+import type { RouteSource } from '../../core/routeSources';
 
 const METHOD_COLOR: Record<string, string> = {
 	DELETE: colors.red,
@@ -10,6 +11,8 @@ const METHOD_COLOR: Record<string, string> = {
 	POST: colors.cyan,
 	PUT: colors.yellow
 };
+
+const MAX_PATH_COLUMN = 40;
 
 const printDim = (message: string) => {
 	process.stdout.write(`${colors.dim}${message}${colors.reset}\n`);
@@ -27,6 +30,19 @@ const pickServer = (instances: LiveInstance[]) => {
 	);
 };
 
+/* A server older than this CLI sends no `source`; anything that is not
+ * the expected shape reads as "not known" rather than as an error. */
+const readSource = (value: unknown) => {
+	if (typeof value !== 'object' || value === null) return null;
+	const kind: unknown = Reflect.get(value, 'kind');
+	const location: unknown = Reflect.get(value, 'location');
+	if (kind !== 'call' && kind !== 'file') return null;
+	if (typeof location !== 'string' || location === '') return null;
+	const source: RouteSource = { kind, location };
+
+	return source;
+};
+
 const fetchRoutes = async (url: string) => {
 	try {
 		const response = await fetch(`${url}__absolute/routes`);
@@ -36,7 +52,8 @@ const fetchRoutes = async (url: string) => {
 
 		return data.map((entry) => ({
 			method: String(entry.method ?? '').toUpperCase(),
-			path: String(entry.path ?? '')
+			path: String(entry.path ?? ''),
+			source: readSource(entry.source)
 		}));
 	} catch {
 		return null;
@@ -84,10 +101,20 @@ export const runRoutes = async (args: string[]) => {
 	}
 
 	const methodWidth = Math.max(...sorted.map((route) => route.method.length));
+	// Capped: one long asset path would otherwise push every source off
+	// the right of the terminal. A longer path simply runs past the column.
+	const pathWidth = Math.min(
+		MAX_PATH_COLUMN,
+		Math.max(...sorted.map((route) => route.path.length))
+	);
 	const lines = sorted.map((route) => {
 		const color = METHOD_COLOR[route.method] ?? colors.dim;
+		const method = `${color}${padLine(route.method, methodWidth)}${colors.reset}`;
+		// The file that serves a file route, or where a route was
+		// registered. Blank when the server did not say.
+		if (route.source === null) return `  ${method}  ${route.path}`;
 
-		return `  ${color}${padLine(route.method, methodWidth)}${colors.reset}  ${route.path}`;
+		return `  ${method}  ${padLine(route.path, pathWidth)}  ${colors.dim}${route.source.location}${colors.reset}`;
 	});
 	process.stdout.write(
 		`${lines.join('\n')}\n\n${colors.dim}${sorted.length} routes · ${server.name}${colors.reset}\n`

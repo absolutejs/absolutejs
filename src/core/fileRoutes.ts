@@ -1,3 +1,4 @@
+import { recordRouteSource } from './routeSources';
 import { HTML_CONTENT_TYPE } from '../constants';
 import { Elysia, NotFound, type AnyElysia } from 'elysia';
 import type {
@@ -215,6 +216,7 @@ const registerRoute = (
 	const { beforeHandle } = route;
 	const handle = (context: RouteRequestContext) =>
 		serveFileRoute(route, manifest, context);
+	recordRouteSource(handle, { kind: 'file', location: route.source });
 	if (!beforeHandle) {
 		plugin.get(route.path, handle);
 

@@ -1,5 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { basename } from 'node:path';
 import { Elysia } from 'elysia';
+import { recordRouteSource, routeSourceOf } from './routeSources';
 
 type RouteCallsiteStore = { callsite?: string };
 type RouteCallsiteStorage = AsyncLocalStorage<RouteCallsiteStore>;
@@ -115,20 +117,41 @@ const ensureRouteCallsiteStorage = () => {
 	return storage;
 };
 
-const normalizeCallsitePath = (value: string) =>
-	value
+/* The dev server runs a COPY of the server entry, written beside it as
+ * `.absolutejs-hmr-<pid>-bootstrap-<n>.ts`, so that is the file a stack
+ * frame names. The copy is the entry byte for byte — the line and
+ * column are right — and it is the entry the developer has open. */
+const ENTRY_COPY_NAME = /\.absolutejs-hmr-\d+-(?:bootstrap-)?\d+\.[^./\\:]+/;
+
+const entryNameForCopies = () => {
+	const entry = process.env.ABSOLUTE_SERVER_ENTRY;
+
+	return entry ? basename(entry) : undefined;
+};
+
+const normalizeCallsitePath = (value: string) => {
+	const relative = value
 		.replace(`${process.cwd()}/`, '')
 		.replace(process.cwd(), '')
 		.replace(/^\.\/+/, '');
+	const entryName = entryNameForCopies();
+
+	return entryName ? relative.replace(ENTRY_COPY_NAME, entryName) : relative;
+};
 
 const shouldIgnoreRouteCallsiteFrame = (frame: string) =>
 	frame.includes('/node_modules/') ||
 	frame.includes('/dist/') ||
 	frame.includes('/src/core/devRouteRegistrationCallsite.');
 
+/* Two frame shapes: `at name (/path:1:2)` and, for top-level module
+ * code, a bare `at /path:1:2`. The bare form used to stop at the first
+ * space, so a project under a directory with a space in its name
+ * (`~/Local Documents/app`) had no callsite for any route registered at
+ * the top level of a module — which is most of them. */
 const getRouteCallsiteLocation = (frame: string) =>
 	frame.match(/\((\/[^)]+:\d+:\d+)\)$/)?.[1] ??
-	frame.match(/at (\/[^ ]+:\d+:\d+)$/)?.[1];
+	frame.match(/^at (\/.+:\d+:\d+)$/)?.[1];
 
 const extractRouteRegistrationCallsite = (stack: string) => {
 	const location = stack
@@ -201,6 +224,18 @@ const createPatchedRouteMethod = (
 				originalHandler: handler
 			});
 		}
+
+		/* For `absolute routes`. A source the caller already recorded on
+		 * its handler wins — the file router names the route file, where
+		 * this patch would only see the framework's own registration
+		 * loop — and it has to be carried onto the wrapper, which is
+		 * the function Elysia keeps. */
+		const source =
+			routeSourceOf(handler) ??
+			(callsite
+				? { kind: 'call' as const, location: callsite }
+				: undefined);
+		if (source) recordRouteSource(wrapped, source);
 
 		routeArguments[handlerIndex] = wrapped;
 
