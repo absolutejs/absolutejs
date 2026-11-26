@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "The browser test for pages rendered with `ssr: false` requires an empty console, and failed once in the nightly run on a \"Failed to load resource: 404\" that did not say which resource. It now records the address of any failed request, from the console message and from the response itself. Test only; nothing in the package changes.",
+					"kind": "internal",
+					"summary": "The `ssr: false` browser test names the address of a failed request"
+				}
+			],
+			"date": "2026-11-26",
+			"version": "0.20.0-beta.396"
+		},
+		{
+			"changes": [
+				{
 					"detail": "`defineLoader(fn)` wraps an async function that loads data so that it runs once per request however many places call it: a folder guard, the route's `load` and a helper can each ask for the signed-in user and it is fetched once. A loader with arguments is held once per distinct set of arguments, compared by content (strings, numbers, booleans, `null`, `undefined`, bigints, dates, and arrays and plain objects of those; key order does not matter). A call given anything else (a class instance, a `Map`, a function) is not held and runs every time, so two different calls are never mistaken for one. Nothing is shared between requests, a failed call is held like a successful one, and outside a request every call runs. `loadAll({ user: currentUser(), stats: stats() })` waits for its entries together and returns them under the same keys, typed per key. It rejects with the failed entry's own error, so a `NotFound` thrown by a loader still renders the not-found page. With `{ partial: true }` a failed entry's value is a `LoaderError` (its `key`, and the original error as `cause`) and the rest are returned; a `NotFound` or a thrown `Response` is still thrown. Passing a loader without calling it is a type error and throws. Loaders take no request: they read it with `headers()` and `cookies()`. Both work in file routes and in routes registered in `server.ts`. This differs from the roadmap's sketch, which named each loader with a string and passed the context in. See docs/DATA_LOADING.md.",
 					"kind": "added",
 					"summary": "`defineLoader` runs a data function once per request; `loadAll` waits for several together",

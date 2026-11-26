@@ -253,10 +253,20 @@ const urlOf = (path: string) => {
 
 type PageLog = { entries: string[] };
 
+/* A console error for a failed request says "the server responded with
+ * a status of 404" and not for what; the address is on the message's
+ * location. The response listener names it too, for a request the
+ * console never mentions. */
 const record = (log: PageLog) => (page: Page) => {
 	page.on('console', (message) => {
 		if (message.type() === 'error')
-			log.entries.push(`console.error: ${message.text()}`);
+			log.entries.push(
+				`console.error: ${message.text()} (${message.location().url})`
+			);
+	});
+	page.on('response', (response) => {
+		if (response.status() >= 400)
+			log.entries.push(`http ${response.status()}: ${response.url()}`);
 	});
 	page.on('pageerror', (error) => {
 		log.entries.push(`pageerror: ${error.message}`);
