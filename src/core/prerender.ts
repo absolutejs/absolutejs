@@ -1,5 +1,11 @@
-import { mkdirSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import {
+	existsSync,
+	mkdirSync,
+	readFileSync,
+	renameSync,
+	rmSync
+} from 'node:fs';
+import { dirname, join } from 'node:path';
 import type { StaticConfig } from '../../types/build';
 import { PARTIAL_SHELL_HEADER, writePartialHoles } from './partialPrerender';
 import { ACTION_FLASH_COOKIE } from '../utils/formActionState';
@@ -177,6 +183,76 @@ const crawlRoutes = async (baseUrl: string) => {
 	return routes;
 };
 
+/* A page is four files: the HTML and, beside it, the nonce it was
+ * rendered with, its dynamic holes and its timestamp. A re-render used to
+ * write them in place, one after another, while the server went on
+ * serving the route — so a request could be handed half an HTML file, or
+ * new HTML with the previous render's nonce.
+ *
+ * The new set is written somewhere no request reads, then moved over the
+ * live one. Each move is a rename, so no file is ever seen half-written,
+ * and the moves run back to back without an `await` between them, so
+ * nothing else in this process runs in the middle. (Another PROCESS
+ * serving the same directory — a cluster worker — can still read between
+ * two renames and see one page's files from two renders, for the length
+ * of a rename.)
+ *
+ * Beside the pre-render directory rather than inside it: everything in
+ * there is read as a page when the server starts, and a staging file a
+ * crash left behind would become a route. */
+const SIDECAR_EXTENSIONS = ['.nonce', '.holes', '.meta'];
+
+const stagingDirFor = (prerenderDir: string) =>
+	join(
+		dirname(prerenderDir),
+		'.prerender-staging',
+		`${process.pid}-${crypto.randomUUID()}`
+	);
+
+const sidecar = (htmlPath: string, extension: string) =>
+	htmlPath.replace(/\.html$/, extension);
+
+/* A sidecar the new render did not produce must go: a page that no
+ * longer has holes, or was rendered without a nonce, would otherwise
+ * keep the previous render's. */
+const publishSidecar = (staged: string, live: string, extension: string) => {
+	const from = sidecar(staged, extension);
+	const target = sidecar(live, extension);
+	if (existsSync(from)) renameSync(from, target);
+	else rmSync(target, { force: true });
+};
+
+const publishStaged = (staged: string, live: string) => {
+	mkdirSync(dirname(live), { recursive: true });
+	SIDECAR_EXTENSIONS.forEach((extension) =>
+		publishSidecar(staged, live, extension)
+	);
+	// Last: the HTML is what a request opens first, so by the time it
+	// is the new one its sidecars already are.
+	renameSync(staged, live);
+};
+
+/* Written where no request reads, then moved into place; the staging
+ * directory goes whether or not that worked. */
+const writeRendered = async (
+	res: Response,
+	html: string,
+	prerenderDir: string,
+	fileName: string
+) => {
+	const stagingDir = stagingDirFor(prerenderDir);
+	const staged = join(stagingDir, fileName);
+	try {
+		await Bun.write(staged, html);
+		await writeRenderedNonce(staged, renderedNonce(res));
+		await writePartialHoles(staged, res);
+		await writeTimestamp(staged);
+		publishStaged(staged, join(prerenderDir, fileName));
+	} finally {
+		rmSync(stagingDir, { force: true, recursive: true });
+	}
+};
+
 /**
  * Re-render a single route by fetching it from the running server
  * with the bypass header so it hits SSR instead of the cache.
@@ -198,12 +274,7 @@ export const rerenderRoute = async (
 
 		const html = await res.text();
 		if (!isCompleteHtml(html)) return false;
-		const fileName = routeToFilename(route);
-		const filePath = join(prerenderDir, fileName);
-		await Bun.write(filePath, html);
-		await writeRenderedNonce(filePath, renderedNonce(res));
-		await writePartialHoles(filePath, res);
-		await writeTimestamp(filePath);
+		await writeRendered(res, html, prerenderDir, routeToFilename(route));
 
 		return true;
 	} catch {

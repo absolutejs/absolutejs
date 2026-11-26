@@ -6,6 +6,7 @@ export * from './prepare';
 export * from './requestContext';
 export { defineLoader, loadAll, LoaderError } from './loaders';
 export { cookies, headers } from './requestHelpers';
+export { revalidateAll, revalidatePath } from './revalidate';
 export { registerHealthCheck } from './healthChecks';
 export { onServerError } from './errorReporter';
 export { ABS_RENDER_ATTRS, registerTracer } from './renderTracing';

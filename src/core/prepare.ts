@@ -1021,8 +1021,17 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 			: 0;
 		const port = Number(process.env.PORT) || DEFAULT_PORT;
 
-		// Track routes currently being re-rendered to avoid duplicate work
-		const rerendering = new Set<string>();
+		// One render per route at a time, shared by the interval below
+		// and by `revalidatePath` (revalidate.ts).
+		const { createRevalidationQueue, registerRevalidator } =
+			await import('./revalidate');
+		const revalidation = createRevalidationQueue((route) =>
+			rerenderRoute(route, port, prerenderDir)
+		);
+		registerRevalidator({
+			revalidate: revalidation.revalidate,
+			routes: () => [...prerenderMap.keys()]
+		});
 		// Partial prerendering renders a shell's dynamic holes through the
 		// app itself (partialPrerenderServe.ts), captured once it starts.
 		const { readPartialHoles } = await import('./partialPrerender');
@@ -1045,21 +1054,14 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 
 			// ISR: check if page is stale and trigger background re-render
 			const renderedAt =
-				revalidateMs > 0 && !rerendering.has(url.pathname)
+				revalidateMs > 0 && !revalidation.isBusy(url.pathname)
 					? readTimestamp(filePath)
 					: 0;
 			const age = Date.now() - renderedAt;
-			if (revalidateMs > 0 && renderedAt > 0 && age > revalidateMs) {
-				rerendering.add(url.pathname);
-				void rerenderRoute(url.pathname, port, prerenderDir)
-					.catch(
-						() =>
-							/* background re-render failed, stale page still served */
-
-							undefined
-					)
-					.finally(() => rerendering.delete(url.pathname));
-			}
+			// In the background: a failed re-render leaves the stale
+			// page, which is what this request is served either way.
+			if (revalidateMs > 0 && renderedAt > 0 && age > revalidateMs)
+				void revalidation.revalidate(url.pathname);
 
 			// Under secureHeaders(), swap the nonce the page was rendered
 			// with for this request's (prerenderNonce.ts).
