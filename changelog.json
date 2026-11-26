@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "Two fixes in the style pipeline. (1) A CSS `@import` with a media query, `layer()` or `supports()` — `@import \"./print.css\" print;` — was inlined as if it had no condition, so its rules applied everywhere, and the qualifier was left behind as stray text (`print;`). Only the bare form is inlined now; a qualified import passes through whole, which is what the comments in the code already claimed. (2) A Sass or Stylus compile error named a line of the compiler's JavaScript as if it were a line of the stylesheet: a four-line `.scss` file failed at `bad.scss:8310:24`, because every Error in Bun carries `line` and `column` for the code that threw and those were read first. The location is now read per compiler: Sass from its span (counted from 1), Less from its own line with the column counted from 1 (it was counted from 0, so `:3:9` is now `:3:10`), and none for Stylus, whose message already names the line. An error inside an imported partial no longer puts the partial's line after the entry file's path.",
+					"kind": "fixed",
+					"summary": "Qualified CSS `@import`s are no longer inlined unconditionally, and Sass errors report the stylesheet line"
+				}
+			],
+			"date": "2026-11-26",
+			"version": "0.20.0-beta.383"
+		},
+		{
+			"changes": [
+				{
 					"detail": "`absolute dev` no longer crashes intermittently at startup with `require() async module \".../typebox/build/type/index.mjs\" is unsupported`. The dev bootstrap imports the framework runtime in parallel with the app's server entry; Elysia 2 loads TypeBox with a synchronous `require()` on the first `t.*` call, and Bun rejects a `require()` of a module an `import` is still loading. An app whose imports build schemas at module scope, such as an auth plugin, died whenever the two overlapped: 5 of 12 boots of the example app. The bootstrap now loads TypeBox to completion before it issues the parallel import, resolved from Elysia's own location. 30 of 30 boots start after the change; with the parallel prebuild disabled (`ABSOLUTE_DEV_PREBUILD=0`) the crash never occurred, which is what identified the cause.",
 					"kind": "fixed",
 					"summary": "`absolute dev` no longer crashes at startup when the app builds Elysia schemas while the runtime is loading"
