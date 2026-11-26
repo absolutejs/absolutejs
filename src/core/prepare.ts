@@ -1038,6 +1038,13 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 		 * a page a re-render produced is added to it, and one that is
 		 * no longer a page is taken out — before its file is deleted,
 		 * so no request is handed a file that has gone. */
+		const canCreate = createStaticRouteMatcher(config.static?.routes);
+		const { createPrerenderLookup } = await import('./prerenderLookup');
+		const prerendered = createPrerenderLookup({
+			canCreate,
+			prerenderDir,
+			routes: prerenderMap
+		});
 		const bringUpToDate = async (route: string) => {
 			const rendered = await rerenderRoute(route, port, prerenderDir);
 			const failed: RevalidationOutcome = 'failed';
@@ -1052,8 +1059,11 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 
 				return replaced;
 			}
-			// Nothing was cached and nothing is: not a change.
-			if (!prerenderMap.delete(route)) return failed;
+			// Nothing was cached and nothing is: not a change. Asked
+			// of the disk as well as the list, so a page another
+			// worker created can be taken down from this one.
+			if (!prerendered.has(route)) return failed;
+			prerenderMap.delete(route);
 			removePrerendered(prerenderDir, route);
 
 			return removed;
@@ -1064,7 +1074,7 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 			failedOutcome
 		);
 		registerRevalidator({
-			canCreate: createStaticRouteMatcher(config.static?.routes),
+			canCreate,
 			revalidate: revalidation.revalidate,
 			routes: () => [...prerenderMap.keys()]
 		});
@@ -1085,7 +1095,9 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 			// cached file predates (prerender.ts).
 			if (shouldSkipPrerendered(request)) return undefined;
 
-			const filePath = prerenderMap.get(url.pathname);
+			// Checked against the disk: another worker may have taken
+			// this page down, or put one here (prerenderLookup.ts).
+			const filePath = prerendered.fileFor(url.pathname);
 			if (!filePath) return undefined;
 
 			// ISR: check if page is stale and trigger background re-render

@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "With `cluster` on, a page that `revalidatePath` took down in one worker was answered with a 500 by the others. Each worker keeps its own list of pre-rendered routes and they share one directory, so the other workers still listed the route and tried to serve a file that had been deleted. Introduced in beta.404, when `revalidatePath` learned to remove a page. The server now checks the disk before serving a pre-rendered file: a listed route whose file is gone is dropped and the request is rendered. The same check runs the other way, so a page one worker created is served from its file by the others, where they used to render it for every visitor, and a page created through one worker can be taken down through another. A file is adopted only for a path `static.routes` covers and only inside the pre-render directory, and a path with a file extension is never looked for. The cost is one `stat` per request for a pre-rendered page, and one per miss on a path that could be one. Reproduced by changing the directory behind a running server; not run on a real cluster, which only balances on Linux.",
+					"kind": "fixed",
+					"summary": "Clustered workers agree with the disk about which pages are pre-rendered: no 500 for a page another worker removed"
+				}
+			],
+			"date": "2026-11-26",
+			"version": "0.20.0-beta.406"
+		},
+		{
+			"changes": [
+				{
 					"detail": "A path ending in `/*` in `static.routes` now stands for every file route in that folder: its own index, each static route below it as it is, and each dynamic one through its `entries()`. One line covers a section of a site, and a route added to the folder later is pre-rendered without the config changing; `'/*'` is every file route in the project. A dynamic route in the folder that cannot be enumerated is reported as a pre-render failure under its own path, and a folder no file route is in is reported too. A folder selects file routes only. For `revalidatePath`, which may create a page for any path `static.routes` covers, `/docs/*` now covers `/docs` itself as well as everything below it, so the build and the running server read the pattern the same way; in beta.404 it covered only the paths below. See docs/REVALIDATION.md.",
 					"kind": "added",
 					"summary": "`/blog/*` in `static.routes` pre-renders every file route in a folder"
