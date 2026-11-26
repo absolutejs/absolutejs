@@ -43,6 +43,11 @@ const RUNTIME_KEYS = [
 	'basePathShared',
 	'cluster',
 	'emberDirectory',
+	/* Redirects, rewrites and headers are applied by the running server,
+	 * so this list is where they have to be: left out, they would work
+	 * under `absolute dev` and do nothing in production — the mistake
+	 * `basePath`, `logging` and `shutdown` each made here. */
+	'headers',
 	'health',
 	'htmlDirectory',
 	'htmxDirectory',
@@ -54,11 +59,13 @@ const RUNTIME_KEYS = [
 	'publicDirectory',
 	'rateLimit',
 	'reactDirectory',
+	'redirects',
 	/* The render budget is a production concern above all — a hung render
 	 * in dev is a tab someone closes, in production it is a socket held
 	 * until Bun reaps it silently. Leaving it out would be the same
 	 * mistake `basePath`, `logging` and `shutdown` each made here. */
 	'rendering',
+	'rewrites',
 	/* Graceful shutdown is a production concern, and this list is the
 	 * production config: leaving it out would mean draining worked in dev
 	 * and silently did nothing where it matters, which is exactly how

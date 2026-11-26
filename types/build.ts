@@ -9,6 +9,7 @@ import type { ImageConfig } from './image';
 import type { LinksConfig } from './links';
 import type { LoggingConfig } from './logging';
 import type { RateLimitConfig } from './rateLimit';
+import type { HeaderRule, RedirectRule, RewriteRule } from './routingRules';
 import type { ShutdownConfig } from './shutdown';
 import type { SitemapConfig } from './sitemap';
 import type { VitalsSummaryConfig } from './vitals';
@@ -830,6 +831,19 @@ export type BaseBuildConfig = {
 	 *  the vitals summary, caches. See docs/CLUSTERING.md. */
 	cluster?: boolean | ClusterConfig;
 	rateLimit?: RateLimitConfig;
+	/** Send requests for one URL to another: `{ from, to, status? }`.
+	 *  Patterns use `:name` for one segment and a final `*` for the rest.
+	 *  308 unless `status` says otherwise. Checked before any route, so a
+	 *  rule can answer for a path nothing serves. See
+	 *  docs/ROUTING_RULES.md. */
+	redirects?: readonly RedirectRule[];
+	/** Serve one URL with the route registered at another, without the
+	 *  address changing: `{ from, to }`. Checked after `redirects`. */
+	rewrites?: readonly RewriteRule[];
+	/** Response headers for the paths a pattern matches:
+	 *  `{ path, headers }`. Every matching rule applies; a header the
+	 *  route sets itself is kept. */
+	headers?: readonly HeaderRule[];
 	/** Finish the requests already in flight before the process exits.
 	 *
 	 *  On by default in production. Without it a request interrupted by

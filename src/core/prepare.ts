@@ -8,7 +8,7 @@ import {
 import { runUntracked } from '../dev/hotResources';
 import { existsSync, readdirSync, readFileSync, type Dirent } from 'node:fs';
 import { filenameToRoute } from './prerenderPaths';
-import { join, relative, resolve as resolvePath } from 'node:path';
+import { join, relative, resolve as resolvePath, sep } from 'node:path';
 import { encodeSrcPath } from '../dev/srcPath';
 import { Elysia, ElysiaError, InternalServerError, NotFound } from 'elysia';
 import type { staticPlugin } from '@elysia/static';
@@ -26,6 +26,7 @@ import { setCurrentIslandManifest } from './islandPageContext';
 import { absoluteRequestContext } from './requestContext';
 import { health, resolveHealthConfig } from '../plugins/health';
 import { rateLimit } from '../plugins/rateLimit';
+import { routingRules } from '../plugins/routingRules';
 import { requestLog } from '../plugins/requestLog';
 import { shutdown } from '../plugins/shutdown';
 import { hasForeignErrorHook } from './appErrorHooks';
@@ -116,6 +117,27 @@ const generatedAssetRelativePath = (pathname: string) =>
 // reaches it, and the read can throw. Retry once after a short delay (the
 // rebuild settles within a tick), then degrade to an empty plugin so a
 // transient miss never takes down the server with an unhandled rejection.
+/* Whether a request path names a file in the build directory — the
+ * files the static plugin below answers. Resolved and checked against
+ * the directory, so `/../server.js` is not mistaken for one. */
+const servedFromBuildDirectory = (buildDir: string) => {
+	const root = resolvePath(buildDir);
+
+	return (pathname: string) => {
+		const target = resolvePath(root, `.${safeDecodePath(pathname)}`);
+
+		return target.startsWith(`${root}${sep}`) && existsSync(target);
+	};
+};
+
+const safeDecodePath = (pathname: string) => {
+	try {
+		return decodeURIComponent(pathname);
+	} catch {
+		return pathname;
+	}
+};
+
 const mountStaticPlugin = async (
 	createStaticPlugin: typeof staticPlugin,
 	options: Parameters<typeof staticPlugin>[0]
@@ -529,6 +551,13 @@ const prepareDev = async (
 				exemptPaths: healthPaths(config),
 				vitalsPath: await resolveVitalsPath(config, true),
 				vitalsSummaryPath: await resolveVitalsSummaryPath(config, true)
+			})
+		)
+		// After the rate limit, so a redirect is not a way around it;
+		// before every route, so a rule can answer for a path none serves.
+		.use(
+			routingRules(config, {
+				isFrameworkFile: servedFromBuildDirectory(buildDir)
 			})
 		)
 		.use(health(config.health))
@@ -1102,6 +1131,13 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 					)
 				})
 			)
+			// After the rate limit, so a redirect is not a way around it;
+			// before every route, so a rule can answer for a path none serves.
+			.use(
+				routingRules(config, {
+					isFrameworkFile: servedFromBuildDirectory(buildDir)
+				})
+			)
 			.use(health(config.health))
 			// Renders and clears form-action results (formActionFlash.ts).
 			.use(formActionRuntime())
@@ -1143,6 +1179,13 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 				exemptPaths: healthPaths(config),
 				vitalsPath: await resolveVitalsPath(config, isDev),
 				vitalsSummaryPath: await resolveVitalsSummaryPath(config, isDev)
+			})
+		)
+		// After the rate limit, so a redirect is not a way around it;
+		// before every route, so a rule can answer for a path none serves.
+		.use(
+			routingRules(config, {
+				isFrameworkFile: servedFromBuildDirectory(buildDir)
 			})
 		)
 		.use(health(config.health))

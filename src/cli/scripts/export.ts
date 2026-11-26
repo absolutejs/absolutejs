@@ -39,7 +39,9 @@ import {
 	isServerOnlyBuildFile,
 	productionStaticIgnorePatterns
 } from '../../core/serverOnlyStaticFiles';
+import { staticHostRuleFiles } from '../../core/routingRules';
 import { formatBytes } from '../../utils/formatBytes';
+import { loadConfig } from '../../utils/loadConfig';
 import { getDurationString } from '../../utils/getDurationString';
 
 const DEFAULT_EXPORT_DIR = 'out';
@@ -128,6 +130,29 @@ const countsByReason = (plan: StaticExportPlan) => {
 		counts.set(skip.reason, (counts.get(skip.reason) ?? 0) + 1);
 
 	return counts;
+};
+
+/* The config's redirects, rewrites and headers, as the two files Netlify
+ * and Cloudflare Pages read from a published directory. There is no
+ * server in an export to apply them, so without these a rule that works
+ * under `absolute start` would silently not exist on the static site. */
+const REDIRECTS_FILE = '_redirects';
+const HEADERS_FILE = '_headers';
+
+const writeRuleFiles = async (exportDir: string, configPath?: string) => {
+	const config = await loadConfig(configPath);
+	const files = staticHostRuleFiles(config);
+	const written: string[] = [];
+	if (files.redirects !== null) {
+		await Bun.write(join(exportDir, REDIRECTS_FILE), files.redirects);
+		written.push(REDIRECTS_FILE);
+	}
+	if (files.headers !== null) {
+		await Bun.write(join(exportDir, HEADERS_FILE), files.headers);
+		written.push(HEADERS_FILE);
+	}
+
+	return written;
 };
 
 const reportPlan = (
@@ -224,6 +249,7 @@ export const runExport = async (args: readonly string[]) => {
 
 	await emptyDirectory(exportDir);
 	const written = await writeStaticExport(plan, buildDir, exportDir);
+	const ruleFiles = await writeRuleFiles(exportDir, configPath);
 
 	if (args.includes('--json')) {
 		process.stdout.write(
@@ -238,6 +264,7 @@ export const runExport = async (args: readonly string[]) => {
 						path: page.to,
 						route: page.route
 					})),
+					ruleFiles,
 					skipped: plan.skipped
 				},
 				null,
@@ -252,6 +279,10 @@ export const runExport = async (args: readonly string[]) => {
 			written.files,
 			getDurationString(performance.now() - started)
 		);
+		if (ruleFiles.length > 0)
+			console.log(
+				`  \x1b[2mwrote ${ruleFiles.join(' and ')} from the config's redirects, rewrites and headers; Netlify and Cloudflare Pages apply them, other static hosts ignore them\x1b[0m`
+			);
 		warnAboutDynamicParts(
 			prepared.staticConfig !== undefined,
 			prepared.staticConfig?.revalidate

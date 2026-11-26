@@ -18,6 +18,7 @@ export * from './links';
 export * from './logging';
 export * from './manifest';
 export * from './rateLimit';
+export * from './routingRules';
 export * from './routeMap';
 export * from './messages';
 export * from './telemetry';

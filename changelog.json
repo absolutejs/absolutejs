@@ -5,6 +5,25 @@
 		{
 			"changes": [
 				{
+					"detail": "Three new config keys, applied by the running server in `absolute dev` and `absolute start` with no code in the server entry. `redirects: [{ from, to, status? }]` sends one URL to another (308 by default; a path or a full `https://` URL), checked before any route so it can answer for a path nothing serves. `rewrites: [{ from, to }]` serves one URL with the route at another without the address changing, method and body included. `headers: [{ path, headers }]` adds response headers to the paths a pattern matches; a header the route sets itself is kept, except on files the framework serves from the build directory, where the rule wins so that `/assets/*` caching can be set. Patterns are the file router's: `:name` for one segment and a final `*` for the rest. Malformed rules, rules that can never match and redirect loops stop the server at startup with every problem listed. Paths under `/__absolute/` and `/_absolute/` are never redirected or rewritten. `absolute export` writes the rules as `_redirects` and `_headers`, which Netlify and Cloudflare Pages apply. See docs/ROUTING_RULES.md.",
+					"kind": "added",
+					"summary": "`redirects`, `rewrites` and `headers` config keys",
+					"symbols": [
+						"BaseBuildConfig",
+						"HeaderRule",
+						"RedirectRule",
+						"RedirectStatus",
+						"RewriteRule",
+						"RoutingRulesConfig"
+					]
+				}
+			],
+			"date": "2026-11-26",
+			"version": "0.20.0-beta.390"
+		},
+		{
+			"changes": [
+				{
 					"detail": "`absolute routes` now says where each route comes from. A file route names the file that serves it (`react/routes/plans/pricing.tsx`); any other route names the call that registered it (`server.ts:42:3`). `--json` carries it as `source: { kind: 'file' | 'call', location }`, or `null` when the server did not say. The source is recorded per handler, so a plugin prefix or a group does not lose it, and a route registered inside a dependency is attributed to the line of the app that mounted it. Two fixes came with it, both in the dev registration tracking this builds on: a route was attributed to the dev server's hidden copy of the server entry (`.absolutejs-hmr-<pid>-bootstrap-1.ts`) instead of the entry itself, and a project under a directory with a space in its name had no callsite at all for routes registered at the top level of a module, because the stack-frame parser stopped at the first space.",
 					"kind": "added",
 					"summary": "`absolute routes` shows the file or registration call behind each route"
