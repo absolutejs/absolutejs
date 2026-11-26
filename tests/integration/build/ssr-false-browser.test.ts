@@ -7,6 +7,7 @@ import type { ComponentType } from 'react';
 import type { Component as SvelteComponent } from 'svelte';
 import { handleAngularPageRequest } from '../../../src/angular/pageHandler';
 import { build } from '../../../src/core/build';
+import { setCurrentIslandManifest } from '../../../src/core/islandPageContext';
 import { handleReactPageRequest } from '../../../src/react/pageHandler';
 import { handleSveltePageRequest } from '../../../src/svelte/pageHandler';
 import { handleVuePageRequest } from '../../../src/vue/pageHandler';
@@ -144,6 +145,14 @@ const createApp = (
 ) => {
 	const renderPage = (request: Request) => {
 		const { pathname } = new URL(request.url);
+		/* The build manifest is one global per process, and the test files
+		 * in a shard share a process. A client-only page gets the island
+		 * runtime whenever that manifest has one, so without this the
+		 * page was handed the bootstrap of whichever fixture ran last —
+		 * a file this build never produced, and a 404 in the console.
+		 * Which file ran last depends on how the shard was dealt, so it
+		 * failed some nights and not others. */
+		setCurrentIslandManifest(manifest, buildDir);
 		if (pathname === '/react')
 			return handleReactPageRequest({
 				index: manifest.ClientOnlyReactIndex ?? '',
