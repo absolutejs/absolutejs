@@ -26,6 +26,15 @@ const FILES: Record<string, string> = {
 	'react/routes/docs/[...rest].server.ts':
 		"export const entries = async () => [{ rest: 'guide/routing' }];\n",
 	'react/routes/docs/[...rest].tsx': PAGE,
+	'react/routes/guides/[topic].server.ts':
+		"export const entries = () => [{ topic: 'routing' }, { topic: 'data' }];\n",
+	'react/routes/guides/[topic].tsx': PAGE,
+	'react/routes/guides/deep/setup.tsx': PAGE,
+	'react/routes/guides/drafts/[id].tsx': PAGE,
+	'react/routes/guides/index.tsx': PAGE,
+	'react/routes/guides/intro.tsx': PAGE,
+	// Beside the folder, not in it: its path only starts the same way.
+	'react/routes/guidesplus.tsx': PAGE,
 	'react/routes/items/[id].server.ts':
 		'export const entries = () => [{ id: 7 }, { name: "no id" }, "nonsense"];\n',
 	'react/routes/items/[id].tsx': PAGE,
@@ -106,6 +115,89 @@ describe('a pattern in static.routes', () => {
 			failures: [],
 			routes: ['/', '/about', '/not-a-route']
 		});
+	});
+});
+
+describe('a folder in static.routes', () => {
+	test('is its index, its static routes, and its dynamic ones through entries()', async () => {
+		const { routes } = await expand(['/guides/*']);
+
+		expect([...routes].sort()).toEqual([
+			'/guides',
+			'/guides/data',
+			'/guides/deep/setup',
+			'/guides/intro',
+			'/guides/routing'
+		]);
+	});
+
+	test('stops at the folder: a sibling whose path starts the same is not in it', async () => {
+		const { routes } = await expand(['/guides/*']);
+
+		expect(routes).not.toContain('/guidesplus');
+	});
+
+	/* "Everything under /guides" that quietly left a route out is the
+	 * failure this exists to prevent, so the route that cannot be
+	 * enumerated is named — under its own path, since the config never
+	 * wrote it. */
+	test('names a dynamic route in it that cannot be enumerated', async () => {
+		const { failures } = await expand(['/guides/*']);
+
+		expect(failures).toHaveLength(1);
+		expect(failures[0]?.route).toBe('/guides/drafts/:id');
+		expect(failures[0]?.reason).toContain('has no server module');
+	});
+
+	test('a folder holding only a catch-all is that route’s pages', async () => {
+		const { failures, routes } = await expand(['/docs/*']);
+
+		expect(failures).toEqual([]);
+		expect(routes).toEqual(['/docs/guide/routing']);
+	});
+
+	test('`/*` is every file route', async () => {
+		const { routes } = await expand(['/*']);
+
+		expect(routes).toContain('/about');
+		expect(routes).toContain('/guidesplus');
+		expect(routes).toContain('/guides');
+		expect(routes).toContain('/blog/hello');
+		expect(routes).toContain('/shop');
+	});
+
+	/* An [[optional]] route registers two paths sharing one typed path;
+	 * the folder reaches it twice and must say what it has to say once. */
+	test('reports a route’s failure once, however many paths it registers', async () => {
+		const { failures, routes } = await expand(['/shop/*']);
+
+		expect(failures).toEqual([]);
+		expect([...routes].sort()).toEqual(['/shop', '/shop/hats']);
+	});
+
+	test('a folder no file route is in is reported', async () => {
+		const { failures, routes } = await expand(['/nowhere/*']);
+
+		expect(routes).toEqual([]);
+		expect(failures[0]?.route).toBe('/nowhere/*');
+		expect(failures[0]?.reason).toContain(
+			'no file route is under this path'
+		);
+	});
+
+	test('sits in a list with literal paths and patterns, without repeats', async () => {
+		const { routes } = await expand([
+			'/about',
+			'/guides/*',
+			'/guides/intro',
+			'/blog/:slug'
+		]);
+
+		expect(
+			routes.filter((route) => route === '/guides/intro')
+		).toHaveLength(1);
+		expect(routes[0]).toBe('/about');
+		expect(routes).toContain('/blog/hello');
 	});
 });
 

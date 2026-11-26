@@ -40,6 +40,23 @@ for `[[name]]`, and the name the file gave a catch-all (`/docs/:rest` for
 `docs/[...rest]`). The config offers the project's file routes as
 completions.
 
+### A whole folder
+
+A path ending in `/*` stands for every file route in that folder: its own
+index, each static route below it as it is, and each dynamic one through
+its `entries()`.
+
+```ts
+static: { routes: ['/', '/blog/*'] }
+```
+
+A route added to the folder later is covered without the config changing.
+`'/*'` is every file route in the project.
+
+A dynamic route in the folder that cannot be enumerated is reported under
+its own path, the same way a pattern is. A folder selects file routes
+only; routes registered in `server.ts` are not part of one.
+
 A pattern that cannot become pages is printed as a pre-render failure,
 never skipped quietly:
 
@@ -97,9 +114,10 @@ This works for a route registered in `server.ts` too. The build cannot
 enumerate such a route, so a pattern for it pre-renders nothing at build
 time, but each page can be created this way.
 
-`:name` covers exactly one path segment and `:name?` one or none. To
-cover everything below a path, as a catch-all route does, write
-`/docs/*`: the catch-all's own name (`/docs/:rest`) is one segment here.
+`:name` covers exactly one path segment and `:name?` one or none.
+`/docs/*` covers `/docs` and everything below it, which is how to cover a
+catch-all route: the catch-all's own name (`/docs/:rest`) is one segment
+here.
 
 ### A page that no longer exists
 

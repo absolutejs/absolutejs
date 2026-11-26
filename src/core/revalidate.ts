@@ -107,9 +107,10 @@ const escapeForRegExp = (text: string) =>
 
 /* One segment of a `static.routes` path as a piece of a regular
  * expression: `:name` is exactly one segment, `:name?` is one or none,
- * `*` is everything that is left. */
+ * `*` is the folder — the path before it and everything below, which is
+ * what the same pattern selects at build time. */
 const segmentPattern = (segment: string) => {
-	if (segment === '*') return '/.+';
+	if (segment === '*') return '(?:/.+)?';
 	if (!segment.startsWith(':')) return `/${escapeForRegExp(segment)}`;
 
 	return segment.endsWith('?') ? '(?:/[^/]+)?' : '/[^/]+';

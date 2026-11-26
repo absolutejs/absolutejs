@@ -299,11 +299,12 @@ describe('file routes in production', () => {
 		expect(paths).not.toContain('/shop/widget');
 	});
 
-	/* `static.routes` holds the pattern `/blog/:slug`, and the route's
-	 * `entries()` names two slugs: those two pages are pre-rendered, and
-	 * nothing is rendered for the pattern itself — which is what the
-	 * pass did when it took every entry as a literal path. */
-	test('pre-renders a pattern’s pages from the route’s entries()', async () => {
+	/* `static.routes` holds the folder `/blog/*`: its index is
+	 * pre-rendered as it is, and its dynamic route through `entries()`,
+	 * which names two slugs. Nothing is rendered for a pattern itself —
+	 * which is what the pass did when it took every entry as a literal
+	 * path. */
+	test('pre-renders a folder: its index, and its dynamic route’s entries()', async () => {
 		const prerendered = (name: string) =>
 			join(root, 'start-build', '_prerendered', name);
 
@@ -313,7 +314,11 @@ describe('file routes in production', () => {
 		expect(
 			await readFile(prerendered('blog/world.html'), 'utf-8')
 		).toContain('POST_WORLD');
+		expect(await readFile(prerendered('blog.html'), 'utf-8')).toContain(
+			'FILE_BLOG_INDEX'
+		);
 		expect(existsSync(prerendered('blog/:slug.html'))).toBe(false);
+		expect(existsSync(prerendered('blog/*.html'))).toBe(false);
 		// Served from those files, and a slug entries() did not name is
 		// still rendered per request.
 		expect((await get(PROD_PORT, '/blog/hello')).body).toContain(
