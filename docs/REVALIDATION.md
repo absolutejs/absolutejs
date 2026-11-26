@@ -275,6 +275,49 @@ A page is rendered once and copied, with its nonce, holes and tags, so
 `revalidateTag` works on every machine. The others are behind by at most
 the interval.
 
+### The built-in stores: S3 and Redis
+
+Both are built on Bun's own clients, so they add no dependency. Name one
+in the config:
+
+```ts
+static: {
+	routes: ['/', '/blog/*'],
+	store: { type: 'redis' }
+	// or: store: { type: 's3', bucket: 'my-pages' }
+}
+```
+
+The config holds nothing secret. Credentials come from the environment
+the server **starts** with, which is where Bun's clients read them:
+
+| Store | Environment |
+| --- | --- |
+| `redis` | `REDIS_URL` |
+| `s3` | `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, and `S3_BUCKET`, `S3_ENDPOINT`, `S3_REGION` unless the config gives them. The `AWS_` names work too. |
+
+Both take `prefix`, to share a bucket or a database with other things,
+and `interval`.
+
+To configure the client yourself, build the store in code instead:
+
+```ts
+import { registerPageStore, redisPageStore, s3PageStore } from '@absolutejs/absolute';
+
+registerPageStore(s3PageStore(new Bun.S3Client({ bucket: 'my-pages' })));
+registerPageStore(redisPageStore(new Bun.RedisClient(process.env.CACHE_URL)));
+```
+
+A store registered in code wins over one named in the config.
+
+- **Redis** writes a page and its version with one command, so the two
+  can never disagree, and never fetches its own writes back. It is for a
+  single Redis or a primary with replicas, not a Redis Cluster.
+- **S3** keeps one object per page. It works with any service that speaks
+  S3. The machine that wrote a page fetches it back once on its next
+  check, because an S3 write does not report a version that can be
+  trusted.
+
 ### Writing a store
 
 A store is four functions over string keys and string bodies:
@@ -309,9 +352,10 @@ one fetch, and one that cannot loses nothing.
   serving either way.
 - **Builds do not mix.** Everything is kept under the build's own id, and
   the store is cleared of builds older than the last three.
-- **Register it in code, not in `absolute.config.ts`.** A production
-  server reads what the build wrote down from the config, and a store is
-  functions.
+- **A store of your own is registered in code, not in
+  `absolute.config.ts`.** A production server reads what the build wrote
+  down from the config, and a store is functions. The built-in ones are
+  plain data, which is why the config can name them.
 
 ### When the directory cannot be written
 

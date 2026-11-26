@@ -5,6 +5,28 @@
 		{
 			"changes": [
 				{
+					"detail": "Two page stores ship with the framework, for keeping pre-rendered pages in step across machines that share no disk: `redisPageStore` and `s3PageStore`. Both are built on Bun's own clients and add no dependency. Name one in the config with `static.store: { type: 'redis' }` or `{ type: 's3', bucket }`; the config holds nothing secret, and credentials come from the environment the server starts with (`REDIS_URL`; `S3_ACCESS_KEY_ID` and `S3_SECRET_ACCESS_KEY`, with `S3_BUCKET`, `S3_ENDPOINT` and `S3_REGION` unless the config gives them, or the `AWS_` names). Or build one in code around a client of your own and pass it to `registerPageStore`, which wins over the config. The Redis store writes a page's body and its version with one command so the two cannot disagree, reports the version it wrote so a machine never fetches its own page back, and is for a single Redis or a primary with replicas, not a Redis Cluster. The S3 store keeps one object per page, tells a missing object from an unreachable bucket so an outage is not read as every page being gone, and works with any service that speaks S3. Both take `prefix` and `interval`. See docs/REVALIDATION.md.",
+					"kind": "added",
+					"summary": "Redis and S3 page stores ship built in, chosen by `static.store` or built in code",
+					"symbols": [
+						"redisPageStore",
+						"s3PageStore",
+						"PageStoreConfig",
+						"PageStorePrefixOptions",
+						"RedisPageStoreClient",
+						"S3PageStoreClient",
+						"S3PageStoreListOptions",
+						"S3PageStoreListing",
+						"StaticConfig"
+					]
+				}
+			],
+			"date": "2026-11-26",
+			"version": "0.20.0-beta.412"
+		},
+		{
+			"changes": [
+				{
 					"detail": "`registerPageStore(store)` keeps pre-rendered pages in step across machines that share no disk. Each machine goes on serving from its own files, so nothing is added to the path of a request. A page a machine re-renders, creates or takes down is also written to the store; a machine starting up pulls whatever the store has that it does not, so one added later or back from an outage is not left serving the build's pages; and while running, each machine asks the store what changed every 5 seconds (`{ interval }`) and pulls it. A page is rendered once and copied with its nonce, dynamic holes and tags, so `revalidateTag` works on every machine. A store is four functions over string keys and bodies (`get`, `put`, `delete`, `list`), which an object store, a key-value store or a table can all provide; `list` reports a version per object that is only compared for equality. The store is the truth: two machines revalidating one page at once both write it and both end up serving what the store kept. A store that cannot be reached does not take pages down or stop a server starting; it is logged once when it fails and once when it recovers. Everything is kept under the build's own id, and builds older than the last three are cleared. It is registered in code, before `prepare()`, because a production server does not read `absolute.config.ts`. No store implementation ships in this release. See docs/REVALIDATION.md.",
 					"kind": "added",
 					"summary": "`registerPageStore` keeps pre-rendered pages in step across machines that share no disk",
