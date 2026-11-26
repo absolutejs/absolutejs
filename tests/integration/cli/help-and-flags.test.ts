@@ -131,7 +131,13 @@ describe('absolute dev --port', () => {
 				`--port needs a port number between 1 and 65535, got "${value}".`
 			);
 			expect(`${stdout}\n${stderr}`).not.toContain('Unknown flag');
-			expect(exitCode).not.toBe(0);
+			// A usage error, not a crash: no stack trace, no source excerpt.
+			expect(`${stdout}\n${stderr}`).not.toContain('TypeError');
+			expect(`${stdout}\n${stderr}`).not.toContain('parseDevPort');
+			expect(stderr).toContain(
+				'Run `absolute --help` for the list of commands.'
+			);
+			expect(exitCode).toBe(1);
 		},
 		120_000
 	);

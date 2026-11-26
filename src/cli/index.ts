@@ -49,10 +49,16 @@ const MAX_PORT = 65_535;
 const parseDevPort = (value: string | undefined, given: boolean) => {
 	if (!given) return undefined;
 	const port = Number(value);
-	if (!Number.isInteger(port) || port < 1 || port > MAX_PORT)
-		throw new TypeError(
+	if (!Number.isInteger(port) || port < 1 || port > MAX_PORT) {
+		/* Said the way every other flag problem is, and not thrown: a
+		 * throw here printed the message under six lines of this file's
+		 * source and a stack trace, as if the CLI had crashed. */
+		console.error(
 			`--port needs a port number between 1 and ${MAX_PORT}, got ${value === undefined ? 'nothing' : `"${value}"`}.`
 		);
+		console.error(`Run \`absolute --help\` for the list of commands.`);
+		process.exit(1);
+	}
 
 	return port;
 };
