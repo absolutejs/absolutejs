@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "After one Vue page failed to render on the server, `useServerData` called outside a component's `setup()` stopped reporting the mistake for the rest of the process. Vue leaves its \"a component is being set up\" state set when a component throws during a server render — the current instance when `setup()` throws, the rendering instance when a render function does — and never resets it, so `getCurrentInstance()` kept returning the dead component, a later successful render included. The guard then passed, and the hook registered its server prefetch on that dead component, where it never ran. The framework's Vue render paths (page handler, buffered and streamed; islands; `SuspenseSlot`) now clear that state when a render fails, using the setters Vue keeps for it. Those are not documented Vue API, so each step is checked and does nothing if the shape differs.",
+					"kind": "fixed",
+					"summary": "`useServerData` reports misuse outside `setup()` again after a Vue page has failed to render"
+				}
+			],
+			"date": "2026-11-26",
+			"version": "0.20.0-beta.388"
+		},
+		{
+			"changes": [
+				{
 					"detail": "Test-only. The intermittent `404` in `vue-navigation-browser.test.ts` is explained: the URL the test began recording in beta.371 was `/__absolute/loading`. A soft navigation that outlasts 150ms fetches the `loading` convention from that path, and an app assembled by `prepare()` answers 204 when it ships none. Ten browser tests in `tests/integration/build` serve their fixture with a hand-written fetch handler instead, which answered 404, and the browser logged that as a failed resource — so any of them that asserts a clean console failed whenever a navigation happened to be slow. They now answer that one path the way the framework does (`tests/helpers/unservedPath.ts`). Not a framework defect: the layer already treats any non-OK answer as no indicator.",
 					"kind": "internal",
 					"summary": "Hand-rolled test servers answer the loading-convention endpoint, ending an intermittent console 404"
