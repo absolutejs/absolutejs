@@ -199,6 +199,23 @@ const expectRoutes = async (port: number) => {
 	expect(topic.body).toContain('svelte-root-layout');
 	expect(topic.body).not.toContain('guides-layout');
 
+	/* Folder guards: `vault/layout.server.ts` guards everything under
+	 * `/vault`, with no `beforeHandle` in either route's own module. */
+	const shut = await get(port, '/vault/door');
+	expect(shut.status).toBe(302);
+	expect(shut.location).toBe('/');
+	expect((await get(port, '/vault/door?key=open')).body).toContain(
+		'FILE_VAULT_DOOR'
+	);
+	// The deeper folder's guard runs too, and only after the outer one.
+	expect((await get(port, '/vault/deep/box?level=2')).status).toBe(302);
+	const refused = await get(port, '/vault/deep/box?key=open');
+	expect(refused.status).toBe(403);
+	expect(refused.body).toBe('DEEP_GUARD_REFUSED');
+	expect(
+		(await get(port, '/vault/deep/box?key=open&level=2')).body
+	).toContain('FILE_VAULT_BOX');
+
 	// Explicit routes win, registered before or after fileRoutes().
 	expect((await get(port, '/about')).body).toBe('EXPLICIT_ABOUT');
 	expect((await get(port, '/explicit-first')).body).toBe('EXPLICIT_FIRST');

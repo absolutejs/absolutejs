@@ -261,6 +261,16 @@ export const load = async ({ params }: FileRouteContext<'/blog/:slug'>) => {
   `headers`, `request`, `set`, `path`, `redirect(url, status?)`. Request
   params are checked against the path's names at run time before `load` or
   `beforeHandle` sees them.
+- **Folder guards (built).** A `layout.server.ts` in a route folder exports
+  `beforeHandle`, and it runs for every route in that folder and below,
+  outermost folder first, before the route's own `beforeHandle`. The first
+  one to return a value answers the request. It is found the way a layout
+  is, so `(admin)/layout.server.ts` guards a group without adding a path
+  segment; it needs no layout component beside it, and every framework's
+  route folder may have one, the static ones included. Its context is a
+  `FileRouteContext` with untyped params, since one guard serves routes with
+  different ones. A `load` exported from it is never called and is reported
+  by the scan. See docs/MIDDLEWARE.md.
 - App-wide auth stays in Elysia: hooks and plugins registered before
   `.use(fileRoutes(...))` (an `onBeforeHandle`, `@absolutejs/auth`'s
   macros/derive) apply to file routes like any route.

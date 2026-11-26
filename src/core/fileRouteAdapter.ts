@@ -2,6 +2,7 @@ import type {
 	FileRouteContext,
 	FileRouteDefinition,
 	FileRouteFramework,
+	FileRouteGuardModule,
 	FileRouteParams,
 	FileRouteRenderInput,
 	FileRouteServerModule
@@ -70,6 +71,45 @@ export const serverHooksOf = <Path extends string>(
 	return hooks;
 };
 
+type GuardLoader = () => Promise<FileRouteGuardModule | undefined>;
+type BeforeHandle = NonNullable<FileRouteDefinition['beforeHandle']>;
+
+/* Runs the folder guards in order and stops at the first that answers.
+ * One at a time, never together: an outer guard that redirects an
+ * anonymous visitor must do so before an inner one reads the session it
+ * assumes is there. */
+const runGuards = async (
+	guards: readonly GuardLoader[],
+	context: FileRouteContext,
+	index = 0
+): Promise<unknown> => {
+	const load = guards[index];
+	if (!load) return undefined;
+	const answer = await (await load())?.beforeHandle?.(context);
+	if (answer !== undefined) return answer;
+
+	return runGuards(guards, context, index + 1);
+};
+
+/* A route's `beforeHandle` with its folders' guards in front of it:
+ * `routes/layout.server.ts`, then `routes/admin/layout.server.ts`, then
+ * the route's own. Absent entirely when the route has neither, so a
+ * route with no guard registers no hook. */
+const guardedBeforeHandle = (
+	guards: readonly GuardLoader[] | undefined,
+	own: BeforeHandle | undefined
+) => {
+	if (!guards || guards.length === 0) return own;
+	const guarded: BeforeHandle = async (context) => {
+		const answer = await runGuards(guards, context);
+		if (answer !== undefined) return answer;
+
+		return own?.(context);
+	};
+
+	return guarded;
+};
+
 /* `path` is the string Elysia registers, which is not always the path the
  * route's params are typed against: `/docs/[...rest]` types against
  * `/docs/:rest` and registers `/docs/*`. The type path reaches the adapters
@@ -82,6 +122,9 @@ export type FileRouteAdapterInput = {
 	/** The name the file gave its catch-all segment, for the runtime to
 	 *  copy Elysia's `*` param onto. */
 	catchAll?: string;
+	/** The `layout.server.ts` module of each folder this route is in,
+	 *  outermost first. Their `beforeHandle` runs before the route's. */
+	guards?: readonly GuardLoader[];
 	/** The path the route's types were written against, when it is not
 	 *  `path`: `/docs/:rest` for a route registered as `/docs/*`. The
 	 *  run-time params check reads its names, so it must be the typed one
@@ -98,6 +141,8 @@ export const defineFileRouteWith = <Path extends string>(
 	},
 	render: (input: FileRouteRenderInput) => Promise<Response>
 ) => {
+	const hooks = serverHooksOf(route, route.typePath ?? route.path);
+	const beforeHandle = guardedBeforeHandle(route.guards, hooks.beforeHandle);
 	const definition: FileRouteDefinition = {
 		framework,
 		name: route.name,
@@ -105,7 +150,8 @@ export const defineFileRouteWith = <Path extends string>(
 		render,
 		source: route.source,
 		...(route.catchAll === undefined ? {} : { catchAll: route.catchAll }),
-		...serverHooksOf(route, route.typePath ?? route.path)
+		...hooks,
+		...(beforeHandle === undefined ? {} : { beforeHandle })
 	};
 
 	return definition;
