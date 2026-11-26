@@ -17,6 +17,7 @@
 
 import type {
 	RevalidateAllResult,
+	RevalidateRequestResult,
 	RevalidationOutcome,
 	Revalidator
 } from '../../types/revalidate';
@@ -208,6 +209,39 @@ export const revalidatePath = async (path: string) => {
 	if (!known) return false;
 
 	return (await revalidator.revalidate(route)) !== 'failed';
+};
+
+/* What a request from outside the app asked for, done with the same
+ * rules the functions follow. A path the config does not cover is
+ * `skipped` rather than rendered: holding the token is permission to
+ * say a page is stale, not to pre-render whatever one likes. */
+type Requested = {
+	all: boolean;
+	paths: readonly string[];
+	tags: readonly string[];
+};
+
+/** @internal The revalidation endpoint's work (revalidateEndpoint.ts). */
+export const revalidateRequested = async ({ all, paths, tags }: Requested) => {
+	const revalidator = currentRevalidator();
+	const asked = paths.map(routeOf);
+	const covered = (route: string) =>
+		revalidator !== undefined &&
+		(revalidator.routes().includes(route) || revalidator.canCreate(route));
+	const routes = [
+		...new Set([
+			...(all ? (revalidator?.routes() ?? []) : []),
+			...asked.filter(covered),
+			...(revalidator?.routesTagged(tags) ?? [])
+		])
+	];
+	const outcome = await revalidateRoutes(revalidator, routes);
+	const result: RevalidateRequestResult = {
+		...outcome,
+		skipped: [...new Set(asked.filter((route) => !covered(route)))]
+	};
+
+	return result;
 };
 
 /** Re-render every pre-rendered page that declared one of these tags

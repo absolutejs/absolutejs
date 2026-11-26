@@ -37,6 +37,7 @@ const repoRoot = resolve(import.meta.dir, '..', '..', '..');
 const CLI_ENTRY = join(repoRoot, 'src', 'cli', 'index.ts');
 const FRAMEWORK = join(repoRoot, 'src', 'index.ts').replace(/\\/g, '/');
 const PORT = 4612;
+const ENDPOINT_TOKEN = 'revalidate-path-test-token';
 
 const CONFIG = `import { defineConfig } from '${FRAMEWORK}';
 
@@ -45,7 +46,10 @@ export default defineConfig({
 	// \`/post/:slug\` is registered in server.ts, so the build cannot
 	// enumerate it and pre-renders none of its pages; the pattern is
 	// what lets one be created later.
-	static: { routes: ['/count', '/docs/count', '/post/:slug'] }
+	static: {
+		revalidateToken: '${ENDPOINT_TOKEN}',
+		routes: ['/count', '/docs/count', '/post/:slug']
+	}
 });
 `;
 
@@ -366,6 +370,51 @@ describe('revalidatePath under absolute start', () => {
 		});
 
 		expect(response.headers.has('x-absolute-cache-tags')).toBe(false);
+	});
+
+	/* The same thing from outside the app: a CMS, a job. The counter is
+	 * at 5 and the pages still show 4 — the last test changed it under a
+	 * tag no page carries. */
+	test('the endpoint refuses a caller without the token, and changes nothing', async () => {
+		const call = (authorization?: string) =>
+			fetch(url('/__absolute/revalidate'), {
+				body: JSON.stringify({ tags: ['counter'] }),
+				headers: {
+					'content-type': 'application/json',
+					...(authorization ? { authorization } : {})
+				},
+				method: 'POST'
+			});
+
+		expect((await call()).status).toBe(401);
+		expect(
+			(await call('Bearer wrong-token-of-similar-length')).status
+		).toBe(401);
+		expect(await shown('/count')).toBe('count:4');
+	});
+
+	test('the endpoint revalidates by tag and by path for a caller with it', async () => {
+		const response = await fetch(url('/__absolute/revalidate'), {
+			body: JSON.stringify({
+				paths: ['/elsewhere/not-covered'],
+				tags: ['counter']
+			}),
+			headers: {
+				authorization: `Bearer ${ENDPOINT_TOKEN}`,
+				'content-type': 'application/json'
+			},
+			method: 'POST'
+		});
+
+		expect(response.status).toBe(200);
+		expect(await response.json()).toEqual({
+			failed: [],
+			removed: [],
+			revalidated: ['/count', '/docs/count'],
+			skipped: ['/elsewhere/not-covered']
+		});
+		expect(await shown('/count')).toBe('count:5');
+		expect(await shown('/docs/count')).toBe('count:5');
 	});
 
 	/* With `cluster` on, every worker has its own list of pre-rendered

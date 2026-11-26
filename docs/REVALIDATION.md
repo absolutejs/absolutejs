@@ -206,6 +206,66 @@ Tags are sent only to the pre-renderer: the build's own pre-render
 server, and the running server re-rendering its own pages. They are
 never in a response to a visitor.
 
+## From outside the app: the revalidation endpoint
+
+`revalidatePath` and `revalidateTag` are functions, so only code in the
+server can call them. For a CMS webhook, a job or another service, set a
+token and the server accepts requests:
+
+```ts
+// absolute.config.ts
+static: {
+	routes: ['/', '/blog/*'],
+	revalidateToken: process.env.REVALIDATE_TOKEN
+}
+```
+
+```sh
+curl -X POST https://example.com/__absolute/revalidate \
+  -H "Authorization: Bearer $REVALIDATE_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{ "tags": ["posts"], "paths": ["/blog/hello"] }'
+```
+
+```json
+{ "revalidated": ["/blog", "/blog/hello"], "removed": [], "failed": [], "skipped": [] }
+```
+
+The body takes any of:
+
+| Field | Meaning |
+| --- | --- |
+| `paths` | Paths to revalidate, as `revalidatePath` would. |
+| `tags` | Tags to revalidate, as `revalidateTag` would. |
+| `all` | `true` to revalidate every pre-rendered page. |
+| `background` | `true` to answer `202` at once and do the work afterwards. |
+
+Use `background` for a caller that will not wait: a CMS typically gives a
+webhook a few seconds, and re-rendering many pages can take longer. A
+failure then has nobody to report to, so it is logged.
+
+`skipped` lists paths that were asked for and are not ones `static.routes`
+covers. Nothing is rendered for them.
+
+### What protects it
+
+It is a public URL that makes the server render pages.
+
+- **Off unless a token is set.** Without `revalidateToken` the path is not
+  a route. An empty token, or one shorter than 16 characters, counts as
+  not set, and the short one is reported at startup.
+- **Bearer token, compared in constant time.** A wrong or missing token
+  is a `401` whatever the body says.
+- **Bounded.** One call may name at most 100 paths and tags.
+- **No more than the functions can do.** A path the config does not cover
+  is skipped, so the token is permission to say a page is stale, not to
+  pre-render any URL.
+- **Rate limited** like any other route, when the app configures
+  `rateLimit`.
+
+The token is a secret: read it from the environment, not from the config
+file itself.
+
 ## What a caller is promised
 
 - **A render that started after you asked.** If a re-render of the same

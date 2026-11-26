@@ -26,6 +26,7 @@ import { setIconVersionResolver } from '../utils/iconVersion';
 import { setCurrentIslandManifest } from './islandPageContext';
 import { absoluteRequestContext } from './requestContext';
 import { cacheTagEmitter, routesTagged } from './cacheTags';
+import { revalidateEndpoint } from './revalidateEndpoint';
 import { health, resolveHealthConfig } from '../plugins/health';
 import { rateLimit } from '../plugins/rateLimit';
 import { routingRules } from '../plugins/routingRules';
@@ -1200,6 +1201,8 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 			.use(mobileUpdatePlugin)
 			.use(assetCachePlugin)
 			.use(imageOptimizer(config.images, buildDir))
+			// Before the pre-rendered pages, behind the rate limiter.
+			.use(revalidateEndpoint(config.static?.revalidateToken))
 			.use(prerenderPlugin)
 			.use(precompressedFiles)
 			.use(staticFiles)
