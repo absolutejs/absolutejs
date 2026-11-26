@@ -311,6 +311,46 @@ describe('revalidatePath under absolute start', () => {
 		expect(existsSync(prerendered('post/never-existed.html'))).toBe(false);
 	});
 
+	/* With `cluster` on, every worker has its own list of pre-rendered
+	 * routes and they share one directory. "Another worker" here is
+	 * this test changing the directory behind the server's back, which
+	 * is exactly what one worker's revalidation looks like to the
+	 * rest. */
+	test('a page another worker took down is rendered, not answered with a missing file', async () => {
+		await rm(prerendered('docs/count.html'));
+		await rm(prerendered('docs/count.meta'), { force: true });
+
+		const response = await fetch(url('/docs/count'));
+
+		// Was a 500: the route was still listed and its file was gone.
+		expect(response.status).toBe(200);
+		expect(await response.text()).toContain('count:3');
+	});
+
+	test('a page another worker created is served from its file', async () => {
+		// Not a post this server knows: rendered, it would be a 404.
+		expect((await postShown('elsewhere')).status).toBe(404);
+		await mkdir(prerendered('post'), { recursive: true });
+		await writeFile(
+			prerendered('post/elsewhere.html'),
+			'<!doctype html><html><head><title>Post</title></head><body><p id="post">post:from-disk</p></body></html>'
+		);
+
+		expect(await postShown('elsewhere')).toEqual({
+			shown: 'post:from-disk',
+			status: 200
+		});
+	});
+
+	test('and can be taken down through a worker that never listed it', async () => {
+		expect(await send('DELETE', '/posts/elsewhere')).toEqual({
+			revalidated: true
+		});
+
+		expect(existsSync(prerendered('post/elsewhere.html'))).toBe(false);
+		expect((await postShown('elsewhere')).status).toBe(404);
+	});
+
 	test('nothing is left staged beside the pages', async () => {
 		const files = await readdir(join(root, 'build', '_prerendered'), {
 			recursive: true

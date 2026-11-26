@@ -160,12 +160,18 @@ keeps its previous page.
   for a path the config lists or a pattern matches, and for nothing else.
 - **A page created after the build is lost on a redeploy** until it is
   created again, unless the next build's `entries()` names it.
-- **One server.** The call re-renders through the server it runs in and
-  rewrites that server's files. Several instances each hold their own
-  copy, so call it on each, or put the pre-render directory on storage
-  they share. Workers of one clustered server share the directory; for
-  the length of a rename, another worker can read a page's files from two
-  different renders.
+- **One machine.** The call re-renders through the server it runs in and
+  rewrites the files in that server's build directory. Several instances
+  on different machines each hold their own copy, so call it on each, or
+  put the pre-render directory on storage they share.
+- **Clustered workers agree through the disk.** Workers of one clustered
+  server share the directory, and each checks it before serving: a page
+  one worker took down is rendered by the others rather than served, and
+  a page one worker created is served by the others once they are asked
+  for it. For the length of a rename, another worker can still read one
+  page's files from two different renders. `revalidateAll()` covers the
+  pages the worker it runs in knows about, which may not yet include one
+  another worker created.
 - **The server must be reachable on its own port.** A re-render is a
   request the server makes to itself on `PORT`.
 - **Dynamic holes are not involved.** A partially pre-rendered page's
