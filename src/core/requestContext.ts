@@ -3,7 +3,16 @@ import { Elysia } from 'elysia';
 import { buildErrorPage } from '../utils/ssrErrorPage';
 import { requestIdFor, requestIdHeader } from './requestId';
 
-type AbsoluteRequestStore = {
+/** A cookie waiting to be sent: the header line, and what a read of the
+ *  same name later in this request should report (`undefined` once it
+ *  has been deleted). */
+export type QueuedCookie = {
+	name: string;
+	serialized: string;
+	value: string | undefined;
+};
+
+export type AbsoluteRequestStore = {
 	request: Request;
 	/** This request's correlation id, computed on first use. Nothing
 	 *  computes it up front: `onRequest` runs for every request and most
@@ -29,6 +38,14 @@ type AbsoluteRequestStore = {
 	 *  the server. Collected here because several islands share one page
 	 *  and one payload. */
 	vueIslandServerData?: unknown;
+	/** The request's cookies, parsed on first use by `cookies()`. */
+	requestCookies?: Map<string, string>;
+	/** `Set-Cookie` lines queued by `cookies()`, keyed by what a browser
+	 *  treats as one cookie, so setting a name twice sends the last. */
+	responseCookies?: Map<string, QueuedCookie>;
+	/** True once this request's response has been handed over: a cookie
+	 *  set after that has no header left to travel in. */
+	responseStarted?: boolean;
 };
 type AbsoluteRequestStorage = AsyncLocalStorage<AbsoluteRequestStore>;
 
@@ -73,7 +90,37 @@ export const absoluteRequestContext = new Elysia({
 			store.route = route;
 		}
 	})
+	/* Cookies queued by `cookies().set()` leave here. `mapResponse` is
+	 * the hook that sees every way a response is produced — a returned
+	 * value, a `Response`, a redirect, another plugin answering early —
+	 * and it runs before any of them is sent. */
+	.mapResponse(({ request, responseValue, set }) => {
+		const store = getRequestStorage()?.getStore();
+		if (!store || store.request !== request) return;
+		store.responseStarted = true;
+		const queued = [...(store.responseCookies?.values() ?? [])].map(
+			(cookie) => cookie.serialized
+		);
+		if (queued.length === 0) return;
+		if (responseValue instanceof Response) {
+			queued.forEach((cookie) => {
+				responseValue.headers.append('set-cookie', cookie);
+			});
+
+			return;
+		}
+		// Appended to, never replaced: a route's own `cookie.x.set()`
+		// and an earlier hook's header are in here too.
+		const existing: unknown = set.headers['set-cookie'];
+		const kept = Array.isArray(existing)
+			? existing.filter((value) => typeof value === 'string')
+			: [];
+		const single = typeof existing === 'string' ? [existing] : [];
+		Reflect.set(set.headers, 'set-cookie', [...kept, ...single, ...queued]);
+	})
 	.as('global');
+/** @internal The current request's store, for the request helpers. */
+export const getAbsoluteRequestStore = () => getRequestStorage()?.getStore();
 export const getCurrentAbsoluteRequest = () =>
 	getRequestStorage()?.getStore()?.request;
 /** The Elysia route pattern matched for the current request, when the
