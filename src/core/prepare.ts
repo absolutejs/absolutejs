@@ -1098,6 +1098,7 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 			? undefined
 			: startPageSync({
 					build: prerenderBuildId(buildDir),
+					configured: config.static?.store,
 					local: {
 						read: (route) =>
 							readPrerenderedFiles(prerenderDir, route),

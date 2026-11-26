@@ -5,7 +5,9 @@ import type {
 	StoredPage
 } from '../../types/pageStore';
 import { unrefTimer } from '../utils/unrefTimer';
+import type { PageStoreConfig } from '../../types/pageStores';
 import { currentPageStore } from './pageStore';
+import { pageStoreFromConfig } from './pageStores';
 import { filenameToRoute, routeToFilename } from './prerenderPaths';
 
 /* Pre-rendered pages kept in step across machines that share no disk.
@@ -255,13 +257,33 @@ export const createPageSync = ({
  * in the background either way. */
 const FIRST_PULL_BUDGET_MS = 5000;
 
-type StartPageSyncInput = Omit<PageSyncInput, 'options' | 'store'>;
+type StartPageSyncInput = Omit<PageSyncInput, 'options' | 'store'> & {
+	/** `static.store` from the config, used when the app registered no
+	 *  store of its own. */
+	configured?: PageStoreConfig;
+};
+
+/* A store registered in code wins: it is the more specific choice, and
+ * the only way to use a client the config cannot describe. */
+const chosenStore = (configured: PageStoreConfig | undefined) => {
+	const registered = currentPageStore();
+	if (registered) return registered;
+	if (!configured) return undefined;
+
+	return {
+		options:
+			configured.interval === undefined
+				? {}
+				: { interval: configured.interval },
+		store: pageStoreFromConfig(configured)
+	};
+};
 
 /** The sync for the store the app registered, already started — or
  *  `undefined` when it registered none. `ready` settles when the first
  *  pull has finished or its budget has run out. */
-export const startPageSync = (input: StartPageSyncInput) => {
-	const registered = currentPageStore();
+export const startPageSync = ({ configured, ...input }: StartPageSyncInput) => {
+	const registered = chosenStore(configured);
 	if (!registered) return undefined;
 	const sync = createPageSync({
 		...input,

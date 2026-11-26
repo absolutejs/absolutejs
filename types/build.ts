@@ -8,6 +8,7 @@ import type { HealthConfig } from './health';
 import type { ImageConfig } from './image';
 import type { LinksConfig } from './links';
 import type { LoggingConfig } from './logging';
+import type { PageStoreConfig } from './pageStores';
 import type { AbsoluteRoutePath } from './routeMap';
 import type { RateLimitConfig } from './rateLimit';
 import type { HeaderRule, RedirectRule, RewriteRule } from './routingRules';
@@ -508,6 +509,11 @@ export type StaticConfig = {
 	 *  relative one is resolved against the directory the server is
 	 *  started from. */
 	directory?: string;
+	/** A built-in page store, for machines that share no disk: `{ type:
+	 *  's3' }` or `{ type: 'redis' }`. Credentials come from the
+	 *  server's environment, never from here. For any other store, or a
+	 *  client configured in code, use `registerPageStore`. */
+	store?: PageStoreConfig;
 	/** Enables `POST /__absolute/revalidate`, so something outside the
 	 *  app — a CMS webhook, a job — can revalidate paths and tags by
 	 *  sending this value as a bearer token. A secret: take it from the

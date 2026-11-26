@@ -22,6 +22,7 @@ export * from './rateLimit';
 export * from './loaders';
 export * from './requestHelpers';
 export * from './pageStore';
+export * from './pageStores';
 export * from './revalidate';
 export * from './staticRoutes';
 export * from './routingRules';

@@ -33,11 +33,21 @@ type MachineName = 'a' | 'b' | 'c';
 const PORTS: Record<MachineName, number> = { a: 4616, b: 4617, c: 4618 };
 const INTERVAL_MS = 150;
 
+/* Set, this whole file runs against a real Redis chosen in the config
+ * (`static.store: { type: 'redis' }`) in place of the store the fixture
+ * registers in code. Same servers, same assertions: what changes is
+ * which store carries the pages, and which way it was configured. */
+const redisUrl = process.env.PAGE_STORE_TEST_REDIS_URL;
+const REDIS_STORE = `store: { interval: ${INTERVAL_MS}, prefix: 'e2e-${crypto.randomUUID()}:', type: 'redis' },`;
+
 const CONFIG = `import { defineConfig } from '${FRAMEWORK}';
 
 export default defineConfig({
 	buildDirectory: './build',
-	static: { routes: ['/count', '/post/:slug'] }
+	static: {
+		${redisUrl ? REDIS_STORE : ''}
+		routes: ['/count', '/post/:slug']
+	}
 });
 `;
 
@@ -197,7 +207,11 @@ const start = async (machine: MachineName, prebuilt: boolean) => {
 				MACHINE: machine.toUpperCase(),
 				NODE_ENV: 'production',
 				PORT: String(PORTS[machine]),
-				STORE_DIRECTORY: join(root, 'store'),
+				// One or the other: the config's Redis, or the
+				// directory store the fixture registers itself.
+				...(redisUrl
+					? { REDIS_URL: redisUrl }
+					: { STORE_DIRECTORY: join(root, 'store') }),
 				TELEMETRY_OFF: '1'
 			},
 			stderr: 'inherit',
@@ -262,7 +276,7 @@ afterAll(async () => {
 	if (root) await rm(root, { force: true, recursive: true });
 });
 
-describe('machines sharing a page store', () => {
+describe(`machines sharing a page store${redisUrl ? ' (a real Redis, from static.store)' : ''}`, () => {
 	test('each starts with the build’s pages in a directory of its own', async () => {
 		expect(existsSync(join(root, 'pages-a'))).toBe(true);
 		expect(existsSync(join(root, 'pages-b'))).toBe(true);
@@ -342,16 +356,21 @@ describe('machines sharing a page store', () => {
 		expect((await shown('c', '/post/hello')).status).toBe(404);
 	}, 300_000);
 
-	test('the store holds this build’s pages and nothing is left half-written', async () => {
-		const builds = readdirSync(join(root, 'store'));
-		const files = readdirSync(join(root, 'store'), { recursive: true }).map(
-			String
-		);
+	test.skipIf(Boolean(redisUrl))(
+		'the store holds this build’s pages and nothing is left half-written',
+		async () => {
+			const builds = readdirSync(join(root, 'store'));
+			const files = readdirSync(join(root, 'store'), {
+				recursive: true
+			}).map(String);
 
-		expect(builds).toHaveLength(1);
-		expect(files.filter((name) => name.endsWith('.writing'))).toEqual([]);
-		expect(files.some((name) => name.endsWith('pages/count.html'))).toBe(
-			true
-		);
-	});
+			expect(builds).toHaveLength(1);
+			expect(files.filter((name) => name.endsWith('.writing'))).toEqual(
+				[]
+			);
+			expect(
+				files.some((name) => name.endsWith('pages/count.html'))
+			).toBe(true);
+		}
+	);
 });
