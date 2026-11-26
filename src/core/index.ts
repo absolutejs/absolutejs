@@ -4,6 +4,7 @@ export * from './islands';
 export * from './pageHandlers';
 export * from './prepare';
 export * from './requestContext';
+export { cookies, headers } from './requestHelpers';
 export { registerHealthCheck } from './healthChecks';
 export { onServerError } from './errorReporter';
 export { ABS_RENDER_ATTRS, registerTracer } from './renderTracing';

@@ -174,6 +174,13 @@ import { secureHeaders } from '@absolutejs/absolute';
 new Elysia().use(secureHeaders()).use(absolutejs);
 ```
 
+## Reading the request further down
+
+A hook, a guard and a loader are each handed the request. Code they call
+is not, and does not need to be: `headers()` and `cookies()` read the
+current request from anywhere. See
+[REQUEST_HELPERS.md](./REQUEST_HELPERS.md).
+
 ## What runs when
 
 For one request, in order:

@@ -5,6 +5,28 @@
 		{
 			"changes": [
 				{
+					"detail": "`headers()` and `cookies()` read the current request from anywhere, without the request being passed down: a route handler, a data loader, a guard, a `layout.server.ts`, a helper module, or a component as it renders on the server. `headers()` is the request's headers for reading. `cookies()` has `get`, `has`, `getAll`, `set` and `delete`; writes are queued on the request and added to the response as `Set-Cookie`, whatever kind of response it is (a value, a `Response`, a redirect, a guard's refusal, an error), beside any cookie the route sets itself. A read later in the same request sees an earlier write. Defaults are `Path=/`, `HttpOnly`, `SameSite=Lax`, and `Secure` whenever the request arrived over HTTPS. A cookie that a browser would drop is refused where it is set: an invalid name, `sameSite: 'none'` without `secure`, an attribute containing `;`. A cookie set after the response has started, such as from a part of a page that streams in late, throws rather than being lost. Both throw outside a request. There is deliberately no session helper: sessions, guest sessions included, belong to `@absolutejs/auth`. See docs/REQUEST_HELPERS.md.",
+					"kind": "added",
+					"summary": "`headers()` and `cookies()` read the current request from anywhere",
+					"symbols": [
+						"headers",
+						"cookies",
+						"CookieOptions",
+						"CookieSameSite",
+						"ReadonlyRequestHeaders",
+						"RequestCookies",
+						"AbsoluteRequestStore",
+						"QueuedCookie",
+						"getAbsoluteRequestStore"
+					]
+				}
+			],
+			"date": "2026-11-26",
+			"version": "0.20.0-beta.394"
+		},
+		{
+			"changes": [
+				{
 					"detail": "Islands now work inside a page with `ssr: false`. They did not: the island runtime and manifest are added to a page when its server-rendered markup contains an island, and a client-only page has no server markup, so the island's placeholder appeared when the browser rendered the page and nothing ever mounted into it. The shell of a client-only page now carries the island runtime, manifest and island stylesheets whenever the app has islands; an app with none is unaffected. A second defect was specific to Svelte pages and older than `ssr: false`: when a Svelte page is rendered from nothing in the browser, an island slot that exists but is empty was taken as markup to reuse, so the placeholder was never written. That also affected a Svelte page mounted by the mobile client. Found by testing the three cases the `ssr: false` release listed as untested; hot reloading a client-only page was the second and works in all four frameworks, and a file route with `ssr = false` through the built package is now part of the nightly's file-routes fixture.",
 					"kind": "fixed",
 					"summary": "Islands mount inside a page rendered with `ssr: false`"
