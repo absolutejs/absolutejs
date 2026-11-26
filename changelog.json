@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "A test compiles an app with no pages (an API route and one page a route builds as a `Response`) with `absolute compile`, then runs the executable and requests it. beta.401 fixed the missing manifest that made this fail, and until now only a manual check covered the compile path. Test only.",
+					"kind": "internal",
+					"summary": "`absolute compile` is tested on an app with no pages"
+				}
+			],
+			"date": "2026-11-26",
+			"version": "0.20.0-beta.402"
+		},
+		{
+			"changes": [
+				{
 					"detail": "An app with no pages could not start in production. A build with no entry points logged \"No entry points found, manifest will be empty\" and then wrote no `manifest.json` at all, and the production server reads that file unconditionally, so `absolute start` died with ENOENT. That is any API-only app, and any app whose every page is a `Response` a route builds itself. The build now writes an empty manifest, which also replaces one that a previous build with pages left behind.",
 					"kind": "fixed",
 					"summary": "A production app with no pages starts: a build with nothing to build still writes its manifest"
