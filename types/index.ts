@@ -19,6 +19,7 @@ export * from './logging';
 export * from './manifest';
 export * from './pageRendering';
 export * from './rateLimit';
+export * from './loaders';
 export * from './requestHelpers';
 export * from './routingRules';
 export * from './routeMap';
