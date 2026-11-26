@@ -20,8 +20,9 @@ export default defineConfig({
 	htmlDirectory: './html',
 	htmxDirectory: './htmx',
 	reactDirectory: './react',
-	// A pattern: the pages are the ones the route's entries() names.
-	static: { routes: ['/blog/:slug'] },
+	// A folder: its index, and its dynamic route's pages as that
+	// route's entries() names them.
+	static: { routes: ['/blog/*'] },
 	svelteDirectory: './svelte',
 	vueDirectory: './vue'
 });

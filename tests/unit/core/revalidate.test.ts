@@ -270,11 +270,24 @@ describe('which paths may be given a page they do not have yet', () => {
 		expect(covers('/shop/hats/red')).toBe(false);
 	});
 
-	test('a wildcard covers everything below it', () => {
+	/* `/docs/*` is the folder: what the same pattern pre-renders at
+	 * build time is the folder's index and everything below it, so that
+	 * is what may be created later. */
+	test('a folder covers its own path and everything below it', () => {
 		const covers = createStaticRouteMatcher(['/docs/*']);
 
 		expect(covers('/docs/guide/routing')).toBe(true);
-		expect(covers('/docs')).toBe(false);
+		expect(covers('/docs/intro')).toBe(true);
+		expect(covers('/docs')).toBe(true);
+		expect(covers('/docsite')).toBe(false);
+		expect(covers('/other')).toBe(false);
+	});
+
+	test('`/*` covers every path', () => {
+		const covers = createStaticRouteMatcher(['/*']);
+
+		expect(covers('/')).toBe(true);
+		expect(covers('/anything/below')).toBe(true);
 	});
 
 	/* A literal segment is text, not a pattern: a `.` in it must not

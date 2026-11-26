@@ -114,13 +114,46 @@ const urlOfSet = (
 	);
 };
 
+/* An `[[optional]]` route registers two paths that share one typed path,
+ * so a folder reaches it twice and would report its failure twice. */
+const uniqueFailures = (failures: StaticRouteFailure[]) => {
+	const seen = new Set<string>();
+
+	return failures.filter((failure) => {
+		const key = `${failure.route}\n${failure.reason}`;
+		if (seen.has(key)) return false;
+		seen.add(key);
+
+		return true;
+	});
+};
+
 const merge = (parts: readonly StaticRouteExpansion[]) => {
 	const merged: StaticRouteExpansion = {
-		failures: parts.flatMap((part) => part.failures),
+		failures: uniqueFailures(parts.flatMap((part) => part.failures)),
 		routes: [...new Set(parts.flatMap((part) => part.routes))]
 	};
 
 	return merged;
+};
+
+/* The pages one dynamic route serves. `label` is what a failure is
+ * filed under: the pattern as the config wrote it, or — for a route
+ * reached through a folder — the route's own path. */
+const expandRoute = async (route: ScannedRoute, label: string) => {
+	if (!route.server)
+		return failed(
+			label,
+			`${route.source} has no server module. Add one that exports entries(), returning the param sets to pre-render`
+		);
+	const loaded = await loadEntries(route.server);
+	if ('reason' in loaded) return failed(label, loaded.reason);
+	const typePath = route.typePath ?? route.path;
+	const { server } = route;
+
+	return merge(
+		loaded.sets.map((set) => urlOfSet(label, typePath, server, set))
+	);
 };
 
 const expandPattern = async (
@@ -133,24 +166,76 @@ const expandPattern = async (
 			pattern,
 			'no file route has this path. A pattern is filled in from a file route’s entries(); a route registered in server.ts has none, so the build pre-renders none of its pages. List them one by one to pre-render them now, or let revalidatePath create each one'
 		);
-	if (!route.server)
-		return failed(
-			pattern,
-			`${route.source} has no server module. Add one that exports entries(), returning the param sets to pre-render`
-		);
-	const loaded = await loadEntries(route.server);
-	if ('reason' in loaded) return failed(pattern, loaded.reason);
-	const typePath = route.typePath ?? route.path;
-	const { server } = route;
 
-	return merge(
-		loaded.sets.map((set) => urlOfSet(pattern, typePath, server, set))
-	);
+	return expandRoute(route, pattern);
 };
 
-/** Replaces each pattern in a `static.routes` list with the URLs its file
- *  route's `entries()` returns. Literal paths pass through untouched, in
- *  place; a pattern that yields nothing is reported in `failures`. */
+/* `/blog/*`: every file route in a folder.
+ *
+ * A pattern names one route, so a section of a site was one line per
+ * route and a new route in it was rendered per request until someone
+ * remembered the config. A path ending in `/*` stands for the folder:
+ * its own index, every static route below it as it is, every dynamic
+ * one through its `entries()`. A route added to the folder later is
+ * covered without the config changing.
+ *
+ * A dynamic route in the folder that cannot be enumerated is reported
+ * under its own path, like a pattern would be: "everything under /shop"
+ * that quietly left out the product pages is the failure this whole
+ * file exists to prevent. */
+const FOLDER_SUFFIX = '/*';
+
+const isFolder = (path: string) => path.endsWith(FOLDER_SUFFIX);
+
+const isUnder = (folder: string, route: ScannedRoute) =>
+	route.path === (folder === '' ? '/' : folder) ||
+	route.path.startsWith(`${folder}/`);
+
+const expandMember = (route: ScannedRoute) => {
+	const typePath = route.typePath ?? route.path;
+	if (DYNAMIC_SEGMENT.test(typePath)) return expandRoute(route, typePath);
+	const page: StaticRouteExpansion = { failures: [], routes: [route.path] };
+
+	return page;
+};
+
+const expandFolder = async (
+	routes: readonly ScannedRoute[],
+	pattern: string
+) => {
+	const folder = pattern.slice(0, -FOLDER_SUFFIX.length);
+	const members = routes.filter((route) => isUnder(folder, route));
+	if (members.length === 0)
+		return failed(
+			pattern,
+			'no file route is under this path. A folder pattern selects file routes; routes registered in server.ts are not part of one'
+		);
+	// In order, one at a time, for the reason patterns are: entries()
+	// may read a database.
+	const parts = await members.reduce(
+		async (previous, route) => [
+			...(await previous),
+			await expandMember(route)
+		],
+		Promise.resolve<StaticRouteExpansion[]>([])
+	);
+
+	return merge(parts);
+};
+
+const expandListed = (routes: readonly ScannedRoute[], path: string) => {
+	if (isFolder(path)) return expandFolder(routes, path);
+	if (DYNAMIC_SEGMENT.test(path)) return expandPattern(routes, path);
+	const literal: StaticRouteExpansion = { failures: [], routes: [path] };
+
+	return literal;
+};
+
+/** Replaces each pattern in a `static.routes` list with the pages it
+ *  stands for: a path with a param by the URLs its file route's
+ *  `entries()` returns, a path ending in `/*` by every file route in that
+ *  folder. Literal paths pass through untouched, in place; a pattern
+ *  that yields nothing is reported in `failures`. */
 export const expandStaticRoutes = async (
 	config: BuildConfig,
 	listed: readonly string[],
@@ -170,9 +255,7 @@ export const expandStaticRoutes = async (
 	const parts = await listed.reduce(
 		async (previous, path) => [
 			...(await previous),
-			DYNAMIC_SEGMENT.test(path)
-				? await expandPattern(routes, path)
-				: { failures: [], routes: [path] }
+			await expandListed(routes, path)
 		],
 		Promise.resolve<StaticRouteExpansion[]>([])
 	);
