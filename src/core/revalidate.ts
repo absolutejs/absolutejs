@@ -15,7 +15,11 @@
  * or an app with no `static` config — there is nothing to refresh and
  * they say so by resolving to "nothing done". */
 
-import type { RevalidateAllResult, Revalidator } from '../../types/revalidate';
+import type {
+	RevalidateAllResult,
+	RevalidationOutcome,
+	Revalidator
+} from '../../types/revalidate';
 
 const REVALIDATOR_KEY = Symbol.for('absolutejs.revalidator');
 
@@ -25,21 +29,15 @@ const isRevalidator = (value: unknown): value is Revalidator =>
 	'revalidate' in value &&
 	typeof value.revalidate === 'function' &&
 	'routes' in value &&
-	typeof value.routes === 'function';
+	typeof value.routes === 'function' &&
+	'canCreate' in value &&
+	typeof value.canCreate === 'function';
 
 const currentRevalidator = () => {
 	const value: unknown = Reflect.get(globalThis, REVALIDATOR_KEY);
 
 	return isRevalidator(value) ? value : undefined;
 };
-
-/** @internal Called by `prepare()` once it knows the pre-rendered routes. */
-export const registerRevalidator = (revalidator: Revalidator | undefined) => {
-	if (revalidator) Reflect.set(globalThis, REVALIDATOR_KEY, revalidator);
-	else Reflect.deleteProperty(globalThis, REVALIDATOR_KEY);
-};
-
-type Render = (route: string) => Promise<boolean>;
 
 /** @internal One render per route at a time, and never a stale answer.
  *
@@ -50,12 +48,16 @@ type Render = (route: string) => Promise<boolean>;
  * given the next render instead, and every caller who arrives during the
  * same wait shares that one: a burst of requests for one route costs the
  * render in flight plus one more, however many they are. */
-export const createRevalidationQueue = (render: Render) => {
-	const inFlight = new Map<string, Promise<boolean>>();
-	const queued = new Map<string, Promise<boolean>>();
+export const createRevalidationQueue = <Outcome>(
+	render: (route: string) => Promise<Outcome>,
+	/** What a render that threw counts as. */
+	failed: Outcome
+) => {
+	const inFlight = new Map<string, Promise<Outcome>>();
+	const queued = new Map<string, Promise<Outcome>>();
 	const start = (route: string) => {
 		const done = render(route)
-			.catch(() => false)
+			.catch(() => failed)
 			.finally(() => {
 				inFlight.delete(route);
 			});
@@ -63,7 +65,7 @@ export const createRevalidationQueue = (render: Render) => {
 
 		return done;
 	};
-	const startNext = (route: string, current: Promise<boolean>) => {
+	const startNext = (route: string, current: Promise<Outcome>) => {
 		const next = current.then(() => {
 			queued.delete(route);
 
@@ -86,6 +88,12 @@ export const createRevalidationQueue = (render: Render) => {
 	};
 };
 
+/** @internal Called by `prepare()` once it knows the pre-rendered routes. */
+export const registerRevalidator = (revalidator: Revalidator | undefined) => {
+	if (revalidator) Reflect.set(globalThis, REVALIDATOR_KEY, revalidator);
+	else Reflect.deleteProperty(globalThis, REVALIDATOR_KEY);
+};
+
 /* `/blog/`, `/blog?x=1` and a full URL all name the route `/blog`. */
 const routeOf = (path: string) => {
 	const { pathname } = new URL(path, 'http://localhost');
@@ -94,48 +102,100 @@ const routeOf = (path: string) => {
 	return trimmed === '' ? '/' : trimmed;
 };
 
-/** Re-render every pre-rendered page. Resolves to the routes that were
- *  replaced and the ones whose render failed, which keep their previous
- *  page. */
+const escapeForRegExp = (text: string) =>
+	text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/* One segment of a `static.routes` path as a piece of a regular
+ * expression: `:name` is exactly one segment, `:name?` is one or none,
+ * `*` is everything that is left. */
+const segmentPattern = (segment: string) => {
+	if (segment === '*') return '/.+';
+	if (!segment.startsWith(':')) return `/${escapeForRegExp(segment)}`;
+
+	return segment.endsWith('?') ? '(?:/[^/]+)?' : '/[^/]+';
+};
+
+const patternOf = (path: string) =>
+	new RegExp(
+		`^${path.split('/').filter(Boolean).map(segmentPattern).join('')}/?$`
+	);
+
+const isPattern = (path: string) => /[:*]/.test(path);
+
+/** @internal Whether a path that is NOT pre-rendered may become so.
+ *
+ * The set of pre-rendered pages used to be fixed when the server
+ * started, so a post published after the deploy was rendered for every
+ * visitor and could not be given a file. A page may now be created for
+ * any path `static.routes` covers: one it lists, one a pattern in it
+ * matches, or any at all under `routes: 'all'`. Nothing outside that —
+ * the config is still what says which routes are static. */
+export const createStaticRouteMatcher = (
+	routes: readonly string[] | 'all' | undefined
+) => {
+	if (routes === undefined) return () => false;
+	if (routes === 'all') return () => true;
+	const literal = new Set(routes.filter((path) => !isPattern(path)));
+	const patterns = routes.filter(isPattern).map(patternOf);
+
+	return (route: string) =>
+		literal.has(route) || patterns.some((pattern) => pattern.test(route));
+};
+
+/** Re-render every pre-rendered page. Resolves to the routes whose page
+ *  was replaced, the ones that are no longer pages and were taken out of
+ *  the cache, and the ones whose render failed, which keep their
+ *  previous page. */
 export const revalidateAll = async () => {
 	const revalidator = currentRevalidator();
 	const routes = revalidator?.routes() ?? [];
 	const outcomes = await Promise.all(
 		routes.map(async (route) => ({
-			replaced: (await revalidator?.revalidate(route)) === true,
+			outcome: (await revalidator?.revalidate(route)) ?? 'failed',
 			route
 		}))
 	);
+	const routesThat = (wanted: RevalidationOutcome) =>
+		outcomes
+			.filter(({ outcome }) => outcome === wanted)
+			.map(({ route }) => route);
 	const result: RevalidateAllResult = {
-		failed: outcomes
-			.filter(({ replaced }) => !replaced)
-			.map(({ route }) => route),
-		revalidated: outcomes
-			.filter(({ replaced }) => replaced)
-			.map(({ route }) => route)
+		failed: routesThat('failed'),
+		removed: routesThat('removed'),
+		revalidated: routesThat('replaced')
 	};
 
 	return result;
 };
 
-/** Re-render the pre-rendered page at `path` now, and replace the file
- *  visitors are served.
+/** Make the pre-rendered copy of `path` match what the app serves now.
  *
  *      await db.posts.update(id, changes);
  *      await revalidatePath(`/blog/${slug}`);
  *
- *  Resolves to `true` once the new page is in place, and to `false` when
- *  nothing was replaced: the path is not one of the pre-rendered routes,
- *  the render failed (the previous page stays), or the app has nothing
- *  pre-rendered at all, as in dev. It does not throw.
+ *  The page is rendered again, and then:
  *
- *  Await it to be sure the next request sees the new page; call it
- *  without awaiting to refresh in the background. */
+ *  - it rendered: the file visitors are served is replaced — or
+ *    created, for a page that did not exist when the app was built and
+ *    whose path `static.routes` covers;
+ *  - it is no longer a page (a 404, a 410, a redirect): its file is
+ *    deleted and the route is rendered per request from then on.
+ *
+ *  Resolves to `true` in both cases, and to `false` when nothing
+ *  changed: the path is not one `static.routes` covers, the render
+ *  failed (the previous page stays), there was no page and still is
+ *  none, or the app pre-renders nothing at all, as in dev. It does not
+ *  throw.
+ *
+ *  Await it to be sure the next request sees the result; call it
+ *  without awaiting to do it in the background. */
 export const revalidatePath = async (path: string) => {
 	const revalidator = currentRevalidator();
 	if (!revalidator) return false;
 	const route = routeOf(path);
-	if (!revalidator.routes().includes(route)) return false;
+	const known =
+		revalidator.routes().includes(route) || revalidator.canCreate(route);
+	if (!known) return false;
 
-	return revalidator.revalidate(route);
+	return (await revalidator.revalidate(route)) !== 'failed';
 };

@@ -42,7 +42,10 @@ const CONFIG = `import { defineConfig } from '${FRAMEWORK}';
 
 export default defineConfig({
 	buildDirectory: './build',
-	static: { routes: ['/count', '/docs/count'] }
+	// \`/post/:slug\` is registered in server.ts, so the build cannot
+	// enumerate it and pre-renders none of its pages; the pattern is
+	// what lets one be created later.
+	static: { routes: ['/count', '/docs/count', '/post/:slug'] }
 });
 `;
 
@@ -57,6 +60,7 @@ import {
 const { absolutejs } = await prepare();
 
 let count = 0;
+const posts = new Map<string, string>();
 
 const page = () =>
 	new Response(
@@ -85,6 +89,34 @@ export const server = new Elysia()
 
 		return { count, ...(await revalidateAll()) };
 	})
+	.get('/post/:slug', ({ params, status }) => {
+		const body = posts.get(params.slug);
+		if (body === undefined) return status(404, 'no such post');
+
+		return new Response(
+			\`<!doctype html><html><head><title>Post</title></head><body><p id="post">post:\${body}</p></body></html>\`,
+			{ headers: { 'content-type': 'text/html; charset=utf-8' } }
+		);
+	})
+	.post('/posts/:slug/:body', async ({ params, query }) => {
+		posts.set(params.slug, params.body);
+
+		return {
+			revalidated:
+				query.quiet === '1'
+					? null
+					: await revalidatePath(\`/post/\${params.slug}\`)
+		};
+	})
+	.delete('/posts/:slug', async ({ params }) => {
+		posts.delete(params.slug);
+
+		return { revalidated: await revalidatePath(\`/post/\${params.slug}\`) };
+	})
+	.post('/revalidate-uncovered', async () => ({
+		neverExisted: await revalidatePath('/post/never-existed'),
+		outsideConfig: await revalidatePath('/elsewhere/page')
+	}))
 	.post('/revalidate-unknown', async () => ({
 		live: await revalidatePath('/live'),
 		missing: await revalidatePath('/nowhere')
@@ -131,11 +163,23 @@ const shown = async (path: string) => {
 	return /count:\d+/.exec(html)?.[0] ?? html;
 };
 
-const post = async (path: string) => {
-	const response = await fetch(url(path), { method: 'POST' });
+const send = async (method: string, path: string) => {
+	const response = await fetch(url(path), { method });
 	const body: unknown = await response.json();
 
 	return body;
+};
+
+const post = (path: string) => send('POST', path);
+
+const postShown = async (slug: string) => {
+	const response = await fetch(url(`/post/${slug}`));
+	const html = await response.text();
+
+	return {
+		shown: /post:[\w-]+/.exec(html)?.[0] ?? html,
+		status: response.status
+	};
 };
 
 const prerendered = (name: string) => join(root, 'build', '_prerendered', name);
@@ -205,6 +249,7 @@ describe('revalidatePath under absolute start', () => {
 		expect(result).toEqual({
 			count: 3,
 			failed: [],
+			removed: [],
 			revalidated: expect.arrayContaining(['/count', '/docs/count'])
 		});
 		expect(await shown('/count')).toBe('count:3');
@@ -216,6 +261,54 @@ describe('revalidatePath under absolute start', () => {
 			live: false,
 			missing: false
 		});
+	});
+
+	/* A post published after the build. Its path was never pre-rendered
+	 * — the server was built before it existed — but `static.routes`
+	 * covers it, so revalidating it gives it a page. */
+	test('creates a page for a path the config covers but the build never rendered', async () => {
+		expect(existsSync(prerendered('post/hello.html'))).toBe(false);
+
+		expect(await post('/posts/hello/first')).toEqual({ revalidated: true });
+
+		expect(existsSync(prerendered('post/hello.html'))).toBe(true);
+		expect(await postShown('hello')).toEqual({
+			shown: 'post:first',
+			status: 200
+		});
+		// And it is that file being served: a change nobody announced
+		// does not show.
+		await post('/posts/hello/second?quiet=1');
+		expect((await postShown('hello')).shown).toBe('post:first');
+	});
+
+	/* The post is deleted. Until this, its page stayed up for as long
+	 * as the server ran, and revalidating it reported a failure. */
+	test('takes down the page of a post that no longer exists', async () => {
+		expect(await send('DELETE', '/posts/hello')).toEqual({
+			revalidated: true
+		});
+
+		expect(existsSync(prerendered('post/hello.html'))).toBe(false);
+		expect(existsSync(prerendered('post/hello.meta'))).toBe(false);
+		expect((await postShown('hello')).status).toBe(404);
+	});
+
+	test('a page that is taken down can be published again', async () => {
+		expect(await post('/posts/hello/third')).toEqual({ revalidated: true });
+
+		expect(await postShown('hello')).toEqual({
+			shown: 'post:third',
+			status: 200
+		});
+	});
+
+	test('is false where there is no page to make and none to remove', async () => {
+		expect(await post('/revalidate-uncovered')).toEqual({
+			neverExisted: false,
+			outsideConfig: false
+		});
+		expect(existsSync(prerendered('post/never-existed.html'))).toBe(false);
 	});
 
 	test('nothing is left staged beside the pages', async () => {
