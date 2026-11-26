@@ -17,10 +17,7 @@ import {
 	lowerAngularDeferSyntax,
 	type LoweredAngularDeferSlot
 } from '../angular/lowerDeferSyntax';
-import {
-	compileStyleFileIfNeeded,
-	compileStyleFileIfNeededSync
-} from './stylePreprocessor';
+import { compileStyleFileIfNeeded } from './stylePreprocessor';
 import { getFrameworkGeneratedDir } from '../utils/generatedDir';
 import { isAngularZoneMode } from '../angular/zoneRuntime';
 import { downlevelAsyncForZone } from './downlevelAsyncForZone';
@@ -56,16 +53,19 @@ const writeTextFileAtomically = async (path: string, content: string) => {
 	}
 };
 
-const traceAngularPhase: BuildTracePhase = async (name, fn, metadata) => {
-	const tracePhase = (
-		globalThis as typeof globalThis & {
-			__absoluteBuildTracePhase?: BuildTracePhase;
-		}
-	).__absoluteBuildTracePhase;
+const isBuildTracePhase = (value: unknown): value is BuildTracePhase =>
+	typeof value === 'function';
 
-	return tracePhase
-		? tracePhase(`compile/angular/${name}`, fn, metadata)
-		: await fn();
+const traceAngularPhase: BuildTracePhase = async (name, run, metadata) => {
+	// Set by the build while tracing is on (core/build.ts).
+	const tracePhase: unknown = Reflect.get(
+		globalThis,
+		'__absoluteBuildTracePhase'
+	);
+
+	return isBuildTracePhase(tracePhase)
+		? tracePhase(`compile/angular/${name}`, run, metadata)
+		: run();
 };
 
 type TsconfigPathAlias = {
@@ -73,27 +73,65 @@ type TsconfigPathAlias = {
 	replacements: string[];
 };
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+	typeof value === 'object' && value !== null;
+
+const NO_FIELDS: Record<string, unknown> = {};
+
+const asRecord = (value: unknown) => (isRecord(value) ? value : NO_FIELDS);
+
+const NO_ALIASES: TsconfigPathAlias[] = [];
+
 const readTsconfigPathAliases = () => {
 	try {
 		const configPath = resolve(process.cwd(), 'tsconfig.json');
-		const config = ts.readConfigFile(configPath, ts.sys.readFile).config as
-			| {
-					compilerOptions?: {
-						baseUrl?: string;
-						paths?: Record<string, string[]>;
-					};
-			  }
-			| undefined;
-		const compilerOptions = config?.compilerOptions ?? {};
-		const baseUrl = resolve(process.cwd(), compilerOptions.baseUrl ?? '.');
+		const { config }: { config?: unknown } = ts.readConfigFile(
+			configPath,
+			ts.sys.readFile
+		);
+		const compilerOptions = asRecord(asRecord(config).compilerOptions);
+		const baseUrl = resolve(
+			process.cwd(),
+			typeof compilerOptions.baseUrl === 'string'
+				? compilerOptions.baseUrl
+				: '.'
+		);
 		const aliases: TsconfigPathAlias[] = Object.entries(
-			compilerOptions.paths ?? {}
-		).map(([pattern, replacements]) => ({ pattern, replacements }));
+			asRecord(compilerOptions.paths)
+		).flatMap(([pattern, replacements]) =>
+			Array.isArray(replacements)
+				? [
+						{
+							pattern,
+							replacements: replacements.filter(
+								(replacement) => typeof replacement === 'string'
+							)
+						}
+					]
+				: []
+		);
 
 		return { aliases, baseUrl };
 	} catch {
-		return { aliases: [] as TsconfigPathAlias[], baseUrl: process.cwd() };
+		return { aliases: NO_ALIASES, baseUrl: process.cwd() };
 	}
+};
+
+/* The first replacement of an alias that names a file that exists. */
+const firstResolvedReplacement = (
+	replacements: string[],
+	wildcardValue: string,
+	baseUrl: string,
+	resolveSourceFile: (candidate: string) => string | undefined
+) => {
+	for (const replacement of replacements) {
+		const resolved = resolveSourceFile(
+			resolve(baseUrl, replacement.replace('*', wildcardValue))
+		);
+		if (resolved) return resolved;
+	}
+
+	return undefined;
 };
 
 const matchTsconfigAlias = (
@@ -114,18 +152,19 @@ const matchTsconfigAlias = (
 		if (
 			!exactMatch &&
 			(!specifier.startsWith(prefix) || !specifier.endsWith(suffix))
-		) {
+		)
 			continue;
-		}
 
 		const wildcardValue = exactMatch
 			? ''
 			: specifier.slice(prefix.length, specifier.length - suffix.length);
-		for (const replacement of alias.replacements) {
-			const candidate = replacement.replace('*', wildcardValue);
-			const resolved = resolveSourceFile(resolve(baseUrl, candidate));
-			if (resolved) return resolved;
-		}
+		const resolved = firstResolvedReplacement(
+			alias.replacements,
+			wildcardValue,
+			baseUrl,
+			resolveSourceFile
+		);
+		if (resolved) return resolved;
 	}
 
 	return undefined;
@@ -182,6 +221,26 @@ const createLegacyAngularAnimationUsageResolver = (rootDir: string) => {
 		}
 	};
 
+	/* What one source file imports, and whether it uses the legacy
+	 * animations package. A file that cannot be read or parsed imports
+	 * nothing. */
+	const scanImportsOf = async (resolved: string) => {
+		try {
+			const imports = transpiler.scanImports(
+				await fs.readFile(resolved, 'utf-8')
+			);
+
+			return {
+				imports: imports.map((imp) => imp.path),
+				usesLegacyAnimations: imports.some(
+					(imp) => imp.path === '@angular/animations'
+				)
+			};
+		} catch {
+			return { imports: [], usesLegacyAnimations: false };
+		}
+	};
+
 	const scanFile = (filePath: string) => {
 		const actualPath = resolveSourceFile(filePath);
 		if (!actualPath) {
@@ -194,29 +253,7 @@ const createLegacyAngularAnimationUsageResolver = (rootDir: string) => {
 		const cached = scanCache.get(resolved);
 		if (cached) return cached;
 
-		const promise = (async () => {
-			let sourceCode: string;
-			try {
-				sourceCode = await fs.readFile(resolved, 'utf-8');
-			} catch {
-				return { imports: [], usesLegacyAnimations: false };
-			}
-
-			let imports;
-			try {
-				imports = transpiler.scanImports(sourceCode);
-			} catch {
-				return { imports: [], usesLegacyAnimations: false };
-			}
-
-			return {
-				imports: imports.map((imp) => imp.path),
-				usesLegacyAnimations: imports.some(
-					(imp) => imp.path === '@angular/animations'
-				)
-			};
-		})();
-
+		const promise = scanImportsOf(resolved);
 		scanCache.set(resolved, promise);
 
 		return promise;
@@ -235,17 +272,19 @@ const createLegacyAngularAnimationUsageResolver = (rootDir: string) => {
 		const scan = await scanFile(resolved);
 		if (scan.usesLegacyAnimations) return true;
 
-		for (const specifier of scan.imports) {
-			const importedPath = resolveLocalImport(
-				specifier,
-				dirname(resolved)
-			);
-			if (importedPath && (await visit(importedPath, visited))) {
-				return true;
-			}
-		}
+		// One import at a time, stopping at the first that uses them.
+		return scan.imports.reduce<Promise<boolean>>(
+			async (found, specifier) => {
+				if (await found) return true;
+				const importedPath = resolveLocalImport(
+					specifier,
+					dirname(resolved)
+				);
 
-		return false;
+				return importedPath ? visit(importedPath, visited) : false;
+			},
+			Promise.resolve(false)
+		);
 	};
 
 	return (entryPath: string) => visit(entryPath);
@@ -449,7 +488,7 @@ type AotResourceTransformStats = {
 	transformedFiles: number;
 };
 
-const safeStableStringify = (value: unknown): string => {
+const safeStableStringify = (value: unknown) => {
 	const seen = new WeakSet<object>();
 
 	return JSON.stringify(value, (_key, entry) => {
@@ -487,25 +526,24 @@ const collectAngularResourcePaths = (source: string, fileDir: string) => {
 		/styleUrls\s*:\s*\[([^\]]+)\]/
 	);
 	const urlMatches = styleUrlsMatch?.[1]?.match(/['"]([^'"]+)['"]/g);
-	if (urlMatches) {
-		for (const urlMatch of urlMatches) {
-			paths.push(join(fileDir, urlMatch.replace(/['"]/g, '')));
-		}
-	}
+	for (const urlMatch of urlMatches ?? [])
+		paths.push(join(fileDir, urlMatch.replace(/['"]/g, '')));
 
 	return paths.map((path) => resolve(path));
 };
 
+const isResourceCacheEntry = (
+	value: unknown
+): value is AotResourceTransformCacheEntry =>
+	isRecord(value) && value.version === 1 && typeof value.source === 'string';
+
 const readResourceCacheFile = async (cachePath: string) => {
 	try {
-		const entry = JSON.parse(
+		const entry: unknown = JSON.parse(
 			await fs.readFile(cachePath, 'utf-8')
-		) as AotResourceTransformCacheEntry;
-		if (entry.version !== 1 || typeof entry.source !== 'string') {
-			return null;
-		}
+		);
 
-		return entry;
+		return isResourceCacheEntry(entry) ? entry : null;
 	} catch {
 		return null;
 	}
@@ -1088,7 +1126,7 @@ export const compileAngularFiles = async (
 		{ files: programFiles.size, outputs: entries.length }
 	);
 
-	return await traceAngularPhase(
+	return traceAngularPhase(
 		'aot/collect-output-paths',
 		() => entries.map(({ target }) => target),
 		{ outputs: entries.length }
@@ -1138,12 +1176,12 @@ const escapeTemplateContent = (content: string) =>
  *  (otherwise our regex-based replacement would inline the template inside the
  *  comment and the rest of the HTML would leak into source). */
 const findUncommentedMatch = (source: string, pattern: RegExp) => {
-	const re = new RegExp(
+	const matcher = new RegExp(
 		pattern.source,
 		pattern.flags.includes('g') ? pattern.flags : `${pattern.flags}g`
 	);
 	let match: RegExpExecArray | null;
-	while ((match = re.exec(source)) !== null) {
+	while ((match = matcher.exec(source)) !== null) {
 		const lineStart = source.lastIndexOf('\n', match.index - 1) + 1;
 		const beforeMatch = source.slice(lineStart, match.index);
 		if (!/^\s*\/\//.test(beforeMatch)) return match;
@@ -1210,9 +1248,8 @@ const ensureComponentImportsHasDeferSlot = (source: string) => {
 					'DeferFallbackTemplateDirective',
 					'DeferErrorTemplateDirective'
 				]) {
-					if (!entries.includes(requiredImport)) {
+					if (!entries.includes(requiredImport))
 						entries.push(requiredImport);
-					}
 				}
 				const nextContent = entries.join(', ');
 
@@ -1244,47 +1281,57 @@ const skipInterpolatedExpression = (value: string, start: number) => {
 	return value.length;
 };
 
+/* The next piece of a template literal, from `cursor`: the text up to
+ * the next `{{ … }}` and the expression inside it, or the rest of the
+ * string when there is no further interpolation or the one found is not
+ * followed by anything. `cursor` comes back as where to go on from. */
+const nextResolverTemplatePart = (value: string, cursor: number) => {
+	const interpolationStart = value.indexOf('{{', cursor);
+	if (interpolationStart < 0)
+		return {
+			cursor: value.length,
+			parts: [escapeTemplateLiteralValue(value.slice(cursor))]
+		};
+
+	const before = escapeTemplateLiteralValue(
+		value.slice(cursor, interpolationStart)
+	);
+	const nextCursor = skipInterpolatedExpression(value, interpolationStart);
+	if (nextCursor >= value.length)
+		return {
+			cursor: value.length,
+			parts: [
+				before,
+				escapeTemplateLiteralValue(value.slice(interpolationStart))
+			]
+		};
+
+	const rawExpression = value
+		.slice(interpolationStart + 2, nextCursor - 2)
+		.trim();
+	const expression = rawExpression.length === 0 ? "''" : rawExpression;
+	const expressionLiteral = JSON.stringify(expression);
+
+	// The payload `html` is only measured (size limit + slot metrics),
+	// never inserted, but escape each interpolated value the way Angular
+	// escapes {{ }} text so the string is never live markup.
+	return {
+		cursor: nextCursor,
+		parts: [
+			before,
+			`\${this.__absoluteDeferEscapeHtml(this.__absoluteDeferResolveTemplateExpression(${expressionLiteral}))}`
+		]
+	};
+};
+
 const buildResolverTemplateLiteral = (value: string) => {
 	const parts: string[] = [];
 	let cursor = 0;
 
 	while (cursor < value.length) {
-		const interpolationStart = value.indexOf('{{', cursor);
-		if (interpolationStart < 0) {
-			parts.push(escapeTemplateLiteralValue(value.slice(cursor)));
-
-			break;
-		}
-
-		parts.push(
-			escapeTemplateLiteralValue(value.slice(cursor, interpolationStart))
-		);
-
-		const nextCursor = skipInterpolatedExpression(
-			value,
-			interpolationStart
-		);
-		if (nextCursor >= value.length) {
-			parts.push(
-				escapeTemplateLiteralValue(value.slice(interpolationStart))
-			);
-
-			break;
-		}
-
-		const rawExpression = value
-			.slice(interpolationStart + 2, nextCursor - 2)
-			.trim();
-		const expression = rawExpression.length === 0 ? "''" : rawExpression;
-		const expressionLiteral = JSON.stringify(expression);
-
-		// The payload `html` is only measured (size limit + slot metrics),
-		// never inserted, but escape each interpolated value the way Angular
-		// escapes {{ }} text so the string is never live markup.
-		parts.push(
-			`\${this.__absoluteDeferEscapeHtml(this.__absoluteDeferResolveTemplateExpression(${expressionLiteral}))}`
-		);
-		cursor = nextCursor;
+		const next = nextResolverTemplatePart(value, cursor);
+		parts.push(...next.parts);
+		({ cursor } = next);
 	}
 
 	return parts.join('');
@@ -1416,7 +1463,9 @@ const inlineTemplateAndLowerDefer = async (source: string, fileDir: string) => {
 		/template\s*:\s*(`([\s\S]*?)`|'([^']*)'|"([^"]*)")/
 	);
 	if (!inlineTemplateMatch) {
-		return { deferSlots: [] as LoweredAngularDeferSlot[], source };
+		const deferSlots: LoweredAngularDeferSlot[] = [];
+
+		return { deferSlots, source };
 	}
 	const templateRaw =
 		inlineTemplateMatch[2] ??
@@ -1482,7 +1531,9 @@ const inlineTemplateAndLowerDeferSync = (source: string, fileDir: string) => {
 		/template\s*:\s*(`([\s\S]*?)`|'([^']*)'|"([^"]*)")/
 	);
 	if (!inlineTemplateMatch) {
-		return { deferSlots: [] as LoweredAngularDeferSlot[], source };
+		const deferSlots: LoweredAngularDeferSlot[] = [];
+
+		return { deferSlots, source };
 	}
 	const templateRaw =
 		inlineTemplateMatch[2] ??
@@ -1508,96 +1559,6 @@ const inlineTemplateAndLowerDeferSync = (source: string, fileDir: string) => {
 			lowered.slots,
 			resolveAngularDeferImportSpecifier()
 		)
-	};
-};
-
-const readAndEscapeFileSync = (
-	filePath: string,
-	stylePreprocessors?: StylePreprocessorConfig
-) => {
-	if (!existsSync(filePath)) {
-		throw new Error(
-			`Unable to inline Angular style resource: file not found at ${filePath}`
-		);
-	}
-	const content = compileStyleFileIfNeededSync(filePath, stylePreprocessors);
-
-	return escapeTemplateContent(content);
-};
-
-const inlineStyleUrlsSync = (
-	source: string,
-	fileDir: string,
-	stylePreprocessors?: StylePreprocessorConfig
-) => {
-	const styleUrlsMatch = findUncommentedMatch(
-		source,
-		/styleUrls\s*:\s*\[([^\]]+)\]/
-	);
-	if (!styleUrlsMatch?.[1]) return source;
-
-	const urlMatches = styleUrlsMatch[1].match(/['"]([^'"]+)['"]/g);
-	if (!urlMatches) return source;
-
-	const inlinedStyles = urlMatches
-		.map((urlMatch) => {
-			const styleUrl = urlMatch.replace(/['"]/g, '');
-
-			return readAndEscapeFileSync(
-				join(fileDir, styleUrl),
-				stylePreprocessors
-			);
-		})
-		.filter(Boolean)
-		.map((escaped) => `\`${escaped}\``);
-	if (inlinedStyles.length === 0) return source;
-
-	return `${source.slice(
-		0,
-		styleUrlsMatch.index
-	)}styles: [${inlinedStyles.join(', ')}]${source.slice(
-		styleUrlsMatch.index + styleUrlsMatch[0].length
-	)}`;
-};
-
-const inlineSingleStyleUrlSync = (
-	source: string,
-	fileDir: string,
-	stylePreprocessors?: StylePreprocessorConfig
-) => {
-	const styleUrlMatch = findUncommentedMatch(
-		source,
-		/styleUrl\s*:\s*['"]([^'"]+)['"]/
-	);
-	if (!styleUrlMatch?.[1]) return source;
-
-	const escaped = readAndEscapeFileSync(
-		join(fileDir, styleUrlMatch[1]),
-		stylePreprocessors
-	);
-	if (!escaped) return source;
-
-	return `${source.slice(
-		0,
-		styleUrlMatch.index
-	)}styles: [\`${escaped}\`]${source.slice(
-		styleUrlMatch.index + styleUrlMatch[0].length
-	)}`;
-};
-
-const inlineResourcesSync = (
-	source: string,
-	fileDir: string,
-	stylePreprocessors?: StylePreprocessorConfig
-) => {
-	const inlinedTemplate = inlineTemplateAndLowerDeferSync(source, fileDir);
-	let result = inlinedTemplate.source;
-	result = inlineStyleUrlsSync(result, fileDir, stylePreprocessors);
-	result = inlineSingleStyleUrlSync(result, fileDir, stylePreprocessors);
-
-	return {
-		deferSlots: inlinedTemplate.deferSlots,
-		source: result
 	};
 };
 
@@ -1686,12 +1647,10 @@ const skipStringLiteral = (source: string, start: number) => {
 	const quote = source[start];
 	let index = start + 1;
 	while (index < source.length) {
-		if (source[index] === '\\') {
-			index += 2;
-			continue;
-		}
-		if (source[index] === quote) return index + 1;
-		index += 1;
+		const char = source[index];
+		if (char === quote) return index + 1;
+		// An escaped character is skipped with its backslash.
+		index += char === '\\' ? 2 : 1;
 	}
 
 	return index;
@@ -1705,10 +1664,9 @@ const findDecoratedClassKeyword = (source: string, start: number) => {
 	let depth = 0;
 	while (index < source.length) {
 		const char = source[index];
-		if (char === '"' || char === "'" || char === '`') {
-			index = skipStringLiteral(source, index);
-			continue;
-		}
+		const opensString = char === '"' || char === "'" || char === '`';
+		if (opensString) index = skipStringLiteral(source, index);
+		if (opensString) continue;
 		const isOpen = char === '(' || char === '[' || char === '{';
 		const isClose = char === ')' || char === ']' || char === '}';
 		const atClass =
@@ -1736,18 +1694,19 @@ const hoistExportPastDecorators = (source: string) => {
 	const exportBeforeDecorator = /\bexport\s+(?=@)/g;
 	let result = '';
 	let lastIndex = 0;
-	let match = exportBeforeDecorator.exec(source);
-	while (match !== null) {
+	for (
+		let match = exportBeforeDecorator.exec(source);
+		match !== null;
+		match = exportBeforeDecorator.exec(source)
+	) {
 		const decoratorStart = match.index + match[0].length;
 		const classIndex = findDecoratedClassKeyword(source, decoratorStart);
-		if (classIndex !== -1) {
-			result += source.slice(lastIndex, match.index);
-			result += source.slice(decoratorStart, classIndex);
-			result += `export ${CLASS_KEYWORD}`;
-			lastIndex = classIndex + CLASS_KEYWORD.length;
-			exportBeforeDecorator.lastIndex = lastIndex;
-		}
-		match = exportBeforeDecorator.exec(source);
+		if (classIndex === -1) continue;
+		result += source.slice(lastIndex, match.index);
+		result += source.slice(decoratorStart, classIndex);
+		result += `export ${CLASS_KEYWORD}`;
+		lastIndex = classIndex + CLASS_KEYWORD.length;
+		exportBeforeDecorator.lastIndex = lastIndex;
 	}
 	result += source.slice(lastIndex);
 
@@ -1822,7 +1781,7 @@ export const compileAngularFileJIT = async (
 	});
 	const tsconfigAliases = readTsconfigPathAliases();
 
-	const resolveSourceFile = (candidate: string) => {
+	const resolveJitSourceFile = (candidate: string) => {
 		const candidates = candidate.match(/\.(?:[cm]?[tj]sx?|json)$/)
 			? [candidate]
 			: [
@@ -1842,14 +1801,14 @@ export const compileAngularFileJIT = async (
 
 	const resolveLocalImport = (specifier: string, fromDir: string) => {
 		if (specifier.startsWith('.') || specifier.startsWith('/')) {
-			return resolveSourceFile(resolve(fromDir, specifier));
+			return resolveJitSourceFile(resolve(fromDir, specifier));
 		}
 
 		const aliased = matchTsconfigAlias(
 			specifier,
 			tsconfigAliases.aliases,
 			tsconfigAliases.baseUrl,
-			resolveSourceFile
+			resolveJitSourceFile
 		);
 		if (aliased) return aliased;
 
@@ -1859,7 +1818,7 @@ export const compileAngularFileJIT = async (
 			const absolute = resolve(resolved);
 			if (!absolute.startsWith(baseDir)) return undefined;
 
-			return resolveSourceFile(absolute);
+			return resolveJitSourceFile(absolute);
 		} catch {
 			return undefined;
 		}
@@ -2041,7 +2000,6 @@ export const compileAngularFileJIT = async (
 		// `relativeDir` from the resolved `targetPath` so the rewrite math
 		// below stays consistent with where the file actually lands.
 		const inputDir = dirname(actualPath);
-		const fileBase = basename(actualPath).replace(/\.[cm]?[tj]sx?$/, '.js');
 		const targetPath = toOutputPath(actualPath);
 		const targetDir = dirname(targetPath);
 		const relativeDir = relative(outDir, targetDir).replace(/\\/g, '/');
@@ -2068,11 +2026,11 @@ export const compileAngularFileJIT = async (
 		}
 		const localImportPaths = localImports
 			.map((specifier) => {
-				const resolved = resolveLocalImport(specifier, inputDir);
-				if (!resolved) return null;
+				const importedSource = resolveLocalImport(specifier, inputDir);
+				if (!importedSource) return null;
 				const relativeImport = relative(
 					targetDir,
-					toOutputPath(resolved)
+					toOutputPath(importedSource)
 				)
 					.replace(/\\/g, '/')
 					.replace(/\.js$/, '');
@@ -2081,7 +2039,7 @@ export const compileAngularFileJIT = async (
 					: `./${relativeImport}`;
 				importRewrites.set(specifier, relativeRewrite);
 
-				return resolved;
+				return importedSource;
 			})
 			.filter((path): path is string => Boolean(path));
 
@@ -2160,9 +2118,8 @@ export const compileAngularFileJIT = async (
 		const nextEntryOutput = usesLegacyAnimations
 			? `${withoutLegacyFlag}\nexport const __ABSOLUTE_PAGE_USES_LEGACY_ANIMATIONS__ = true;\n`
 			: withoutLegacyFlag;
-		if (nextEntryOutput !== entryOutput) {
+		if (nextEntryOutput !== entryOutput)
 			await writeTextFileAtomically(entryOutputPath, nextEntryOutput);
-		}
 	}
 
 	return allOutputs;
@@ -2213,6 +2170,163 @@ const statementReferencesClass = (
 		new RegExp(`^\\s*${className}\\s*=`).test(text) ||
 		new RegExp(`ɵsetClassMetadata\\(\\s*${className}\\b`).test(text)
 	);
+};
+
+type PageInjection = { basePath: string | null; hasRoutes: boolean };
+
+const readProvidersSource = (appProvidersSource: string | null) => {
+	if (!appProvidersSource) return '';
+	try {
+		return readFileSync(appProvidersSource, 'utf-8');
+	} catch {
+		/* missing source — treat as empty */
+		return '';
+	}
+};
+
+/* What the injected providers of a page depend on, as text to hash. */
+const providersHashInputOf = (
+	injection: AngularProvidersInjection | undefined,
+	page: PageInjection | undefined
+) =>
+	injection
+		? JSON.stringify({
+				basePath: page?.basePath ?? null,
+				hasRoutes: page?.hasRoutes ?? false,
+				source: readProvidersSource(injection.appProvidersSource)
+			})
+		: 'no-providers';
+
+type InjectionPaths = {
+	compiledParent: string;
+	outRoot: string;
+	rawServerFile: string;
+};
+
+/* The specifier a page's server output imports the compiled global
+ * providers by: relative, from where that output is written. */
+const appProvidersSpecifier = (
+	appProvidersSource: string,
+	{ compiledParent, outRoot, rawServerFile }: InjectionPaths
+) => {
+	const sourceRel = relative(
+		resolve(outRoot),
+		resolve(appProvidersSource)
+	).replace(/\\/g, '/');
+	const compiledAppProvidersPath = join(compiledParent, sourceRel).replace(
+		/\.[cm]?[tj]sx?$/,
+		'.js'
+	);
+	const rel = relative(
+		dirname(rawServerFile),
+		compiledAppProvidersPath
+	).replace(/\\/g, '/');
+
+	return rel.startsWith('.') ? rel : `./${rel}`;
+};
+
+/* The `provideRouter(routes, …)` a router page gets, and the import it
+ * needs. */
+const routerProvidersInjection = (router: AngularRouterConfig | undefined) => {
+	/* Angular's router restores no scroll position and
+	 * ignores a `#fragment` unless told to, so an in-page
+	 * navigation landed wherever the previous view happened
+	 * to be scrolled to. This framework's own cross-framework
+	 * navigation layer has always restored scroll, which made
+	 * Angular pages the odd ones out. On unless asked
+	 * otherwise. */
+	const scrollRestoration = router?.scrollRestoration !== false;
+	/* Preloading every lazy route spends bandwidth a visitor
+	 * may never use, so it stays opt-in. */
+	const preloadAll = router?.preloading === 'all';
+	const routerImports = [
+		'provideRouter as __abs_provideRouter',
+		'withComponentInputBinding as __abs_withComponentInputBinding',
+		'withNavigationErrorHandler as __abs_withNavigationErrorHandler',
+		'withViewTransitions as __abs_withViewTransitions',
+		...(scrollRestoration
+			? ['withInMemoryScrolling as __abs_withInMemoryScrolling']
+			: []),
+		...(preloadAll
+			? [
+					'withPreloading as __abs_withPreloading',
+					'PreloadAllModules as __abs_PreloadAllModules'
+				]
+			: [])
+	];
+	/* A `routerLink` to a URL this table does not match is a
+	 * dead link in Angular (NG04002: no navigation, no URL
+	 * change, a console error). On a page that sits beside
+	 * pages of other frameworks it is more likely a link out
+	 * than a mistake, so the handler hands that URL to
+	 * cross-framework document navigation. Only NG04002 — see
+	 * src/angular/components/router-handoff.ts.
+	 *
+	 * Read off a global the page's hydration index sets,
+	 * rather than imported here: this file is loaded by the
+	 * server unbundled, from wherever the generated directory
+	 * is, so a `@absolutejs/absolute/...` specifier in it has
+	 * to resolve at runtime — and does not when a page is
+	 * compiled into a temp directory and rendered (CI caught
+	 * exactly that). Unset on the server, where a hand-off
+	 * would mean nothing anyway. */
+	const routerFeatures = [
+		'__abs_withComponentInputBinding()',
+		'__abs_withViewTransitions()',
+		...(scrollRestoration
+			? [
+					'__abs_withInMemoryScrolling({ anchorScrolling: "enabled", scrollPositionRestoration: "enabled" })'
+				]
+			: []),
+		...(preloadAll
+			? ['__abs_withPreloading(__abs_PreloadAllModules)']
+			: []),
+		'__abs_withNavigationErrorHandler((event) => { const handler = Reflect.get(globalThis, Symbol.for("absolutejs.angular.routerHandoff")); return typeof handler === "function" ? handler(event) : undefined; })'
+	];
+
+	return {
+		fragment: `__abs_provideRouter(routes, ${routerFeatures.join(', ')})`,
+		importLine: `import { ${routerImports.join(', ')} } from "@angular/router";`
+	};
+};
+
+/* The block appended to a page's server output that exports its
+ * providers, or nothing when there is nothing to inject. */
+const providersInjectionBlock = (
+	injection: AngularProvidersInjection,
+	page: PageInjection,
+	paths: InjectionPaths
+) => {
+	const importLines: string[] = [];
+	const fragments: string[] = [];
+	// Spread the user's global `appProviders` only when a binding is
+	// configured. Router pages with no global binding still get their
+	// `provideRouter` + `APP_BASE_HREF` injected below.
+	if (injection.appProvidersSource) {
+		importLines.push(
+			`import { appProviders as __abs_globalProviders } from "${appProvidersSpecifier(injection.appProvidersSource, paths)}";`
+		);
+		fragments.push('...__abs_globalProviders');
+	}
+	if (page.hasRoutes) {
+		const router = routerProvidersInjection(injection.router);
+		importLines.push(router.importLine);
+		fragments.push(router.fragment);
+	}
+	if (page.basePath !== null) {
+		importLines.push(
+			`import { APP_BASE_HREF as __abs_APP_BASE_HREF } from "@angular/common";`
+		);
+		fragments.push(
+			`{ provide: __abs_APP_BASE_HREF, useValue: ${JSON.stringify(page.basePath)} }`
+		);
+	}
+
+	// Nothing to inject (no global providers, no routes, no base
+	// href) — skip emitting an empty `export const providers = []`.
+	return fragments.length > 0
+		? `\n/* __ABS_PROVIDERS_INJECTION_START */\n${importLines.join('\n')}\nexport const providers = [${fragments.join(', ')}];\n/* __ABS_PROVIDERS_INJECTION_END */\n`
+		: '';
 };
 
 /** Picks the class the generated `export default` (and the client
@@ -2286,16 +2400,20 @@ export const compileAngular = async (
 			const angularSrcDir = resolve(outRoot);
 			if (!existsSync(angularSrcDir)) return;
 			const jsonGlob = new Glob('**/*.json');
-			for (const rel of jsonGlob.scanSync({
-				absolute: false,
-				cwd: angularSrcDir
-			})) {
-				const sourcePath = join(angularSrcDir, rel);
-				const cwdRel = relative(cwd, sourcePath);
-				const targetPath = join(compiledRoot, cwdRel);
-				await fs.mkdir(dirname(targetPath), { recursive: true });
-				await fs.copyFile(sourcePath, targetPath);
-			}
+			const jsonFiles = [
+				...jsonGlob.scanSync({ absolute: false, cwd: angularSrcDir })
+			];
+			await Promise.all(
+				jsonFiles.map(async (rel) => {
+					const sourcePath = join(angularSrcDir, rel);
+					const targetPath = join(
+						compiledRoot,
+						relative(cwd, sourcePath)
+					);
+					await fs.mkdir(dirname(targetPath), { recursive: true });
+					await fs.copyFile(sourcePath, targetPath);
+				})
+			);
 		});
 	}
 	const usesLegacyAngularAnimations = await traceAngularPhase(
@@ -2470,27 +2588,10 @@ export const compileAngular = async (
 		// array on the next request.
 		const pageInjectionForHash =
 			providersInjection?.pagesByFile.get(resolvedEntry);
-		const providersHashInput = providersInjection
-			? (() => {
-					let providersSourceContent = '';
-					if (providersInjection.appProvidersSource) {
-						try {
-							providersSourceContent = readFileSync(
-								providersInjection.appProvidersSource,
-								'utf-8'
-							);
-						} catch {
-							/* missing source — treat as empty */
-						}
-					}
-
-					return JSON.stringify({
-						basePath: pageInjectionForHash?.basePath ?? null,
-						hasRoutes: pageInjectionForHash?.hasRoutes ?? false,
-						source: providersSourceContent
-					});
-				})()
-			: 'no-providers';
+		const providersHashInput = providersHashInputOf(
+			providersInjection,
+			pageInjectionForHash
+		);
 		const serverContentHash = `${Bun.hash(original).toString(BASE_36_RADIX)}.${Bun.hash(providersHashInput).toString(BASE_36_RADIX)}`;
 		const cachedWrapper = wrapperOutputCache.get(resolvedEntry);
 		const clientFile = join(indexesDir, jsName);
@@ -2568,122 +2669,12 @@ export const compileAngular = async (
 			/\n\/\* __ABS_PROVIDERS_INJECTION_START \*\/[\s\S]*?\/\* __ABS_PROVIDERS_INJECTION_END \*\/\n?/g,
 			''
 		);
-		if (providersInjection && pageInjection) {
-			const importLines: string[] = [];
-			const fragments: string[] = [];
-			// Spread the user's global `appProviders` only when a binding is
-			// configured. Router pages with no global binding still get their
-			// `provideRouter` + `APP_BASE_HREF` injected below.
-			if (providersInjection.appProvidersSource) {
-				const compiledAppProvidersPath = (() => {
-					const angularDirAbs = resolve(outRoot);
-					const appSourceAbs = resolve(
-						providersInjection.appProvidersSource
-					);
-					const rel = relative(angularDirAbs, appSourceAbs).replace(
-						/\\/g,
-						'/'
-					);
-
-					return join(compiledParent, rel).replace(
-						/\.[cm]?[tj]sx?$/,
-						'.js'
-					);
-				})();
-				const appProvidersSpec = (() => {
-					const rel = relative(
-						dirname(rawServerFile),
-						compiledAppProvidersPath
-					).replace(/\\/g, '/');
-
-					return rel.startsWith('.') ? rel : `./${rel}`;
-				})();
-				importLines.push(
-					`import { appProviders as __abs_globalProviders } from "${appProvidersSpec}";`
-				);
-				fragments.push('...__abs_globalProviders');
-			}
-			if (pageInjection.hasRoutes) {
-				/* Angular's router restores no scroll position and
-				 * ignores a `#fragment` unless told to, so an in-page
-				 * navigation landed wherever the previous view happened
-				 * to be scrolled to. This framework's own cross-framework
-				 * navigation layer has always restored scroll, which made
-				 * Angular pages the odd ones out. On unless asked
-				 * otherwise. */
-				const scrollRestoration =
-					providersInjection.router?.scrollRestoration !== false;
-				/* Preloading every lazy route spends bandwidth a visitor
-				 * may never use, so it stays opt-in. */
-				const preloadAll =
-					providersInjection.router?.preloading === 'all';
-				const routerImports = [
-					'provideRouter as __abs_provideRouter',
-					'withComponentInputBinding as __abs_withComponentInputBinding',
-					'withNavigationErrorHandler as __abs_withNavigationErrorHandler',
-					'withViewTransitions as __abs_withViewTransitions',
-					...(scrollRestoration
-						? [
-								'withInMemoryScrolling as __abs_withInMemoryScrolling'
-							]
-						: []),
-					...(preloadAll
-						? [
-								'withPreloading as __abs_withPreloading',
-								'PreloadAllModules as __abs_PreloadAllModules'
-							]
-						: [])
-				];
-				importLines.push(
-					`import { ${routerImports.join(', ')} } from "@angular/router";`
-				);
-				/* A `routerLink` to a URL this table does not match is a
-				 * dead link in Angular (NG04002: no navigation, no URL
-				 * change, a console error). On a page that sits beside
-				 * pages of other frameworks it is more likely a link out
-				 * than a mistake, so the handler hands that URL to
-				 * cross-framework document navigation. Only NG04002 — see
-				 * src/angular/components/router-handoff.ts.
-				 *
-				 * Read off a global the page's hydration index sets,
-				 * rather than imported here: this file is loaded by the
-				 * server unbundled, from wherever the generated directory
-				 * is, so a `@absolutejs/absolute/...` specifier in it has
-				 * to resolve at runtime — and does not when a page is
-				 * compiled into a temp directory and rendered (CI caught
-				 * exactly that). Unset on the server, where a hand-off
-				 * would mean nothing anyway. */
-				const routerFeatures = [
-					'__abs_withComponentInputBinding()',
-					'__abs_withViewTransitions()',
-					...(scrollRestoration
-						? [
-								'__abs_withInMemoryScrolling({ anchorScrolling: "enabled", scrollPositionRestoration: "enabled" })'
-							]
-						: []),
-					...(preloadAll
-						? ['__abs_withPreloading(__abs_PreloadAllModules)']
-						: []),
-					'__abs_withNavigationErrorHandler((event) => { const handler = Reflect.get(globalThis, Symbol.for("absolutejs.angular.routerHandoff")); return typeof handler === "function" ? handler(event) : undefined; })'
-				];
-				fragments.push(
-					`__abs_provideRouter(routes, ${routerFeatures.join(', ')})`
-				);
-			}
-			if (pageInjection.basePath !== null) {
-				importLines.push(
-					`import { APP_BASE_HREF as __abs_APP_BASE_HREF } from "@angular/common";`
-				);
-				fragments.push(
-					`{ provide: __abs_APP_BASE_HREF, useValue: ${JSON.stringify(pageInjection.basePath)} }`
-				);
-			}
-			// Nothing to inject (no global providers, no routes, no base
-			// href) — skip emitting an empty `export const providers = []`.
-			if (fragments.length > 0) {
-				rewritten += `\n/* __ABS_PROVIDERS_INJECTION_START */\n${importLines.join('\n')}\nexport const providers = [${fragments.join(', ')}];\n/* __ABS_PROVIDERS_INJECTION_END */\n`;
-			}
-		}
+		if (providersInjection && pageInjection)
+			rewritten += providersInjectionBlock(
+				providersInjection,
+				pageInjection,
+				{ compiledParent, outRoot, rawServerFile }
+			);
 
 		// Note: proto-swap registration was here. SURGICAL_HMR §3.3
 		// replaced it with `hmrInjectionPlugin.ts`, which appends a
@@ -3052,9 +3043,8 @@ export const detectAngularPageComponentClass = (source: string) => {
 			!ts.isNamedExports(statement.exportClause)
 		)
 			continue;
-		for (const element of statement.exportClause.elements) {
+		for (const element of statement.exportClause.elements)
 			exportedNames.add((element.propertyName ?? element.name).text);
-		}
 	}
 
 	const candidates = sourceFile.statements

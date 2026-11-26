@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "`src/build/compileAngular.ts` passes the lint, and with it all 100 files of the framework's own compilers do: the list of exceptions in `eslint.config.mjs` is empty. The providers injection, the wrapper hash input and several nested scanners became module-level functions; three functions nothing called were removed. Checked by output: the example app and 20 Angular fixture pages were compiled in AOT and JIT mode with the old and the new compiler, including router options, and all 169 output files are identical, as is every file of a full build of the example app. No behaviour changes.",
+					"kind": "internal",
+					"summary": "Every file in `src/build/` is linted; the last one was the Angular compiler"
+				}
+			],
+			"date": "2026-11-26",
+			"version": "0.20.0-beta.381"
+		},
+		{
+			"changes": [
+				{
 					"detail": "`absolute proof run --signing-key <key> -- <command>` runs any command (a test suite, most often) and, when it passes, writes a signed proof of that pass; `absolute proof verify --trusted-key <key> -- <command>` lets CI accept the proof in seconds instead of running the command again. A proof is bound to the whole working tree (every file Git would track, the proof itself excepted), the exact command and the exact Bun (`Bun.version`, build label included). `run` refuses to sign when the command changed files while it ran. The signature is Ed25519, the signing key must live outside the repository, and the payload is domain-separated from `lint-proof`'s so neither signature can pass for the other. `lint-proof` now shares the same key and tree code; its behaviour and messages are unchanged.",
 					"kind": "added",
 					"summary": "Signed proofs for any command, so CI can skip re-running a test suite"
