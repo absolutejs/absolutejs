@@ -21,6 +21,7 @@ export * from './pageRendering';
 export * from './rateLimit';
 export * from './loaders';
 export * from './requestHelpers';
+export * from './revalidate';
 export * from './routingRules';
 export * from './routeMap';
 export * from './messages';

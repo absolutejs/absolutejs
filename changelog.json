@@ -5,6 +5,23 @@
 		{
 			"changes": [
 				{
+					"detail": "`revalidatePath(path)` re-renders a pre-rendered page now and replaces the file visitors are served, for when the app knows the page's data changed; `revalidateAll()` does it for every pre-rendered page and reports which were replaced and which failed. Until now a route in `static.routes` changed only when `static.revalidate` ran out, or at the next deploy. `revalidatePath` resolves to `true` once the new page is in place and to `false` when nothing was replaced (not a pre-rendered route, a failed render, or nothing pre-rendered at all, as in dev); it does not throw. A caller is given a render that started after it asked: a re-render already under way may have read the old data, so the call waits for the next one, which every caller arriving in that wait shares. Re-renders, the interval's included, are now written beside the pre-render directory and moved into place, so a request never reads a half-written page, a failed render leaves the previous page, and a sidecar the new render did not produce (a page that no longer has dynamic holes) is removed. Limits: only routes pre-rendered at build time, and only the server the call runs in. See docs/REVALIDATION.md.",
+					"kind": "added",
+					"summary": "`revalidatePath` and `revalidateAll` re-render pre-rendered pages on demand, atomically",
+					"symbols": [
+						"revalidatePath",
+						"revalidateAll",
+						"RevalidateAllResult",
+						"Revalidator"
+					]
+				}
+			],
+			"date": "2026-11-26",
+			"version": "0.20.0-beta.400"
+		},
+		{
+			"changes": [
+				{
 					"detail": "`createApiClient<typeof server>()` from `@absolutejs/absolute/client` calls the app's own routes from the browser with their types. `api.get`, `api.post`, `api.put`, `api.patch` and `api.delete` take a route's path as registered, and its `params`, `query` and `body` are checked against the route: an unknown path, a method the path does not answer, a missing param, a wrong body and an undeclared query key are compile errors. A call resolves to `{ data, error, status, response }` and does not reject for an HTTP error or a failed request: `data` is typed from the route's success response, `error` is `{ status, value }` typed per status for the errors the route declares, and a request that got no answer is `status: 0`. Only an aborted call rejects. Bodies are sent as JSON unless they are a `FormData`, `Blob`, `URLSearchParams`, string or buffer; answers are read by content type. A call other than `get` carries the CSRF token when the page has one. `invalidate: true` refreshes the page's data after a call that succeeded. Nothing is added on the server: a route is the server function, with its guards and validation unchanged. The app is imported as a type, so no server code reaches a bundle; an app annotated `AnyElysia` has no route types to read. See docs/API_CLIENT.md.",
 					"kind": "added",
 					"summary": "`createApiClient` calls the app's own routes from the browser, typed from the routes",
