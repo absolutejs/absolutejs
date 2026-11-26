@@ -18,6 +18,44 @@ app.post('/admin/posts/:slug', async ({ body, params }) => {
 Without this, a pre-rendered page changes only when `static.revalidate`
 (a number of seconds) runs out, or at the next deploy.
 
+## Pre-rendering a dynamic route
+
+A path in `static.routes` with a param in it names a dynamic file route,
+and stands for one page per param set that route's `entries()` returns:
+
+```ts
+// absolute.config.ts
+static: { routes: ['/', '/about', '/blog/:slug'] }
+
+// routes/blog/[slug].server.ts
+export const entries = async () =>
+	(await db.posts.all()).map((post) => ({ slug: post.slug }));
+```
+
+`/blog/hello`, `/blog/world` and the rest are pre-rendered at build time.
+`entries()` is the same export the sitemap reads, so the two agree.
+
+Write the pattern as `route()` takes it: `:name` for `[name]`, `:name?`
+for `[[name]]`, and the name the file gave a catch-all (`/docs/:rest` for
+`docs/[...rest]`). The config offers the project's file routes as
+completions.
+
+A pattern that cannot become pages is printed as a pre-render failure,
+never skipped quietly:
+
+- no file route has that path (a route registered in `server.ts` has no
+  `entries()`, so list its pages one by one);
+- the route has no server module, or it does not export `entries()`;
+- `entries()` threw, or did not return an array;
+- a set is missing a param — that one page is skipped and named, the rest
+  are rendered.
+
+`entries()` runs on the machine doing the build, so it needs to reach
+whatever it reads. Pages are rendered four at a time.
+
+A page that did not exist at build time is rendered per request, like any
+route that is not pre-rendered.
+
 ## `revalidatePath(path)`
 
 Re-renders the pre-rendered page at `path` and replaces the file visitors

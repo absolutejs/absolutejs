@@ -20,6 +20,8 @@ export default defineConfig({
 	htmlDirectory: './html',
 	htmxDirectory: './htmx',
 	reactDirectory: './react',
+	// A pattern: the pages are the ones the route's entries() names.
+	static: { routes: ['/blog/:slug'] },
 	svelteDirectory: './svelte',
 	vueDirectory: './vue'
 });

@@ -4,6 +4,7 @@ import { createExternalAssetPlugin } from '../../build/externalAssetPlugin';
 import { maskLiterals } from '../../build/maskLiterals';
 import { loadIslandRegistryBuildInfo } from '../../build/islandEntries';
 import { resolveProductionServerDefine } from '../../build/resolveBuildMode';
+import { staticRouteExpander } from '../../build/staticRouteExpansion';
 import { createIslandRegistryDefinitionPlugin } from '../../build/islandRegistryTransform';
 import { createRoutePagesPlugin } from '../../build/routePagesPlugin';
 import { createBunStringRawUnicodePlugin } from '../../build/bunStringRawUnicodePlugin';
@@ -1767,7 +1768,9 @@ export default server;
 			NODE_ENV: 'production',
 			...resolveCompileNativeAssetEnv(buildConfig),
 			...(configPath ? { ABSOLUTE_CONFIG: configPath } : {})
-		}
+		},
+		undefined,
+		staticRouteExpander(buildConfig)
 	);
 
 	const prerenderMap = prerenderResult.routes;

@@ -30,6 +30,8 @@ import { installAbsoluteMobileAuthEnvironment } from '../../mobile/nativeAuth';
 import { normalizeAbsoluteMobileConfig } from '../../mobile/config';
 import { deferBuildLockSignalExit } from '../../utils/buildDirectoryLock';
 import { loadConfig } from '../../utils/loadConfig';
+import { staticRouteExpander } from '../../build/staticRouteExpansion';
+import type { ExpandStaticRoutes } from '../../../types/staticRoutes';
 import {
 	readProductionRuntime,
 	writeProductionRuntime
@@ -193,6 +195,9 @@ type StartOptions = {
  *  with the build rather than serve it. */
 export type PreparedBuild = {
 	absoluteVersion: string;
+	/** Fills the patterns in `static.routes` from this project's file
+	 *  routes, for the pre-render pass the caller runs. */
+	expandStaticRoutes: ExpandStaticRoutes;
 	/** The bundled server, runnable for a pre-render pass. */
 	outputPath: string;
 	resolvedOutdir: string;
@@ -222,6 +227,7 @@ const prerenderStaticPages = async (
 	resolvedOutdir: string,
 	staticConfig: import('../../../types/build').StaticConfig,
 	absoluteVersion: string,
+	expandRoutes: ExpandStaticRoutes,
 	configPath?: string
 ) => {
 	const prerenderStart = performance.now();
@@ -246,7 +252,9 @@ const prerenderStaticPages = async (
 				FORCE_COLOR: '0',
 				NODE_ENV: 'production',
 				...(configPath ? { ABSOLUTE_CONFIG: configPath } : {})
-			}
+			},
+			undefined,
+			expandRoutes
 		);
 		const prerenderDuration = getDurationString(
 			performance.now() - prerenderStart
@@ -850,6 +858,7 @@ export const start = async (
 			resolvedOutdir,
 			buildConfig.static,
 			absoluteVersion,
+			staticRouteExpander(buildConfig),
 			configPath
 		);
 	}
@@ -861,6 +870,7 @@ export const start = async (
 		});
 		const prepared: PreparedBuild = {
 			absoluteVersion,
+			expandStaticRoutes: staticRouteExpander(buildConfig),
 			outputPath,
 			resolvedOutdir,
 			staticConfig: buildConfig.static
