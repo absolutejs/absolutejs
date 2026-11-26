@@ -6,7 +6,7 @@ import {
 } from '../utils/basePath';
 import { HTML_CONTENT_TYPE } from '../constants';
 import { requestRenderUrl } from '../utils/requestRenderUrl';
-import { readCspNonce } from '../utils/cspNonceRef';
+import { nonceAttr, readCspNonce } from '../utils/cspNonceRef';
 import { serializeInitialProps } from '../utils/initialProps';
 import { isProductionRuntime } from '../utils/runtimeMode';
 import type { ComponentType as ReactComponent } from 'react';
@@ -35,6 +35,8 @@ import {
 	captureStreamingSlotWarningCallsite,
 	runWithStreamingSlotWarningScope
 } from '../core/streamingSlotWarningScope';
+import { clientOnlyResponse } from '../core/clientOnlyPage';
+import type { PageSsrOption } from '../../types/pageRendering';
 import { ssrErrorPage } from '../utils/ssrErrorPage';
 import { renderSpaNotFound } from '../utils/spaRouteManifest';
 import { renderConventionError } from '../utils/resolveConvention';
@@ -44,19 +46,20 @@ import { reportServerError } from '../core/errorReporter';
 import { ABS_RENDER_ATTRS, withRenderSpan } from '../core/renderTracing';
 import type { RenderSpan } from '../../types/tracing';
 
-type ReactPageRenderOptions = StreamingSlotEnhancerOptions & {
-	/** Collect `<SuspenseSlot>` / `<StreamSlot>` registrations during the
-	 *  render and stream their resolved content after the shell. On by
-	 *  default: a page that renders no slot gets byte-identical output and
-	 *  no extra work. Set `false` to turn collection off for this route;
-	 *  slots then stay on their fallback and a warning is logged once. */
-	collectStreamingSlots?: boolean;
-	/** Buffer this page's stream so it can carry a content-hash `ETag` and
-	 *  serve a `304` on repeat visits, at the cost of streaming's fast first
-	 *  byte. Only worth it on pages static enough that the 304 beats the
-	 *  stream. See {@link PageCacheOptions.bufferStreamForEtag}. */
-	bufferStreamForEtag?: boolean;
-};
+type ReactPageRenderOptions = StreamingSlotEnhancerOptions &
+	PageSsrOption & {
+		/** Collect `<SuspenseSlot>` / `<StreamSlot>` registrations during the
+		 *  render and stream their resolved content after the shell. On by
+		 *  default: a page that renders no slot gets byte-identical output and
+		 *  no extra work. Set `false` to turn collection off for this route;
+		 *  slots then stay on their fallback and a warning is logged once. */
+		collectStreamingSlots?: boolean;
+		/** Buffer this page's stream so it can carry a content-hash `ETag` and
+		 *  serve a `304` on repeat visits, at the cost of streaming's fast first
+		 *  byte. Only worth it on pages static enough that the 304 beats the
+		 *  stream. See {@link PageCacheOptions.bufferStreamForEtag}. */
+		bufferStreamForEtag?: boolean;
+	};
 export type ReactPageRequestInput<
 	Props extends Record<string, unknown> = Record<never, never>
 > = ReactPageRenderOptions & {
@@ -97,6 +100,29 @@ const buildRefreshSetup = () => {
 		'window.$RefreshReg$=function(t,i){window.__REFRESH_BUFFER__.push([t,i])};' +
 		'window.$RefreshSig$=function(){return function(t){return t}};'
 	);
+};
+
+/* `ssr: false`. A React page is a document component — it renders
+ * `<html>` itself — so the shell here is as empty as a document can be,
+ * and the entry renders the page into `document`. Only what cannot come
+ * from the component is sent: the base path's import map, the props, and
+ * in dev the Fast Refresh buffer the entry expects to exist. */
+const clientOnlyReactPage = (
+	index: string,
+	props: Record<string, unknown> | undefined,
+	label: string
+) => {
+	setPageEntry(withBasePath(index));
+	const propsScript = props
+		? `window.__INITIAL_PROPS__=${serializeInitialProps(props, `The React page ${label}`)};`
+		: '';
+
+	return clientOnlyResponse({
+		bootstrap: `${propsScript}${buildRefreshSetup()}`,
+		head: `<head>${basePathHeadTags(getBasePath(), readCspNonce())}</head>`,
+		root: '',
+		tail: `<script${nonceAttr()} type="module" src="${withBasePath(index)}"></script>`
+	});
 };
 
 export const handleReactPageRequest = async <
@@ -184,6 +210,15 @@ const renderReactPageRequest = async <
 	try {
 		const spaNotFound = await renderSpaNotFound('react', pageName, request);
 		if (spaNotFound) return withPageCacheHeaders(spaNotFound, request);
+		if (input.ssr === false)
+			return withPageCacheHeaders(
+				clientOnlyReactPage(
+					resolvedIndex,
+					maybeProps,
+					pageName || resolvedIndex
+				),
+				request
+			);
 		// Slot collection is on unless the handler opts out with `false`:
 		// installing the collector costs nothing when no slot registers.
 		const collectStreamingSlots = options?.collectStreamingSlots !== false;

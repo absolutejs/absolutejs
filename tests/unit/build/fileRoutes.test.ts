@@ -701,6 +701,33 @@ describe('route module', () => {
 		}
 	});
 
+	/* An HTML route is the file it is: there is nothing for a browser to
+	 * render it with, so `ssr = false` there would change nothing while
+	 * looking as if it had. */
+	test('reports ssr in a static route server module, and not in a component one', async () => {
+		const root = await makeProject({
+			'html/routes/about.html': '',
+			'html/routes/about.server.ts': 'export const ssr = false;\n',
+			'react/routes/dashboard.server.ts': 'export const ssr = false;\n',
+			'react/routes/dashboard.tsx': ''
+		});
+		const cwd = process.cwd();
+		process.chdir(root);
+		try {
+			const { problems } = scanFileRoutes({
+				fileRoutes: true,
+				htmlDirectory: 'html',
+				reactDirectory: 'react'
+			});
+
+			expect(problems).toEqual([
+				'html/routes/about.server.ts: `ssr` does nothing for an HTML or HTMX route, which is served as the file it is.'
+			]);
+		} finally {
+			process.chdir(cwd);
+		}
+	});
+
 	test('an app with no routes still exports an empty tree', () => {
 		expect(renderFileRouteModule([], '/app/routes.gen.ts')).toContain(
 			'export const routeTree: readonly FileRouteDefinition[] = [];'

@@ -24,11 +24,15 @@ export const vueFileRoute = <
 		server?: () => Promise<ServerModule>;
 	}
 ) =>
-	defineFileRouteWith('vue', route, async ({ manifest, props, request }) =>
-		handleVuePageRequest({
-			indexPath: assetUnchecked(manifest, `${route.name}Index`),
-			pagePath: assetUnchecked(manifest, route.name),
-			props,
-			request
-		})
+	defineFileRouteWith(
+		'vue',
+		route,
+		async ({ manifest, props, request, ssr }) =>
+			handleVuePageRequest({
+				indexPath: assetUnchecked(manifest, `${route.name}Index`),
+				pagePath: assetUnchecked(manifest, route.name),
+				props,
+				request,
+				ssr
+			})
 	);

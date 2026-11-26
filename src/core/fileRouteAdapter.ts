@@ -59,13 +59,16 @@ export const serverHooksOf = <Path extends string>(
 
 		return run(module, context);
 	};
-	const hooks: Pick<FileRouteDefinition, 'beforeHandle' | 'load'> = {
+	const hooks: Pick<FileRouteDefinition, 'beforeHandle' | 'load' | 'ssr'> = {
 		beforeHandle: (context) =>
 			withParams(context, (module, typed) =>
 				module.beforeHandle?.(typed)
 			),
 		load: (context) =>
-			withParams(context, (module, typed) => module.load?.(typed))
+			withParams(context, (module, typed) => module.load?.(typed)),
+		// Only the literal `false` turns it off; anything else is a page
+		// that renders on the server, as every page does by default.
+		ssr: async () => (await server())?.ssr !== false
 	};
 
 	return hooks;

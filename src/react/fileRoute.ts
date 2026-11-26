@@ -69,6 +69,19 @@ const composeLayouts = async (
 	return Composed;
 };
 
+/* For a route with `ssr = false`: a component to hand the page handler
+ * in place of the page, so the page's module is never imported on the
+ * server. Importing it is the thing such a route often cannot survive —
+ * a library that touches `window` as it loads fails at import, long
+ * before any render. The handler never renders this; it only reads the
+ * name. */
+const unrenderedPage = (name: string) => {
+	const Unrendered = () => null;
+	Object.defineProperty(Unrendered, 'name', { value: name });
+
+	return Unrendered;
+};
+
 /** One React file route, as written by the generated route module. The
  *  type arguments check the route at compile time: `ServerModule`'s `load`
  *  must accept this path's params and return the page component's props
@@ -83,7 +96,15 @@ export const reactFileRoute = <
 	defineFileRouteWith(
 		'react',
 		route,
-		async ({ manifest, props, request }) => {
+		async ({ manifest, props, request, ssr }) => {
+			if (ssr === false)
+				return handleReactPageRequest<Record<string, unknown>>({
+					index: assetUnchecked(manifest, `${route.name}Index`),
+					Page: unrenderedPage(route.name),
+					props,
+					request,
+					ssr: false
+				});
 			const { default: Page } = await route.page();
 			if (!isReactComponent(Page)) {
 				throw new Error(

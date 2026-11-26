@@ -17,6 +17,7 @@ export * from './island';
 export * from './links';
 export * from './logging';
 export * from './manifest';
+export * from './pageRendering';
 export * from './rateLimit';
 export * from './routingRules';
 export * from './routeMap';

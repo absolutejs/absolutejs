@@ -181,11 +181,16 @@ const serveFileRoute = async (
 		);
 	}
 	if (loaded instanceof Response) return loaded;
+	/* Asked after `load`, not before: `load` runs on the server either
+	 * way, and its redirect or 404 must still answer a route whose page
+	 * the server does not render. */
+	const rendersOnServer = route.ssr ? await route.ssr() : true;
 
 	return route.render({
 		manifest,
 		props: isRecord(loaded) ? loaded : {},
-		request: context.request
+		request: context.request,
+		...(rendersOnServer ? {} : { ssr: false })
 	});
 };
 
