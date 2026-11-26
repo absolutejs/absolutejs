@@ -5,6 +5,24 @@
 		{
 			"changes": [
 				{
+					"detail": "`registerPageStore(store)` keeps pre-rendered pages in step across machines that share no disk. Each machine goes on serving from its own files, so nothing is added to the path of a request. A page a machine re-renders, creates or takes down is also written to the store; a machine starting up pulls whatever the store has that it does not, so one added later or back from an outage is not left serving the build's pages; and while running, each machine asks the store what changed every 5 seconds (`{ interval }`) and pulls it. A page is rendered once and copied with its nonce, dynamic holes and tags, so `revalidateTag` works on every machine. A store is four functions over string keys and bodies (`get`, `put`, `delete`, `list`), which an object store, a key-value store or a table can all provide; `list` reports a version per object that is only compared for equality. The store is the truth: two machines revalidating one page at once both write it and both end up serving what the store kept. A store that cannot be reached does not take pages down or stop a server starting; it is logged once when it fails and once when it recovers. Everything is kept under the build's own id, and builds older than the last three are cleared. It is registered in code, before `prepare()`, because a production server does not read `absolute.config.ts`. No store implementation ships in this release. See docs/REVALIDATION.md.",
+					"kind": "added",
+					"summary": "`registerPageStore` keeps pre-rendered pages in step across machines that share no disk",
+					"symbols": [
+						"registerPageStore",
+						"PageStore",
+						"PageStoreEntry",
+						"PageStoreOptions",
+						"StoredPage"
+					]
+				}
+			],
+			"date": "2026-11-26",
+			"version": "0.20.0-beta.411"
+		},
+		{
+			"changes": [
+				{
 					"detail": "`static.revalidateToken` was written into build output. A production server reads what the build wrote down from the config, and the whole `static` block went into `absolute-runtime.json` in the build directory and into the config `absolute compile` embeds, so a token set as `process.env.X` in the config was stored in the build folder, in any image made from it and in the binary. The file is not served, so it was not readable over HTTP; it was a secret at rest where none belongs. The token is no longer written. It is read from `ABSOLUTE_REVALIDATE_TOKEN` when the server starts, which wins over the config; `absolute start` hands the config's value to the server it launches through that variable, so an app that builds and starts in one step is unchanged. BEHAVIOUR CHANGE: a server started from an existing build (`absolute start --prebuilt`) or a compiled binary no longer gets the token from the config and needs the variable; one built with a token and started without it says so at startup and has no endpoint. `static.directory` has the same problem in a different form, a per-machine path fixed on the build machine, and can now be set with `ABSOLUTE_STATIC_DIRECTORY`, also read at startup and also winning over the config. See docs/REVALIDATION.md.",
 					"kind": "fixed",
 					"summary": "The revalidation token is no longer stored in build output; it and `static.directory` are read from the environment at startup"

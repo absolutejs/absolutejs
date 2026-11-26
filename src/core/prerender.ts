@@ -237,6 +237,61 @@ const publishStaged = (staged: string, live: string) => {
 	renameSync(staged, live);
 };
 
+const PAGE_EXTENSIONS = ['.html', ...SIDECAR_EXTENSIONS];
+
+const readIfPresent = (path: string) => {
+	try {
+		return readFileSync(path, 'utf-8');
+	} catch {
+		return undefined;
+	}
+};
+
+/** Every file that makes up the pre-rendered page for `route`, by
+ *  extension — or `undefined` when it has no HTML. What one machine
+ *  hands another through a page store (pageSync.ts). */
+export const readPrerenderedFiles = (prerenderDir: string, route: string) => {
+	const live = join(prerenderDir, routeToFilename(route));
+	const files = Object.fromEntries(
+		PAGE_EXTENSIONS.map((extension) => [
+			extension,
+			readIfPresent(sidecar(live, extension))
+		]).filter(
+			(entry): entry is [string, string] => typeof entry[1] === 'string'
+		)
+	);
+
+	return '.html' in files ? files : undefined;
+};
+
+/** Puts a page received from another machine in place, through the
+ *  same staging and renames a re-render uses, so a request reads the
+ *  old page or the new one. A sidecar the page does not have is
+ *  removed. */
+export const writePrerenderedFiles = async (
+	prerenderDir: string,
+	route: string,
+	files: Record<string, string>
+) => {
+	const fileName = routeToFilename(route);
+	const stagingDir = stagingDirFor(prerenderDir);
+	const staged = join(stagingDir, fileName);
+	try {
+		await Promise.all(
+			PAGE_EXTENSIONS.filter((extension) => extension in files).map(
+				(extension) =>
+					Bun.write(
+						sidecar(staged, extension),
+						files[extension] ?? ''
+					)
+			)
+		);
+		publishStaged(staged, join(prerenderDir, fileName));
+	} finally {
+		rmSync(stagingDir, { force: true, recursive: true });
+	}
+};
+
 /* Written where no request reads, then moved into place; the staging
  * directory goes whether or not that worked. */
 const writeRendered = async (
