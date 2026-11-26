@@ -1,10 +1,17 @@
-import { existsSync } from 'node:fs';
+import { existsSync, rmSync } from 'node:fs';
+import { totalmem } from 'node:os';
 import { relative, resolve } from 'node:path';
 import {
 	createEslintCacheFingerprint,
+	createEslintConfigDigest,
 	getCacheLocation,
 	prepareEslintCache
 } from './eslint';
+import {
+	cachedCleanFiles,
+	lintContextKey,
+	markShardCache
+} from './eslintCacheProbe';
 
 /**
  * Chunked, sharded, cache-fingerprinted ESLint orchestration for projects
@@ -28,6 +35,16 @@ import {
  *    — drop the caches instead of silently reusing stale verdicts. Config
  *    edits do not: ESLint's own cache hashes each file's calculated config, so
  *    it re-lints exactly the files that override touched.
+ *  - Files whose clean verdict is already cached (same content, toolchain,
+ *    config and arguments) are left out before any process starts, so a
+ *    run with nothing new to lint costs seconds, not one process per chunk
+ *    (eslintCacheProbe.ts). The report still covers them: a clean verdict
+ *    has nothing to report.
+ *  - Chunk size adapts to memory: each process reports its peak RSS, and
+ *    the next chunk in that lane grows or shrinks toward a share of the
+ *    per-process budget (the machine's memory over the concurrency). A
+ *    fixed 20-file chunk rebuilt the type program 146 times on onSpark; 100
+ *    files in one process took 26 s where 5 of 20 took 109 s.
  *  - `--changed` lints only files that differ from the branch's upstream (or
  *    `--changed-base <ref>`) plus anything staged/unstaged/untracked.
  *    Porcelain status lines are parsed per line WITHOUT trimming their
@@ -41,7 +58,8 @@ import {
  *   --changed[=<ref>]    changed-only mode; bare form resolves the upstream
  *   --changed-base <ref> explicit diff base for --changed
  *   --out <path>         report location (default .absolutejs/lint-report.txt)
- *   --chunk-size <n>     files per ESLint process (default 20)
+ *   --chunk-size <n>     fixed files per ESLint process (default: adaptive,
+ *                        starting at 50 and sized to memory)
  *   --shards <n>         cache shard count (default 4) — changing it
  *                        reshuffles which cache file owns which path
  *   positionals          glob patterns for the lint set; without any, every
@@ -50,7 +68,18 @@ import {
  * Environment: LINT_CONCURRENCY caps parallel chunk processes (default 2).
  */
 
-const DEFAULT_CHUNK_SIZE = 20;
+const INITIAL_CHUNK_SIZE = 50;
+const MIN_CHUNK_SIZE = 10;
+const MAX_CHUNK_SIZE = 500;
+/** Growth per step is capped: peak memory is not linear in chunk size. */
+const MAX_GROWTH = 2;
+/** Aim each process at this share of its memory budget. */
+const TARGET_SHARE = 0.6;
+/** The share of the machine's memory lint processes may use together. */
+const MACHINE_SHARE = 0.75;
+const BYTES_PER_KIB = 1024;
+const BYTES_PER_MB = BYTES_PER_KIB * BYTES_PER_KIB;
+const BYTES_PER_GB = BYTES_PER_MB * BYTES_PER_KIB;
 const DEFAULT_SHARDS = 4;
 const DEFAULT_CONCURRENCY = 2;
 const DEFAULT_REPORT = '.absolutejs/lint-report.txt';
@@ -89,12 +118,16 @@ const gitLines = (cmd: string[], cwd: string) =>
 		.map((line) => line.trimEnd())
 		.filter(Boolean);
 
-type EslintRunResult = { combined: string; exitCode: number };
+type EslintRunResult = {
+	combined: string;
+	exitCode: number;
+	peakBytes?: number;
+};
 
 type ChunkedArgs = {
 	changedBase: string | null;
 	changedOnly: boolean;
-	chunkSize: number;
+	chunkSize: number | null;
 	globs: string[];
 	outFile: string;
 	passthrough: string[];
@@ -137,21 +170,28 @@ const resolveLintSet = (parsed: ChunkedArgs, cwd: string) => {
 export const resolveLintTargets = (args: string[], cwd = process.cwd()) =>
 	resolveLintSet(parseChunkedArgs(args), cwd);
 
-const buildShardChunks = (
-	files: string[],
-	shards: number,
-	chunkSize: number
-) => {
+/* Each file's shard, by a stable hash of its path. */
+const filesByShard = (files: string[], shards: number) => {
 	const shardFiles: string[][] = Array.from({ length: shards }, () => []);
 	for (const file of files) shardFiles[shardOf(file, shards)]?.push(file);
-	const shardChunks: string[][][] = Array.from({ length: shards }, () => []);
-	for (let shard = 0; shard < shards; shard++) {
-		const owned = shardFiles[shard] ?? [];
-		for (let index = 0; index < owned.length; index += chunkSize)
-			shardChunks[shard]?.push(owned.slice(index, index + chunkSize));
-	}
 
-	return shardChunks;
+	return shardFiles;
+};
+
+/* The next chunk size for a lane, from the last process's peak memory. */
+export const nextChunkSize = (
+	size: number,
+	peakBytes: number | undefined,
+	budgetBytes: number
+) => {
+	if (!peakBytes || peakBytes <= 0) return size;
+	const scaled =
+		size * Math.min((budgetBytes * TARGET_SHARE) / peakBytes, MAX_GROWTH);
+
+	return Math.max(
+		MIN_CHUNK_SIZE,
+		Math.min(MAX_CHUNK_SIZE, Math.round(scaled))
+	);
 };
 
 const runEslintProcess = async (
@@ -201,7 +241,11 @@ const runEslintProcess = async (
 		proc.exited
 	]);
 
-	return { combined: out + err, exitCode };
+	return {
+		combined: out + err,
+		exitCode,
+		peakBytes: proc.resourceUsage()?.maxRSS
+	};
 };
 
 const retryEachFile = async (
@@ -263,36 +307,58 @@ export const eslintChunked = async (args: string[], cwd = process.cwd()) => {
 			fingerprint
 		});
 
-	const shardChunks = buildShardChunks(
-		files,
-		parsed.shards,
-		parsed.chunkSize
-	);
-	const totalChunks = shardChunks.reduce((sum, list) => sum + list.length, 0);
 	const concurrency = Math.max(
 		1,
 		Number(process.env.LINT_CONCURRENCY) || DEFAULT_CONCURRENCY
 	);
-	console.log(
-		`Linting ${files.length} files in ${totalChunks} chunks of ${parsed.chunkSize} ` +
-			`(${parsed.shards} cache shards, concurrency ${concurrency}${parsed.changedOnly ? ', --changed' : ''})`
+	const budgetBytes = Math.min(
+		(totalmem() * MACHINE_SHARE) / concurrency,
+		CHILD_HEAP_MB * BYTES_PER_MB
 	);
+	const contextKey = lintContextKey(
+		createEslintConfigDigest(cwd),
+		parsed.passthrough
+	);
+	const shardCache = (shard: number) => `${cachePrefix}${shard}`;
+	const pendingByShard = filesByShard(files, parsed.shards).map(
+		(owned, shard) => {
+			const clean = cachedCleanFiles(
+				owned,
+				shardCache(shard),
+				contextKey,
+				cwd
+			);
+
+			return owned.filter((file) => !clean.has(file));
+		}
+	);
+	const pending = pendingByShard.reduce((sum, list) => sum + list.length, 0);
+	console.log(
+		`Linting ${files.length} files: ${files.length - pending} have a clean cached verdict, ${pending} to lint ` +
+			`(${parsed.chunkSize === null ? 'adaptive chunks' : `chunks of ${parsed.chunkSize}`}, ${parsed.shards} cache shards, concurrency ${concurrency}${parsed.changedOnly ? ', --changed' : ''})`
+	);
+	// A run that stops part-way leaves a cache mixing contexts: no marker
+	// until it finishes, so nothing is skipped on its word.
+	for (let shard = 0; shard < parsed.shards; shard++)
+		rmSync(resolve(cwd, `${shardCache(shard)}.config`), { force: true });
 
 	const startedAt = Date.now();
 	let failedChunks = 0;
 	let completedChunks = 0;
+	let lintedFiles = 0;
 	let report = '';
 
 	const runChunk = async (shard: number, chunk: string[]) => {
 		let results = [
 			await runEslintProcess(
 				chunk,
-				`${cachePrefix}${shard}`,
+				shardCache(shard),
 				parsed.passthrough,
 				cwd
 			)
 		];
-		if (wasSilentCrash(results, chunk))
+		const crashed = wasSilentCrash(results, chunk);
+		if (crashed)
 			results = await retryEachFile(chunk, parsed.passthrough, cwd);
 		const combined = results.map((result) => result.combined).join('');
 		const exitCode = results.some((result) => result.exitCode !== 0)
@@ -306,28 +372,53 @@ export const eslintChunked = async (args: string[], cwd = process.cwd()) => {
 		if (silentFailure) process.stderr.write(silentFailure);
 		report += stripAnsi(combined + silentFailure);
 		completedChunks++;
-		process.stdout.write(`  · chunk ${completedChunks}/${totalChunks}\n`);
+		lintedFiles += chunk.length;
+		const peak = results[0]?.peakBytes;
+		process.stdout.write(
+			`  · chunk ${completedChunks}: ${chunk.length} files${peak ? `, peak ${(peak / BYTES_PER_GB).toFixed(1)} GB` : ''} (${lintedFiles}/${pending})\n`
+		);
 		if (exitCode !== 0) failedChunks++;
+
+		// A crash (out of memory, most often) halves the next chunk.
+		return crashed ? undefined : peak;
 	};
 
-	// Deal shard queues across lanes; a lane drains in order so one shard's
-	// cache file is never written by two processes at once.
-	type LaneChunk = { chunk: string[]; shard: number };
-	const lanes: LaneChunk[][] = Array.from({ length: concurrency }, () => []);
-	shardChunks.forEach((chunkList, shard) =>
-		lanes[shard % concurrency]?.push(
-			...chunkList.map((chunk) => ({ chunk, shard }))
-		)
+	/* A lane drains its shards in order, so one shard's cache file is never
+	 * written by two processes at once; within a shard, each chunk is sized
+	 * from the previous process's peak memory. */
+	const sizeAfter = (size: number, peak: number | undefined) => {
+		if (parsed.chunkSize !== null) return size;
+
+		return peak === undefined
+			? Math.max(MIN_CHUNK_SIZE, Math.floor(size / 2))
+			: nextChunkSize(size, peak, budgetBytes);
+	};
+	const drainShard = async (
+		shard: number,
+		queue: string[],
+		size: number
+	): Promise<number> => {
+		if (queue.length === 0) return size;
+		const peak = await runChunk(shard, queue.slice(0, size));
+
+		return drainShard(shard, queue.slice(size), sizeAfter(size, peak));
+	};
+	const runLane = (shards: number[]) =>
+		shards.reduce(
+			async (previous, shard) =>
+				drainShard(shard, pendingByShard[shard] ?? [], await previous),
+			Promise.resolve(parsed.chunkSize ?? INITIAL_CHUNK_SIZE)
+		);
+	const laneShards: number[][] = Array.from(
+		{ length: concurrency },
+		() => []
 	);
-	await Promise.all(
-		lanes.map((laneChunks) =>
-			laneChunks.reduce(
-				(previous, item) =>
-					previous.then(() => runChunk(item.shard, item.chunk)),
-				Promise.resolve()
-			)
-		)
-	);
+	for (let shard = 0; shard < parsed.shards; shard++)
+		laneShards[shard % concurrency]?.push(shard);
+	await Promise.all(laneShards.map(runLane));
+	for (let shard = 0; shard < parsed.shards; shard++)
+		markShardCache(shardCache(shard), contextKey, cwd);
+	const totalChunks = completedChunks;
 
 	const summary = ruleSummary(report);
 	const elapsed = ((Date.now() - startedAt) / MS_PER_SECOND).toFixed(1);
@@ -388,7 +479,7 @@ export const parseChunkedArgs = (args: string[]) => {
 	const parsed: ChunkedArgs = {
 		changedBase: null,
 		changedOnly: false,
-		chunkSize: DEFAULT_CHUNK_SIZE,
+		chunkSize: null,
 		globs: [],
 		outFile: DEFAULT_REPORT,
 		passthrough: [],
@@ -407,7 +498,7 @@ export const parseChunkedArgs = (args: string[]) => {
 		else if (arg.startsWith('--out='))
 			parsed.outFile = arg.slice('--out='.length);
 		else if (arg === '--chunk-size')
-			parsed.chunkSize = Number(args[++index]) || DEFAULT_CHUNK_SIZE;
+			parsed.chunkSize = Number(args[++index]) || null;
 		else if (arg === '--shards')
 			parsed.shards = Number(args[++index]) || DEFAULT_SHARDS;
 		else if (arg.startsWith('-')) parsed.passthrough.push(arg);
