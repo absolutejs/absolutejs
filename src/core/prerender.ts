@@ -15,6 +15,11 @@ import { PARTIAL_SHELL_HEADER, writePartialHoles } from './partialPrerender';
 import { ACTION_FLASH_COOKIE } from '../utils/formActionState';
 import { renderedNonce, writeRenderedNonce } from './prerenderNonce';
 import { readRequestReads, writeCacheTags } from './cacheTags';
+import {
+	acceptsAbsoluteMobilePage,
+	acceptsAbsoluteNativeRouteData,
+	acceptsAbsoluteRouteData
+} from '../mobile/pageProtocol';
 import { logWarn } from '../utils/logger';
 
 export type PrerenderFailure = {
@@ -94,11 +99,12 @@ const ACTION_FLASH_COOKIE_RE = new RegExp(`(?:^|;\\s*)${ACTION_FLASH_COOKIE}=`);
 
 /** Whether this request must not be answered from the pre-rendered file.
  *
- *  Two reasons, both of which would otherwise show the visitor a stale
- *  page:
+ *  Three reasons:
  *
  *  - the server's own re-render and hole requests, which carry this
  *    process's bypass token;
+ *  - a request for the page's data rather than its document
+ *    (`asksForPageData`), for which an HTML file is the wrong answer;
  *  - a form posted without JavaScript, which redirects back with its
  *    result in the one-shot `absolute_action` cookie. The cached file was
  *    rendered before that submission, so serving it would show a form
@@ -107,9 +113,22 @@ const ACTION_FLASH_COOKIE_RE = new RegExp(`(?:^|;\\s*)${ACTION_FLASH_COOKIE}=`);
  *    `getActionState`; its response is `no-store`, so nothing is cached. */
 import { filenameToRoute, routeToFilename } from './prerenderPaths';
 
+/* A request for a page's DATA, not its document: the route-data a
+ * `<Link>` prefetches and `invalidate()` refreshes from, and the page
+ * representations a mobile client asks for. The pre-rendered file is an
+ * HTML document and was sent for these as well, because nothing here
+ * looked at what was asked for — so a data prefetch of a pre-rendered
+ * page downloaded the whole page, found it was not data, and threw it
+ * away. The route answers these itself. */
+const asksForPageData = (request: Request) =>
+	acceptsAbsoluteRouteData(request) ||
+	acceptsAbsoluteNativeRouteData(request) ||
+	acceptsAbsoluteMobilePage(request);
+
 export { filenameToRoute, routeToFilename };
 export const shouldSkipPrerendered = (request: Request) =>
 	isPrerenderBypass(request) ||
+	asksForPageData(request) ||
 	ACTION_FLASH_COOKIE_RE.test(request.headers.get('cookie') ?? '');
 
 /** Write a timestamp file alongside the pre-rendered HTML */

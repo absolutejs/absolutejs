@@ -32,6 +32,40 @@ describe('prerender bypass', () => {
 describe('skipping the pre-rendered file', () => {
 	const withCookie = (cookie: string) =>
 		new Request('http://localhost/', { headers: { cookie } });
+	const accepting = (accept: string) =>
+		new Request('http://localhost/', { headers: { accept } });
+
+	/* The file is an HTML document. For a request that asked for the
+	 * page's data it is the wrong answer, and the route has the right
+	 * one. */
+	test('a request for the page’s data is answered by the route', () => {
+		expect(
+			shouldSkipPrerendered(
+				accepting('application/vnd.absolute.route+json')
+			)
+		).toBe(true);
+		expect(
+			shouldSkipPrerendered(
+				accepting('application/vnd.absolute.native-route+json')
+			)
+		).toBe(true);
+		expect(
+			shouldSkipPrerendered(
+				accepting('application/vnd.absolute.page+json')
+			)
+		).toBe(true);
+	});
+
+	test('a browser asking for the document still gets the cached file', () => {
+		expect(
+			shouldSkipPrerendered(
+				accepting('text/html,application/xhtml+xml,*/*;q=0.8')
+			)
+		).toBe(false);
+		expect(shouldSkipPrerendered(accepting('application/json'))).toBe(
+			false
+		);
+	});
 
 	test('an ordinary visitor is served the cached file', () => {
 		expect(shouldSkipPrerendered(new Request('http://localhost/'))).toBe(
