@@ -71,6 +71,63 @@ const missingDependencyError = (name: string, filePath: string) =>
    `Server error: undefined`. Sass / Less / Stylus all attach useful
    metadata (line, column, snippet) to their errors but the property
    names differ — we surface whatever's available. */
+type PreprocessorErrorDetail = Error & {
+	column?: number;
+	filename?: string;
+	formatted?: string;
+	line?: number;
+	span?: {
+		start?: { column?: number; line?: number };
+		url?: URL | string;
+	};
+};
+
+const isSameFile = (reported: URL | string | undefined, filePath: string) => {
+	if (reported === undefined) return true;
+	const text = String(reported);
+	const reportedPath = text.startsWith('file:') ? fileURLToPath(text) : text;
+
+	return resolve(reportedPath) === resolve(filePath);
+};
+
+/* Where in `filePath` the compiler says the error is, as `:line:column`
+ * counted from 1, or '' when it did not say.
+ *
+ * Read per compiler, never from a bare `error.line`: JavaScriptCore puts
+ * `line` and `column` on EVERY Error — the position in the JavaScript
+ * that threw. For Sass and Stylus that is a line inside the compiler
+ * (`bad.scss:8310:24` for a four-line file), and it used to be printed
+ * as if it were a line of the stylesheet. Less is the one whose own
+ * `line` is the stylesheet's.
+ *
+ * An error inside an imported partial is located in THAT file, which
+ * the compiler's own message names; printing its line after this
+ * file's path would point at the wrong text, so it is left out. */
+const stylesheetLocation = (
+	detail: PreprocessorErrorDetail,
+	filePath: string,
+	language: StyleLanguage
+) => {
+	if (language === 'scss' || language === 'sass') {
+		const start = detail.span?.start;
+		if (typeof start?.line !== 'number') return '';
+		if (!isSameFile(detail.span?.url, filePath)) return '';
+		const column =
+			typeof start.column === 'number' ? `:${start.column + 1}` : '';
+
+		// Sass counts both from 0.
+		return `:${start.line + 1}${column}`;
+	}
+	if (language !== 'less') return '';
+	if (typeof detail.line !== 'number') return '';
+	if (!isSameFile(detail.filename, filePath)) return '';
+	const column =
+		typeof detail.column === 'number' ? `:${detail.column + 1}` : '';
+
+	// Less counts lines from 1 and columns from 0.
+	return `:${detail.line}${column}`;
+};
+
 const preprocessorError = (
 	error: unknown,
 	filePath: string,
@@ -81,21 +138,8 @@ const preprocessorError = (
 			`${language} compile failed in ${filePath}: ${String(error)}`
 		);
 
-	const detail = error as Error & {
-		line?: number;
-		column?: number;
-		extract?: string[];
-		formatted?: string;
-		span?: { start?: { line?: number; column?: number } };
-	};
-	const sassLine = detail.span?.start?.line;
-	const sassCol = detail.span?.start?.column;
-	const line = detail.line ?? sassLine;
-	const column = detail.column ?? sassCol;
-	const location =
-		typeof line === 'number'
-			? `:${line}${typeof column === 'number' ? `:${column}` : ''}`
-			: '';
+	const detail: PreprocessorErrorDetail = error;
+	const location = stylesheetLocation(detail, filePath, language);
 	const message = detail.formatted ?? detail.message;
 	const wrapped = new Error(
 		`${language} compile failed in ${filePath}${location}\n${message}`
@@ -1183,7 +1227,14 @@ export const createSvelteStylePreprocessor = (
  * `@import "<path>";` only. `@import url(...)` and media-qualified
  * imports pass through unchanged. */
 
-const CSS_IMPORT_PATTERN = /@import\s+["']([^"']+)["']\s*;?/g;
+/* The statement must END after the path: either at its `;`, or — for the
+ * unterminated form this has always accepted — with no `;` before the
+ * next block. Anything between the path and a `;` is a media query,
+ * `layer()` or `supports()`; matching just the path there inlined the
+ * file unconditionally and left the qualifier behind as stray text
+ * (`@import "print.css" print;` became the print rules, for every
+ * medium, followed by `print;`). Those now pass through whole. */
+const CSS_IMPORT_PATTERN = /@import\s+["']([^"']+)["']\s*(?:;|(?![^;{}]*;))/g;
 
 /* Async counterpart to `resolveCssImportsSync`. Reads imported files
  * via `node:fs/promises.readFile` so the call doesn't block the dev
