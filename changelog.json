@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "Test-only. `react-route-layouts-browser.test.ts` timed out once in the nightly on the Svelte route, waiting for a click to register, with nothing recorded but the timeout. It does not reproduce: 36 page loads at 20x CPU throttle with a click the moment `load` fired lost none. So no cause is claimed. The Svelte and Vue cases now wait for their page's own hydrated mark before clicking, as the React case always did, and a click that still does not register fails with the button's text and everything the page logged from before navigation: console errors and warnings, uncaught errors, failed requests and HTTP error responses. `openPage` gained an `onPage` hook so a listener can be attached before the page navigates.",
+					"kind": "internal",
+					"summary": "The route-layouts browser test waits for hydration and reports what the page logged when a click is lost"
+				}
+			],
+			"date": "2026-11-26",
+			"version": "0.20.0-beta.385"
+		},
+		{
+			"changes": [
+				{
 					"detail": "`absolute start` and `absolute dev` now run their own shutdown when signalled. Both were meant to, and neither did: the build directory lock registers SIGINT and SIGTERM handlers during the build, they ran first, and they exit the process. (1) `absolute start` exited at once with 143 while the server it had spawned was still answering in-flight requests — measured with a request 300ms into 1500ms of work, the CLI was gone at 304ms. Where the CLI is the process a supervisor watches, such as a container's first process, its exit ends the container and the draining server with it, which is the dropped-request case graceful shutdown exists to prevent. It now exits after the last worker has, with code 0. (2) `absolute dev`, stopped by a signal rather than its `q` key, was gone in 2ms with its dev server still alive and the build lock already released; the SIGKILL fallback for a server that will not stop never armed. It now stops the server first. In both, the skipped path also left the instance in the `absolute ps` registry and never stopped a managed database. A second signal during shutdown exits immediately with the conventional code (130 or 143), so a stuck shutdown can still be interrupted. `deferBuildLockSignalExit()` in `src/utils/buildDirectoryLock.ts` is how a long-lived caller takes over the exit; a build interrupted by a signal still exits as before.",
 					"kind": "fixed",
 					"summary": "`absolute start` waits for in-flight requests before exiting on SIGTERM, and `absolute dev` stops its server first"

@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import type { Page } from 'playwright';
 import { openPage } from '../../helpers/browser';
 import { ensureDistBuild } from '../../helpers/ensureDistBuild';
 import {
@@ -30,6 +31,7 @@ const CLI_ENTRY = join(repoRoot, 'dist', 'cli', 'index.js');
 const PORT = 4526;
 const READY_ATTEMPTS = 240;
 const READY_INTERVAL_MS = 250;
+const HTTP_BAD_REQUEST = 400;
 
 let root = '';
 let server: ReturnType<typeof Bun.spawn> | undefined;
@@ -76,10 +78,77 @@ afterAll(async () => {
 	if (root) await rm(root, { force: true, recursive: true });
 });
 
+/* Clicks a counter and waits for it to read `clicks 1`.
+ *
+ * This has timed out once in the nightly, on the Svelte route, with
+ * nothing recorded but the timeout — and it does not reproduce: 36 loads
+ * at 20x CPU throttle, a click the moment `load` fired, none lost. So
+ * two things, neither a guess at the cause. Every caller now waits for
+ * its page's own "I am live" mark before clicking, which the React test
+ * always did and the Svelte and Vue ones did not. And if the count still
+ * does not move, the failure says what the page was doing: the button's
+ * text, whether the mark was set, and everything the browser logged or
+ * failed to load. */
+type PageLog = { entries: string[] };
+
+const recordPage = (log: PageLog) => (page: Page) => {
+	page.on('console', (message) => {
+		if (message.type() !== 'error' && message.type() !== 'warning') return;
+		log.entries.push(`console.${message.type()}: ${message.text()}`);
+	});
+	page.on('pageerror', (error) => {
+		log.entries.push(`pageerror: ${error.message}`);
+	});
+	page.on('requestfailed', (request) => {
+		log.entries.push(
+			`requestfailed: ${request.url()} ${request.failure()?.errorText ?? ''}`
+		);
+	});
+	page.on('response', (response) => {
+		if (response.status() < HTTP_BAD_REQUEST) return;
+		log.entries.push(`http ${response.status()}: ${response.url()}`);
+	});
+};
+
+const clickCounter = async (
+	page: Page,
+	button: string,
+	hydratedMark: string,
+	log: PageLog
+) => {
+	await page.waitForFunction(
+		(mark) => Reflect.get(window, mark) === true,
+		hydratedMark,
+		{ timeout: 30_000 }
+	);
+	await page.click(button);
+	try {
+		await page.waitForFunction(
+			(selector) =>
+				document.querySelector(selector)?.textContent?.trim() ===
+				'clicks 1',
+			button,
+			{ timeout: 10_000 }
+		);
+	} catch {
+		const text = await page
+			.locator(button)
+			.textContent()
+			.catch(() => '<unreadable>');
+		throw new Error(
+			`${button} read ${JSON.stringify(text)} ten seconds after a click, with ${hydratedMark} set. The page logged:\n${
+				log.entries.length > 0 ? log.entries.join('\n') : '(nothing)'
+			}`
+		);
+	}
+};
+
 describe('a React file route under nested layouts', () => {
 	test('hydrates onto the server markup the layouts produced', async () => {
 		const consoleMessages: string[] = [];
+		const log: PageLog = { entries: [] };
 		const session = await openPage(pageUrl, {
+			onPage: recordPage(log),
 			waitUntil: 'load',
 			consoleLog: (message: string) => consoleMessages.push(message)
 		});
@@ -112,14 +181,11 @@ describe('a React file route under nested layouts', () => {
 			).toEqual([true, true, true]);
 
 			// Interactive, so this is hydration rather than inert markup.
-			await page.click('#pricing-clicks');
-			await page.waitForFunction(
-				() =>
-					document
-						.querySelector('#pricing-clicks')
-						?.textContent?.trim() === 'clicks 1',
-				undefined,
-				{ timeout: 10_000 }
+			await clickCounter(
+				page,
+				'#pricing-clicks',
+				'__pricingHydrated',
+				log
 			);
 
 			// A mismatch is reported through this path; there was none.
@@ -139,9 +205,10 @@ describe('a React file route under nested layouts', () => {
 	 * when it is empty and a layout now stands between the page and the
 	 * markup it hydrates into. */
 	test('hydrates a Svelte route inside its layouts', async () => {
+		const log: PageLog = { entries: [] };
 		const session = await openPage(
 			`http://localhost:${PORT}/guides/routing`,
-			{ waitUntil: 'load' }
+			{ onPage: recordPage(log), waitUntil: 'load' }
 		);
 		try {
 			const { page } = session;
@@ -156,15 +223,7 @@ describe('a React file route under nested layouts', () => {
 				'GUIDE_routing'
 			);
 			// Interactive: the page's own state works inside the layouts.
-			await page.click('#guide-clicks');
-			await page.waitForFunction(
-				() =>
-					document
-						.querySelector('#guide-clicks')
-						?.textContent?.trim() === 'clicks 1',
-				undefined,
-				{ timeout: 10_000 }
-			);
+			await clickCounter(page, '#guide-clicks', '__guideHydrated', log);
 		} finally {
 			await session.close();
 		}
@@ -175,7 +234,9 @@ describe('a React file route under nested layouts', () => {
 	 * it hydrates into, and Vue's slot handling is where `persist` and
 	 * island markup have gone wrong twice. */
 	test('hydrates a Vue route inside its layouts', async () => {
+		const log: PageLog = { entries: [] };
 		const session = await openPage(`http://localhost:${PORT}/shop/widget`, {
+			onPage: recordPage(log),
 			waitUntil: 'load'
 		});
 		try {
@@ -193,15 +254,7 @@ describe('a React file route under nested layouts', () => {
 			// The private sibling the page imports still renders.
 			expect(await page.locator('.tag').textContent()).toBe('VUE_CHILD');
 			// Interactive inside the layouts.
-			await page.click('#vue-clicks');
-			await page.waitForFunction(
-				() =>
-					document
-						.querySelector('#vue-clicks')
-						?.textContent?.trim() === 'clicks 1',
-				undefined,
-				{ timeout: 10_000 }
-			);
+			await clickCounter(page, '#vue-clicks', '__itemHydrated', log);
 		} finally {
 			await session.close();
 		}

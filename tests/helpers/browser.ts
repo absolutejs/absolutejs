@@ -8,6 +8,9 @@ export type BrowserSession = {
 
 type OpenPageOptions = {
 	consoleLog?: (message: string) => void;
+	/** Called with the page before it navigates, so a listener attached
+	 *  here sees what happens while the page loads. */
+	onPage?: (page: Page) => void;
 	viewport?: { height: number; width: number };
 	waitUntil?: 'commit' | 'domcontentloaded' | 'load';
 };
@@ -62,6 +65,8 @@ export const openPage = async (url: string, options: OpenPageOptions = {}) => {
 				const { consoleLog } = options;
 				page.on('console', (message) => consoleLog(message.text()));
 			}
+
+			options.onPage?.(page);
 
 			await page.goto(url, {
 				waitUntil: options.waitUntil ?? 'load'
