@@ -398,6 +398,12 @@ export type RequestI18n<
  *  settings `defineI18n` takes, without the messages. */
 export type I18nRoutingConfig<Locale extends string = string> =
 	LocaleRoutingConfig<Locale> & {
+		/** Where each locale's catalog is, from the project's root: a
+		 *  JSON file, or a module whose default export is the catalog.
+		 *  For `absolute i18n check` and `extract`, which then need no
+		 *  paths on the command line. `defineI18n` is still what loads
+		 *  them. */
+		catalogs?: Partial<Record<Locale, string>>;
 		/** Route param that carries the locale. Default `locale`. */
 		localeParam?: string;
 	};

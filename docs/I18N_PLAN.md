@@ -268,13 +268,28 @@ export default { … } satisfies Translation<typeof en>;
   them would mean duplicating that declaration in the config or importing the
   server to find it — a decision worth making deliberately, not inside this
   command.
-  - Still open: (d) unused keys, which needs the TypeScript AST for
-    `t('…')`/`$t`/pipe usage *and* the `data-i18n` attributes HTML and HTMX
-    pages now use (beta.226), with dynamic keys reported as "unknown, kept".
-    Reporting a key as unused because it is only referenced from an HTML
-    attribute would train people to ignore the tool.
-  - Still open: `absolute i18n extract`, which writes missing keys as TODO
-    stubs.
+  - **(d) unused keys: `--unused`** (built). Reads the project's source for
+    the keys it uses and reports the default catalog's keys nothing reads:
+    `t('…')`, `$t('…')`, `.t('…')` and `has('…')` in script, `'…' | t` in an
+    Angular template, and `data-i18n` / `data-i18n-attr` in an HTML or HTMX
+    page. A key built at run time is counted by its literal prefix
+    (`` t(`blog.${kind}`) `` reads every key under `blog.`), and a call
+    whose key is a variable is counted and said: "2 calls pass a key that is
+    not a literal, and may read one of these". It is a report and never
+    fails the run. `--src <dir>` reads a directory other than the current
+    one.
+  - **`absolute i18n extract [default] [locale…] [--write]`** (built).
+    Lists the keys each locale's catalog is missing. A missing key is not
+    broken — the default locale's message is served — so this is a
+    translator's to-do list and exits 0. `--write` adds them to the
+    catalog, each with the default's message as its value, in the default's
+    key order and the file's own indentation. Only a JSON catalog is
+    written to; a module can hold comments and expressions a rewrite would
+    lose, so its keys are listed to be added by hand.
+  - **Catalogs from the config** (built). `i18n.catalogs` says where each
+    locale's catalog is (`{ en: './messages/en.json', fr: … }`); with it,
+    `check` and `extract` need no paths. Paths on the command line still
+    win.
   - Note what `absolute typecheck` already covers, so this does not claim
     it: a loader typed `Translation<typeof en>` must carry every key with
     the right parameters. What it cannot see is a catalog read at runtime
