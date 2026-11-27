@@ -14,6 +14,7 @@ import type { AbsoluteRoutePath } from './routeMap';
 import type { RateLimitConfig } from './rateLimit';
 import type { HeaderRule, RedirectRule, RewriteRule } from './routingRules';
 import type { ShutdownConfig } from './shutdown';
+import type { LlmsConfig } from './llms';
 import type { RobotsConfig } from './robots';
 import type { SitemapConfig } from './sitemap';
 import type { VitalsSummaryConfig } from './vitals';
@@ -972,6 +973,12 @@ export type BaseBuildConfig = {
 	 *  Off by default: writing to a project's stdout uninvited is not the
 	 *  framework's call. See docs/LOGGING.md. */
 	logging?: LoggingConfig;
+	/** Write an `llms.txt` with the build: the site's name, a summary,
+	 *  and a list of its pages, for a language model reading the site.
+	 *  `true` lists the sitemap's pages under the home page's title; an
+	 *  object sets the name, summary, sections and what is left out.
+	 *  Left out, no file is written. */
+	llms?: boolean | LlmsConfig;
 	// Sitemap generation — auto-discovers page routes on server start
 	/** Write a `robots.txt` with the build: who may crawl what, and
 	 *  where the sitemap is. `true` allows every crawler everything and

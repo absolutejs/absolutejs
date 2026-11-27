@@ -48,6 +48,7 @@ export const CONFIG_KEYS = [
 	'islands',
 	'kind',
 	'links',
+	'llms',
 	'logging',
 	'mobile',
 	'mode',

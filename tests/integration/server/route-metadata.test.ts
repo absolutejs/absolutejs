@@ -116,6 +116,7 @@ export default defineConfig({
 	buildDirectory: './build',
 	fileRoutes: { output: './routes.gen.ts' },
 	htmlDirectory: './html',
+	llms: { optional: ['/help/faq'], summary: 'An example site.' },
 	reactDirectory: './react',
 	robots: { rules: [{ userAgent: '*' }, { disallow: '/', userAgent: 'GPTBot' }] },
 	sitemap: { baseUrl: 'https://acme.test' },
@@ -408,6 +409,34 @@ describe('what the build writes for crawlers', () => {
 				'Disallow: /',
 				'',
 				'Sitemap: https://acme.test/sitemap.xml',
+				''
+			].join('\n')
+		);
+	});
+
+	test('an llms.txt listing the sitemap’s pages by their metadata', async () => {
+		const { status, text } = await textAt('/llms.txt');
+
+		// The account page asks not to be indexed and is in neither
+		// list; a blog post is a dynamic route with nothing to
+		// enumerate it.
+		expect(status).toBe(200);
+		expect(text).toBe(
+			[
+				'# Acme',
+				'',
+				'> An example site.',
+				'',
+				'## Pages',
+				'',
+				'- [Acme](https://acme.test/)',
+				'- [About us](https://acme.test/about)',
+				'- [Blog](https://acme.test/blog)',
+				'- [Pricing | Acme](https://acme.test/pricing)',
+				'',
+				'## Optional',
+				'',
+				'- [FAQ](https://acme.test/help/faq): Common questions',
 				''
 			].join('\n')
 		);

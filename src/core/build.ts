@@ -81,8 +81,10 @@ import {
 import { createMissingReactRouterPlugin } from '../build/missingReactRouter';
 import { ISLAND_BOOTSTRAP_MANIFEST_KEY } from './islandManifest';
 import { auditLinks, deadLinkWarning } from '../build/auditLinks';
-import { fileRouteSitemapPaths } from '../build/fileRouteSitemapPaths';
+import { fileRouteSitemapPages } from '../build/fileRouteSitemapPaths';
+import { llmsPagesFrom } from '../build/llmsPages';
 import { scanRouteRegistrations } from '../build/scanRouteRegistrations';
+import { generateLlms, llmsTitle, type LlmsPage } from '../utils/generateLlms';
 import { generateSitemap } from '../utils/generateSitemap';
 import type {
 	ConventionsMap,
@@ -886,6 +888,34 @@ const writeRobotsFile = (
 	);
 };
 
+/* `llms.txt`, from the `llms` config key, listing the pages the sitemap
+ * lists. As with `robots.txt`, an app's own file in `publicDirectory`
+ * is a decision and is left as it is. */
+const writeLlmsFile = (
+	llms: BuildConfig['llms'],
+	pages: LlmsPage[],
+	baseUrl: string | undefined,
+	buildPath: string,
+	publicPath: string | false | undefined
+) => {
+	if (llms === undefined || llms === false) return;
+	if (publicPath && existsSync(join(publicPath, 'llms.txt'))) {
+		logWarn(
+			`llms is set in the config, and ${join(publicPath, 'llms.txt')} exists. The file is served as it is; the config key is ignored. Remove one of them.`
+		);
+
+		return;
+	}
+	if (llmsTitle(llms, pages, baseUrl) === undefined)
+		logWarn(
+			'llms.txt has no name for the site, so its heading is "Site". Set llms.title, give the home page a title in its metadata, or set sitemap.baseUrl.'
+		);
+	writeFileSync(
+		join(buildPath, 'llms.txt'),
+		generateLlms(llms, pages, baseUrl)
+	);
+};
+
 /* Said once per page per process: a dev server rebuilds on every edit,
  * and the same line each time is noise. */
 const warnedOfOwnTitle = new Set<string>();
@@ -1214,6 +1244,7 @@ const buildUnlocked = async ({
 	navigation,
 	options,
 	incrementalFiles,
+	llms,
 	mode,
 	robots,
 	sitemap,
@@ -4340,7 +4371,7 @@ const buildUnlocked = async ({
 			/* File routes are invisible to the registration scan above —
 			 * `fileRoutes()` registers them at run time — so a project
 			 * whose pages are all file routes had an empty sitemap. */
-			const fileRoutePaths = await fileRouteSitemapPaths(
+			const fileRoutePages = await fileRouteSitemapPages(
 				{
 					angularDirectory,
 					fileRoutes,
@@ -4352,14 +4383,32 @@ const buildUnlocked = async ({
 				},
 				projectRoot
 			);
-			await generateSitemap(routes, sitemapBaseUrl, buildPath, sitemap, {
-				angularDirectory,
-				fileRoutePaths,
-				reactDirectory,
-				svelteDirectory,
-				vueDirectory
-			});
+			const listed = await generateSitemap(
+				routes,
+				sitemapBaseUrl,
+				buildPath,
+				sitemap,
+				{
+					angularDirectory,
+					fileRoutePaths: fileRoutePages.map((page) => page.path),
+					reactDirectory,
+					svelteDirectory,
+					vueDirectory
+				}
+			);
 			writeRobotsFile(robots, sitemap?.baseUrl, buildPath, publicPath);
+			writeLlmsFile(
+				llms,
+				llmsPagesFrom(listed, fileRoutePages, {
+					defaultLocale: sitemap?.i18n?.defaultLocale,
+					...(sitemap?.baseUrl === undefined
+						? { placeholderOrigin: sitemapBaseUrl }
+						: {})
+				}),
+				sitemap?.baseUrl,
+				buildPath,
+				publicPath
+			);
 			/* Dead links, on the registration scan this block already
 			 * paid for. That scan is the expensive half — it parses every
 			 * `.ts` in the project — and collecting the links beside it

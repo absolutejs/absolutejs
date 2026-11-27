@@ -102,16 +102,12 @@ const staticMetadataOf = async (path: string) => {
 	}
 };
 
-/* Whether a route asks not to be indexed: `robots: { index: false }`
- * in its `metadata`, or in a folder's above it, merged as they are for
- * the page. A sitemap is the list of pages a site wants found, and
- * listing one that says "do not index me" tells a crawler two things
- * at once.
+/* What a route's metadata comes to, as far as a build can know: its
+ * own and each folder's above it, merged as they are for the page.
  *
  * Only metadata written as a value can be known here. A route whose
- * `metadata` is a function stays in the sitemap whatever it would
- * return; leave such a route out with `sitemap.exclude`. */
-const asksNotToBeIndexed = async (entry: ScannedRoute) => {
+ * `metadata` is a function says nothing to a build. */
+const staticMetadataFor = async (entry: ScannedRoute) => {
 	const modules = [
 		...(entry.guards ?? []),
 		...(entry.server ? [entry.server] : [])
@@ -124,15 +120,18 @@ const asksNotToBeIndexed = async (entry: ScannedRoute) => {
 		Promise.resolve<RouteMetadata[]>([])
 	);
 
-	return mergeRouteMetadata(levels).robots?.index === false;
+	return mergeRouteMetadata(levels);
 };
 
-/** The URLs one route serves: itself when it is static, one per param
- *  set its `entries()` returns when it is dynamic. */
-const urlsOfRoute = async (entry: ScannedRoute) => {
-	if (await asksNotToBeIndexed(entry)) return [];
-	const typePath = entry.typePath ?? entry.path;
-	if (!DYNAMIC_SEGMENT.test(typePath)) return [entry.path];
+/** A URL a file route serves, and what its metadata says of the page
+ *  there when a build can know it. */
+export type FileRoutePage = {
+	description?: string;
+	path: string;
+	title?: string;
+};
+
+const dynamicUrlsOf = async (entry: ScannedRoute, typePath: string) => {
 	if (!entry.server) return [];
 	const { server } = entry;
 	const produced = await loadEntries(server, typePath);
@@ -151,12 +150,49 @@ const urlsOfRoute = async (entry: ScannedRoute) => {
 	});
 };
 
-/** Every URL the project's file routes serve that a build can know.
+/* The pages one route serves: itself when it is static, one per param
+ * set its `entries()` returns when it is dynamic.
  *
- *  Static routes, plus one URL per param set a dynamic route's
- *  `entries()` returns. Sorted and deduplicated, because an
- *  `[[optional]]` route registers two paths that share one `typePath`. */
-export const fileRouteSitemapPaths = async (
+ * A route that asks not to be indexed — `robots: { index: false }`, its
+ * own or a folder's above it — serves none as far as this list goes: a
+ * sitemap is the list of pages a site wants found, and listing one that
+ * says "do not index me" tells a crawler two things at once. A route
+ * whose `metadata` is a function stays in, whatever it would return;
+ * leave such a route out with `sitemap.exclude`.
+ *
+ * Only a static route's pages carry its title and description. A
+ * dynamic route's are one text for every URL it serves, which names
+ * none of them. */
+const pagesOfRoute = async (entry: ScannedRoute) => {
+	const metadata = await staticMetadataFor(entry);
+	if (metadata.robots?.index === false) return [];
+	const typePath = entry.typePath ?? entry.path;
+	if (DYNAMIC_SEGMENT.test(typePath)) {
+		const urls = await dynamicUrlsOf(entry, typePath);
+
+		return urls.map((path) => {
+			const page: FileRoutePage = { path };
+
+			return page;
+		});
+	}
+	const page: FileRoutePage = {
+		...(metadata.description === undefined
+			? {}
+			: { description: metadata.description }),
+		path: entry.path,
+		...(metadata.title === undefined ? {} : { title: metadata.title })
+	};
+
+	return [page];
+};
+
+/** Every page the project's file routes serve that a build can know,
+ *  with the title and description of each static one.
+ *
+ *  Sorted by path and deduplicated, because an `[[optional]]` route
+ *  registers two paths that share one `typePath`. */
+export const fileRouteSitemapPages = async (
 	config: BuildConfig,
 	projectRoot = process.cwd()
 ) => {
@@ -164,13 +200,29 @@ export const fileRouteSitemapPaths = async (
 	// One route at a time, in order: entries() may read a database, and
 	// running every route's at once would open as many connections as the
 	// project has dynamic routes.
-	const urls = await routes.reduce(
+	const pages = await routes.reduce(
 		async (previous, entry) => [
 			...(await previous),
-			...(await urlsOfRoute(entry))
+			...(await pagesOfRoute(entry))
 		],
-		Promise.resolve<string[]>([])
+		Promise.resolve<FileRoutePage[]>([])
 	);
+	const byPath = new Map<string, FileRoutePage>();
+	for (const page of pages) {
+		if (!byPath.has(page.path)) byPath.set(page.path, page);
+	}
 
-	return [...new Set(urls)].sort();
+	return [...byPath.values()].sort((left, right) =>
+		left.path < right.path ? -1 : Number(left.path > right.path)
+	);
 };
+
+/** Every URL the project's file routes serve that a build can know.
+ *
+ *  Static routes, plus one URL per param set a dynamic route's
+ *  `entries()` returns. Sorted and deduplicated. */
+export const fileRouteSitemapPaths = async (
+	config: BuildConfig,
+	projectRoot = process.cwd()
+) =>
+	(await fileRouteSitemapPages(config, projectRoot)).map((page) => page.path);

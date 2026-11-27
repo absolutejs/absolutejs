@@ -214,7 +214,13 @@ type ResolvedEntry = {
 	/** i18n: this entry's absolute URL and its hreflang alternates. */
 	url?: string;
 	alternates?: AlternateLink[];
+	/** i18n: the locale this entry is the page in. */
+	locale?: string;
 };
+
+/** A page the sitemap lists: its path with no locale, its address, and
+ *  under i18n the locale that address is the page in. */
+export type SitemapPage = { locale?: string; path: string; url: string };
 
 /* ---- i18n: one entry per locale, with hreflang alternates ---------- */
 
@@ -277,6 +283,7 @@ const localizeEntries = (
 				? [entry]
 				: perLocale.map((link) => ({
 						alternates,
+						locale: link.hreflang,
 						override: entry.override,
 						path: basePath,
 						url: link.href
@@ -471,18 +478,28 @@ export const generateSitemap = async (
 	}
 
 	const baseUrl = config.baseUrl ?? serverUrl;
-	const xml = buildSitemapXml(
-		config.i18n
-			? localizeEntries(
-					entries,
-					config.i18n,
-					baseUrl,
-					localizedRoutePaths(routes, config.i18n)
-				)
-			: entries,
-		baseUrl,
-		config
-	);
+	const listed = config.i18n
+		? localizeEntries(
+				entries,
+				config.i18n,
+				baseUrl,
+				localizedRoutePaths(routes, config.i18n)
+			)
+		: entries;
+	const xml = buildSitemapXml(listed, baseUrl, config);
 
 	await write(`${outDir}/sitemap.xml`, xml);
+	const normalizedBase = baseUrl.replace(/\/$/, '');
+
+	/* What was listed, for whatever else is written from the same list
+	 * (`llms.txt`). */
+	return listed.map((entry) => {
+		const page: SitemapPage = {
+			...(entry.locale === undefined ? {} : { locale: entry.locale }),
+			path: entry.path,
+			url: entry.url ?? `${normalizedBase}${entry.path}`
+		};
+
+		return page;
+	});
 };
