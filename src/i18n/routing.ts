@@ -2,6 +2,7 @@
  * browser code (language switchers): path prefixes, hreflang alternates,
  * Accept-Language negotiation and text direction. No server imports. */
 
+import { canonicalPathname, translatePathname } from './pathnames';
 import type {
 	AlternateLink,
 	LocaleRoutingConfig,
@@ -162,14 +163,28 @@ const resolveStrategy = (routing: LocaleRoutingConfig) =>
 
 /** `path` as it is addressed in `locale`. Under `prefix` this swaps or
  *  adds the locale segment (the default locale stays unprefixed unless
- *  `prefixDefault`); other strategies keep one path for every locale. */
+ *  `prefixDefault`) and writes the path in the locale's own words where
+ *  `pathnames` has them; other strategies keep one path for every
+ *  locale. */
 export const localizePath = <Locale extends string>(
 	path: string,
 	locale: Locale,
 	routing: LocaleRoutingConfig<Locale>
 ) => {
 	if (resolveStrategy(routing) !== 'prefix') return path;
-	const base = stripLocalePrefix(path, routing.locales);
+	// The address may be another locale's own (a language switcher's):
+	// back to the route's path, then out again as this locale's.
+	const written =
+		localeFromPath(path, routing.locales) ?? routing.defaultLocale;
+	const base = translatePathname(
+		canonicalPathname(
+			stripLocalePrefix(path, routing.locales),
+			written,
+			routing.pathnames
+		),
+		locale,
+		routing.pathnames
+	);
 	if (locale === routing.defaultLocale && !routing.prefixDefault) return base;
 
 	return base === '/' ? `/${locale}` : `/${locale}${base}`;

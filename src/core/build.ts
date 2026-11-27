@@ -80,7 +80,11 @@ import {
 } from '../build/missingClientFrameworks';
 import { createMissingReactRouterPlugin } from '../build/missingReactRouter';
 import { ISLAND_BOOTSTRAP_MANIFEST_KEY } from './islandManifest';
-import { auditLinks, deadLinkWarning } from '../build/auditLinks';
+import {
+	auditLinks,
+	unservedPathnames,
+	deadLinkWarning
+} from '../build/auditLinks';
 import { fileRouteSitemapPages } from '../build/fileRouteSitemapPaths';
 import { llmsPagesFrom } from '../build/llmsPages';
 import { scanRouteRegistrations } from '../build/scanRouteRegistrations';
@@ -4480,6 +4484,7 @@ const buildUnlocked = async ({
 					fileRoutes,
 					htmlDirectory,
 					htmxDirectory,
+					i18n,
 					links,
 					reactDirectory,
 					svelteDirectory,
@@ -4490,6 +4495,25 @@ const buildUnlocked = async ({
 			);
 			const warning = deadLinkWarning(dead);
 			if (warning) logWarn(warning);
+			// A route renamed, and its translations left behind.
+			const unserved = unservedPathnames(
+				{
+					angularDirectory,
+					fileRoutes,
+					htmlDirectory,
+					htmxDirectory,
+					i18n,
+					reactDirectory,
+					svelteDirectory,
+					vueDirectory
+				},
+				projectRoot,
+				routes
+			);
+			if (unserved.length > 0)
+				logWarn(
+					`i18n.pathnames translates ${unserved.length === 1 ? 'a path' : 'paths'} no route is registered at: ${unserved.join(', ')}`
+				);
 		} catch (err) {
 			console.warn('[sitemap] Build-time generation failed:', err);
 		}

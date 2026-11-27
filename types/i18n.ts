@@ -282,7 +282,21 @@ export type LocaleRoutingConfig<Locale extends string = string> = {
 	prefixDefault?: boolean;
 	/** `domain` only: locale → host (`{ fr: 'example.fr' }`). */
 	domains?: Partial<Record<Locale, string>>;
+	/** `prefix` only: a page's address in a locale's own words. Keyed
+	 *  by the path a route is registered at, without a locale prefix
+	 *  and with its `:params`; each locale named addresses the page at
+	 *  the path given instead, with the same params. `{ '/about': {
+	 *  fr: '/a-propos' } }` serves the French page at `/fr/a-propos`
+	 *  and redirects `/fr/about` to it. */
+	pathnames?: LocalePathnames<Locale>;
 };
+
+/** Localized pathnames: the path a route is registered at, to the
+ *  path each locale addresses it by. */
+export type LocalePathnames<Locale extends string = string> = Record<
+	string,
+	Partial<Record<Locale, string>>
+>;
 
 /** A non-default locale's catalog: the object itself, a module whose
  *  default export is it, or a loader returning either (lazy). */

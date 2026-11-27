@@ -1,4 +1,6 @@
 import { readdirSync, readFileSync, type Dirent } from 'node:fs';
+import { canonicalPathname } from '../i18n/pathnames';
+import { localeFromPath, stripLocalePrefix } from '../i18n/routing';
 import { join, relative, sep } from 'node:path';
 import type { BuildConfig } from '../../types/build';
 import { scanFileRoutes } from './fileRoutes';
@@ -194,6 +196,22 @@ export type DeadLink = FoundLink & {
 	path: string;
 };
 
+/* A locale's own address for a page, as the path its route is
+ * registered at: `/fr/a-propos` is `/fr/about`. */
+const routePathOf = (path: string, routing: BuildConfig['i18n']) => {
+	if (!routing?.pathnames) return path;
+	const locale = localeFromPath(path, routing.locales);
+	const written = locale ?? routing.defaultLocale;
+	const route = canonicalPathname(
+		stripLocalePrefix(path, routing.locales),
+		written,
+		routing.pathnames
+	);
+	if (locale === undefined) return route;
+
+	return route === '/' ? `/${locale}` : `/${locale}${route}`;
+};
+
 /** Every literal link in the project whose target no route serves.
  *
  *  Skipped, because a route table cannot answer for them: a path with a
@@ -206,11 +224,15 @@ export const auditLinks = (
 ) => {
 	const patterns = knownRoutePaths(config, projectRoot, registered);
 	const ignored = toIgnoreMatcher(config.links?.ignore ?? []);
+	const isServed = (path: string) =>
+		patterns.some((pattern) => pathMatchesPattern(pattern, path));
 
 	return collectLinks(projectRoot).flatMap((link) => {
 		const path = link.href.split(/[?#]/)[0] ?? link.href;
 		if (path === '' || hasFileExtension(path) || ignored(path)) return [];
-		if (patterns.some((pattern) => pathMatchesPattern(pattern, path)))
+		// A locale's own address is served by the route it is rewritten
+		// to (i18n/pathnames.ts).
+		if (isServed(path) || isServed(routePathOf(path, config.i18n)))
 			return [];
 		const dead: DeadLink = { ...link, path };
 
@@ -233,4 +255,35 @@ export const deadLinkWarning = (dead: readonly DeadLink[]) => {
 		...lines,
 		'A plugin that registers its own routes is invisible to this check; name those paths in `links.ignore` to silence them.'
 	].join('\n');
+};
+
+const SAMPLE_VALUE = 'x';
+
+const sampleOf = (pattern: string) =>
+	pattern
+		.split('/')
+		.map((part) => (part.startsWith(':') ? SAMPLE_VALUE : part))
+		.join('/');
+
+/** The paths `i18n.pathnames` translates that no route is registered
+ *  at, with or without a locale segment in front: a route that was
+ *  renamed and left its translations behind. */
+export const unservedPathnames = (
+	config: BuildConfig,
+	projectRoot = process.cwd(),
+	registered?: readonly ExtractedRoute[]
+) => {
+	const routing = config.i18n;
+	if (!routing?.pathnames) return [];
+	const patterns = knownRoutePaths(config, projectRoot, registered);
+	const isServed = (path: string) =>
+		patterns.some((pattern) => pathMatchesPattern(pattern, path));
+
+	return Object.keys(routing.pathnames).filter((path) => {
+		const sample = sampleOf(path);
+		const prefixed =
+			sample === '/' ? `/${SAMPLE_VALUE}` : `/${SAMPLE_VALUE}${sample}`;
+
+		return !isServed(sample) && !isServed(prefixed);
+	});
 };
