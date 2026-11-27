@@ -574,6 +574,44 @@ export const load = async ({ params }: FileRouteContext<'/blog/:slug'>) => {
     redirected, one that did not answer 200.
   - It is a command and not a build warning: it needs a server, and takes a
     request per page.
+- **A page as Markdown (built, opt-in).** `markdown: true` in the config
+  serves every page as Markdown too, for a reader that wants the text and
+  not the markup: `/about.md` beside `/about`, and `/about` itself for a
+  request that says `Accept: text/markdown`.
+
+  ```
+  $ curl https://acme.test/pricing.md
+  # Pricing
+
+  Anvils are made to order.
+
+  | Size | Price |
+  | --- | --- |
+  | Small | 40 |
+  ```
+
+  The Markdown is made from the page: the server asks itself for the page
+  as HTML and converts what comes back. So it is the page for that request
+  — guards and `load` have run, a pre-rendered page is the pre-rendered one
+  — and a page that redirects or refuses does the same here. `/about.md`
+  stands for the page only when `/about` is one; a real `.md` file, or a
+  route of that name, is served as before. `/index.md` is `/`.
+  - What is converted is the page's `<main>`, or failing that its
+    `<article>`, or failing that its body without navigation, header,
+    footer, aside and forms. Mark the content with `<main>` and the
+    Markdown is the content.
+  - The converter is the framework's own, on Bun's HTML parser, and small
+    on purpose: headings, paragraphs, links, emphasis, code, lists, quotes,
+    images and simple tables. Any other element is read for its text. A
+    table with merged cells, or one nested in another, comes out as a plain
+    grid.
+  - A streamed slot's content is in the Markdown: the swap its script would
+    make is made first. A page with `ssr: false` has no content on the
+    server, so its Markdown is its title and nothing else.
+  - A request that accepts HTML as well as Markdown gets HTML. Markdown is
+    for a request that asks for it alone.
+  - Not yet: a route supplying its own Markdown, a `<link rel="alternate">`
+    on the page pointing at it, and `llms-full.txt`.
 - **A route's own form action (built).** The server module may export
   `action`, made with `defineAction`:
 

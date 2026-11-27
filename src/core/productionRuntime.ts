@@ -55,6 +55,10 @@ const RUNTIME_KEYS = [
 	'images',
 	'islands',
 	'logging',
+	/* Served by the running server, so it belongs here for the reason
+	 * `logging` does: left out, pages were Markdown in dev and not in
+	 * production. */
+	'markdown',
 	'mobile',
 	'openapi',
 	'publicDirectory',

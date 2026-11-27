@@ -31,6 +31,7 @@ const RESERVED_TOP_LEVEL_KEYS = new Set([
 	'islands',
 	'kind',
 	'llms',
+	'markdown',
 	'mode',
 	'mobile',
 	'options',

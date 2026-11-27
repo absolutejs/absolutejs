@@ -979,6 +979,12 @@ export type BaseBuildConfig = {
 	 *  object sets the name, summary, sections and what is left out.
 	 *  Left out, no file is written. */
 	llms?: boolean | LlmsConfig;
+	/** Serve every page as Markdown too, for a reader that wants the
+	 *  text and not the markup: `/about.md` beside `/about`, and
+	 *  `/about` itself for a request that says `Accept: text/markdown`.
+	 *  The Markdown is made from the page's own HTML. Left out, neither
+	 *  is served. */
+	markdown?: boolean;
 	// Sitemap generation — auto-discovers page routes on server start
 	/** Write a `robots.txt` with the build: who may crawl what, and
 	 *  where the sitemap is. `true` allows every crawler everything and

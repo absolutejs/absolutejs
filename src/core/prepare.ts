@@ -1,4 +1,5 @@
 import { CLIENT_MODULE_PREFIX } from '../dev/clientModuleHmr';
+import { pageMarkdown } from './pageMarkdown';
 import { setRenderTimeout } from './renderTimeout';
 import { createHash } from 'node:crypto';
 import {
@@ -564,6 +565,8 @@ const prepareDev = async (
 		.use(absoluteRequestContext)
 		.use(cacheTagEmitter())
 		.use(requestLog(config.logging))
+		// Before anything that answers a page, so it can ask for one.
+		.use(pageMarkdown(config.markdown))
 		.use(
 			rateLimit({
 				config: config.rateLimit,
@@ -1293,6 +1296,8 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 			.use(absoluteRequestContext)
 			.use(cacheTagEmitter())
 			.use(requestLog(config.logging))
+			// Before anything that answers a page, so it can ask for one.
+			.use(pageMarkdown(config.markdown))
 			.use(
 				rateLimit({
 					config: config.rateLimit,
@@ -1349,6 +1354,8 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 		.use(absoluteRequestContext)
 		.use(cacheTagEmitter())
 		.use(requestLog(config.logging))
+		// Before anything that answers a page, so it can ask for one.
+		.use(pageMarkdown(config.markdown))
 		.use(
 			rateLimit({
 				config: config.rateLimit,

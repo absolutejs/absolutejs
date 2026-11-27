@@ -50,6 +50,7 @@ export const CONFIG_KEYS = [
 	'links',
 	'llms',
 	'logging',
+	'markdown',
 	'mobile',
 	'mode',
 	'navigation',
