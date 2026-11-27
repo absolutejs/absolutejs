@@ -45,6 +45,7 @@ import { outputLogs } from '../build/outputLogs';
 import { scanEntryPoints } from '../build/scanEntryPoints';
 import { createStampedFileCache } from '../build/stampedFileCache';
 import { isConventionFile, scanConventions } from '../build/scanConventions';
+import { scanRouteFolderConventions } from '../build/routeFolderConventions';
 import {
 	RUNTIME_FILE_NAMES,
 	SERVER_OUTPUTS_FILE
@@ -214,13 +215,19 @@ const collectConventionSourceFiles = (
 	if (entry.defaults?.error) files.push(entry.defaults.error);
 	if (entry.defaults?.loading) files.push(entry.defaults.loading);
 	if (entry.defaults?.notFound) files.push(entry.defaults.notFound);
-	if (!entry.pages) return files;
-	for (const page of Object.values(entry.pages)) {
+	for (const page of Object.values(entry.pages ?? {})) {
 		if (page.error) files.push(page.error);
 		if (page.loading) files.push(page.loading);
 	}
+	// Route folders (build/routeFolderConventions.ts). One file is the
+	// nearest for many routes, so it is listed once.
+	for (const route of Object.values(entry.routes ?? {})) {
+		if (route.error) files.push(route.error);
+		if (route.notFound) files.push(route.notFound);
+	}
+	for (const folder of entry.folders ?? []) files.push(folder.notFound);
 
-	return files;
+	return [...new Set(files)];
 };
 
 const updateConventionCompiledPaths = (
@@ -252,8 +259,7 @@ const updateConventionCompiledPaths = (
 			: undefined;
 		if (notFoundPath) entry.defaults.notFound = notFoundPath;
 	}
-	if (!entry.pages) return;
-	for (const page of Object.values(entry.pages)) {
+	for (const page of Object.values(entry.pages ?? {})) {
 		const errorPath = page.error ? pathMap.get(page.error) : undefined;
 		if (errorPath) page.error = errorPath;
 
@@ -262,6 +268,89 @@ const updateConventionCompiledPaths = (
 			: undefined;
 		if (loadingPath) page.loading = loadingPath;
 	}
+	const compiled = (path: string) => pathMap.get(path) ?? path;
+	for (const route of Object.values(entry.routes ?? {})) {
+		if (route.error) route.error = compiled(route.error);
+		if (route.notFound) route.notFound = compiled(route.notFound);
+	}
+	for (const folder of entry.folders ?? [])
+		folder.notFound = compiled(folder.notFound);
+};
+
+type RouteConventionFramework =
+	'angular' | 'html' | 'htmx' | 'react' | 'svelte' | 'vue';
+
+/* Route folders' `error` and `not-found` files, added to a framework's
+ * conventions as the build found them (build/routeFolderConventions.ts).
+ * Source paths: the compile step below rewrites them. */
+const addRouteFolderConventions = async (
+	conventionsMap: ConventionsMap,
+	framework: RouteConventionFramework
+) => {
+	const scanned = await scanRouteFolderConventions(framework);
+	if (!scanned) return;
+	const entry = conventionsMap[framework] ?? {};
+	entry.routes = scanned.routes;
+	entry.folders = scanned.folders;
+	conventionsMap[framework] = entry;
+};
+
+/* The same for an HTML or HTMX route folder, whose files are used as
+ * written: copied into the build so the server can read them once the
+ * source tree is gone, under a number each, because every folder's file
+ * has the same name. Beside the `pages/` conventions, so that their
+ * stylesheet and script URLs are rewritten with those. */
+const addStaticRouteFolderConventions = async (
+	conventionsMap: ConventionsMap,
+	framework: 'html' | 'htmx',
+	outDir: string
+) => {
+	await addRouteFolderConventions(conventionsMap, framework);
+	const entry = conventionsMap[framework];
+	const sources = collectConventionSourceFiles({
+		folders: entry?.folders,
+		routes: entry?.routes
+	});
+	if (sources.length === 0) return;
+	mkdirSync(outDir, { recursive: true });
+	const copies = sources.map((source, index) => {
+		const dest = join(outDir, `route-${index}-${basename(source)}`);
+		cpSync(source, dest, { force: true });
+
+		return dest;
+	});
+	updateConventionCompiledPaths(
+		{ folders: entry?.folders, routes: entry?.routes },
+		sources,
+		copies
+	);
+};
+
+/* Two frameworks' route folders may both hold a `not-found` for one
+ * address, and an address that no route answers belongs to neither:
+ * there is nothing to say which page to show. A production build stops
+ * on it, as it does on two files serving one path. */
+const reportFolderNotFoundConflicts = (
+	conventionsMap: ConventionsMap,
+	isDev: boolean
+) => {
+	const owners = new Map<string, string[]>();
+	for (const [framework, entry] of Object.entries(conventionsMap))
+		for (const folder of entry?.folders ?? [])
+			owners.set(folder.path, [
+				...(owners.get(folder.path) ?? []),
+				framework
+			]);
+	const problems = [...owners]
+		.filter(([, frameworks]) => new Set(frameworks).size > 1)
+		.map(
+			([path, frameworks]) =>
+				`${path}: ${[...new Set(frameworks)].join(' and ')} route folders each have a not-found for this path, and an address under it that no route answers could show either. Keep one.`
+		);
+	if (problems.length === 0) return;
+	const message = `File routes:\n  ${problems.join('\n  ')}`;
+	if (!isDev) throw new Error(message);
+	logWarn(message);
 };
 
 /* Turn a failing pass's Bun logs into a specific, actionable message.
@@ -1641,6 +1730,13 @@ const buildUnlocked = async ({
 		conventionsMap.angular = angularConventionResult.conventions;
 	if (emberConventionResult.conventions)
 		conventionsMap.ember = emberConventionResult.conventions;
+	// Route folders' own `error` and `not-found` files, compiled with
+	// the conventions above.
+	await Promise.all(
+		(['react', 'svelte', 'vue', 'angular'] as const).map((framework) =>
+			addRouteFolderConventions(conventionsMap, framework)
+		)
+	);
 	// Merge html convention scans from every framework pages dir. error.html
 	// / not-found.html in any pages dir become the universal HTML fallback;
 	// later directories lose to earlier ones on collision (warn).
@@ -1753,6 +1849,18 @@ const buildUnlocked = async ({
 			join(buildPath, 'conventions', 'htmx')
 		);
 	}
+
+	await addStaticRouteFolderConventions(
+		conventionsMap,
+		'html',
+		join(buildPath, 'conventions', 'html')
+	);
+	await addStaticRouteFolderConventions(
+		conventionsMap,
+		'htmx',
+		join(buildPath, 'conventions', 'htmx')
+	);
+	reportFolderNotFoundConflicts(conventionsMap, isDev);
 
 	// Warn if multiple frameworks define not-found convention files
 	const notFoundFrameworks = (

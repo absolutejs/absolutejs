@@ -58,6 +58,7 @@ import {
 	setConventions,
 	isPageRequest,
 	renderFirstNotFound,
+	renderFolderNotFound,
 	renderStaticRouteError
 } from '../utils/resolveConvention';
 import { setSpaRouteManifest } from '../utils/spaRouteManifest';
@@ -762,9 +763,14 @@ const createNotFoundPlugin = () =>
 			 * requests get them, as with error.html. A client asking for
 			 * JSON (or anything else) keeps Elysia's JSON 404. */
 			if (!isPageRequest(request)) return undefined;
-			const response = await renderFirstNotFound({
-				preferHtmx: request.headers.get('hx-request') === 'true'
-			});
+			// The route folder the address falls under first
+			// (`routes/blog/not-found` for `/blog/anything`), then the
+			// app's.
+			const response =
+				(await renderFolderNotFound(new URL(request.url).pathname)) ??
+				(await renderFirstNotFound({
+					preferHtmx: request.headers.get('hx-request') === 'true'
+				}));
 			if (response) return response;
 
 			return undefined;
