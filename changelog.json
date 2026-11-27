@@ -5,6 +5,20 @@
 		{
 			"changes": [
 				{
+					"detail": "Three additions to the i18n commands. `absolute i18n extract [default] [locale…]` lists the keys each locale's catalog is missing; a missing key is not broken, since the default locale's message is served, so it exits 0. `--write` adds them to the catalog, each with the default's message as its value, in the default's key order and the file's own indentation. Only a JSON catalog is written to: a module can hold comments and expressions a rewrite would lose, so its keys are listed to be added by hand. `absolute i18n check --unused` also reads the project's source and reports the default catalog's keys nothing reads: `t('…')`, `$t('…')`, `.t('…')` and `has('…')` in script, `'…' | t` in an Angular template, and `data-i18n` / `data-i18n-attr` in an HTML or HTMX page. A key built at run time is counted by its literal prefix, and calls whose key is a variable are counted and said, so the report says how sure it is; it never fails the run. And `i18n.catalogs` in the config says where each locale's catalog is, after which `check` and `extract` need no paths on the command line. See docs/I18N_PLAN.md.",
+					"kind": "added",
+					"summary": "absolute i18n extract, check --unused, and catalogs found from the config",
+					"symbols": [
+						"I18nRoutingConfig"
+					]
+				}
+			],
+			"date": "2026-11-27",
+			"version": "0.20.0-beta.447"
+		},
+		{
+			"changes": [
+				{
 					"detail": "Localized pathnames: `pathnames` in the i18n routing writes a page's address in each locale's own words, `{ '/about': { fr: '/a-propos' }, '/blog/:slug': { fr: '/articles/:slug' } }`. The table is keyed by the path a route is registered at, without a locale prefix and with its `:params`; a locale not named uses the route's own path, and the route is registered once, as before. A request for `/fr/a-propos` is rewritten to `/fr/about` before any route is looked up, so it works for every kind of page; `/fr/about` redirects permanently to `/fr/a-propos`, so a page has one address per locale. `href()`, `localizePath`, the hreflang alternates and the sitemap write the locale's own address, and going from one locale's address to another's works for a language switcher. A translation whose params are not the route's is refused with the reason. `absolute links` and a production build say when a path in the table has no route registered at it, and count a link to a locale's own address as a link to its route. Under the `prefix` strategy only. The table is declared in the `i18n` config key, which the server applies it from, and given to `defineI18n` as well; it travels to the browser in the i18n payload. Nothing changes for an app without `pathnames`. See docs/I18N_PLAN.md.",
 					"kind": "added",
 					"summary": "Localized pathnames: a page’s address in each locale’s own words",

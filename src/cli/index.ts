@@ -444,14 +444,18 @@ if (command === 'dev') {
 } else if (command === 'i18n') {
 	sendTelemetryEvent('cli:command', { command });
 	const [subcommand, ...rest] = args;
-	if (subcommand !== 'check') {
+	if (subcommand === 'extract') {
+		const { i18nExtract } = await import('./scripts/i18nExtract');
+		await i18nExtract(rest);
+	} else if (subcommand === 'check') {
+		const { i18nCheck } = await import('./scripts/i18nCheck');
+		await i18nCheck(rest);
+	} else {
 		console.error(
-			'Usage: absolute i18n check <default-catalog> [locale-catalog…] [--json]'
+			'Usage: absolute i18n check [default-catalog] [locale-catalog…] [--unused] [--json]\n       absolute i18n extract [default-catalog] [locale-catalog…] [--write] [--json]'
 		);
 		process.exit(1);
 	}
-	const { i18nCheck } = await import('./scripts/i18nCheck');
-	await i18nCheck(rest);
 } else if (command === 'typecheck') {
 	sendTelemetryEvent('cli:command', { command });
 	const configPath = parseNamedArg('--config');
