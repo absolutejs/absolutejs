@@ -14,6 +14,7 @@ import type { AbsoluteRoutePath } from './routeMap';
 import type { RateLimitConfig } from './rateLimit';
 import type { HeaderRule, RedirectRule, RewriteRule } from './routingRules';
 import type { ShutdownConfig } from './shutdown';
+import type { RobotsConfig } from './robots';
 import type { SitemapConfig } from './sitemap';
 import type { VitalsSummaryConfig } from './vitals';
 import type { SizeBudgets } from '../src/utils/sizeBudgets';
@@ -972,6 +973,12 @@ export type BaseBuildConfig = {
 	 *  framework's call. See docs/LOGGING.md. */
 	logging?: LoggingConfig;
 	// Sitemap generation — auto-discovers page routes on server start
+	/** Write a `robots.txt` with the build: who may crawl what, and
+	 *  where the sitemap is. `true` allows every crawler everything and
+	 *  points at the sitemap; an object sets the groups. Left out, no
+	 *  file is written, as before — and one in `publicDirectory` is
+	 *  served as it is either way, and wins over this. */
+	robots?: boolean | RobotsConfig;
 	sitemap?: SitemapConfig;
 	/** Opt-in file-system routing: route files under each framework
 	 *  directory's `routes/` folder become GET routes (React and Svelte for

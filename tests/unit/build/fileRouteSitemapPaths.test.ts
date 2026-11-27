@@ -143,6 +143,103 @@ describe('fileRouteSitemapPaths', () => {
 	});
 });
 
+/* A sitemap is the list of pages a site wants found. A route whose
+ * metadata says `robots: { index: false }` asks for the opposite. */
+describe('a route that asks not to be indexed', () => {
+	const PAGE = 'export default () => null;';
+	const NOINDEX =
+		'export const metadata = { robots: { index: false }, title: "Account" };';
+
+	test('is left out of the sitemap', async () => {
+		const root = await makeProject({
+			'react/routes/account.server.ts': NOINDEX,
+			'react/routes/account.tsx': PAGE,
+			'react/routes/pricing.server.ts':
+				'export const metadata = { title: "Pricing" };',
+			'react/routes/pricing.tsx': PAGE
+		});
+
+		expect(await fileRouteSitemapPaths(config, root)).toEqual(['/pricing']);
+	});
+
+	test('by a folder above it, is left out with everything in that folder', async () => {
+		const root = await makeProject({
+			'react/routes/admin/layout.server.ts': NOINDEX,
+			'react/routes/admin/reports.tsx': PAGE,
+			'react/routes/admin/users.tsx': PAGE,
+			'react/routes/index.tsx': PAGE
+		});
+
+		expect(await fileRouteSitemapPaths(config, root)).toEqual(['/']);
+	});
+
+	/* Merged as they are for the page: nearer over farther. */
+	test('and a route that says it is indexable, under such a folder, is listed', async () => {
+		const root = await makeProject({
+			'react/routes/admin/layout.server.ts': NOINDEX,
+			'react/routes/admin/status.server.ts':
+				'export const metadata = { robots: { index: true } };',
+			'react/routes/admin/status.tsx': PAGE,
+			'react/routes/admin/users.tsx': PAGE
+		});
+
+		expect(await fileRouteSitemapPaths(config, root)).toEqual([
+			'/admin/status'
+		]);
+	});
+
+	test('leaves out every page of a dynamic route', async () => {
+		const root = await makeProject({
+			'react/routes/drafts/[id].server.ts': `${NOINDEX}\nexport const entries = () => [{ id: '1' }, { id: '2' }];`,
+			'react/routes/drafts/[id].tsx': PAGE
+		});
+
+		expect(await fileRouteSitemapPaths(config, root)).toEqual([]);
+	});
+
+	/* Worked out per request, from data a build does not have. */
+	test('through a function is not known to a build, and stays', async () => {
+		const root = await makeProject({
+			'react/routes/post.server.ts':
+				'export const metadata = () => ({ robots: { index: false } });',
+			'react/routes/post.tsx': PAGE
+		});
+
+		expect(await fileRouteSitemapPaths(config, root)).toEqual(['/post']);
+	});
+
+	test('a server module with no metadata is not imported for it', async () => {
+		const root = await makeProject({
+			'react/routes/plain.server.ts':
+				"throw new Error('imported for no reason');",
+			'react/routes/plain.tsx': PAGE
+		});
+
+		expect(await fileRouteSitemapPaths(config, root)).toEqual(['/plain']);
+	});
+
+	test('a module that cannot be imported costs a warning, not the route', async () => {
+		const root = await makeProject({
+			'react/routes/broken.server.ts':
+				"export const metadata = { title: 'x' };\nthrow new Error('at import');",
+			'react/routes/broken.tsx': PAGE
+		});
+		const logged: string[] = [];
+		const original = console.log;
+		console.log = (...parts: unknown[]) => {
+			logged.push(parts.map(String).join(' '));
+		};
+		try {
+			expect(await fileRouteSitemapPaths(config, root)).toEqual([
+				'/broken'
+			]);
+		} finally {
+			console.log = original;
+		}
+		expect(logged.join('\n')).toContain('to read its metadata');
+	});
+});
+
 describe('generateSitemap with file-route paths', () => {
 	const outDir = mkdtempSync(join(tmpdir(), 'absolute-sitemap-file-routes-'));
 	const read = () => readFileSync(join(outDir, 'sitemap.xml'), 'utf-8');

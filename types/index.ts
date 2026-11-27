@@ -25,6 +25,7 @@ export * from './pageStore';
 export * from './pageStores';
 export * from './pageAction';
 export * from './revalidate';
+export * from './robots';
 export * from './routeHoles';
 export * from './routeMetadata';
 export * from './staticRoutes';

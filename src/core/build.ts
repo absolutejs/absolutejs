@@ -46,6 +46,7 @@ import { scanEntryPoints } from '../build/scanEntryPoints';
 import { createStampedFileCache } from '../build/stampedFileCache';
 import { isConventionFile, scanConventions } from '../build/scanConventions';
 import { routeMetadataWarnings } from '../build/routeMetadataWarnings';
+import { generateRobots } from '../utils/generateRobots';
 import { scanRouteFolderConventions } from '../build/routeFolderConventions';
 import {
 	RUNTIME_FILE_NAMES,
@@ -860,6 +861,30 @@ const rewriteFileRouteImports = (content: string, indexesDir: string) =>
 		}
 	);
 
+/* `robots.txt`, from the `robots` config key, beside the sitemap it
+ * points at. An app's own file in `publicDirectory` has already been
+ * copied to the same place and is left there: a file someone wrote is
+ * a decision, and the config key is a convenience. */
+const writeRobotsFile = (
+	robots: BuildConfig['robots'],
+	baseUrl: string | undefined,
+	buildPath: string,
+	publicPath: string | false | undefined
+) => {
+	if (robots === undefined || robots === false) return;
+	if (publicPath && existsSync(join(publicPath, 'robots.txt'))) {
+		logWarn(
+			`robots is set in the config, and ${join(publicPath, 'robots.txt')} exists. The file is served as it is; the config key is ignored. Remove one of them.`
+		);
+
+		return;
+	}
+	writeFileSync(
+		join(buildPath, 'robots.txt'),
+		generateRobots(robots, baseUrl)
+	);
+};
+
 /* Said once per page per process: a dev server rebuilds on every edit,
  * and the same line each time is noise. */
 const warnedOfOwnTitle = new Set<string>();
@@ -1189,6 +1214,7 @@ const buildUnlocked = async ({
 	options,
 	incrementalFiles,
 	mode,
+	robots,
 	sitemap,
 	sourcemaps,
 	dev,
@@ -4327,6 +4353,7 @@ const buildUnlocked = async ({
 				svelteDirectory,
 				vueDirectory
 			});
+			writeRobotsFile(robots, sitemap?.baseUrl, buildPath, publicPath);
 			/* Dead links, on the registration scan this block already
 			 * paid for. That scan is the expensive half — it parses every
 			 * `.ts` in the project — and collecting the links beside it
