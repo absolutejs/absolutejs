@@ -10,7 +10,7 @@
 					"summary": "A navigation that changes only the query string updates the mounted page in place",
 					"symbols": [
 						"enableNavigation",
-						"EnableNavigationOptions",
+						"BaseBuildConfig",
 						"BuildConfig"
 					]
 				}
