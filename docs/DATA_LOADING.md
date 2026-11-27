@@ -205,8 +205,11 @@ change is re-rendered, including anything the page derives from them. A
 prop the new data no longer has is cleared. This needs no navigation
 layer.
 
+**An Angular page is too, if it reads its data as a signal.** See below.
+
 **Every other kind of page is fetched whole and swapped in**, for now:
-Angular, HTML and HTMX. The page is mounted again, so state
+HTML and HTMX, and an Angular page that reads its data with
+`usePageContext()`. The page is mounted again, so state
 its own components hold starts over. On those pages, turn `invalidate` on
 for a form whose outcome shows in the page's data (the new row in the
 list), not for one that shows a "saved" message from its own state. An
@@ -217,6 +220,43 @@ A React, Svelte or Vue page is also swapped whole whenever giving it new props w
 wrong: the request for its data was redirected, the route now renders a
 different page (a session that expired), or the server did not answer
 with data. Those are handled the way a reload would handle them.
+
+### Angular: read the data as a signal
+
+An Angular page takes its data from the handler's `requestContext`. There
+are two ways to read it, and which one a page uses decides how it is
+refreshed.
+
+```ts
+import { usePageData } from '@absolutejs/absolute/angular';
+
+export class TodosPage {
+	private data = usePageData<{ todos: Todo[] }>();
+	todos = computed(() => this.data().todos);
+	open = signal(false); // survives a refresh
+}
+```
+
+`usePageData()` returns a signal. Read it in the template or through
+`computed`, and `invalidate()` sets it: Angular re-renders what read it
+and the page's own state is kept. It works with `OnPush` and zoneless
+change detection.
+
+`usePageContext()` returns the object itself, and a page usually copies
+out of it as it is constructed:
+
+```ts
+private ctx = usePageContext<{ todos: Todo[] }>();
+todos = this.ctx.todos; // a copy, in a plain field
+```
+
+Nothing can update that field afterwards. Changing the rest of the page
+around it would show two answers at once, so a page that calls
+`usePageContext()` — or injects `REQUEST_CONTEXT` itself — anywhere is
+refreshed whole, as before. It is never left half-updated.
+
+To get in-place refresh on an existing page, switch its reads to
+`usePageData()` and derive from the signal instead of copying.
 
 ### How it ended
 

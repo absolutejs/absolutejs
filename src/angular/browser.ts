@@ -12,6 +12,7 @@ export {
 export {
 	useFormAction,
 	usePageContext,
+	usePageData,
 	useResource,
 	useSubscription,
 	useTimers
