@@ -23,6 +23,7 @@ export * from './loaders';
 export * from './requestHelpers';
 export * from './pageStore';
 export * from './pageStores';
+export * from './pageAction';
 export * from './revalidate';
 export * from './routeHoles';
 export * from './staticRoutes';

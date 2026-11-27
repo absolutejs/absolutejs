@@ -348,15 +348,68 @@ export const load = async ({ params }: FileRouteContext<'/blog/:slug'>) => {
   This is also the `generateStaticParams` equivalent prerendering needs,
   which is why it is an export on the server module rather than a sitemap
   option.
-- **Hook for form actions (parallel work, not built here).** The server
-  module reserves an `actions` export. When the form-actions runtime lands,
-  `fileRoutes()` will register, for a route whose server module exports
-  `actions`, a `POST` on the same path that delegates to the form-actions
-  dispatcher (`?/name` selection, progressive enhancement, re-render with
-  the action result as props). The route module already lazy-loads the
-  server module per route, so the only additions are the `actions` key on
-  `FileRouteServerModule`, one more registration in `registerRoute`
-  (src/core/fileRoutes.ts), and the action result reaching `render`.
+- **A route's own form action (built).** The server module may export
+  `action`, made with `defineAction`:
+
+  ```ts
+  // routes/blog/[slug].server.ts
+  export const action = defineAction(
+  	t.Object({ comment: t.String({ minLength: 2 }) }),
+  	async ({ body, fail, params }) => {
+  		if (await isSpam(body.comment)) return fail({ comment: 'No.' });
+  		return { id: await addComment(params.slug, body.comment) };
+  	}
+  );
+  ```
+
+  It is registered as `POST` on the route's own path, so the page's
+  `<form method="post">` posts to it with no `action` attribute, with or
+  without JavaScript. The server uses the generated plugin beside the route
+  tree:
+
+  ```ts
+  import { routeActions, routeTree } from './routes.gen';
+
+  new Elysia()
+  	.use(absolutejs)
+  	.use(fileRoutes(routeTree, manifest))
+  	.use(routeActions);
+  ```
+
+  - **It is an ordinary form action.** The generated module writes the
+    `.post(path, { form }, handler)` an app would write by hand, so
+    validation, field errors, the CSRF checks, the no-JavaScript round trip
+    and HTMX answers are the ones every form action has. This replaced the
+    earlier sketch of a dispatcher selecting actions by `?/name`, which
+    would have been a second implementation of all of that, invisible to
+    the typed client and to OpenAPI.
+  - **Typed.** `routeActions` is a real Elysia instance written out route by
+    route, because the typed client finds form routes in the app's type and
+    a type only comes from code the compiler sees. With it `.use()`d,
+    `createFormActionClient<typeof server>()` knows `/blog/:slug`, its
+    fields and its result.
+  - **Posting from the page.** The typed client knows the action by its
+    route (`/blog/:slug`); the page is at an address (`/blog/hello`). A
+    binding given the route posts to the address the page is at when that
+    is one of the route's. From any other page it sends nothing and says to
+    pass an address, which `route('/blog/:slug', { slug })` returns.
+  - **Reading the result without JavaScript.** `getActionState('/blog/:slug')`
+    in `load`: a result is stored under both the address posted to and the
+    route that answered.
+  - **Imported at startup.** A server module that exports `action` is
+    imported when the server starts, not on first request: a route's schema
+    has to exist when the route is registered. Every other server module is
+    still imported lazily. A module that does slow work at import time now
+    does it at startup.
+  - **A pre-rendered page's action is reached.** A `POST` to a pre-rendered
+    page's address goes to the route; only `GET` and `HEAD` are answered
+    from the file.
+  - The handler is given `body`, `fail`, `params`, `query`, `headers`,
+    `request` and `set`. `params` is typed loosely there, since the module
+    that defines the action does not know the path it is registered under.
+  - **Named actions** (`export const actions = { publish, remove }`, each at
+    an underscore path such as `/blog/:slug/_publish`, which no route file
+    can claim) are the next step and are not built.
 
 ### 2.4 Types
 
@@ -561,8 +614,8 @@ Exit criteria: ~~`[...rest]`, `[[optional]]`, `(group)` mapped and typed~~
 **done**; ~~Vue and HTML/HTMX route folders~~ **done**; ~~sitemap includes
 static file routes and `entries()`~~ **done — see 2.3**; ~~`absolute routes` shows route sources~~ **done**; `absolute ls` lists
 a "Routes" group per framework (open); ~~typed plugin-derived
-context~~ **done**; the `actions` hook wired to the form-actions runtime
-(waiting on that runtime, which is parallel work).
+context~~ **done**; ~~the `action` export wired to the form-actions runtime~~ **done —
+see 2.3**; named `actions` (open).
 
 **Phase 3 — Angular, conventions, static generation.**
 Exit criteria: Angular route folders; ~~per-folder `error` and

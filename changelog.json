@@ -5,6 +5,23 @@
 		{
 			"changes": [
 				{
+					"detail": "A file route can have its own form action: `export const action = defineAction(schema, handler)` in the route's server module. The build registers it as POST on the route's own path, so the page's <form method=\"post\"> posts to it with no action attribute, with or without JavaScript. It is an ordinary form action: the generated route module writes the same .post(path, { form }, handler) an app would write by hand, so validation, field errors, CSRF checks, the no-JavaScript round trip and HTMX answers are shared, and nothing is implemented twice. The generated module exports `routeActions`, a real Elysia plugin to .use() beside fileRoutes(routeTree, manifest); with it the typed client knows each action's path, fields and result. A binding given a route with params (/blog/:slug) posts to the address the page is at when that is one of the route's, and from any other page sends nothing and says to pass an address. A server module that exports `action` is imported when the server starts, since a route's schema must exist when the route is registered; other server modules stay lazy. Also changed: a POST to a pre-rendered page's address now reaches the route, where before it was answered with the page's file; only GET and HEAD are served from it. Named actions are not in this change. See docs/FILE_ROUTER_PLAN.md.",
+					"kind": "added",
+					"summary": "A file route can export its own form action",
+					"symbols": [
+						"defineAction",
+						"PageAction",
+						"PageActionContext",
+						"FileRouteServerModule"
+					]
+				}
+			],
+			"date": "2026-11-27",
+			"version": "0.20.0-beta.430"
+		},
+		{
+			"changes": [
+				{
 					"detail": "A route folder may have its own loading indicator. routes/dashboard/loading.tsx is what the navigation layer shows while a soft navigation to an address under /dashboard/ is in flight, and the app-wide one from pages/ is shown for anywhere else. The deepest folder the destination falls under wins; a param folder stands for one segment. The indicator is chosen in the browser by where the navigation is going, so the layer now fetches every indicator the app has in one request, once per session: /__absolute/loading asked for as JSON answers { fallback, folders: [{ path, html }] }, and asked for as before still answers the app-wide markup. A (group) folder's loading has no address of its own and is not used. Two frameworks holding a loading for the same folder path is a build error in production and a warning in dev. Every framework's route folder may have one. See docs/FILE_ROUTER_PLAN.md.",
 					"kind": "added",
 					"summary": "Route folders can have their own loading indicator",

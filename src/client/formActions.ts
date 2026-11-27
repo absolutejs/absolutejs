@@ -64,6 +64,36 @@ const failure = (message: string): ActionErrorState => ({
 	status: 'error'
 });
 
+/* One segment of a route path as a piece of a pattern: `:name` is one
+ * segment, `:name?` one or none, `*` the rest. */
+const segmentSource = (segment: string) => {
+	if (segment === '*') return '(?:/.*)?';
+	if (!segment.startsWith(':'))
+		return `/${segment.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`;
+
+	return segment.endsWith('?') ? '(?:/[^/]+)?' : '/[^/]+';
+};
+
+const matchesRoute = (path: string, pathname: string) =>
+	new RegExp(
+		`^${path.split('/').filter(Boolean).map(segmentSource).join('')}/?$`
+	).test(pathname);
+
+/* The address to post to. Usually the path as given. A route written
+ * with params (`/blog/:slug`) names a route, not an address — which is
+ * how a file route's own action is known to the typed client, since the
+ * action is registered on the page's path. The page that posts to its
+ * own action is AT one of that route's addresses, so that is where the
+ * post goes; a page anywhere else has to say which (`route(path,
+ * params)` returns it), and is told so instead of being sent a literal
+ * `:slug`. */
+const addressOf = (path: string) => {
+	if (!/[:*]/.test(path) || typeof window === 'undefined') return path;
+	const { pathname } = window.location;
+
+	return matchesRoute(path, pathname) ? pathname : undefined;
+};
+
 const readPayload = async (response: Response) => {
 	try {
 		const payload: unknown = await response.json();
@@ -95,7 +125,15 @@ export const submitFormAction = async <
 	options: SubmitFormActionOptions = {}
 ) => {
 	type Result = ActionResult<Data, Fields>;
-	const response = await fetch(path, {
+	const address = addressOf(path);
+	if (address === undefined) {
+		const result: Result = failure(
+			`"${path}" is a route with params, and this page is not at an address it matches. Pass the address to post to, e.g. route('${path}', { … }).`
+		);
+
+		return result;
+	}
+	const response = await fetch(address, {
 		body,
 		credentials: 'same-origin',
 		headers: {
