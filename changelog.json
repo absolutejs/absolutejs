@@ -5,6 +5,21 @@
 		{
 			"changes": [
 				{
+					"detail": "A route folder may have its own loading indicator. routes/dashboard/loading.tsx is what the navigation layer shows while a soft navigation to an address under /dashboard/ is in flight, and the app-wide one from pages/ is shown for anywhere else. The deepest folder the destination falls under wins; a param folder stands for one segment. The indicator is chosen in the browser by where the navigation is going, so the layer now fetches every indicator the app has in one request, once per session: /__absolute/loading asked for as JSON answers { fallback, folders: [{ path, html }] }, and asked for as before still answers the app-wide markup. A (group) folder's loading has no address of its own and is not used. Two frameworks holding a loading for the same folder path is a build error in production and a warning in dev. Every framework's route folder may have one. See docs/FILE_ROUTER_PLAN.md.",
+					"kind": "added",
+					"summary": "Route folders can have their own loading indicator",
+					"symbols": [
+						"FrameworkConventionEntry",
+						"FolderLoading"
+					]
+				}
+			],
+			"date": "2026-11-27",
+			"version": "0.20.0-beta.429"
+		},
+		{
+			"changes": [
+				{
 					"detail": "A route folder may have its own error page and 404. routes/blog/error.tsx answers every route under routes/blog/ whose load throws or whose page throws while rendering, and routes/blog/not-found.tsx is their 404. Each is found like a layout or a guard, from the route's own folder up to the route root, nearest first, and each kind on its own; failing that the app-wide ones in pages/ apply as before. A not-found answers two things: a route whose load throws NotFound gets the nearest one above it, and an address no route answers gets the one of the deepest folder it falls under, so /blog/2024/anything is answered by routes/blog/not-found. A param folder stands for one segment. A (group) folder's files cover its own routes; its not-found does not answer unmatched addresses, since a group adds nothing to an address. Every framework's route folder may have them: .tsx, .svelte, .vue, an Angular render function in .ts, and .html. Two frameworks holding a not-found for the same folder path is a build error in production and a warning in dev. Only page requests are sent these pages; a client asking for JSON keeps the JSON 404. Until now these files were recognised and kept out of the route list, and used by nothing. See docs/FILE_ROUTER_PLAN.md.",
 					"kind": "added",
 					"summary": "Route folders can have their own error and not-found pages",

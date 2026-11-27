@@ -6,6 +6,7 @@ import type { ConventionsMap } from '../../../types/conventions';
 import {
 	getConventions,
 	renderFolderNotFound,
+	renderLoadingSet,
 	setConventions
 } from '../../../src/utils/resolveConvention';
 
@@ -121,5 +122,93 @@ describe('the not-found of the folder an address falls under', () => {
 		setConventions({});
 
 		expect(await answerFor('/anything')).toBeNull();
+	});
+});
+
+describe('the loading indicators, rendered together', () => {
+	const htmlFile = async (name: string, html: string) => {
+		const dir = await mkdtemp(join(tmpdir(), 'absolute-loading-set-'));
+		directories.push(dir);
+		const file = join(dir, name);
+		await Bun.write(file, html);
+
+		return file;
+	};
+
+	test('are the app’s, and each folder’s with the address it covers', async () => {
+		const map: ConventionsMap = {
+			html: {
+				defaults: {
+					loading: await htmlFile('loading.html', '<p>app</p>')
+				},
+				loadingFolders: [
+					{
+						loading: await htmlFile('blog.html', '<p>blog</p>'),
+						path: '/blog'
+					}
+				]
+			}
+		};
+		setConventions(map);
+
+		expect(await renderLoadingSet()).toEqual({
+			fallback: '<p>app</p>',
+			folders: [{ html: '<p>blog</p>', path: '/blog' }]
+		});
+	});
+
+	/* A whole document makes no sense inside a live page; what its body
+	 * holds is what is shown. */
+	test('take what a document’s body holds', async () => {
+		const map: ConventionsMap = {
+			html: {
+				loadingFolders: [
+					{
+						loading: await htmlFile(
+							'doc.html',
+							'<!doctype html><html><body><p>inside</p></body></html>'
+						),
+						path: '/docs'
+					}
+				]
+			}
+		};
+		setConventions(map);
+
+		expect(await renderLoadingSet()).toEqual({
+			fallback: null,
+			folders: [{ html: '<p>inside</p>', path: '/docs' }]
+		});
+	});
+
+	test('leave out a folder whose file is empty or cannot be read', async () => {
+		const map: ConventionsMap = {
+			html: {
+				loadingFolders: [
+					{ loading: await htmlFile('empty.html', '  '), path: '/a' },
+					{ loading: '/nowhere/missing.html', path: '/b' }
+				]
+			}
+		};
+		setConventions(map);
+		const original = console.error;
+		console.error = () => undefined;
+		try {
+			expect(await renderLoadingSet()).toEqual({
+				fallback: null,
+				folders: []
+			});
+		} finally {
+			console.error = original;
+		}
+	});
+
+	test('an app with none has none', async () => {
+		setConventions({});
+
+		expect(await renderLoadingSet()).toEqual({
+			fallback: null,
+			folders: []
+		});
 	});
 });
