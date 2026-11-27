@@ -574,6 +574,35 @@ export const load = async ({ params }: FileRouteContext<'/blog/:slug'>) => {
     redirected, one that did not answer 200.
   - It is a command and not a build warning: it needs a server, and takes a
     request per page.
+- **`llms-full.txt` (built, opt-in).** `llms: { full: true }` also serves
+  `/llms-full.txt`: the text of every page `llms.txt` lists, in one
+  Markdown file, each page under a line saying where it is. `llms.txt`
+  links to it.
+
+  ```ts
+  llms: { full: { maxPages: 200, revalidate: 600 } }
+  ```
+
+  A build cannot write it, because a page's text exists once something
+  renders the page and most pages are rendered by the running server. So
+  the build leaves the list of pages, and the server makes the file the
+  first time it is asked for: it asks itself for each page as Markdown, one
+  at a time, and keeps the result. It does not need `markdown: true`.
+  - It is made once. Requests that arrive while it is being made wait for
+    that one making; after that the kept copy is served. Once the copy is
+    `revalidate` seconds old (default 3600) the next request is served it
+    and a new one is made behind it. A restart makes it again.
+  - The pages are asked for with no cookie and no authorization, since the
+    file is one copy for everyone. A page that redirects or refuses such a
+    visitor is left out, and so is one that has a title and no text: a
+    page not rendered on the server, or one that fills in after it loads.
+    A route's own `markdown` export is used where there is one.
+  - It holds at most `maxPages` pages (default 500), in `llms.txt`'s order,
+    with a warning at start when there are more.
+  - Each server process keeps its own copy, so a cluster makes it once per
+    worker. An `llms-full.txt` in `publicDirectory` is served as it is and
+    wins, with a warning. There is none under `absolute dev`, which writes
+    no sitemap to list pages from.
 - **A page as Markdown (built, opt-in).** `markdown: true` in the config
   serves every page as Markdown too, for a reader that wants the text and
   not the markup: `/about.md` beside `/about`, and `/about` itself for a
@@ -629,7 +658,6 @@ export const load = async ({ params }: FileRouteContext<'/blog/:slug'>) => {
   - **How a reader finds it.** Every page's HTML response carries
     `Link: </about.md>; rel="alternate"; type="text/markdown"`. A
     pre-rendered page served from its file does not carry it yet.
-  - Not yet: `llms-full.txt`.
 - **A route's own form action (built).** The server module may export
   `action`, made with `defineAction`:
 

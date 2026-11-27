@@ -29,7 +29,8 @@ const MARKDOWN_TYPE = 'text/markdown';
 const HTML_TYPE = 'text/html';
 const SUFFIX = '.md';
 
-type Handle = (request: Request) => Promise<Response>;
+export type AppHandle = (request: Request) => Promise<Response>;
+type Handle = AppHandle;
 
 /* A browser never asks for Markdown, and a reader that accepts both
  * gets the page: Markdown is for a request that asks for it alone. */
@@ -57,6 +58,32 @@ const pageRequest = (request: Request, url: URL) => {
 	return new Request(url, { headers, method: 'GET' });
 };
 
+/** A page as Markdown: the app is asked for it as HTML, and what comes
+ *  back is converted — or passed through, when the route answered with
+ *  Markdown of its own. `response` is what the page answered instead,
+ *  when that was not a page: a redirect, a refusal, something that is
+ *  not HTML. */
+export const readPageMarkdown = async (
+	handle: AppHandle,
+	request: Request,
+	url: URL
+) => {
+	const page = await handle(pageRequest(request, url));
+	const type = page.headers.get('content-type') ?? '';
+	// A route with Markdown of its own has answered with it
+	// (fileRoutes.ts): that is the page's Markdown, as written.
+	const isOwn = page.ok && type.includes(MARKDOWN_TYPE);
+	if (!isOwn && !(page.ok && type.includes(HTML_TYPE)))
+		return { response: page };
+	const body = await page.text();
+
+	return {
+		markdown: isOwn
+			? body
+			: await htmlToMarkdown(await inlineStreamedSlots(body))
+	};
+};
+
 const answer = async (request: Request, handle: Handle | undefined) => {
 	if (request.method !== 'GET' || !handle) return undefined;
 	if (request.headers.has(MARKDOWN_SOURCE_HEADER)) return undefined;
@@ -65,27 +92,18 @@ const answer = async (request: Request, handle: Handle | undefined) => {
 	if (!bySuffix && !asksForMarkdown(request.headers.get('accept')))
 		return undefined;
 	if (bySuffix) url.pathname = pagePathOf(url.pathname);
-	const page = await handle(pageRequest(request, url));
-	const type = page.headers.get('content-type') ?? '';
-	// A route with Markdown of its own has answered with it
-	// (fileRoutes.ts): that is the page's Markdown, as written.
-	const isOwn = page.ok && type.includes(MARKDOWN_TYPE);
-	const isPage = isOwn || (page.ok && type.includes(HTML_TYPE));
-	if (!isPage && bySuffix) {
-		await page.body?.cancel();
+	const read = await readPageMarkdown(handle, request, url);
+	if (read.response && bySuffix) {
+		await read.response.body?.cancel();
 
 		return undefined;
 	}
 	// Asked for by `Accept`, the address is the page's own: what the
 	// page answered — a redirect, a refusal, something not HTML — is
 	// the answer.
-	if (!isPage) return page;
-	const body = await page.text();
-	const markdown = isOwn
-		? body
-		: await htmlToMarkdown(await inlineStreamedSlots(body));
+	if (read.response) return read.response;
 
-	return new Response(markdown, {
+	return new Response(read.markdown, {
 		headers: {
 			'content-type': `${MARKDOWN_TYPE}; charset=utf-8`,
 			// The page is the thing to cite; this is a rendering of it.

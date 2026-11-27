@@ -84,7 +84,17 @@ import { auditLinks, deadLinkWarning } from '../build/auditLinks';
 import { fileRouteSitemapPages } from '../build/fileRouteSitemapPaths';
 import { llmsPagesFrom } from '../build/llmsPages';
 import { scanRouteRegistrations } from '../build/scanRouteRegistrations';
-import { generateLlms, llmsTitle, type LlmsPage } from '../utils/generateLlms';
+import {
+	generateLlms,
+	llmsListedPages,
+	llmsTitle,
+	type LlmsPage
+} from '../utils/generateLlms';
+import {
+	LLMS_FULL_MANIFEST,
+	type LlmsFullManifest
+} from '../utils/llmsFullManifest';
+import type { LlmsConfig, LlmsFullConfig } from '../../types/llms';
 import { generateSitemap } from '../utils/generateSitemap';
 import type {
 	ConventionsMap,
@@ -888,6 +898,49 @@ const writeRobotsFile = (
 	);
 };
 
+const LLMS_FULL_MAX_PAGES = 500;
+const LLMS_FULL_REVALIDATE_SECONDS = 3600;
+
+/* What the running server makes `llms-full.txt` from (core/llmsFull.ts):
+ * the pages `llms.txt` lists, in its order. A build cannot write the
+ * file itself, since most pages are rendered by the server. */
+const writeLlmsFullManifest = (
+	llms: LlmsConfig | true,
+	pages: LlmsPage[],
+	baseUrl: string | undefined,
+	buildPath: string,
+	publicPath: string | false | undefined
+) => {
+	const target = join(buildPath, LLMS_FULL_MANIFEST);
+	const full = llms === true ? undefined : llms.full;
+	if (llms === true || !full) {
+		rmSync(target, { force: true });
+
+		return;
+	}
+	if (publicPath && existsSync(join(publicPath, 'llms-full.txt'))) {
+		logWarn(
+			`llms.full is set in the config, and ${join(publicPath, 'llms-full.txt')} exists. The file is served as it is; the config key is ignored. Remove one of them.`
+		);
+		rmSync(target, { force: true });
+
+		return;
+	}
+	const settings: LlmsFullConfig = full === true ? {} : full;
+	const { main, optional } = llmsListedPages(llms, pages);
+	const summary =
+		llms.summary ?? pages.find((page) => page.path === '/')?.description;
+	const manifest: LlmsFullManifest = {
+		maxPages: settings.maxPages ?? LLMS_FULL_MAX_PAGES,
+		pages: [...main, ...optional].map(({ path, url }) => ({ path, url })),
+		revalidate: settings.revalidate ?? LLMS_FULL_REVALIDATE_SECONDS,
+		...(summary === undefined ? {} : { summary }),
+		title: llmsTitle(llms, pages, baseUrl) ?? 'Site'
+	};
+	mkdirSync(dirname(target), { recursive: true });
+	writeFileSync(target, JSON.stringify(manifest));
+};
+
 /* `llms.txt`, from the `llms` config key, listing the pages the sitemap
  * lists. As with `robots.txt`, an app's own file in `publicDirectory`
  * is a decision and is left as it is. */
@@ -914,6 +967,7 @@ const writeLlmsFile = (
 		join(buildPath, 'llms.txt'),
 		generateLlms(llms, pages, baseUrl)
 	);
+	writeLlmsFullManifest(llms, pages, baseUrl, buildPath, publicPath);
 };
 
 /* Said once per page per process: a dev server rebuilds on every edit,

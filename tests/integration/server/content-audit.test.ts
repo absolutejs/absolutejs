@@ -51,6 +51,7 @@ const FILES: Record<string, string> = {
 export default defineConfig({
 	buildDirectory: './build',
 	fileRoutes: { output: './routes.gen.ts' },
+	llms: { full: true, summary: 'An example site.', title: 'Acme' },
 	markdown: true,
 	reactDirectory: './react',
 	sitemap: { baseUrl: 'https://acme.test' }
@@ -364,5 +365,58 @@ describe('a page as Markdown', () => {
 	test('is not served for an address that is not a page', async () => {
 		expect((await markdownAt('/nope.md')).status).toBe(404);
 		expect((await markdownAt('/ready.md')).status).toBe(404);
+	});
+});
+
+/* Every page's text in one file (`llms: { full: true }`), made by the
+ * server the first time it is asked for. */
+describe('llms-full.txt', () => {
+	const fullText = async () => {
+		const response = await fetch(url('/llms-full.txt'));
+
+		return {
+			status: response.status,
+			text: await response.text(),
+			type: response.headers.get('content-type')
+		};
+	};
+
+	test('is every page’s text, each under where it is', async () => {
+		const { status, text, type } = await fullText();
+
+		expect(status).toBe(200);
+		expect(type).toBe('text/plain; charset=utf-8');
+		expect(text).toBe(
+			[
+				'# Acme\n\n> An example site.',
+				'# Acme anvils\n\nSource: https://acme.test/\n\nMade to order & shipped by rail.',
+				// Not rendered on the server: the route's own Markdown.
+				'# The app\n\nSource: https://acme.test/app\n\nYou are on the pro plan.',
+				// The streamed slot's content, not its fallback.
+				'# Feed\n\nSource: https://acme.test/feed\n\n- the newest post of them all\n'
+			].join('\n\n---\n\n')
+		);
+	});
+
+	/* `/late` renders nothing on the server: a title and no text. */
+	test('leaves out a page that says nothing', async () => {
+		expect((await fullText()).text).not.toContain('/late');
+	});
+
+	test('is the kept copy the second time', async () => {
+		const first = await fullText();
+		const started = performance.now();
+		const second = await fullText();
+
+		expect(second.text).toBe(first.text);
+		expect(performance.now() - started).toBeLessThan(200);
+	});
+
+	test('is linked from llms.txt', async () => {
+		const text = await (await fetch(url('/llms.txt'))).text();
+
+		expect(text).toContain(
+			'## Full text\n\n- [llms-full.txt](https://acme.test/llms-full.txt): The text of every page, in one file.\n\n## Pages'
+		);
 	});
 });

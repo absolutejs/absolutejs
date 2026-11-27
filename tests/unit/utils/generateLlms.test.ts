@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { llmsPagesFrom } from '../../../src/build/llmsPages';
 import {
 	generateLlms,
+	llmsListedPages,
 	llmsTitle,
 	type LlmsPage
 } from '../../../src/utils/generateLlms';
@@ -188,5 +189,35 @@ describe('the pages, from the sitemap’s list', () => {
 				{ defaultLocale: 'en' }
 			)
 		).toEqual([{ path: '/a', url: 'https://acme.test/a' }]);
+	});
+});
+
+describe('full', () => {
+	test('links llms-full.txt ahead of the pages', () => {
+		const text = generateLlms({ full: true, title: 'Acme' }, PAGES);
+
+		expect(text).toContain(
+			'## Full text\n\n- [llms-full.txt](/llms-full.txt): The text of every page, in one file.\n\n## Pages'
+		);
+		expect(
+			generateLlms({ full: true }, PAGES, 'https://acme.test/')
+		).toContain('(https://acme.test/llms-full.txt)');
+	});
+
+	test('is not linked when it is off, or has no pages to hold', () => {
+		expect(generateLlms(true, PAGES)).not.toContain('llms-full');
+		expect(
+			generateLlms({ full: true, pages: false, title: 'Acme' }, PAGES)
+		).not.toContain('llms-full');
+	});
+
+	test('holds the listed pages, the optional ones last', () => {
+		const { main, optional } = llmsListedPages(
+			{ exclude: ['/pricing'], optional: ['/'] },
+			PAGES
+		);
+
+		expect(main.map((page) => page.path)).toEqual(['/blog/hello']);
+		expect(optional.map((page) => page.path)).toEqual(['/']);
 	});
 });
