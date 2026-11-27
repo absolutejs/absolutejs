@@ -1,4 +1,5 @@
 import { CLIENT_MODULE_PREFIX } from '../dev/clientModuleHmr';
+import { setI18nRouting } from '../utils/i18nRoutingRef';
 import { llmsFull } from './llmsFull';
 import { pageMarkdown } from './pageMarkdown';
 import { setRenderTimeout } from './renderTimeout';
@@ -913,6 +914,9 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 			: null;
 	const config = built ?? (await loadConfig(configOrPath));
 	recordStep(built ? 'load built config' : 'load config', stepStartedAt);
+	// For whatever routes by locale to compare itself with, and read
+	// (i18nRoutingRef.ts).
+	setI18nRouting(config.i18n);
 	// The base path the browser reaches the app under: the environment's,
 	// else the config's (read everywhere through getBasePath()).
 	if (process.env.ABSOLUTE_BASE_PATH === undefined && config.basePath)

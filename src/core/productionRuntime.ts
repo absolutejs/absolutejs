@@ -52,6 +52,9 @@ const RUNTIME_KEYS = [
 	'health',
 	'htmlDirectory',
 	'htmxDirectory',
+	/* Read by the running server (i18nRoutingRef.ts), so it belongs
+	 * here for the reason `logging` does. */
+	'i18n',
 	'images',
 	'islands',
 	'logging',

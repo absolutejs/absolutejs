@@ -26,6 +26,7 @@ const RESERVED_TOP_LEVEL_KEYS = new Set([
 	'htmlDirectory',
 	'htmxDirectory',
 	'fonts',
+	'i18n',
 	'images',
 	'incrementalFiles',
 	'islands',

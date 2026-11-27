@@ -90,6 +90,7 @@ import {
 	llmsTitle,
 	type LlmsPage
 } from '../utils/generateLlms';
+import { withConfigI18n } from '../utils/sitemapI18n';
 import {
 	LLMS_FULL_MANIFEST,
 	type LlmsFullManifest
@@ -1298,6 +1299,7 @@ const buildUnlocked = async ({
 	navigation,
 	options,
 	incrementalFiles,
+	i18n,
 	llms,
 	mode,
 	robots,
@@ -4437,11 +4439,12 @@ const buildUnlocked = async ({
 				},
 				projectRoot
 			);
+			const localized = withConfigI18n(sitemap, i18n);
 			const listed = await generateSitemap(
 				routes,
 				sitemapBaseUrl,
 				buildPath,
-				sitemap,
+				localized,
 				{
 					angularDirectory,
 					fileRoutePaths: fileRoutePages.map((page) => page.path),
@@ -4454,7 +4457,7 @@ const buildUnlocked = async ({
 			writeLlmsFile(
 				llms,
 				llmsPagesFrom(listed, fileRoutePages, {
-					defaultLocale: sitemap?.i18n?.defaultLocale,
+					defaultLocale: localized?.i18n?.defaultLocale,
 					...(sitemap?.baseUrl === undefined
 						? { placeholderOrigin: sitemapBaseUrl }
 						: {})

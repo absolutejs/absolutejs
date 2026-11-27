@@ -5,6 +5,7 @@ import type { ClusterConfig } from './cluster';
 import type { FileRoutesConfig } from './fileRoutes';
 import type { FontsConfig } from './fonts';
 import type { HealthConfig } from './health';
+import type { I18nRoutingConfig } from './i18n';
 import type { ImageConfig } from './image';
 import type { LinksConfig } from './links';
 import type { LoggingConfig } from './logging';
@@ -973,6 +974,13 @@ export type BaseBuildConfig = {
 	 *  Off by default: writing to a project's stdout uninvited is not the
 	 *  framework's call. See docs/LOGGING.md. */
 	logging?: LoggingConfig;
+	/** The app's locale routing: which locales there are and how a
+	 *  request's is chosen. Declared here, the build and the CLI know
+	 *  it too — the sitemap lists every page once per locale without
+	 *  `sitemap.i18n` saying so again. Give `defineI18n` the same
+	 *  object (`defineI18nRouting` makes one both can share); the
+	 *  server warns at start when the two differ. */
+	i18n?: I18nRoutingConfig;
 	/** Write an `llms.txt` with the build: the site's name, a summary,
 	 *  and a list of its pages, for a language model reading the site.
 	 *  `true` lists the sitemap's pages under the home page's title; an

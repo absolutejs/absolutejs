@@ -5,6 +5,23 @@
 		{
 			"changes": [
 				{
+					"detail": "`i18n` in absolute.config.ts declares the app's locale routing — locales, defaultLocale, strategy, prefixDefault, domains, localeParam — where the build and the CLI can read it. With it, the sitemap lists every page once per locale without `sitemap.i18n` repeating the locales, and llms.txt lists each page in the default locale; `sitemap.i18n` still wins where it is given, with a warning when the two differ. `defineI18n` is still given the routing itself, because the locale types every `t()` and `payload()` is checked against come from the locales written in that call; `defineI18nRouting({ … })` makes one object for both, keeping the locales as literals. When the config and `defineI18n` differ anyway, the server says so once, at its first request, naming the settings that differ. Nothing changes for an app without the key. See docs/I18N_PLAN.md.",
+					"kind": "added",
+					"summary": "The i18n config key declares locale routing for the build, with defineI18nRouting to share it",
+					"symbols": [
+						"defineI18nRouting",
+						"I18nRoutingConfig",
+						"BaseBuildConfig",
+						"BuildConfig"
+					]
+				}
+			],
+			"date": "2026-11-27",
+			"version": "0.20.0-beta.444"
+		},
+		{
+			"changes": [
+				{
 					"detail": "Vue and Angular have a JsonLd component, as React and Svelte do: `<JsonLd :schema=\"…\" />` from `@absolutejs/absolute/vue/components`, and `<absolute-json-ld [schema]=\"…\" />` (`JsonLdComponent`) from the Angular components. Both write a `<script type=\"application/ld+json\">` where they are used, in the body, since JSON-LD is read wherever it is in the document and a Vue or Angular page's head has been sent by the time its component renders. Several schemas are written as one `@graph`, and a `<` in a value is escaped so no value can end the script. Angular's template compiler drops a `<script>` written in a template silently, so the Angular component makes the element by hand, on the server and again in the browser when `schema` changes. For a file route, `metadata.jsonLd` still puts it in the head. There is deliberately no `Head` component for Vue or Angular: their head is a string the route gives the page handler, sent before the component renders.",
 					"kind": "added",
 					"summary": "Vue and Angular have a JsonLd component",
