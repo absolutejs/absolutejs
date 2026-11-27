@@ -20,25 +20,29 @@ import { openPage, type BrowserSession } from '../../helpers/browser';
 
 const repoRoot = resolve(import.meta.dir, '..', '..', '..');
 const HTMX = join(repoRoot, 'src', 'cli', 'htmx', 'htmx.min.js');
-const INVALIDATE = resolve(repoRoot, 'src/client/invalidate').replace(
-	/\\/g,
-	'/'
-);
+const fromSource = (path: string) =>
+	resolve(repoRoot, 'src', path).replace(/\\/g, '/');
+const INVALIDATE = fromSource('client/invalidate');
+const FORM_ACTIONS = fromSource('client/formActions');
 
 type ServedApp = { baseUrl: string; items: string[]; stop: () => void };
 
 let app: ServedApp | undefined;
 let work = '';
 
-const html = (body: string, extraHead = '') =>
+const html = (body: string, extraHead = '', stylesheet = '/style.css') =>
 	new Response(
-		`<!doctype html><html lang="en"><head><title>Items</title><link rel="stylesheet" href="/style.css">${extraHead}</head><body>${body}</body></html>`,
+		`<!doctype html><html lang="en"><head><title>Items</title><link rel="stylesheet" href="${stylesheet}">${extraHead}</head><body>${body}</body></html>`,
 		{ headers: { 'content-type': 'text/html; charset=utf-8' } }
 	);
 
 /* What every page here shares. The script is the page's own behaviour:
  * it runs once, attaches listeners, and keeps a count of its own. */
-const pageBody = (items: string[], rows: (item: string) => string) => `
+const pageBody = (
+	items: string[],
+	rows: (item: string) => string,
+	formAttributes = ''
+) => `
 	<main id="page">
 		<h1 id="heading">${items.length} items</h1>
 		<input id="note" type="text">
@@ -46,6 +50,11 @@ const pageBody = (items: string[], rows: (item: string) => string) => `
 		<button id="add" type="button">add</button>
 		<button id="local" type="button">local</button>
 		<span id="local-count" data-absolute-preserve>0</span>
+		<form id="add-form" action="/actions/add" method="post" data-absolute-action ${formAttributes}>
+			<input id="title" name="title" type="text">
+			<button id="add-by-form" type="submit">add by form</button>
+			<p id="saved" data-action-success hidden>Saved</p>
+		</form>
 		<ul id="items">${items.map(rows).join('')}</ul>
 		<div id="out"></div>
 	</main>
@@ -62,16 +71,48 @@ const pageBody = (items: string[], rows: (item: string) => string) => `
 			const invalidate = Reflect.get(window, '__absoluteInvalidate');
 			Reflect.set(window, '__outcome', await invalidate());
 		});
+		Reflect.get(window, '__absoluteEnhanceForms')();
 		Reflect.set(window, '__pageReady', true);
 	</script>`;
 
+/* How the page's form is marked, by the page's own address — so that a
+ * refresh, which asks for the same address, is given the same form. */
+const FORM_ATTRIBUTES: Record<string, string> = {
+	always: 'data-action-invalidate',
+	off: 'data-action-invalidate="false"'
+};
+
+type Served = { stylesheets: number };
+
 const createApp = (items: string[], invalidateBundle: string) => {
+	const served: Served = { stylesheets: 0 };
+	/* A page that loads a different stylesheet every time it is asked
+	 * for: one that cannot be brought up to date by changing its
+	 * markup, so a refresh of it has to load it. */
+	const shiftingStylesheet = () => {
+		served.stylesheets += 1;
+
+		return `/style.css?v=${served.stylesheets}`;
+	};
 	const plainRow = (item: string) => `<li id="${item}">${item}</li>`;
 	const htmxRow = (item: string) =>
 		`<li id="${item}">${item} <button class="load" hx-get="/fragment/${item}" hx-target="#out">load</button></li>`;
 
 	return async (request: Request) => {
-		const { pathname } = new URL(request.url);
+		const { pathname, searchParams } = new URL(request.url);
+		const formAttributes =
+			FORM_ATTRIBUTES[searchParams.get('form') ?? ''] ?? '';
+		if (pathname === '/actions/add' && request.method === 'POST') {
+			items.unshift(`item-${items.length + 1}`);
+
+			return Response.json({ status: 'success' });
+		}
+		if (pathname === '/shifting')
+			return html(
+				pageBody(items, plainRow, formAttributes),
+				'',
+				shiftingStylesheet()
+			);
 		if (pathname === '/api/add' && request.method === 'POST') {
 			// Newest first: an item arriving at the TOP is the case a
 			// careless patch gets wrong.
@@ -79,10 +120,11 @@ const createApp = (items: string[], invalidateBundle: string) => {
 
 			return Response.json({ count: items.length });
 		}
-		if (pathname === '/html') return html(pageBody(items, plainRow));
+		if (pathname === '/html')
+			return html(pageBody(items, plainRow, formAttributes));
 		if (pathname === '/htmx')
 			return html(
-				pageBody(items, htmxRow),
+				pageBody(items, htmxRow, formAttributes),
 				'<script src="/htmx.js"></script>'
 			);
 		if (pathname.startsWith('/fragment/'))
@@ -113,7 +155,7 @@ const bundleInvalidate = async () => {
 	const entry = join(work, 'invalidate-entry.ts');
 	await writeFile(
 		entry,
-		`import { invalidate } from '${INVALIDATE}';\nReflect.set(window, '__absoluteInvalidate', invalidate);\n`
+		`import { invalidate } from '${INVALIDATE}';\nimport { enhanceForms } from '${FORM_ACTIONS}';\nReflect.set(window, '__absoluteInvalidate', invalidate);\nReflect.set(window, '__absoluteEnhanceForms', enhanceForms);\n`
 	);
 	const built = await Bun.build({
 		entrypoints: [entry],
@@ -330,6 +372,114 @@ describe('invalidate() on an HTMX page', () => {
 			await refreshed(page, 2);
 
 			expect(await page.locator('#loaded').count()).toBe(0);
+		} finally {
+			await session.close();
+		}
+	}, 120_000);
+});
+
+/* A form action, with nothing asking for a refresh. The page shows what
+ * the action changed, and the refresh never costs the page: where the
+ * page cannot be kept, it is left as it was. */
+
+const submitted = (page: Page) =>
+	page.waitForSelector('#add-form[data-action-status="success"]', {
+		timeout: 30_000
+	});
+
+const listLength = (page: Page) => page.locator('#items li').count();
+
+/* Long enough for a refresh that was going to happen to have happened. */
+const QUIET = 750;
+
+describe.each([
+	['an HTML page', '/html'],
+	['an HTMX page', '/htmx']
+] as const)('a form action on %s', (_kind, path) => {
+	test('shows what it changed, unasked, and its own result stays on the form', async () => {
+		const log: PageLog = { entries: [] };
+		const session = await openItems(path, log);
+		try {
+			const { page } = session;
+			await page.fill('#note', 'half-typed');
+
+			await page.click('#add-by-form');
+			await page.waitForFunction(
+				() => document.querySelectorAll('#items li').length === 2,
+				undefined,
+				{ timeout: 30_000 }
+			);
+			await submitted(page);
+
+			expect(await itemTexts(page)).toEqual(['item-2', 'item-1']);
+			expect(await read(page, '__sameDocument')).toBe(true);
+			expect(await page.inputValue('#note')).toBe('half-typed');
+			// The server's copy of the form knows nothing of this
+			// submission; the result is still showing all the same.
+			expect(await page.locator('#saved').isVisible()).toBe(true);
+			expect(log.entries).toEqual([]);
+		} finally {
+			await session.close();
+		}
+	}, 120_000);
+
+	test('`data-action-invalidate="false"` leaves the page alone', async () => {
+		const log: PageLog = { entries: [] };
+		const session = await openItems(`${path}?form=off`, log);
+		try {
+			const { page } = session;
+
+			await page.click('#add-by-form');
+			await submitted(page);
+			await page.waitForTimeout(QUIET);
+
+			expect(served().items).toHaveLength(2);
+			expect(await listLength(page)).toBe(1);
+			expect(await page.locator('#saved').isVisible()).toBe(true);
+		} finally {
+			await session.close();
+		}
+	}, 120_000);
+});
+
+describe('a form action on a page that cannot be refreshed in place', () => {
+	test('leaves it as it is, unasked: no reload', async () => {
+		const log: PageLog = { entries: [] };
+		const session = await openItems('/shifting', log);
+		try {
+			const { page } = session;
+			await page.fill('#note', 'half-typed');
+
+			await page.click('#add-by-form');
+			await submitted(page);
+			await page.waitForTimeout(QUIET);
+
+			expect(served().items).toHaveLength(2);
+			expect(await read(page, '__sameDocument')).toBe(true);
+			expect(await listLength(page)).toBe(1);
+			expect(await page.inputValue('#note')).toBe('half-typed');
+			expect(await page.locator('#saved').isVisible()).toBe(true);
+		} finally {
+			await session.close();
+		}
+	}, 120_000);
+
+	test('is loaded again when the form asks for a refresh at any cost', async () => {
+		const log: PageLog = { entries: [] };
+		const session = await openItems('/shifting?form=always', log);
+		try {
+			const { page } = session;
+
+			await page.click('#add-by-form');
+			await page.waitForFunction(
+				() =>
+					Reflect.get(window, '__sameDocument') !== true &&
+					document.querySelectorAll('#items li').length === 2,
+				undefined,
+				{ timeout: 30_000 }
+			);
+
+			expect(await itemTexts(page)).toEqual(['item-2', 'item-1']);
 		} finally {
 			await session.close();
 		}

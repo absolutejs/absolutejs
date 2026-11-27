@@ -6,8 +6,10 @@ import type { ActionResult, ActionState } from '../../types/formAction';
 
 /* - ACTION_ERROR_ATTRIBUTE: element whose text becomes the named field's
  *   error (`data-action-error="email"`).
- * - ACTION_INVALIDATE_ATTRIBUTE: on an enhanced <form>, refreshes the
- *   page's data after a successful submission (`invalidate()`).
+ * - ACTION_INVALIDATE_ATTRIBUTE: on an enhanced <form>, how the page is
+ *   refreshed after a successful submission: present, at any cost
+ *   (`invalidate()`); `="false"`, not at all; absent, only if the page
+ *   can be kept.
  * - ACTION_FORM_ATTRIBUTE: marks a plain <form> for `enhanceForms()` and
  *   for the server's no-JS result rendering.
  * - ACTION_MESSAGE_ATTRIBUTE: element whose text becomes the form-level

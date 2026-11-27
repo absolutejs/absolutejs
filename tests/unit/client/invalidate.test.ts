@@ -10,6 +10,7 @@ import { invalidate } from '../../../src/client/invalidate';
 const NAVIGATION_RUNTIME = Symbol.for('absolutejs.navigation');
 const originalFetch = globalThis.fetch;
 const originalWindow: unknown = Reflect.get(globalThis, 'window');
+const originalDocument: unknown = Reflect.get(globalThis, 'document');
 
 type Calls = { refreshes: number; reloads: number };
 
@@ -72,6 +73,9 @@ afterEach(() => {
 	if (originalWindow === undefined)
 		Reflect.deleteProperty(globalThis, 'window');
 	else Reflect.set(globalThis, 'window', originalWindow);
+	if (originalDocument === undefined)
+		Reflect.deleteProperty(globalThis, 'document');
+	else Reflect.set(globalThis, 'document', originalDocument);
 });
 
 describe('invalidate()', () => {
@@ -124,7 +128,9 @@ describe('a form action with invalidate', () => {
 		expect(calls.refreshes).toBe(1);
 	});
 
-	test('is off unless asked for', async () => {
+	/* The page here cannot take new props, so refreshing it means
+	 * mounting it again. Nobody asked for that. */
+	test('left to itself, never mounts the page again or reloads it', async () => {
 		installLayer();
 		answerWith({ status: 'success' });
 
@@ -132,6 +138,93 @@ describe('a form action with invalidate', () => {
 		await settle();
 
 		expect(calls.refreshes).toBe(0);
+		expect(calls.reloads).toBe(0);
+	});
+
+	test('left to itself, hands new props to a page that can take them', async () => {
+		const requested: string[] = [];
+		const given: unknown[] = [];
+		Reflect.set(globalThis, 'document', {
+			cookie: '',
+			scripts: [{ src: 'http://localhost/indexes/Todos.js' }],
+			title: 'Todos'
+		});
+		Reflect.set(globalThis, 'window', {
+			location: {
+				href: 'http://localhost/todos',
+				reload: () => {
+					calls.reloads += 1;
+				}
+			},
+			__ABSOLUTE_PAGE_UPDATE__: (props: unknown) => {
+				given.push(props);
+
+				return true;
+			},
+			addEventListener: () => undefined,
+			dispatchEvent: () => true
+		});
+		const stub = (input: unknown) => {
+			requested.push(String(input));
+			const isAction = String(input) === '/actions/add';
+
+			return Promise.resolve(
+				new Response(
+					JSON.stringify(
+						isAction
+							? { status: 'success' }
+							: {
+									assets: { index: '/indexes/Todos.js' },
+									kind: 'route',
+									props: { items: ['a'] }
+								}
+					),
+					{
+						headers: {
+							'content-type': isAction
+								? 'application/json'
+								: 'application/vnd.absolute.route+json'
+						}
+					}
+				)
+			);
+		};
+		globalThis.fetch = Object.assign(stub, {
+			preconnect: originalFetch.preconnect
+		});
+
+		await submitFormAction('/actions/add', new FormData());
+		await settle();
+
+		expect(requested).toHaveLength(2);
+		expect(given).toEqual([{ items: ['a'] }]);
+		expect(calls.reloads).toBe(0);
+	});
+
+	test('`invalidate: false` leaves even that page alone', async () => {
+		const requested: string[] = [];
+		Reflect.set(globalThis, 'window', {
+			location: {
+				href: 'http://localhost/todos',
+				reload: () => undefined
+			},
+			__ABSOLUTE_PAGE_UPDATE__: () => true
+		});
+		const stub = (input: unknown) => {
+			requested.push(String(input));
+
+			return Promise.resolve(Response.json({ status: 'success' }));
+		};
+		globalThis.fetch = Object.assign(stub, {
+			preconnect: originalFetch.preconnect
+		});
+
+		await submitFormAction('/actions/add', new FormData(), {
+			invalidate: false
+		});
+		await settle();
+
+		expect(requested).toEqual(['/actions/add']);
 	});
 
 	test('leaves a failed submission on screen', async () => {

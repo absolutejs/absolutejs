@@ -10,7 +10,7 @@ import {
 	ACTION_SUCCESS_ATTRIBUTE,
 	isActionResult
 } from '../utils/formActionProtocol';
-import { invalidate } from './invalidate';
+import { invalidate, invalidateKeepingPage } from './invalidate';
 
 /* Browser side of form actions. `submitFormAction` posts a FormData and
  * returns the typed result; `enhanceForms` upgrades plain
@@ -19,18 +19,28 @@ import { invalidate } from './invalidate';
  * normally and the server renders the result. */
 
 export type SubmitFormActionOptions = {
-	/** Refresh the page's data once the action succeeds: the page is
-	 *  fetched again and swapped in place (`invalidate()`), so what it
-	 *  shows includes what the action just changed. Not done for a result
-	 *  that redirects, which loads a page anyway.
+	/** What happens to the page once the action succeeds without
+	 *  redirecting (a redirect loads a page anyway).
 	 *
-	 *  Off unless asked for, because the refresh mounts the page again:
-	 *  a success message held in the form's own state would be gone as
-	 *  soon as it appeared. Use it where the outcome is visible in the
-	 *  page's data — the new row in the list. */
+	 *  Left out, the page's data is refreshed if that can be done
+	 *  without disturbing the page: a mounted page is handed new props,
+	 *  a page with no framework is patched where it differs. What was
+	 *  typed, what is open and what the form's own state holds all stay.
+	 *  A page that cannot be refreshed that way is left as it is.
+	 *
+	 *  `true` refreshes at any cost, as `invalidate()` does: a page that
+	 *  cannot be refreshed in place is mounted again or reloaded.
+	 *  `false` leaves the page alone — for an action that changes
+	 *  nothing the page shows. */
 	invalidate?: boolean;
 	signal?: AbortSignal;
 };
+
+const refreshes = (result: ActionResult, mode: boolean | undefined) =>
+	mode !== false && result.status === 'success' && !result.redirect;
+
+const refreshPage = (mode: boolean | undefined) =>
+	mode === true ? invalidate() : invalidateKeepingPage();
 
 /* After the caller has the result, not before: whoever awaited the
  * submission gets to act on it while its page is still the one mounted.
@@ -40,13 +50,9 @@ const refreshAfter = <Result extends ActionResult>(
 	result: Result,
 	options: SubmitFormActionOptions
 ) => {
-	if (
-		options.invalidate === true &&
-		result.status === 'success' &&
-		!result.redirect
-	)
+	if (refreshes(result, options.invalidate))
 		setTimeout(() => {
-			void invalidate();
+			void refreshPage(options.invalidate);
 		}, 0);
 
 	return result;
@@ -224,10 +230,30 @@ const formActionUrl = (form: HTMLFormElement) => {
 	return `${url.pathname}${url.search}`;
 };
 
+/* Present is yes, `="false"` is no, and absent leaves it to the default
+ * (see `SubmitFormActionOptions.invalidate`). */
+const invalidateModeOf = (form: HTMLFormElement) => {
+	const value = form.getAttribute(ACTION_INVALIDATE_ATTRIBUTE);
+	if (value === null) return undefined;
+
+	return value !== 'false';
+};
+
 /** Submits `form` with fetch instead of a page load. Returns a function
  *  that removes the enhancement. */
 export const enhanceForm = (form: HTMLFormElement) => {
 	let controller: AbortController | undefined;
+	/* The refresh is run here and not by `submitFormAction`, because on
+	 * a page with no framework it rewrites the form from the server's
+	 * copy — which has never heard of this result. The result is
+	 * written into the form again once the refresh is done. */
+	const refresh = async (result: ActionResult, current: AbortController) => {
+		const mode = invalidateModeOf(form);
+		if (!refreshes(result, mode)) return;
+		await refreshPage(mode).catch(() => undefined);
+		if (controller === current && form.isConnected)
+			applyActionResult(form, result);
+	};
 	const submit = async (event: SubmitEvent) => {
 		event.preventDefault();
 		controller?.abort();
@@ -236,12 +262,14 @@ export const enhanceForm = (form: HTMLFormElement) => {
 		const body = new FormData(form, event.submitter);
 		setPending(form, true);
 		const result = await submitFormAction(formActionUrl(form), body, {
-			invalidate: form.hasAttribute(ACTION_INVALIDATE_ATTRIBUTE),
+			invalidate: false,
 			signal: current.signal
 		}).catch(() => undefined);
 		if (controller !== current) return;
 		setPending(form, false);
-		if (result) finishSubmission(form, result);
+		if (!result) return;
+		finishSubmission(form, result);
+		await refresh(result, current);
 	};
 	const listener = (event: SubmitEvent) => {
 		void submit(event);

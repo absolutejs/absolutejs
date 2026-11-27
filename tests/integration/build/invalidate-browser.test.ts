@@ -74,7 +74,6 @@ export function InvalidatePage({ items, layer }: Props) {
 					<form
 						action="/actions/add"
 						data-absolute-action=""
-						data-action-invalidate=""
 						id="add-form"
 						method="post"
 					>
@@ -396,9 +395,10 @@ describe('invalidate()', () => {
 		}
 	}, 120_000);
 
-	/* `data-action-invalidate` on an enhanced form: the action changes
-	 * the data, and the page shows it without the app writing a line. */
-	test('an enhanced form marked for it refreshes the page on success', async () => {
+	/* An enhanced form, with nothing on it asking for a refresh: the
+	 * action changes the data, and the page shows it without the app
+	 * writing a line. */
+	test('an enhanced form refreshes the page on success, unasked', async () => {
 		const session = await openItems('/items');
 		try {
 			const { page } = session;
