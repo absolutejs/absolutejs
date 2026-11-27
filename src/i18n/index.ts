@@ -10,6 +10,7 @@ export {
 	alternateLinks,
 	localeDirection,
 	localeFromPath,
+	localizeHref,
 	localizePath,
 	matchLocale,
 	negotiateLocale,

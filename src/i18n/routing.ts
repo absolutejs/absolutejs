@@ -175,6 +175,49 @@ export const localizePath = <Locale extends string>(
 	return base === '/' ? `/${locale}` : `/${locale}${base}`;
 };
 
+/* From the site's root, and not `//host/…`, which is another site. */
+const ROOTED_RE = /^\/(?!\/)/;
+const FILE_RE = /\.[a-z0-9]+$/i;
+
+const domainOf = <Locale extends string>(
+	routing: LocaleRoutingConfig<Locale>,
+	locale: Locale
+) => {
+	const hosts: Partial<Record<Locale, string>> = routing.domains ?? {};
+
+	return hosts[locale];
+};
+
+/** `href` as a link to the same page in `locale`.
+ *
+ *  Under `prefix` the path's locale segment is swapped or added. Under
+ *  `domain` a link to another locale goes to that locale's host, and
+ *  one to the current locale stays as it is. Under `negotiate` every
+ *  locale shares one address. The query and the fragment are kept.
+ *
+ *  Only an address from the site's root is a page of this site: one on
+ *  another site, a relative one, `mailto:` and the like, and one that
+ *  ends in a file extension are returned as they are. */
+export const localizeHref = <Locale extends string>(
+	href: string,
+	locale: Locale,
+	routing: LocaleRoutingConfig<Locale>,
+	currentLocale: Locale = locale
+) => {
+	if (!ROOTED_RE.test(href)) return href;
+	const cut = href.search(/[?#]/);
+	const path = cut < 0 ? href : href.slice(0, cut);
+	const rest = cut < 0 ? '' : href.slice(cut);
+	if (FILE_RE.test(path)) return href;
+	const strategy = resolveStrategy(routing);
+	if (strategy === 'prefix')
+		return `${localizePath(path, locale, routing)}${rest}`;
+	const host = domainOf(routing, locale);
+	if (strategy !== 'domain' || locale === currentLocale || !host) return href;
+
+	return `//${host}${href}`;
+};
+
 const trimOrigin = (origin: string) => origin.replace(/\/+$/, '');
 
 const domainHref = (origin: string, host: string, path: string) => {

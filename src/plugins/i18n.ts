@@ -3,6 +3,7 @@ import type {
 	I18nConfig,
 	I18nInstance,
 	I18nPayload,
+	I18nPayloadRouting,
 	LocaleResolution,
 	MessageCatalog,
 	MessageTree,
@@ -242,6 +243,18 @@ export const defineI18n = <
 		return resolution;
 	};
 
+	/* What a link needs to be written for a locale in the browser, and
+	 * no more: a default is left out, since every page carries this. */
+	const payloadRouting: I18nPayloadRouting<Locale> = {
+		locales,
+		...(strategy === 'prefix' ? {} : { strategy }),
+		...(config.prefixDefault ? { prefixDefault: true } : {}),
+		// Hosts only matter to a link under `domain` routing.
+		...(strategy === 'domain' && config.domains
+			? { domains: config.domains }
+			: {})
+	};
+
 	/** The hydration payload for `locale`: its merged messages, optionally
 	 *  only the given top-level namespaces. */
 	const payload = async (
@@ -253,7 +266,8 @@ export const defineI18n = <
 			defaultLocale,
 			dir: localeDirection(locale),
 			locale,
-			messages: pickNamespaces(tree, namespaces)
+			messages: pickNamespaces(tree, namespaces),
+			routing: payloadRouting
 		};
 
 		return result;

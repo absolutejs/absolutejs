@@ -97,6 +97,36 @@ differ anyway, the server says so at its first request, naming the settings:
 the sitemap and the CLI go by the config, and requests are routed by
 `defineI18n`.
 
+### Links in the page's locale
+
+The translator every framework hands a page (`useI18n()`, `getI18n()`,
+`injectI18n()`) has `href()`, which writes a link to a page in the page's
+own locale:
+
+```tsx
+const { t, href } = useI18n<typeof en>();
+
+<Link href={href('/about')}>{t('nav.about')}</Link>      // /fr/about on a French page
+<a href={href(currentPath, 'en')}>English</a>            // a language switcher
+```
+
+Under `prefix` it adds or swaps the locale segment, leaving the default
+locale without one unless `prefixDefault` is set. Under `domain` a link to
+another locale goes to that locale's host. Under `negotiate` every locale
+shares one address, so it returns the path. A query and a fragment are
+kept, and an address that is not a page of this site — another site, a
+relative address, `mailto:`, a file — is returned as it is.
+
+It works in the browser as on the server because the payload carries the
+routing it needs (`routing` on the payload: the locales, and the strategy,
+`prefixDefault` and domains only when they are not the defaults). A payload
+made by hand has none, and its `href()` returns the path as given.
+
+Links are not localized on their own, by design. A site written before this
+has links such as `/fr/about` on its English pages — its language switcher —
+and rewriting those to the page's locale would break exactly that link.
+`localizeHref(href, locale, routing)` is the same thing as a function.
+
 Strategies:
 
 - **prefix** (default): first path segment if it is a locale; otherwise the
