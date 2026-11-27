@@ -24,11 +24,12 @@ export type UseFormActionOptions<Data = unknown> = {
 	 *  through a cookie and props, so any action state is accepted; the
 	 *  hook's type parameters type it. */
 	initialState?: ActionState | null;
-	/** Refresh the page's data once the action succeeds, by fetching the
-	 *  page again and swapping it in place (`invalidate()`). Default
-	 *  false: the page is mounted again, so this binding's own `data`
-	 *  and success state do not outlive the refresh. Use it where the
-	 *  outcome shows in the page's data. */
+	/** What happens to the page once the action succeeds without
+	 *  redirecting. Left out, the page's data is refreshed if the page
+	 *  can be kept as it is — this binding's own `data` and success
+	 *  state included — and is otherwise left alone. `true` refreshes
+	 *  at any cost (`invalidate()`), which on a page that cannot be
+	 *  refreshed in place mounts it again. `false` never refreshes. */
 	invalidate?: boolean;
 	/** What to show as `data` while the submission is in flight, derived
 	 *  from what is being sent. Called once per submission, before the
@@ -124,7 +125,7 @@ export const useFormAction = <Data = unknown, Fields extends string = string>(
 					path,
 					body,
 					{
-						invalidate: invalidateRef.current === true,
+						invalidate: invalidateRef.current,
 						signal: controller.signal
 					}
 				);

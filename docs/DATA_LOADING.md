@@ -177,22 +177,41 @@ the one place a page's data is put together.
 
 ### After a form action
 
-A form action can do it for you once it succeeds:
+A form action does it for you. Once an action succeeds without
+redirecting, the page's data is refreshed, so the new row is in the list
+without any code asking for it.
+
+That refresh only ever keeps the page. A React, Svelte or Vue page, and an
+Angular page that reads `usePageData()`, is handed new props; an HTML or
+HTMX page is morphed. What was typed, what is open, and the form's own
+success message all stay. A page that cannot be refreshed that way (see
+below) is left exactly as it is, and never reloaded.
+
+Two settings change that:
 
 ```tsx
+// Refresh at any cost, as invalidate() does: a page that cannot be kept
+// is mounted again or reloaded.
 const add = actions.useFormAction('/actions/add-todo', { invalidate: true });
+
+// Never refresh: the action changes nothing this page shows.
+const ping = actions.useFormAction('/actions/ping', { invalidate: false });
 ```
 
 ```html
 <form action="/actions/add-todo" method="post" data-absolute-action data-action-invalidate>
+<form action="/actions/ping" method="post" data-absolute-action data-action-invalidate="false">
 ```
 
 The option is on every binding (`useFormAction` in React, Vue and Angular,
-`formAction` in Svelte) and on `submitFormAction`. It is skipped for a
-result that redirects, and for a failed submission, whose errors stay on
-screen.
+`formAction` in Svelte) and on `submitFormAction`. Nothing is refreshed
+for a result that redirects, or for a failed submission, whose errors stay
+on screen.
 
-It is **off by default**, for the reason below.
+The refresh costs one request for the page per successful submission. An
+API call made through `createApiClient` is different: it refreshes only
+when asked (`invalidate: true`), because most API calls change nothing
+the page shows.
 
 ### Whether the page keeps its state
 
@@ -214,9 +233,10 @@ into it node by node, keeping every node that is still wanted. See below.
 **An Angular page that reads its data with `usePageContext()` is fetched
 whole and swapped in.** It is the one kind of page that still mounts
 again. The page is mounted again, so state
-its own components hold starts over. On those pages, turn `invalidate` on
-for a form whose outcome shows in the page's data (the new row in the
-list), not for one that shows a "saved" message from its own state. An
+its own components hold starts over. That is why a form action does not
+refresh such a page on its own: set `invalidate: true` on a form whose
+outcome shows in the page's data (the new row in the list), not on one
+that shows a "saved" message from its own state. An
 island marked `persist` keeps its state, as it does across any soft
 navigation.
 

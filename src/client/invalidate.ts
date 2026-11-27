@@ -54,6 +54,22 @@ const reloaded = () => {
 	return outcome;
 };
 
+/* The refreshes that keep the page: nothing is torn down, so nothing
+ * the page or its visitor was holding is lost. Undefined when the page
+ * cannot be refreshed that way. */
+const refreshKeepingPage = async () => {
+	// First choice: hand the mounted page new props (refreshInPlace.ts).
+	const update = readPageUpdate();
+	const inPlace = update ? await refreshInPlace(update) : undefined;
+	if (inPlace !== undefined) return inPlace;
+
+	// A page with no framework has no props to be handed: the document
+	// on screen is morphed into a fresh copy of itself, which keeps
+	// what was typed, what is open and what scripts attached
+	// (refreshDocument.ts).
+	return !update && isDocumentPage() ? refreshDocumentInPlace() : undefined;
+};
+
 /** Fetch the current page again and show the result in its place.
  *
  * Call it after changing data the page shows:
@@ -75,25 +91,25 @@ export const invalidate = async () => {
 
 		return outcome;
 	}
-	// First choice: hand the mounted page new props, so that nothing it
-	// is holding is lost (refreshInPlace.ts). Whatever it declines —
-	// a page with no way to take props, a redirect, a different page —
-	// is refreshed whole, below.
-	const update = readPageUpdate();
-	const inPlace = update ? await refreshInPlace(update) : undefined;
-	if (inPlace !== undefined) return inPlace;
-	// A page with no framework has no props to be handed: the document
-	// on screen is morphed into a fresh copy of itself, which keeps
-	// what was typed, what is open and what scripts attached
-	// (refreshDocument.ts).
-	const morphed =
-		!update && isDocumentPage()
-			? await refreshDocumentInPlace()
-			: undefined;
-	if (morphed !== undefined) return morphed;
+	// First choice: a refresh that keeps the page. Whatever that
+	// declines — a redirect, a different page, new stylesheets — is
+	// refreshed whole, below.
+	const kept = await refreshKeepingPage();
+	if (kept !== undefined) return kept;
 	const refresh = readRefresh();
 	if (!refresh) return reloaded();
 	const result: unknown = await Reflect.apply(refresh, undefined, []);
 
 	return isOutcome(result) ? result : reloaded();
 };
+
+/** `invalidate()` without its last resorts: the page is refreshed only
+ *  if that can be done without mounting it again or loading it, and is
+ *  otherwise left exactly as it is. Resolves to `'updated'`, or to
+ *  undefined when nothing was done.
+ *
+ *  What runs after a form action nobody asked a refresh of: showing the
+ *  new data is worth a request, and not worth a reload the visitor did
+ *  not expect. */
+export const invalidateKeepingPage = async () =>
+	typeof window === 'undefined' ? undefined : refreshKeepingPage();
