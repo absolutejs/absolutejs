@@ -9,8 +9,7 @@
 					"kind": "added",
 					"summary": "`invalidate()` refreshes a React page in place: its state survives",
 					"symbols": [
-						"invalidate",
-						"DocumentNavigationOutcome"
+						"invalidate"
 					]
 				}
 			],
