@@ -1,7 +1,10 @@
+import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { BuildConfig } from '../../types/build';
 import { logWarn } from '../utils/logger';
 import { fillRoutePath } from '../utils/route';
+import { mergeRouteMetadata } from '../utils/routeMetadata';
+import type { RouteMetadata } from '../../types/routeMetadata';
 import { scanFileRoutes } from './fileRoutes';
 
 /* The concrete URLs a project's file routes serve, for the sitemap.
@@ -66,9 +69,68 @@ const loadEntries = async (serverModule: string, routePath: string) => {
 
 type ScannedRoute = ReturnType<typeof scanFileRoutes>['routes'][number];
 
+const METADATA_RE = /^[ \t]*export\s+const\s+metadata\b/m;
+
+const mentionsMetadata = (path: string) => {
+	try {
+		return METADATA_RE.test(readFileSync(path, 'utf8'));
+	} catch {
+		return false;
+	}
+};
+
+const isMetadataValue = (value: unknown): value is RouteMetadata =>
+	typeof value === 'object' && value !== null && !Array.isArray(value);
+
+/* A module's `metadata`, when it is written as a value. One written as
+ * a function is worked out per request, from data a build does not
+ * have, and is nothing here. A module that cannot be imported costs a
+ * warning and is treated as saying nothing. */
+const staticMetadataOf = async (path: string) => {
+	if (!mentionsMetadata(path)) return [];
+	try {
+		const loaded: { metadata?: unknown } = await import(resolve(path));
+		const { metadata } = loaded;
+
+		return isMetadataValue(metadata) ? [metadata] : [];
+	} catch (error) {
+		logWarn(
+			`Could not import ${path} to read its metadata for the sitemap: ${error instanceof Error ? error.message : String(error)}`
+		);
+
+		return [];
+	}
+};
+
+/* Whether a route asks not to be indexed: `robots: { index: false }`
+ * in its `metadata`, or in a folder's above it, merged as they are for
+ * the page. A sitemap is the list of pages a site wants found, and
+ * listing one that says "do not index me" tells a crawler two things
+ * at once.
+ *
+ * Only metadata written as a value can be known here. A route whose
+ * `metadata` is a function stays in the sitemap whatever it would
+ * return; leave such a route out with `sitemap.exclude`. */
+const asksNotToBeIndexed = async (entry: ScannedRoute) => {
+	const modules = [
+		...(entry.guards ?? []),
+		...(entry.server ? [entry.server] : [])
+	];
+	const levels = await modules.reduce(
+		async (previous, path) => [
+			...(await previous),
+			...(await staticMetadataOf(path))
+		],
+		Promise.resolve<RouteMetadata[]>([])
+	);
+
+	return mergeRouteMetadata(levels).robots?.index === false;
+};
+
 /** The URLs one route serves: itself when it is static, one per param
  *  set its `entries()` returns when it is dynamic. */
 const urlsOfRoute = async (entry: ScannedRoute) => {
+	if (await asksNotToBeIndexed(entry)) return [];
 	const typePath = entry.typePath ?? entry.path;
 	if (!DYNAMIC_SEGMENT.test(typePath)) return [entry.path];
 	if (!entry.server) return [];

@@ -408,6 +408,37 @@ export const load = async ({ params }: FileRouteContext<'/blog/:slug'>) => {
     the page: the error is logged and reported, and the page is served.
   - An error page or a 404 keeps its own head: it is not the page the
     metadata describes.
+  - **The sitemap follows it.** A route whose metadata says
+    `robots: { index: false }` — its own, or a folder's above it — is left
+    out of the sitemap: a sitemap lists the pages a site wants found. Only
+    metadata written as a value can be known to a build; a route whose
+    `metadata` is a function stays in, and `sitemap.exclude` is how to
+    leave such a route out.
+- **`robots.txt` (built, opt-in).** The `robots` config key writes one with
+  the build, beside the sitemap:
+
+  ```ts
+  export default defineConfig({
+  	robots: {
+  		rules: [
+  			{ userAgent: '*', disallow: '/admin' },
+  			{ userAgent: 'GPTBot', disallow: '/' }
+  		]
+  	},
+  	sitemap: { baseUrl: 'https://acme.test' }
+  });
+  ```
+
+  `robots: true` allows every crawler everything. The `Sitemap:` line
+  points at the build's sitemap when `sitemap.baseUrl` is set, since a
+  sitemap's address has to be absolute; `sitemap: false` leaves it out and
+  a string or a list names sitemaps outright. Left out of the config, no
+  file is written, as before. A `robots.txt` in `publicDirectory` is served
+  as it is and wins over the config key, with a warning.
+  - `robots.txt` is about fetching, and `robots: { index: false }` in a
+    page's metadata is about search results. A crawler has to be allowed to
+    fetch a page to see that it asks not to be indexed, so a page marked
+    that way should not also be disallowed.
 - **A route's own form action (built).** The server module may export
   `action`, made with `defineAction`:
 

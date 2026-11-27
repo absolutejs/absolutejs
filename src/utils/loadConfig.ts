@@ -37,6 +37,7 @@ const RESERVED_TOP_LEVEL_KEYS = new Set([
 	'postcss',
 	'publicDirectory',
 	'reactDirectory',
+	'robots',
 	'sitemap',
 	'static',
 	'stylesConfig',

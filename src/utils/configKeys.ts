@@ -65,6 +65,7 @@ export const CONFIG_KEYS = [
 	'redirects',
 	'rendering',
 	'rewrites',
+	'robots',
 	'shutdown',
 	'sitemap',
 	'sizeBudgets',

@@ -117,6 +117,8 @@ export default defineConfig({
 	fileRoutes: { output: './routes.gen.ts' },
 	htmlDirectory: './html',
 	reactDirectory: './react',
+	robots: { rules: [{ userAgent: '*' }, { disallow: '/', userAgent: 'GPTBot' }] },
+	sitemap: { baseUrl: 'https://acme.test' },
 	svelteDirectory: './svelte'
 });
 `,
@@ -132,6 +134,10 @@ export default defineConfig({
 	'react/routes/about.server.ts':
 		"export const metadata = { title: { absolute: 'About us' } };\n",
 	'react/routes/about.tsx': PLAIN_PAGE('about'),
+	// Not for search results: says so, as a value a build can read.
+	'react/routes/account.server.ts':
+		"export const metadata = { robots: { index: false }, title: 'Account' };\n",
+	'react/routes/account.tsx': PLAIN_PAGE('account'),
 	'react/routes/blog/[slug].server.ts': POST_SERVER,
 	'react/routes/blog/[slug].tsx': postPage(true),
 	'react/routes/blog/index.tsx': PLAIN_PAGE('blog-index'),
@@ -379,6 +385,49 @@ describe('a route’s metadata, in the other kinds of page', () => {
 		expect(contentOf(head, 'name', 'description')).toEqual([
 			'Common questions'
 		]);
+	});
+});
+
+describe('what the build writes for crawlers', () => {
+	const textAt = async (path: string) => {
+		const response = await fetch(url(path));
+
+		return { status: response.status, text: await response.text() };
+	};
+
+	test('a robots.txt from the config, pointing at the sitemap', async () => {
+		const { status, text } = await textAt('/robots.txt');
+
+		expect(status).toBe(200);
+		expect(text).toBe(
+			[
+				'User-agent: *',
+				'Allow: /',
+				'',
+				'User-agent: GPTBot',
+				'Disallow: /',
+				'',
+				'Sitemap: https://acme.test/sitemap.xml',
+				''
+			].join('\n')
+		);
+	});
+
+	test('a sitemap without the route that asks not to be indexed', async () => {
+		const { status, text } = await textAt('/sitemap.xml');
+
+		expect(status).toBe(200);
+		expect(text).toContain('<loc>https://acme.test/pricing</loc>');
+		expect(text).toContain('<loc>https://acme.test/about</loc>');
+		expect(text).not.toContain('/account');
+	});
+
+	/* The page itself is still served, and says the same thing to a
+	 * crawler that arrives another way. */
+	test('and that route’s page says so in its head', async () => {
+		expect(
+			contentOf((await headOf('/account')).head, 'name', 'robots')
+		).toEqual(['noindex']);
 	});
 });
 
