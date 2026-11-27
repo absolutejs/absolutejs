@@ -5,6 +5,22 @@
 		{
 			"changes": [
 				{
+					"detail": "Vue and Angular have a JsonLd component, as React and Svelte do: `<JsonLd :schema=\"…\" />` from `@absolutejs/absolute/vue/components`, and `<absolute-json-ld [schema]=\"…\" />` (`JsonLdComponent`) from the Angular components. Both write a `<script type=\"application/ld+json\">` where they are used, in the body, since JSON-LD is read wherever it is in the document and a Vue or Angular page's head has been sent by the time its component renders. Several schemas are written as one `@graph`, and a `<` in a value is escaped so no value can end the script. Angular's template compiler drops a `<script>` written in a template silently, so the Angular component makes the element by hand, on the server and again in the browser when `schema` changes. For a file route, `metadata.jsonLd` still puts it in the head. There is deliberately no `Head` component for Vue or Angular: their head is a string the route gives the page handler, sent before the component renders.",
+					"kind": "added",
+					"summary": "Vue and Angular have a JsonLd component",
+					"symbols": [
+						"JsonLd",
+						"JsonLdComponent",
+						"jsonLdText"
+					]
+				}
+			],
+			"date": "2026-11-27",
+			"version": "0.20.0-beta.443"
+		},
+		{
+			"changes": [
+				{
 					"detail": "`absolute content` now also notes what each page is missing to be cited: a title, a description, a canonical address, and for an Article, BlogPosting or NewsArticle in its JSON-LD a headline, a named author, datePublished and dateModified. An article without them can be quoted and not attributed. It reads the page's HTML, so it sees JSON-LD however it got onto the page — route metadata, a JsonLd component or a script tag written by hand — in any framework, and says when a JSON-LD block could not be parsed. These are advice and do not fail the run; `--strict` makes them fail it. A page with nothing to quote is not also told what it lacks. The `--json` report carries them as `citation` on each page. Also: `ArticleSchema` takes `speakable`, a `SpeakableSpecification` naming the parts of a page best read aloud, by CSS selector or XPath. See docs/FILE_ROUTER_PLAN.md.",
 					"kind": "added",
 					"summary": "absolute content notes what a page is missing to be cited, and Article JSON-LD takes speakable",

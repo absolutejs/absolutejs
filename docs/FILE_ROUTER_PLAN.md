@@ -496,6 +496,30 @@ export const load = async ({ params }: FileRouteContext<'/blog/:slug'>) => {
       search as it was.
     - A page can also say `robots: { noai: true, noimageai: true }` in its
       metadata. That is not a standard and few crawlers honour it.
+- **`JsonLd` in every framework (built).** A page not served by a file
+  route has no `metadata` to put JSON-LD in, and React and Svelte have had
+  a `JsonLd` component for it. Vue and Angular now have one too:
+
+  ```vue
+  <JsonLd :schema="{ '@type': 'Article', headline: post.title }" />
+  ```
+
+  ```html
+  <absolute-json-ld [schema]="{ '@type': 'Article', headline: title }" />
+  ```
+
+  Both write the script where they are used, in the body: JSON-LD is read
+  wherever it is in the document, and a Vue or Angular page's head has been
+  sent by the time its component renders. Several schemas are written as
+  one `@graph`, and a `<` in a value is escaped.
+  - Angular's template compiler drops a `<script>` written in a template
+    without a word, which is why this needs a component at all there. It
+    makes the element by hand, on the server and again in the browser when
+    `schema` changes.
+  - There is no `Head` component for Vue or Angular, on purpose. Their head
+    is a string the route gives the page handler (`generateHeadElement`),
+    or a file route's `metadata`, and it is sent before the component
+    renders; a component cannot add to it.
 - **`llms.txt` (built, opt-in).** The `llms` config key writes one with
   the build: a Markdown file at the site's root that names the site, says
   what it is, and lists its pages, for a language model reading the site on
