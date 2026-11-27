@@ -96,6 +96,15 @@ const isForThisPage = (
 	);
 };
 
+/** The path of the mounted page's client entry, when the entry said
+ *  which it is. What a navigation tells the server, so that the server
+ *  can answer with data for this page and the document for any other. */
+export const pageEntryOf = (update: PageUpdate) => {
+	const declared: unknown = Reflect.get(update, 'index');
+
+	return typeof declared === 'string' ? pathnameOf(declared) : undefined;
+};
+
 /** The data in `response`, when it is data and is for the page that
  *  `update` belongs to; undefined otherwise, with the body let go.
  *

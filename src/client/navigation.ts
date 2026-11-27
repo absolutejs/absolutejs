@@ -37,8 +37,17 @@ import type {
 	NavigateDocumentOptions
 } from '../../types/navigation';
 import { disposeIslandsIn } from './islandDisposers';
-import { consumePrefetch, ROUTE_DATA_MEDIA_TYPE } from './prefetch';
-import { applyPageTitle, readPageData, readPageUpdate } from './refreshInPlace';
+import {
+	consumePrefetch,
+	hasPrefetched,
+	ROUTE_DATA_MEDIA_TYPE
+} from './prefetch';
+import {
+	applyPageTitle,
+	pageEntryOf,
+	readPageData,
+	readPageUpdate
+} from './refreshInPlace';
 import {
 	keepRunningScripts,
 	liveScriptsByIdentity,
@@ -566,15 +575,20 @@ const adoptResponseNonce = (
 	};
 };
 
+const requestDocument = (url: URL, signal: AbortSignal, fresh: boolean) =>
+	fresh ? fetchFreshDocument(url, signal) : fetchDocument(url, signal);
+
+/* `given` is a document the server has already sent for this
+ * navigation: the answer to a request that asked for the page's data if
+ * the page was the one mounted (see `navigateInPlace`), and was not. */
 const loadDocument = async (
 	nav: Runtime,
 	url: URL,
 	signal: AbortSignal,
-	fresh: boolean
+	fresh: boolean,
+	given?: Response
 ) => {
-	const response = await (fresh
-		? fetchFreshDocument(url, signal)
-		: fetchDocument(url, signal));
+	const response = given ?? (await requestDocument(url, signal, fresh));
 	const contentType = response.headers.get('content-type') ?? '';
 	const finalUrl = new URL(response.url || url.href);
 	finalUrl.hash = url.hash;
@@ -1176,16 +1190,33 @@ const isCurrent = (nav: Runtime, token: number) => nav.token === token;
  * is fetched but the data, nothing is torn down, and the page keeps
  * what its components hold.
  *
- * "Nearly always" is checked, not assumed: the data names the client
- * entry of the page it is for, and anything but the one on screen —
- * a route that renders another page for this query, a redirect to
- * somewhere else — is declined here and swapped in whole, as before.
- * Declining costs the request that found out, which is why this is
- * tried only where it is expected to succeed. A navigation to another
- * path is not tried at all. */
+ * With `inPlace: 'always'` the same is done when the path changes, for
+ * an app that wants `/blog/a` to `/blog/b` treated that way.
+ *
+ * WHICH PAGE THE ADDRESS IS, the browser cannot know. So it says which
+ * page it has (`x-absolute-page`, the mounted page's client entry) and
+ * asks for either answer: the server sends that page's data, or — for
+ * any other page — the document, which is what was needed in that case
+ * anyway. One request whichever it turns out to be. The data is still
+ * checked against the page on screen when it arrives; a document is
+ * handed on to be swapped in, as if it had been asked for outright. */
+
+const PAGE_HEADER = 'x-absolute-page';
 
 const isQueryChange = (from: string, url: URL) =>
-	from !== addressOf(url) && from.split('?', 1)[0] === url.pathname;
+	from.split('?', 1)[0] === url.pathname;
+
+/* Whether this navigation is one the mounted page might simply be
+ * given the data for. Never one to the address already showing: that
+ * is a link to a fragment, or to where the visitor is. */
+const mayStayMounted = (nav: Runtime, request: NavigationRequest) => {
+	const mode = nav.options.inPlace;
+	if (request.type === 'refresh' || mode === false) return false;
+	const from = request.from ?? nav.shown;
+	if (from === addressOf(request.url)) return false;
+
+	return mode === 'always' || isQueryChange(from, request.url);
+};
 
 const takePrefetchedData = async (url: URL) => {
 	const pending =
@@ -1196,13 +1227,33 @@ const takePrefetchedData = async (url: URL) => {
 	return response?.ok ? response : undefined;
 };
 
-const fetchPageData = async (url: URL, signal: AbortSignal) =>
-	(await takePrefetchedData(url)) ??
+const hasPrefetchedDocument = (url: URL) =>
+	hasPrefetched(url.href) || hasPrefetched(addressOf(url));
+
+const askForDataOrDocument = (url: URL, entry: string, signal: AbortSignal) =>
 	fetch(url.href, {
 		credentials: 'same-origin',
-		headers: { Accept: ROUTE_DATA_MEDIA_TYPE },
+		headers: {
+			Accept: `${ROUTE_DATA_MEDIA_TYPE}, text/html;q=0.9`,
+			[PAGE_HEADER]: entry
+		},
 		signal
 	});
+
+/* A prefetched copy of the data first. Failing that, a document that
+ * was prefetched is not passed over for a request that might only fetch
+ * it again: the navigation is left to the swap, which has it in hand. */
+const fetchPageData = async (url: URL, entry: string, signal: AbortSignal) => {
+	const warm = await takePrefetchedData(url);
+	if (warm) return warm;
+
+	return hasPrefetchedDocument(url)
+		? undefined
+		: askForDataOrDocument(url, entry, signal);
+};
+
+const isDocument = (response: Response) =>
+	(response.headers.get('content-type') ?? '').includes('text/html');
 
 const TYPING_IN = 'input, textarea, select, [contenteditable]';
 
@@ -1218,24 +1269,33 @@ const settleFocus = () => {
 
 type Taken = { value: boolean };
 
+/** Where a document goes when the server sent one in answer to a
+ *  request for the page's data: on to the swap. */
+type Handoff = { document: Response | undefined };
+
 /* Undefined when the navigation is not one for this, or turned out not
  * to be: the caller goes on to swap the page in. */
 const navigateInPlace = async (
 	nav: Runtime,
 	request: NavigationRequest,
 	signal: AbortSignal,
-	isStale: () => boolean
+	isStale: () => boolean,
+	handoff: Handoff
 ) => {
-	if (request.type === 'refresh' || nav.options.inPlace === false)
-		return undefined;
+	if (!mayStayMounted(nav, request)) return undefined;
 	const update = readPageUpdate();
-	if (!update || !isQueryChange(request.from ?? nav.shown, request.url))
-		return undefined;
-	const response = await fetchPageData(request.url, signal).catch(
+	const entry = update ? pageEntryOf(update) : undefined;
+	if (!update || entry === undefined) return undefined;
+	const response = await fetchPageData(request.url, entry, signal).catch(
 		() => undefined
 	);
 	if (isStale()) return outcome('superseded');
 	if (!response) return undefined;
+	if (isDocument(response)) {
+		handoff.document = response;
+
+		return undefined;
+	}
 	// A redirect is followed, as a document navigation follows one: the
 	// address shown is the one arrived at.
 	const url = new URL(response.url || request.url.href);
@@ -1381,11 +1441,13 @@ const performNavigation = async (nav: Runtime, request: NavigationRequest) => {
 		() => !isCurrent(nav, token)
 	);
 	try {
+		const handoff: Handoff = { document: undefined };
 		const inPlace = await navigateInPlace(
 			nav,
 			request,
 			controller.signal,
-			() => !isCurrent(nav, token)
+			() => !isCurrent(nav, token),
+			handoff
 		);
 		if (inPlace === 'updated')
 			dispatch('absolute:after-navigate', detail, false);
@@ -1394,7 +1456,8 @@ const performNavigation = async (nav: Runtime, request: NavigationRequest) => {
 			nav,
 			request.url,
 			controller.signal,
-			request.type === 'refresh'
+			request.type === 'refresh',
+			handoff.document
 		);
 		if (!isCurrent(nav, token)) return outcome('superseded');
 		if (!loaded) return reload(nav, request, false);

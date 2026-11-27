@@ -34,17 +34,20 @@ const fromSource = (path: string) =>
 const LIST_PAGE = `import { useEffect, useState } from 'react';
 import { enableNavigation, navigateDocument } from '${fromSource('client/navigation')}';
 
-type Props = { inPlace: boolean; page: number; query: string; rows: string[] };
+type Mode = 'always' | 'off' | 'query';
+type Props = { mode: Mode; page: number; path: string; query: string; rows: string[] };
 
-export function ListPage({ inPlace, page, query, rows }: Props) {
+const OPTIONS = { always: { inPlace: 'always' }, off: { inPlace: false }, query: {} } as const;
+
+export function ListPage({ mode, page, path, query, rows }: Props) {
 	const [clicks, setClicks] = useState(0);
 	useEffect(() => {
-		enableNavigation(inPlace ? {} : { inPlace: false });
+		enableNavigation(OPTIONS[mode]);
 		Reflect.set(window, '__go', navigateDocument);
 		Reflect.set(window, '__pageHydrated', true);
 		// How many times a page has been mounted in this document.
 		Reflect.set(window, '__mounts', Number(Reflect.get(window, '__mounts') ?? 0) + 1);
-	}, [inPlace]);
+	}, [mode]);
 
 	return (
 		<html lang="en">
@@ -54,6 +57,7 @@ export function ListPage({ inPlace, page, query, rows }: Props) {
 			<body>
 				<div id="list-page">
 					<h1 id="heading">Page {page}</h1>
+					<p id="path">{path}</p>
 					<form action="" id="filter" method="get">
 						<input defaultValue={query} id="q" name="q" type="text" />
 					</form>
@@ -70,6 +74,8 @@ export function ListPage({ inPlace, page, query, rows }: Props) {
 					<a href="?page=other" id="to-other-by-query">another page, same path</a>
 					<a href="?page=moved" id="to-moved">moved</a>
 					<a href="/elsewhere?page=1" id="to-elsewhere">another path</a>
+					<a href="/posts/b" id="to-post-b">another post</a>
+					<a href="/posts/other" id="to-other-post">a different page</a>
 				</div>
 			</body>
 		</html>
@@ -99,7 +105,10 @@ export function OtherPage() {
 }
 `;
 
-type Asked = { documents: number };
+/* What the server was asked for since the page was opened: how many
+ * requests for a page, and how many of them it answered with a
+ * document. */
+type Asked = { documents: number; requests: number };
 
 type ServedApp = { asked: Asked; baseUrl: string; stop: () => void };
 
@@ -117,7 +126,20 @@ const contentType = (path: string) => {
 	return 'application/octet-stream';
 };
 
-const LIST_PATHS = new Set(['/list', '/list-off', '/elsewhere']);
+const LIST_PATHS = new Set([
+	'/list',
+	'/list-off',
+	'/elsewhere',
+	'/posts/a',
+	'/posts/b'
+]);
+const OTHER_PATH = '/posts/other';
+
+const modeOf = (pathname: string) => {
+	if (pathname === '/list-off') return 'off';
+
+	return pathname.startsWith('/posts/') ? 'always' : 'query';
+};
 
 const rowsFor = (page: number, query: string) =>
 	['a', 'b', 'c']
@@ -126,55 +148,62 @@ const rowsFor = (page: number, query: string) =>
 
 type Pages = { List: unknown; Other: unknown };
 
-const createApp =
-	(
-		buildDir: string,
-		manifest: Record<string, string>,
-		pages: Pages,
-		asked: Asked
-	) =>
-	async (request: Request) => {
+const createApp = (
+	buildDir: string,
+	manifest: Record<string, string>,
+	pages: Pages,
+	asked: Asked
+) => {
+	const renderPage = (request: Request) => {
 		const url = new URL(request.url);
 		const { pathname } = url;
 		const pageParam = url.searchParams.get('page') ?? '1';
-		if (LIST_PATHS.has(pathname) && pageParam === 'moved') {
+		if (pageParam === 'moved') {
 			url.searchParams.set('page', '7');
 
 			return Response.redirect(url, 302);
 		}
-		const wantsDocument = !(request.headers.get('accept') ?? '').includes(
-			'vnd.absolute.route'
-		);
-		if (LIST_PATHS.has(pathname) && wantsDocument) asked.documents += 1;
-		// The same path answering with a different page: what the data's
-		// own account of which page it is for exists to catch.
-		if (
-			LIST_PATHS.has(pathname) &&
-			pageParam === 'other' &&
-			isReactPage(pages.Other)
-		)
+		// A different page: at its own path, and at a list's path for
+		// one query — which is what the data's own account of which
+		// page it is for exists to catch.
+		const isOther = pathname === OTHER_PATH || pageParam === 'other';
+		if (isOther && isReactPage(pages.Other))
 			return handleReactPageRequest({
 				index: manifest.OtherPageIndex ?? '',
 				Page: pages.Other,
 				props: {},
 				request
 			});
-		if (LIST_PATHS.has(pathname) && isReactPage(pages.List)) {
-			const page = Number(pageParam);
-			const query = url.searchParams.get('q') ?? '';
+		if (!isReactPage(pages.List)) return unservedPath(pathname);
+		const page = Number(pageParam);
+		const query = url.searchParams.get('q') ?? '';
 
-			return handleReactPageRequest({
-				index: manifest.ListPageIndex ?? '',
-				Page: pages.List,
-				props: {
-					inPlace: pathname !== '/list-off',
-					page,
-					query,
-					rows: rowsFor(page, query)
-				},
-				request
-			});
-		}
+		return handleReactPageRequest({
+			index: manifest.ListPageIndex ?? '',
+			Page: pages.List,
+			props: {
+				mode: modeOf(pathname),
+				page,
+				path: pathname,
+				query,
+				rows: rowsFor(page, query)
+			},
+			request
+		});
+	};
+	const servePage = async (request: Request) => {
+		const response = await renderPage(request);
+		asked.requests += 1;
+		if ((response.headers.get('content-type') ?? '').includes('text/html'))
+			asked.documents += 1;
+
+		return response;
+	};
+
+	return async (request: Request) => {
+		const { pathname } = new URL(request.url);
+		if (LIST_PATHS.has(pathname) || pathname === OTHER_PATH)
+			return servePage(request);
 		if (extname(pathname) === '') return unservedPath(pathname);
 		const filePath = join(buildDir, pathname);
 		if (!existsSync(filePath)) return new Response(null, { status: 404 });
@@ -183,6 +212,7 @@ const createApp =
 			headers: { 'Content-Type': contentType(filePath) }
 		});
 	};
+};
 
 const exported = async (file: string, name: string) => {
 	const loaded: unknown = await import(
@@ -213,7 +243,7 @@ beforeAll(async () => {
 		options: { throwOnError: true },
 		reactDirectory: rel('react')
 	});
-	const asked: Asked = { documents: 0 };
+	const asked: Asked = { documents: 0, requests: 0 };
 	const server = Bun.serve({
 		fetch: createApp(
 			join(fixtureRoot, 'build'),
@@ -272,6 +302,7 @@ const openList = async (path: string) => {
 		Reflect.set(window, '__sameDocument', true);
 	});
 	asked.documents = 0;
+	asked.requests = 0;
 
 	return session;
 };
@@ -494,6 +525,84 @@ describe('the page is replaced, as before', () => {
 			expect(await page.locator('#list-page').count()).toBe(0);
 			expect(addressOf(page)).toBe('/list?page=other');
 			expect(await read(page, '__sameDocument')).toBe(true);
+			// Found out and fetched in one request, not two.
+			expect(served().asked).toEqual({ documents: 1, requests: 1 });
+		} finally {
+			await session.close();
+		}
+	}, 120_000);
+});
+
+/* `inPlace: 'always'`: the same, when the path changes too. The server
+ * is told which page is mounted, and answers with that page's data or
+ * with the document of any other. */
+describe('with `inPlace: always`, a navigation to another path', () => {
+	const waitForPath = (page: Page, path: string) =>
+		page.waitForFunction(
+			(expected) =>
+				document.getElementById('path')?.textContent === expected,
+			path,
+			{ timeout: 30_000 }
+		);
+
+	test('gives the mounted page the data when it is the same page', async () => {
+		const session = await openList('/posts/a');
+		try {
+			const { page } = session;
+			await page.click('#clicks');
+
+			await follow(page, '#to-post-b');
+			await waitForPath(page, '/posts/b');
+
+			expect(addressOf(page)).toBe('/posts/b');
+			expect(await read(page, '__mounts')).toBe(1);
+			expect(await page.locator('#clicks').textContent()).toBe('1');
+			expect(await read(page, '__sameDocument')).toBe(true);
+			expect(served().asked).toEqual({ documents: 0, requests: 1 });
+		} finally {
+			await session.close();
+		}
+	}, 120_000);
+
+	test('back returns to the post left, the same way', async () => {
+		const session = await openList('/posts/a');
+		try {
+			const { page } = session;
+			await follow(page, '#to-post-b');
+			await waitForPath(page, '/posts/b');
+
+			await page.goBack();
+			await waitForPath(page, '/posts/a');
+
+			expect(addressOf(page)).toBe('/posts/a');
+			expect(await read(page, '__mounts')).toBe(1);
+			expect(served().asked.documents).toBe(0);
+		} finally {
+			await session.close();
+		}
+	}, 120_000);
+
+	/* The case the header is for. Asking for data and then, finding it
+	 * is another page's, asking again for the document would run the
+	 * route twice. */
+	test('is sent the document, in the one request, when it is another page', async () => {
+		const session = await openList('/posts/a');
+		try {
+			const { page } = session;
+
+			await follow(page, '#to-other-post');
+			await page.waitForFunction(
+				() => Reflect.get(window, '__otherHydrated') === true,
+				undefined,
+				{ timeout: 30_000 }
+			);
+
+			expect(await page.locator('#other-page').textContent()).toBe(
+				'other'
+			);
+			expect(addressOf(page)).toBe('/posts/other');
+			expect(await read(page, '__sameDocument')).toBe(true);
+			expect(served().asked).toEqual({ documents: 1, requests: 1 });
 		} finally {
 			await session.close();
 		}

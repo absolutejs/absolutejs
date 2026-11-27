@@ -373,3 +373,33 @@ export default defineConfig({ navigation: { inPlace: false } });
 // or, where the layer is enabled by hand
 enableNavigation({ inPlace: false });
 ```
+
+### When the path changes too: `inPlace: 'always'`
+
+```ts
+export default defineConfig({ navigation: { inPlace: 'always' } });
+```
+
+`/blog/a` to `/blog/b`, where one page renders both: the mounted page is
+handed post B's data the same way. It is off unless asked for, because a
+component then outlives the post it was first shown for. Whatever it
+keeps in its own state has to follow its props, or be keyed by them:
+
+```tsx
+// Reset the draft when the post changes.
+<CommentBox key={post.id} />
+```
+
+A navigation to an address a different page renders still replaces the
+page, and costs no extra request to find out. The browser tells the
+server which page it has mounted and asks for either answer; the server
+sends that page's data, or the document of any other. The route runs once
+either way.
+
+Two things to know:
+
+- A pre-rendered page is not served from its file for such a request. The
+  route renders it, because the answer depends on which page the browser
+  named.
+- A `<Link>` that has already prefetched the destination's document is
+  left to the ordinary swap, which has the document in hand.
