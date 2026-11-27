@@ -14,6 +14,7 @@ export { handleAngularPageRequest } from './pageHandler';
 export {
 	useFormAction,
 	usePageContext,
+	usePageData,
 	useResource,
 	useSubscription,
 	useTimers

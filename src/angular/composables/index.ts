@@ -1,6 +1,7 @@
 export { useFormAction } from './useFormAction';
 export type { FormAction } from './useFormAction';
 export { usePageContext } from './usePageContext';
+export { usePageData } from './usePageData';
 export { useResource } from './useResource';
 export type {
 	Resource,

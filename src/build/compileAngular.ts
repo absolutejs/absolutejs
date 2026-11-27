@@ -2719,6 +2719,7 @@ import { provideClientHydration, withEventReplay } from '@angular/platform-brows
 import { withHttpTransferCacheOptions } from '@angular/platform-browser';
 import { ${changeDetectionImport}, CSP_NONCE, REQUEST_CONTEXT } from '@angular/core';
 import { APP_BASE_HREF as __abs_APP_BASE_HREF } from '@angular/common';
+import { signal as __abs_signal } from '@angular/core';
 import { prepareBrowserTranslationHydration } from '@absolutejs/absolute/client';
 import * as pageModule from '${normalizedImportPath}';
 var ${componentClassName} = pageModule.default;
@@ -2733,7 +2734,24 @@ var pageHasIslands = Boolean(pageModule.__ABSOLUTE_PAGE_HAS_ISLANDS__) || Boolea
 var pageHasRawStreamingSlots = Boolean(document.querySelector('[data-absolute-raw-slot="true"]'));
 var pageHasStreamingSlots = Boolean(document.querySelector('[data-absolute-slot="true"]'));
 var isClientRender = window.__ABSOLUTE_PAGE_RENDER_MODE__ === 'client';
-var contextProviders = [{ provide: REQUEST_CONTEXT, useValue: requestContext }];
+// The page's data, two ways (angular/composables/usePageData.ts).
+//
+// As a signal, for \`usePageData()\`: a refresh sets it, and Angular
+// re-renders what read it. And as the plain object \`usePageContext()\`
+// and \`inject(REQUEST_CONTEXT)\` have always returned — through a
+// factory, so this entry knows whether anything asked for it. A page
+// that did may have copied values out of it that nothing can update,
+// and is refreshed whole instead of in place.
+var pageData = __abs_signal(requestContext);
+window[Symbol.for('absolutejs.angularPageData')] = pageData.asReadonly();
+var plainContextRead = false;
+var contextProviders = [{
+    provide: REQUEST_CONTEXT,
+    useFactory: function () {
+        plainContextRead = true;
+        return requestContext;
+    }
+}];
 // Under secureHeaders() the policy only allows <style> elements that carry
 // the page's nonce. Angular adds one for every component it renders or
 // hot-updates in the browser, so hand it the nonce the server put on the
@@ -2837,7 +2855,20 @@ window.__ABSOLUTE_PAGE_DISPOSE__ = async function() {
         window.__ANGULAR_APP__.destroy();
         window.__ANGULAR_APP__ = null;
     }
+    window.__ABSOLUTE_PAGE_UPDATE__ = undefined;
+    delete window[Symbol.for('absolutejs.angularPageData')];
 };
+// New data for the page that is already mounted
+// (client/refreshInPlace.ts). Only for a page that reads its data as a
+// signal: \`false\` sends the caller to the whole-page refresh.
+window.__ABSOLUTE_PAGE_UPDATE__ = function(nextContext) {
+    if (plainContextRead || !window.__ANGULAR_APP__) return false;
+    requestContext = nextContext;
+    window.__ABS_ANGULAR_REQUEST_CONTEXT__ = nextContext;
+    pageData.set(nextContext);
+    return true;
+};
+window.__ABSOLUTE_PAGE_UPDATE__.index = import.meta.url;
 `.trim()
 			: `
 ${zoneImport}import '@angular/compiler';
@@ -2846,6 +2877,7 @@ import { provideClientHydration, withEventReplay } from '@angular/platform-brows
 import { withHttpTransferCacheOptions } from '@angular/platform-browser';
 import { enableProdMode, ${changeDetectionImport}, CSP_NONCE, REQUEST_CONTEXT } from '@angular/core';
 import { APP_BASE_HREF as __abs_APP_BASE_HREF } from '@angular/common';
+import { signal as __abs_signal } from '@angular/core';
 import { prepareBrowserTranslationHydration } from '@absolutejs/absolute/client';
 import * as pageModule from '${normalizedImportPath}';
 var ${componentClassName} = pageModule.default;
@@ -2860,7 +2892,24 @@ var pageHasIslands = Boolean(pageModule.__ABSOLUTE_PAGE_HAS_ISLANDS__) || Boolea
 var pageHasRawStreamingSlots = Boolean(document.querySelector('[data-absolute-raw-slot="true"]'));
 var pageHasStreamingSlots = Boolean(document.querySelector('[data-absolute-slot="true"]'));
 var isClientRender = window.__ABSOLUTE_PAGE_RENDER_MODE__ === 'client';
-var contextProviders = [{ provide: REQUEST_CONTEXT, useValue: requestContext }];
+// The page's data, two ways (angular/composables/usePageData.ts).
+//
+// As a signal, for \`usePageData()\`: a refresh sets it, and Angular
+// re-renders what read it. And as the plain object \`usePageContext()\`
+// and \`inject(REQUEST_CONTEXT)\` have always returned — through a
+// factory, so this entry knows whether anything asked for it. A page
+// that did may have copied values out of it that nothing can update,
+// and is refreshed whole instead of in place.
+var pageData = __abs_signal(requestContext);
+window[Symbol.for('absolutejs.angularPageData')] = pageData.asReadonly();
+var plainContextRead = false;
+var contextProviders = [{
+    provide: REQUEST_CONTEXT,
+    useFactory: function () {
+        plainContextRead = true;
+        return requestContext;
+    }
+}];
 // Under secureHeaders() the policy only allows <style> elements that carry
 // the page's nonce. Angular adds one for every component it renders or
 // hot-updates in the browser, so hand it the nonce the server put on the
@@ -2940,7 +2989,20 @@ window.__ABSOLUTE_PAGE_DISPOSE__ = async function() {
         window.__ANGULAR_APP__.destroy();
         window.__ANGULAR_APP__ = null;
     }
+    window.__ABSOLUTE_PAGE_UPDATE__ = undefined;
+    delete window[Symbol.for('absolutejs.angularPageData')];
 };
+// New data for the page that is already mounted
+// (client/refreshInPlace.ts). Only for a page that reads its data as a
+// signal: \`false\` sends the caller to the whole-page refresh.
+window.__ABSOLUTE_PAGE_UPDATE__ = function(nextContext) {
+    if (plainContextRead || !window.__ANGULAR_APP__) return false;
+    requestContext = nextContext;
+    window.__ABS_ANGULAR_REQUEST_CONTEXT__ = nextContext;
+    pageData.set(nextContext);
+    return true;
+};
+window.__ABSOLUTE_PAGE_UPDATE__.index = import.meta.url;
 `.trim();
 		/* The index is where `absoluteRouterHandoff` is resolved, because
 		 * the index is bundled: the specifier is resolved once at build
