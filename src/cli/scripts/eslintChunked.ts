@@ -1,5 +1,5 @@
-import { existsSync, rmSync } from 'node:fs';
-import { totalmem } from 'node:os';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir, totalmem } from 'node:os';
 import { relative, resolve } from 'node:path';
 import {
 	createEslintCacheFingerprint,
@@ -10,41 +10,46 @@ import {
 import {
 	cachedCleanFiles,
 	lintContextKey,
-	markShardCache
+	markVerdictCache,
+	mergeVerdicts
 } from './eslintCacheProbe';
+import {
+	chunkSizeFor,
+	fileKind,
+	loadObservations,
+	saveObservations
+} from './eslintMemoryModel';
 
 /**
- * Chunked, sharded, cache-fingerprinted ESLint orchestration for projects
- * whose type-aware lint program cannot fit in one process.
+ * Chunked, cache-fingerprinted ESLint orchestration for projects whose
+ * type-aware lint program is expensive to build and too big for one process.
  *
  * Why this exists: with heavy typed surfaces (e.g. Drizzle row types flowing
- * through a full Eden `Server`), a single whole-repo ESLint pass exceeds the
- * V8 heap and thrashes. Sub-app style imports mean a small batch of files
- * only pulls a bounded slice of the type graph — so files run in fresh
- * per-chunk processes instead of one giant pass.
+ * through a full Eden `Server`), a single whole-repo ESLint pass can exceed
+ * the V8 heap. Files run in a few separate processes instead, each as large
+ * as memory allows, because every process pays to build the TypeScript
+ * program again (onSpark: about 26 s of a 59 s, 209-file process).
  *
  * Layers:
- *  - ESLint `--cache --cache-strategy content` so mtime churn (checkouts,
- *    installs) never invalidates a clean verdict.
- *  - Files map to a fixed number of SHARDS by a stable path hash; each shard
- *    owns its own cache file. Chunks within a shard run sequentially, shards
- *    run in parallel — two processes never write one cache file.
- *  - Every shard cache is guarded by the toolchain fingerprint
+ *  - One verdict cache. Each process lints with its own scratch ESLint cache
+ *    (`--cache-strategy content`, so mtime churn never invalidates a clean
+ *    verdict) and its entries are merged into the verdict cache when it
+ *    finishes (eslintCacheProbe.ts). Any file can go to any process, and a
+ *    file only ever has its newest verdict.
+ *  - The verdict cache is guarded by the toolchain fingerprint
  *    (`prepareEslintCache`): the INSTALLED manifests of every lint-related
- *    dependency. Plugin upgrades — or node_modules drifting from the lockfile
- *    — drop the caches instead of silently reusing stale verdicts. Config
- *    edits do not: ESLint's own cache hashes each file's calculated config, so
- *    it re-lints exactly the files that override touched.
- *  - Files whose clean verdict is already cached (same content, toolchain,
- *    config and arguments) are left out before any process starts, so a
- *    run with nothing new to lint costs seconds, not one process per chunk
- *    (eslintCacheProbe.ts). The report still covers them: a clean verdict
- *    has nothing to report.
- *  - Chunk size adapts to memory: each process reports its peak RSS, and
- *    the next chunk in that lane grows or shrinks toward a share of the
- *    per-process budget (the machine's memory over the concurrency). A
- *    fixed 20-file chunk rebuilt the type program 146 times on onSpark; 100
- *    files in one process took 26 s where 5 of 20 took 109 s.
+ *    dependency. Plugin upgrades, or node_modules drifting from the
+ *    lockfile, drop it instead of silently reusing stale verdicts.
+ *  - Files whose clean verdict is cached (same content, toolchain, config
+ *    and arguments) are left out before any process starts, so a run with
+ *    nothing new to lint costs seconds and a small change is one process.
+ *    The report still covers them: a clean verdict has nothing to report.
+ *  - Chunk size comes from memory: every process reports its peak RSS, and
+ *    a line through (files, peak) gives the size that peaks near a share of
+ *    the per-process budget (available memory over the processes running).
+ *    Observations persist between runs (eslintMemoryModel.ts). Lanes take
+ *    sorted chunks from one shared queue; a crash caps later chunks at half
+ *    the crashed size.
  *  - `--changed` lints only files that differ from the branch's upstream (or
  *    `--changed-base <ref>`) plus anything staged/unstaged/untracked.
  *    Porcelain status lines are parsed per line WITHOUT trimming their
@@ -58,10 +63,8 @@ import {
  *   --changed[=<ref>]    changed-only mode; bare form resolves the upstream
  *   --changed-base <ref> explicit diff base for --changed
  *   --out <path>         report location (default .absolutejs/lint-report.txt)
- *   --chunk-size <n>     fixed files per ESLint process (default: adaptive,
- *                        starting at 50 and sized to memory)
- *   --shards <n>         cache shard count (default 4) — changing it
- *                        reshuffles which cache file owns which path
+ *   --chunk-size <n>     fixed files per ESLint process (default: sized to
+ *                        memory)
  *   positionals          glob patterns for the lint set; without any, every
  *                        git-visible file with a lintable extension is used
  *
@@ -70,22 +73,19 @@ import {
 
 const INITIAL_CHUNK_SIZE = 50;
 const MIN_CHUNK_SIZE = 10;
-const MAX_CHUNK_SIZE = 500;
-/** Growth per step is capped: peak memory is not linear in chunk size. */
-const MAX_GROWTH = 2;
+const MAX_CHUNK_SIZE = 2000;
+const NOT_FOUND = -1;
 /** Aim each process at this share of its memory budget. */
-const TARGET_SHARE = 0.6;
-/** The share of the machine's memory lint processes may use together. */
-const MACHINE_SHARE = 0.75;
+const TARGET_SHARE = 0.8;
+/** The share of the machine's available memory lint processes may use
+ *  together. */
+const MACHINE_SHARE = 0.85;
 const BYTES_PER_KIB = 1024;
 const BYTES_PER_MB = BYTES_PER_KIB * BYTES_PER_KIB;
 const BYTES_PER_GB = BYTES_PER_MB * BYTES_PER_KIB;
-const DEFAULT_SHARDS = 4;
 const DEFAULT_CONCURRENCY = 2;
 const DEFAULT_REPORT = '.absolutejs/lint-report.txt';
 const CHILD_HEAP_MB = 4096;
-const DJB2_SEED = 5381;
-const DJB2_MULTIPLIER = 33;
 const MS_PER_SECOND = 1000;
 const SUMMARY_RULE_WIDTH = 60;
 const SUMMARY_COUNT_PAD = 5;
@@ -101,15 +101,34 @@ const ANSI_COLOR = new RegExp(
 );
 const stripAnsi = (text: string) => text.replace(ANSI_COLOR, '');
 
-/** Stable djb2-xor hash of the repo-relative path → shard index. */
-const shardOf = (path: string, shards: number) =>
-	[...path].reduce(
-		(accumulator, character) =>
-			(Math.imul(accumulator, DJB2_MULTIPLIER) ^
-				character.charCodeAt(0)) >>>
-			0,
-		DJB2_SEED
-	) % shards;
+/* Memory the lint processes can use: what Linux reports as available
+ * (free plus reclaimable cache), or a share of the total elsewhere. */
+const availableMemory = () => {
+	try {
+		const line = readFileSync('/proc/meminfo', 'utf-8')
+			.split('\n')
+			.find((entry) => entry.startsWith('MemAvailable:'));
+		const kib = Number(line?.match(/\d+/)?.[0]);
+		if (kib > 0) return kib * BYTES_PER_KIB;
+	} catch {
+		// Not Linux: fall through to the total.
+	}
+
+	return totalmem();
+};
+
+/* Before one verdict cache, files were split across fixed path-hash shard
+ * caches; those files are no longer read. */
+const LEGACY_SHARD_LIMIT = 64;
+const removeShardCaches = (cacheBase: string, cwd: string) => {
+	for (let shard = 0; shard < LEGACY_SHARD_LIMIT; shard++) {
+		const shardCache = resolve(cwd, `${cacheBase}-shard-${shard}`);
+		if (!existsSync(shardCache) && !existsSync(`${shardCache}.fingerprint`))
+			continue;
+		for (const suffix of ['', '.config', '.fingerprint'])
+			rmSync(`${shardCache}${suffix}`, { force: true, recursive: true });
+	}
+};
 
 const gitLines = (cmd: string[], cwd: string) =>
 	Bun.spawnSync(cmd, { cwd })
@@ -131,7 +150,6 @@ type ChunkedArgs = {
 	globs: string[];
 	outFile: string;
 	passthrough: string[];
-	shards: number;
 };
 
 const applyChangedBase = (parsed: ChunkedArgs, base: string | null) => {
@@ -169,30 +187,6 @@ const resolveLintSet = (parsed: ChunkedArgs, cwd: string) => {
  */
 export const resolveLintTargets = (args: string[], cwd = process.cwd()) =>
 	resolveLintSet(parseChunkedArgs(args), cwd);
-
-/* Each file's shard, by a stable hash of its path. */
-const filesByShard = (files: string[], shards: number) => {
-	const shardFiles: string[][] = Array.from({ length: shards }, () => []);
-	for (const file of files) shardFiles[shardOf(file, shards)]?.push(file);
-
-	return shardFiles;
-};
-
-/* The next chunk size for a lane, from the last process's peak memory. */
-export const nextChunkSize = (
-	size: number,
-	peakBytes: number | undefined,
-	budgetBytes: number
-) => {
-	if (!peakBytes || peakBytes <= 0) return size;
-	const scaled =
-		size * Math.min((budgetBytes * TARGET_SHARE) / peakBytes, MAX_GROWTH);
-
-	return Math.max(
-		MIN_CHUNK_SIZE,
-		Math.min(MAX_CHUNK_SIZE, Math.round(scaled))
-	);
-};
 
 const runEslintProcess = async (
 	chunk: string[],
@@ -293,73 +287,116 @@ export const eslintChunked = async (args: string[], cwd = process.cwd()) => {
 		return;
 	}
 
-	// One fingerprint guards every shard cache: a changed lint toolchain
-	// (config edit, plugin upgrade, drifted node_modules) drops them all.
-	const cachePrefix = `${getCacheLocation(args)}-shard-`;
-	const fingerprint = createEslintCacheFingerprint(cwd);
-	for (let shard = 0; shard < parsed.shards; shard++)
-		prepareEslintCache({
-			cacheLocation: relative(
-				cwd,
-				resolve(cwd, `${cachePrefix}${shard}`)
-			),
-			cwd,
-			fingerprint
-		});
+	// The toolchain fingerprint guards the verdict cache: a changed lint
+	// toolchain (plugin upgrade, drifted node_modules) drops it.
+	const cacheBase = getCacheLocation(args);
+	const verdictCache = `${cacheBase}-verdicts`;
+	removeShardCaches(cacheBase, cwd);
+	prepareEslintCache({
+		cacheLocation: relative(cwd, resolve(cwd, verdictCache)),
+		cwd,
+		fingerprint: createEslintCacheFingerprint(cwd)
+	});
 
-	const concurrency = Math.max(
-		1,
-		Number(process.env.LINT_CONCURRENCY) || DEFAULT_CONCURRENCY
-	);
-	const budgetBytes = Math.min(
-		(totalmem() * MACHINE_SHARE) / concurrency,
-		CHILD_HEAP_MB * BYTES_PER_MB
-	);
 	const contextKey = lintContextKey(
 		createEslintConfigDigest(cwd),
 		parsed.passthrough
 	);
-	const shardCache = (shard: number) => `${cachePrefix}${shard}`;
-	const pendingByShard = filesByShard(files, parsed.shards).map(
-		(owned, shard) => {
-			const clean = cachedCleanFiles(
-				owned,
-				shardCache(shard),
-				contextKey,
-				cwd
-			);
+	const clean = cachedCleanFiles(files, verdictCache, contextKey, cwd);
+	// Grouped by kind (a chunk is one kind, sized by that kind's memory),
+	// then by path, so a chunk holds neighbouring files that share most of
+	// their slice of the type graph.
+	const queue = files
+		.filter((file) => !clean.has(file))
+		.sort(
+			(left, right) =>
+				fileKind(left).localeCompare(fileKind(right)) ||
+				left.localeCompare(right)
+		);
+	const pending = queue.length;
 
-			return owned.filter((file) => !clean.has(file));
-		}
+	const memoryLocation = `${cacheBase}-memory.json`;
+	const observations = loadObservations(memoryLocation, cwd);
+	const concurrency = Math.max(
+		1,
+		Number(process.env.LINT_CONCURRENCY) || DEFAULT_CONCURRENCY
 	);
-	const pending = pendingByShard.reduce((sum, list) => sum + list.length, 0);
+	// Measured once, before any lint process runs: read live, a running
+	// lane's own memory counted against the next chunk and cut it to the
+	// minimum.
+	const memoryAtStart = availableMemory();
+	const budgetBytes = (lanes: number) =>
+		Math.min(
+			(memoryAtStart * MACHINE_SHARE) / lanes,
+			CHILD_HEAP_MB * BYTES_PER_MB
+		);
+	// Lowered by a crash; until then the model alone decides.
+	let crashCeiling = Number.POSITIVE_INFINITY;
+	const sizeFor = (lanes: number, kind: string) =>
+		parsed.chunkSize ??
+		Math.min(
+			crashCeiling,
+			chunkSizeFor(
+				observations,
+				kind,
+				budgetBytes(lanes) * TARGET_SHARE,
+				{
+					initial: INITIAL_CHUNK_SIZE,
+					max: MAX_CHUNK_SIZE,
+					min: MIN_CHUNK_SIZE
+				}
+			)
+		);
+	/* The next chunk: files of the first queued file's kind, up to that
+	 * kind's size. Taken synchronously, so two lanes never share files. */
+	const takeChunk = (lanes: number) => {
+		const kind = fileKind(queue[0] ?? '');
+		const size = sizeFor(lanes, kind);
+		const end = queue.findIndex(
+			(file, index) => index >= size || fileKind(file) !== kind
+		);
+
+		return {
+			chunk: queue.splice(0, end === NOT_FOUND ? queue.length : end),
+			kind
+		};
+	};
+	// No more lanes than there are chunks: a small change is one process.
+	const lanes = Math.max(
+		1,
+		Math.min(
+			concurrency,
+			Math.ceil(pending / sizeFor(concurrency, fileKind(queue[0] ?? '')))
+		)
+	);
 	console.log(
 		`Linting ${files.length} files: ${files.length - pending} have a clean cached verdict, ${pending} to lint ` +
-			`(${parsed.chunkSize === null ? 'adaptive chunks' : `chunks of ${parsed.chunkSize}`}, ${parsed.shards} cache shards, concurrency ${concurrency}${parsed.changedOnly ? ', --changed' : ''})`
+			`(${parsed.chunkSize === null ? 'chunks sized to memory' : `chunks of ${parsed.chunkSize}`}, ${lanes} ${lanes === 1 ? 'process' : 'processes'} at a time${parsed.changedOnly ? ', --changed' : ''})`
 	);
 	// A run that stops part-way leaves a cache mixing contexts: no marker
 	// until it finishes, so nothing is skipped on its word.
-	for (let shard = 0; shard < parsed.shards; shard++)
-		rmSync(resolve(cwd, `${shardCache(shard)}.config`), { force: true });
+	rmSync(resolve(cwd, `${verdictCache}.config`), { force: true });
 
 	const startedAt = Date.now();
 	let failedChunks = 0;
 	let completedChunks = 0;
 	let lintedFiles = 0;
 	let report = '';
+	const scratchDirectory = mkdtempSync(resolve(tmpdir(), 'absolute-lint-'));
 
-	const runChunk = async (shard: number, chunk: string[]) => {
+	const runChunk = async (chunk: string[], kind: string) => {
+		const scratchCache = resolve(
+			scratchDirectory,
+			`cache-${completedChunks}-${chunk.length}-${Date.now()}`
+		);
 		let results = [
-			await runEslintProcess(
-				chunk,
-				shardCache(shard),
-				parsed.passthrough,
-				cwd
-			)
+			await runEslintProcess(chunk, scratchCache, parsed.passthrough, cwd)
 		];
 		const crashed = wasSilentCrash(results, chunk);
 		if (crashed)
 			results = await retryEachFile(chunk, parsed.passthrough, cwd);
+		else mergeVerdicts(scratchCache, verdictCache, cwd);
+		rmSync(scratchCache, { force: true });
 		const combined = results.map((result) => result.combined).join('');
 		const exitCode = results.some((result) => result.exitCode !== 0)
 			? 1
@@ -375,49 +412,36 @@ export const eslintChunked = async (args: string[], cwd = process.cwd()) => {
 		lintedFiles += chunk.length;
 		const peak = results[0]?.peakBytes;
 		process.stdout.write(
-			`  · chunk ${completedChunks}: ${chunk.length} files${peak ? `, peak ${(peak / BYTES_PER_GB).toFixed(1)} GB` : ''} (${lintedFiles}/${pending})\n`
+			`  · chunk ${completedChunks}: ${chunk.length} ${kind} files${peak ? `, peak ${(peak / BYTES_PER_GB).toFixed(1)} GB` : ''} (${lintedFiles}/${pending})\n`
 		);
 		if (exitCode !== 0) failedChunks++;
-
-		// A crash (out of memory, most often) halves the next chunk.
-		return crashed ? undefined : peak;
+		// A crash (out of memory, most often) caps every later chunk at
+		// half its size; a finished process teaches the model.
+		if (crashed)
+			crashCeiling = Math.max(
+				MIN_CHUNK_SIZE,
+				Math.floor(chunk.length / 2)
+			);
+		else if (peak)
+			observations.push({ files: chunk.length, kind, peakBytes: peak });
 	};
 
-	/* A lane drains its shards in order, so one shard's cache file is never
-	 * written by two processes at once; within a shard, each chunk is sized
-	 * from the previous process's peak memory. */
-	const sizeAfter = (size: number, peak: number | undefined) => {
-		if (parsed.chunkSize !== null) return size;
-
-		return peak === undefined
-			? Math.max(MIN_CHUNK_SIZE, Math.floor(size / 2))
-			: nextChunkSize(size, peak, budgetBytes);
+	/* Lanes take the next chunk from one shared queue, each sized from
+	 * everything learned so far. Taking is synchronous, so two lanes never
+	 * get the same files. */
+	const runLane = async (): Promise<void> => {
+		const { chunk, kind } = takeChunk(lanes);
+		if (chunk.length === 0) return;
+		await runChunk(chunk, kind);
+		await runLane();
 	};
-	const drainShard = async (
-		shard: number,
-		queue: string[],
-		size: number
-	): Promise<number> => {
-		if (queue.length === 0) return size;
-		const peak = await runChunk(shard, queue.slice(0, size));
-
-		return drainShard(shard, queue.slice(size), sizeAfter(size, peak));
-	};
-	const runLane = (shards: number[]) =>
-		shards.reduce(
-			async (previous, shard) =>
-				drainShard(shard, pendingByShard[shard] ?? [], await previous),
-			Promise.resolve(parsed.chunkSize ?? INITIAL_CHUNK_SIZE)
-		);
-	const laneShards: number[][] = Array.from(
-		{ length: concurrency },
-		() => []
-	);
-	for (let shard = 0; shard < parsed.shards; shard++)
-		laneShards[shard % concurrency]?.push(shard);
-	await Promise.all(laneShards.map(runLane));
-	for (let shard = 0; shard < parsed.shards; shard++)
-		markShardCache(shardCache(shard), contextKey, cwd);
+	try {
+		await Promise.all(Array.from({ length: lanes }, runLane));
+	} finally {
+		rmSync(scratchDirectory, { force: true, recursive: true });
+	}
+	markVerdictCache(verdictCache, contextKey, cwd);
+	saveObservations(memoryLocation, observations, cwd);
 	const totalChunks = completedChunks;
 
 	const summary = ruleSummary(report);
@@ -482,8 +506,7 @@ export const parseChunkedArgs = (args: string[]) => {
 		chunkSize: null,
 		globs: [],
 		outFile: DEFAULT_REPORT,
-		passthrough: [],
-		shards: DEFAULT_SHARDS
+		passthrough: []
 	};
 	for (let index = 0; index < args.length; index++) {
 		const arg = args[index];
@@ -499,8 +522,6 @@ export const parseChunkedArgs = (args: string[]) => {
 			parsed.outFile = arg.slice('--out='.length);
 		else if (arg === '--chunk-size')
 			parsed.chunkSize = Number(args[++index]) || null;
-		else if (arg === '--shards')
-			parsed.shards = Number(args[++index]) || DEFAULT_SHARDS;
 		else if (arg.startsWith('-')) parsed.passthrough.push(arg);
 		else parsed.globs.push(arg);
 	}

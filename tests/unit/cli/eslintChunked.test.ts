@@ -47,8 +47,6 @@ describe('parseChunkedArgs', () => {
 			'report.txt',
 			'--chunk-size',
 			'10',
-			'--shards',
-			'8',
 			'--fix',
 			'src/**/*.ts'
 		]);
@@ -57,7 +55,6 @@ describe('parseChunkedArgs', () => {
 		expect(parsed.changedBase).toBe('origin/dev');
 		expect(parsed.outFile).toBe('report.txt');
 		expect(parsed.chunkSize).toBe(10);
-		expect(parsed.shards).toBe(8);
 		expect(parsed.passthrough).toEqual(['--fix']);
 		expect(parsed.globs).toEqual(['src/**/*.ts']);
 	});
