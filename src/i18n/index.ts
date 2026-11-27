@@ -6,6 +6,7 @@
 export { defineMessages } from './defineMessages';
 export { formatMessage, parseMessage } from './formatMessage';
 export type { MessageNode } from './formatMessage';
+export { basicTags, formatRichMessage } from './richMessage';
 export {
 	alternateLinks,
 	localeDirection,

@@ -4,9 +4,11 @@ import type {
 	MessageCatalog,
 	MessageTree,
 	Translate,
+	TranslateHtml,
 	Translator
 } from '../../types/i18n';
 import { formatMessage } from './formatMessage';
+import { formatRichMessage, renderRichText } from './richMessage';
 import { localizeHref } from './routing';
 import {
 	getDateTimeFormat,
@@ -73,8 +75,23 @@ export const createTranslator = <Catalog = MessageCatalog>(
 
 		return formatMessage(locale, message, isRecord(params) ? params : {});
 	};
+	const html: TranslateHtml<Catalog> = (key, tags, ...args: unknown[]) => {
+		const message = lookupMessage(messages, key);
+		const [params] = args;
+		if (message !== undefined)
+			return formatRichMessage(
+				locale,
+				message,
+				isRecord(params) ? params : {},
+				tags
+			);
+		warnMissing(locale, key);
+
+		return renderRichText(key, tags);
+	};
 	const translator: Translator<Catalog> = {
 		dir: payload.dir,
+		html,
 		locale,
 		t,
 		formatDate: (value, options) =>

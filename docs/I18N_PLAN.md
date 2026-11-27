@@ -238,6 +238,46 @@ export default { … } satisfies Translation<typeof en>;
 - Missing key at runtime → the key string, plus one `console.warn` per key.
 - Missing param → `{name}` left visible. Malformed message → raw string.
 
+### Markup in a message
+
+A message can hold tags, so the translator decides where a link goes in
+the sentence and the developer decides what a link is:
+
+```ts
+// messages/en.ts
+terms: 'By signing up you accept our <link>terms of service</link>.'
+```
+
+```tsx
+const { html, href } = useI18n<typeof en>();
+
+<p dangerouslySetInnerHTML={{ __html: html('terms', {
+	link: (text) => `<a href="${href('/terms')}">${text}</a>`
+}) }} />
+```
+
+`html(key, tags, params?)` is on the translator every framework hands a
+page, and returns HTML: render it with `dangerouslySetInnerHTML`, `{@html}`,
+`v-html` or `[innerHTML]`. A tag in a message is a name, never markup:
+`<link>` becomes whatever the function called `link` returns, given the
+HTML between its tags. `<br/>` closes itself. Tags nest, and work inside a
+plural's or a select's branches. `basicTags` has `b`, `i`, `em`, `strong`,
+`u`, `s`, `code` and `br` as the elements of the same names.
+
+- **What is trusted is exactly what a tag function returns.** Everything
+  else is escaped: the message's own text, so a `<` or `&` a translator
+  wrote is shown as written, and every parameter's value, so a visitor's
+  name cannot become markup. A value cannot stand in for a tag either:
+  `<link>` arriving in a parameter is text, not the message's `<link>`.
+- A tag no function is given for becomes its own text, with one warning. A
+  closing tag that closes nothing, and a tag left open, are text.
+- `absolute i18n check` reports a translation whose tags are not the
+  default's: one dropped loses its link, one renamed is shown as text.
+- The result is a string, so a tag cannot become a framework's component.
+  `t()` is unchanged: a `<` in a message it formats is still a character.
+- Not yet: an HTML or HTMX page, whose `data-i18n` has no function to give
+  a tag.
+
 ## Per framework
 
 | Framework | Phase | API |
@@ -355,7 +395,8 @@ server restart.
 
 ### Phase 4 — ergonomics
 
-Rich text (`t.rich('k', { b: (chunks) => <b>{chunks}</b> })`), message
+Rich text as components (`t.rich('k', { b: (chunks) => <b>{chunks}</b> })`;
+`html()` covers it as HTML), message
 extraction from source, pseudo-localization for layout testing, and a
 `<LocaleSwitcher>` per framework.
 

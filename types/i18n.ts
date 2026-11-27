@@ -197,6 +197,17 @@ export type Translate<Catalog> = <Key extends MessageKey<Catalog>>(
 	...args: TranslateArgs<Catalog, Key>
 ) => string;
 
+/** What each tag in a message becomes: a function of the HTML between
+ *  its opening and closing tag (empty for `<br/>`), returning HTML. */
+export type RichTags = Record<string, (chunks: string) => string>;
+
+/** `t`, for a message with tags in it, returning HTML. */
+export type TranslateHtml<Catalog> = <Key extends MessageKey<Catalog>>(
+	key: Key,
+	tags: RichTags,
+	...args: TranslateArgs<Catalog, Key>
+) => string;
+
 export type TextDirection = 'ltr' | 'rtl';
 
 /** What a page needs to translate on the server and hydrate in the
@@ -231,6 +242,15 @@ export type Translator<Catalog = MessageCatalog> = {
 	t: Translate<Catalog>;
 	/** Whether the loaded catalog has a message at `key`. */
 	has: (key: string) => boolean;
+	/** The message at `key` as HTML, for one with tags in it:
+	 *  `"Accept our <link>terms</link>."` with `{ link: (text) =>
+	 *  \`<a href="/terms">\${text}</a>\` }`. Each tag becomes what its
+	 *  function returns, and a tag with no function becomes its text.
+	 *  Everything else is escaped, parameter values included, so what
+	 *  is trusted is exactly what the tag functions return. Render it
+	 *  as HTML: `dangerouslySetInnerHTML`, `{@html}`, `v-html`,
+	 *  `[innerHTML]`. */
+	html: TranslateHtml<Catalog>;
 	/** The address of a page in this locale, or in `locale`: under
 	 *  `prefix` routing `href('/about')` is `/fr/about` on a French
 	 *  page, and `href('/about', 'en')` is the English one, for a

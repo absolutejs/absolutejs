@@ -1,4 +1,5 @@
 import type { MessageTree } from '../../types/i18n';
+import { messageTags } from './richMessage';
 
 /* Checking a catalog against the one the types are built from.
  *
@@ -146,6 +147,19 @@ const compareKey = (
 		};
 	const expected = messageArguments(message);
 	const actual = messageArguments(translated);
+	// A tag the translation drops loses its link or its emphasis, and
+	// one it renames is shown as plain text.
+	const expectedTags = messageTags(message);
+	const actualTags = messageTags(translated);
+	if (
+		sameArguments(expected, actual) &&
+		!sameArguments(expectedTags, actualTags)
+	)
+		return {
+			detail: `uses the tags ${[...actualTags].join(', ') || 'none'}, the default uses ${[...expectedTags].join(', ') || 'none'}`,
+			key,
+			kind: 'mismatch'
+		};
 	if (sameArguments(expected, actual)) return undefined;
 
 	return {
