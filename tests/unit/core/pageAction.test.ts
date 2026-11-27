@@ -28,11 +28,18 @@ const subscribe = defineAction(
 	({ body }) => ({ email: body.email })
 );
 
+/* One of a route's named actions (`export const actions = { remove }`). */
+const remove = defineAction(t.Object({ id: t.String() }), ({ body }) => ({
+	removed: body.id
+}));
+
 /* What the generated route module does with them. */
 const routeActions = new Elysia()
 	.use(formActions())
 	.post('/blog/:slug', { form: comment.form }, comment.handler)
-	.post('/newsletter', { form: subscribe.form }, subscribe.handler);
+	.post('/newsletter', { form: subscribe.form }, subscribe.handler)
+	// A named action: the route's path, then `/_name`.
+	.post('/blog/:slug/_remove', { form: remove.form }, remove.handler);
 
 /* An app that uses them, as a server would. */
 const app = new Elysia().use(routeActions).get('/', () => 'home');
@@ -49,7 +56,12 @@ const holds = <Check extends true>(check?: Check) => check;
 
 describe('a page action, as the app’s type sees it', () => {
 	test('is one of the app’s form routes, at the path it was registered under', () => {
-		holds<Same<FormActionPaths<App>, '/blog/:slug' | '/newsletter'>>();
+		holds<
+			Same<
+				FormActionPaths<App>,
+				'/blog/:slug' | '/blog/:slug/_remove' | '/newsletter'
+			>
+		>();
 	});
 
 	test('has the fields of its schema', () => {
@@ -65,6 +77,16 @@ describe('a page action, as the app’s type sees it', () => {
 			>
 		>();
 		holds<Same<FormActionDataOf<App, '/newsletter'>, { email: string }>>();
+	});
+
+	test('knows a named action as a route of its own', () => {
+		holds<Same<FormActionFieldsOf<App, '/blog/:slug/_remove'>, 'id'>>();
+		holds<
+			Same<
+				FormActionDataOf<App, '/blog/:slug/_remove'>,
+				{ removed: string }
+			>
+		>();
 	});
 });
 

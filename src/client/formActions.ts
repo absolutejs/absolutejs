@@ -90,8 +90,19 @@ const matchesRoute = (path: string, pathname: string) =>
 const addressOf = (path: string) => {
 	if (!/[:*]/.test(path) || typeof window === 'undefined') return path;
 	const { pathname } = window.location;
+	if (matchesRoute(path, pathname)) return pathname;
+	/* A route's NAMED action is at the route's path with `/_name` after
+	 * it (`/blog/:slug/_publish`), and the page posting to it is at the
+	 * route's address, one segment short of that. */
+	const cut = path.lastIndexOf('/_');
+	const named = cut < 0 ? '' : path.slice(cut);
+	const owner = path.slice(0, path.length - named.length);
 
-	return matchesRoute(path, pathname) ? pathname : undefined;
+	return named !== '' &&
+		!named.slice(1).includes('/') &&
+		matchesRoute(owner, pathname)
+		? `${pathname.replace(/\/+$/, '')}${named}`
+		: undefined;
 };
 
 const readPayload = async (response: Response) => {

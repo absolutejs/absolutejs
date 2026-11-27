@@ -407,9 +407,31 @@ export const load = async ({ params }: FileRouteContext<'/blog/:slug'>) => {
   - The handler is given `body`, `fail`, `params`, `query`, `headers`,
     `request` and `set`. `params` is typed loosely there, since the module
     that defines the action does not know the path it is registered under.
-  - **Named actions** (`export const actions = { publish, remove }`, each at
-    an underscore path such as `/blog/:slug/_publish`, which no route file
-    can claim) are the next step and are not built.
+  - **Named actions (built).** A route with more than one thing to do
+    exports `actions` as well as, or in place of, `action`:
+
+    ```ts
+    export const actions = {
+    	publish: defineAction(t.Object({}), ({ params }) => publish(params.slug)),
+    	remove: defineAction(t.Object({ id: t.String() }), ({ body }) => remove(body.id))
+    };
+    ```
+
+    Each is `POST` on the route's path with `/_name` after it:
+    `/blog/:slug/_publish`. An underscore segment is one no route file can
+    claim, since files and folders that start with `_` are private, so a
+    named action's address cannot collide with a page's. A `GET` to it is a
+    404.
+    - The object has to be written out in the server module, with plain
+      names (letters and digits) for keys: the generated module registers
+      one route per name and is written before anything runs, so the names
+      are read from the file. A spread, a computed key, or `actions` that
+      is not an object literal there is a build error saying what to write.
+    - A catch-all route cannot have them: `/docs/*` already answers
+      `/docs/anything/_publish`, as the page. That is reported too.
+    - From the page, a binding given `/blog/:slug/_publish` posts to the
+      page's address with `/_publish` after it. A plain form needs the
+      address in its `action` attribute (the page has it from `load`).
 
 ### 2.4 Types
 
@@ -615,7 +637,7 @@ Exit criteria: ~~`[...rest]`, `[[optional]]`, `(group)` mapped and typed~~
 static file routes and `entries()`~~ **done — see 2.3**; ~~`absolute routes` shows route sources~~ **done**; `absolute ls` lists
 a "Routes" group per framework (open); ~~typed plugin-derived
 context~~ **done**; ~~the `action` export wired to the form-actions runtime~~ **done —
-see 2.3**; named `actions` (open).
+see 2.3**; ~~named `actions`~~ **done**.
 
 **Phase 3 — Angular, conventions, static generation.**
 Exit criteria: Angular route folders; ~~per-folder `error` and

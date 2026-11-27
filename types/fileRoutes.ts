@@ -116,6 +116,14 @@ export type FileRouteServerModule<
 	// defined; any of them is a server module's `action`.
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	action?: PageAction<any, any>;
+	/** This route's named form actions, each made with `defineAction`
+	 *  and registered as `POST` on the route's path with `/_name` after
+	 *  it: `actions = { publish }` on `/blog/:slug` is `POST
+	 *  /blog/:slug/_publish`. Written out as an object literal here,
+	 *  its keys plain names, because the build reads them from this
+	 *  file. */
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	actions?: Record<string, PageAction<any, any>>;
 	/** Runs before `load`; return a value (a `Response`, a redirect) to
 	 *  answer the request instead of rendering the page. */
 	beforeHandle?: (context: FileRouteContext<Path>) => unknown;
