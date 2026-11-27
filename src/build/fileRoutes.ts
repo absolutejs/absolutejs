@@ -1,3 +1,4 @@
+import { namedActionsOf } from './pageActionNames';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import {
 	dirname,
@@ -47,6 +48,10 @@ export type ScannedFileRoute = {
 	/** Whether the server module exports `action`: a form action the
 	 *  generated module registers as `POST` on this route's path. */
 	action?: true;
+	/** The names of the server module's named actions (`export const
+	 *  actions = { publish }`), each registered as `POST` on this
+	 *  route's path with `/_name` after it. */
+	actions?: string[];
 	/** Co-located `<route>.server.ts`, absolute, when present. */
 	server?: string;
 	/** The path the route's types are written against: a catch-all appears
@@ -523,12 +528,14 @@ const routesFromFile = (
 		);
 	}
 	const server = findServerModule(root.framework, source);
+	const named = server ? namedActionsFor(server, mapped.paths, problems) : [];
 	const shared: Omit<ScannedFileRoute, 'path'> = {
 		framework: root.framework,
 		name: fileRoutePageName(root.framework, relativePath),
 		server,
 		source,
 		...(server && exportsAction(server) ? { action: true } : {}),
+		...(named.length > 0 ? { actions: named } : {}),
 		typePath: mapped.typePath,
 		...(mapped.catchAll === undefined ? {} : { catchAll: mapped.catchAll }),
 		...(guards.length > 0 ? { guards } : {}),
@@ -617,6 +624,38 @@ const ACTION_EXPORT_RE = /^\s*export\s+const\s+action\b/m;
 
 const exportsAction = (server: string) =>
 	ACTION_EXPORT_RE.test(readFileSync(server, 'utf8'));
+
+/* `export const actions = { publish, remove }` — a route's named
+ * actions, each at the route's path with `/_name` after it. An
+ * underscore segment is one no route file can claim: files and folders
+ * that start with `_` are private (`isIgnoredSegment`), so the address
+ * of a named action cannot be another route's.
+ *
+ * A catch-all route has nowhere to put one: `/docs/*` already answers
+ * `/docs/anything/_publish`, as the page. */
+const namedActionsFor = (
+	server: string,
+	paths: readonly string[],
+	problems: string[]
+) => {
+	const found = namedActionsOf(readFileSync(server, 'utf8'));
+	if (!found) return [];
+	const where = toPosix(relative(process.cwd(), server));
+	if ('problem' in found) {
+		problems.push(`${where}: ${found.problem}`);
+
+		return [];
+	}
+	if (found.names.length > 0 && paths.some((path) => path.endsWith('*'))) {
+		problems.push(
+			`${where}: a catch-all route cannot have named actions — its path already matches every address under it, so \`${paths[0]}/_${found.names[0]}\` would be the page. Use \`export const action\`, or a route without a catch-all.`
+		);
+
+		return [];
+	}
+
+	return found.names;
+};
 
 const compareRoutes = (left: ScannedFileRoute, right: ScannedFileRoute) =>
 	left.path.localeCompare(right.path) ||
@@ -817,19 +856,48 @@ const ACTIONS_PLUGIN = `new Elysia({ name: 'absolutejs-file-route-actions' })`;
  *
  * Always exported, empty when no route has an action, so a server can
  * `.use(routeActions)` once and never revisit it. */
+type RouteWithServer = ScannedFileRoute & { server: string };
+
+const hasActions = (route: ScannedFileRoute): route is RouteWithServer =>
+	route.server !== undefined &&
+	(route.action === true || (route.actions ?? []).length > 0);
+
+/* A named action's address: the route's, with `/_name` after it. */
+const namedActionPath = (path: string, name: string) =>
+	`${path === '/' ? '' : path}/_${name}`;
+
 const routeActionsOf = (routes: ScannedFileRoute[], outputDir: string) => {
-	const withAction = routes.filter(
-		(route): route is ScannedFileRoute & { server: string } =>
-			route.action === true && route.server !== undefined
-	);
+	const withActions = routes.filter(hasActions);
 	// One import per server module: an `[[optional]]` route is two
 	// paths from one file.
-	const servers = [...new Set(withAction.map((route) => route.server))];
-	const alias = (server: string) => `action${servers.indexOf(server)}`;
-	const posts = withAction.map(
-		(route) =>
-			`\t.post(${quote(route.path)}, { form: ${alias(route.server)}.form }, ${alias(route.server)}.handler)`
-	);
+	const servers = [...new Set(withActions.map((route) => route.server))];
+	const index = (server: string) => servers.indexOf(server);
+	const post = (path: string, action: string) =>
+		`\t.post(${quote(path)}, { form: ${action}.form }, ${action}.handler)`;
+	const posts = withActions.flatMap((route) => [
+		...(route.action
+			? [post(route.path, `action${index(route.server)}`)]
+			: []),
+		...(route.actions ?? []).map((name) =>
+			post(
+				namedActionPath(route.path, name),
+				`actions${index(route.server)}.${name}`
+			)
+		)
+	]);
+	const importOf = (server: string) => {
+		const routesOf = withActions.filter((route) => route.server === server);
+		const names = [
+			...(routesOf.some((route) => route.action)
+				? [`action as action${index(server)}`]
+				: []),
+			...(routesOf.some((route) => (route.actions ?? []).length > 0)
+				? [`actions as actions${index(server)}`]
+				: [])
+		];
+
+		return `import { ${names.join(', ')} } from ${quote(importSpecifier(outputDir, server))};`;
+	};
 
 	return {
 		body:
@@ -842,10 +910,7 @@ const routeActionsOf = (routes: ScannedFileRoute[], outputDir: string) => {
 					]
 						.join('\n')
 						.concat(';'),
-		imports: servers.map(
-			(server) =>
-				`import { action as ${alias(server)} } from ${quote(importSpecifier(outputDir, server))};`
-		)
+		imports: servers.map(importOf)
 	};
 };
 

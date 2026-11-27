@@ -99,6 +99,29 @@ describe('a form action whose path is a route with params', () => {
 		);
 	});
 
+	/* `/blog/:slug/_publish`: the route's path, then `/_name`. The page
+	 * is at the route's address, one segment short of the action's. */
+	test('a named action is posted to at the page’s address with its name after it', async () => {
+		at('/blog/hello');
+		await submit('/blog/:slug/_publish');
+		at('/blog/hello/');
+		await submit('/blog/:slug/_publish');
+
+		expect(posted).toEqual([
+			'/blog/hello/_publish',
+			'/blog/hello/_publish'
+		]);
+	});
+
+	test('a named action from a page at no address of its route sends nothing', async () => {
+		at('/about');
+
+		const result = await submit('/blog/:slug/_publish');
+
+		expect(posted).toEqual([]);
+		expect(result).toMatchObject({ status: 'error' });
+	});
+
 	test('does not mistake a longer address for the route’s', async () => {
 		at('/blog/hello/comments');
 

@@ -99,6 +99,30 @@ export const action = defineAction(
 		return { count: comments.get(slug)?.length ?? 0 };
 	}
 );
+
+// Named actions: each at this route's path with \`/_name\` after it.
+export const actions = {
+	clear: defineAction(t.Object({}), ({ params }) => {
+		comments.delete(params.slug ?? '');
+
+		return { cleared: true };
+	}),
+	remove: defineAction(
+		t.Object({ comment: t.String() }),
+		({ body, fail, params }) => {
+			const slug = params.slug ?? '';
+			const before = comments.get(slug) ?? [];
+			if (!before.includes(body.comment))
+				return fail({ comment: 'No such comment' });
+			comments.set(
+				slug,
+				before.filter((comment) => comment !== body.comment)
+			);
+
+			return { left: comments.get(slug)?.length ?? 0 };
+		}
+	)
+};
 `;
 
 const CONTACT_PAGE = `export default function Contact() {
@@ -287,6 +311,61 @@ describe('the generated route module', () => {
 		expect(generated).toContain('export const routeActions');
 		expect(generated).toContain(".post('/blog/:slug', { form:");
 		expect(generated).toContain(".post('/contact', { form:");
+	});
+
+	test('and each named action under an underscore segment of it', async () => {
+		const generated = await readFile(join(root, 'routes.gen.ts'), 'utf8');
+
+		expect(generated).toContain(".post('/blog/:slug/_clear', { form:");
+		expect(generated).toContain(".post('/blog/:slug/_remove', { form:");
+	});
+});
+
+describe('a page’s named actions', () => {
+	test('are each posted to at the page’s address with their name after it', async () => {
+		await postAsHelper('/blog/named', { comment: 'first' });
+		await postAsHelper('/blog/named', { comment: 'second' });
+
+		const removed = await postAsHelper('/blog/named/_remove', {
+			comment: 'first'
+		});
+
+		expect(removed).toEqual({ data: { left: 1 }, status: 'success' });
+		expect(await pageAt('/blog/named')).toContain('<li>second</li>');
+		expect(await pageAt('/blog/named')).not.toContain('<li>first</li>');
+	});
+
+	test('have their own schema and their own failures', async () => {
+		const result = await postAsHelper('/blog/named/_remove', {
+			comment: 'never said'
+		});
+
+		expect(result).toMatchObject({
+			errors: { comment: 'No such comment' },
+			status: 'error'
+		});
+	});
+
+	test('are separate from one another and from the page’s own', async () => {
+		await postAsHelper('/blog/cleared', { comment: 'to go' });
+
+		expect(await postAsHelper('/blog/cleared/_clear', {})).toEqual({
+			data: { cleared: true },
+			status: 'success'
+		});
+		expect(await pageAt('/blog/cleared')).not.toContain('<li>');
+	});
+
+	/* A GET to an action's address is not the page: the page's route
+	 * is \`/blog/:slug\`, one segment, and no route file can be named
+	 * \`_remove\`. */
+	test('do not make their address a page', async () => {
+		const response = await fetch(url('/blog/named/_remove'), {
+			headers: { accept: 'text/html' }
+		});
+		await response.body?.cancel();
+
+		expect(response.status).toBe(404);
 	});
 });
 
