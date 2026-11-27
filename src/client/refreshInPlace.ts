@@ -73,22 +73,35 @@ const pathnameOf = (href: string) => {
 	}
 };
 
-/* The page on screen loaded its client entry from a script, and the data
- * names the client entry of the page it is for. The same one means the
- * same page; anything else means the route answered for a different
- * page than the one mounted. */
-const isForThisPage = (envelope: Record<string, unknown>) => {
+/* The data names the client entry of the page it is for. The same one
+ * as the page on screen means the same page; anything else means the
+ * route answered for a different page than the one mounted.
+ *
+ * Which client entry the mounted page came from is known two ways,
+ * because pages load theirs two ways: the entry says so itself when it
+ * registers its update (`index`, its own address), and a page that
+ * loads its entry from a `<script src>` has it in the document. A Svelte
+ * page imports its entry from an inline script, so only the first
+ * covers it — which the first version of this check missed, and
+ * quietly reloaded every Svelte page instead. */
+const isForThisPage = (
+	envelope: Record<string, unknown>,
+	update: PageUpdate
+) => {
 	const { assets } = envelope;
 	const index = isRecord(assets) ? assets.index : undefined;
 	if (typeof index !== 'string') return false;
 	const wanted = pathnameOf(index);
+	const declared: unknown = Reflect.get(update, 'index');
+	if (typeof declared === 'string' && pathnameOf(declared) === wanted)
+		return true;
 
 	return Array.from(document.scripts).some(
 		(script) => script.src !== '' && pathnameOf(script.src) === wanted
 	);
 };
 
-const readEnvelope = async (response: Response) => {
+const readEnvelope = async (response: Response, update: PageUpdate) => {
 	const contentType = response.headers.get('content-type') ?? '';
 	if (
 		!response.ok ||
@@ -102,7 +115,7 @@ const readEnvelope = async (response: Response) => {
 	const envelope: unknown = await response.json().catch(() => undefined);
 	if (!isRecord(envelope) || envelope.kind !== 'route') return undefined;
 
-	return isRecord(envelope.props) && isForThisPage(envelope)
+	return isRecord(envelope.props) && isForThisPage(envelope, update)
 		? envelope
 		: undefined;
 };
@@ -144,7 +157,9 @@ export const refreshInPlace = async (update: PageUpdate) => {
 		credentials: 'same-origin',
 		headers: { Accept: ROUTE_DATA_MEDIA_TYPE }
 	}).catch(() => undefined);
-	const envelope = response ? await readEnvelope(response) : undefined;
+	const envelope = response
+		? await readEnvelope(response, update)
+		: undefined;
 	if (mine !== state.latest) return done('superseded');
 	if (!envelope || !isRecord(envelope.props)) return undefined;
 	// The page was swapped out, or its hook withdrawn, while the data

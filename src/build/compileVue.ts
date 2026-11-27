@@ -1214,7 +1214,30 @@ export const compileVue = async (
 						'    await absolutePageReady;',
 						'    app.unmount();',
 						'    window.__VUE_APP__ = undefined;',
+						'    window.__ABSOLUTE_PAGE_UPDATE__ = undefined;',
 						'  };',
+						/* New props for the page that is already mounted
+						 * (client/refreshInPlace.ts). Vue keeps a root
+						 * component's props as a reactive object, so
+						 * assigning into it re-renders what read them and
+						 * leaves the component, and every ref it holds,
+						 * alone. A prop the new data no longer has is
+						 * cleared rather than left at its old value.
+						 * `false` — refresh the whole page instead — when
+						 * the page has not finished mounting. */
+						'  window.__ABSOLUTE_PAGE_UPDATE__ = function(nextProps) {',
+						'    const root = app._instance;',
+						'    if (!root || !root.props) return false;',
+						'    Object.keys(root.props).forEach(function(key) {',
+						'      if (!(key in nextProps)) root.props[key] = undefined;',
+						'    });',
+						'    Object.keys(nextProps).forEach(function(key) {',
+						'      if (key in root.props) root.props[key] = nextProps[key];',
+						'    });',
+						'    window.__INITIAL_PROPS__ = nextProps;',
+						'    return true;',
+						'  };',
+						'  window.__ABSOLUTE_PAGE_UPDATE__.index = import.meta.url;',
 						'}',
 						'',
 						'// Post-mount: Apply preserved state to reactive refs in component tree',

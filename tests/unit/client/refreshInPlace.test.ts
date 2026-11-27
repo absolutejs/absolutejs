@@ -192,6 +192,41 @@ describe('a page refreshed in place', () => {
 	});
 });
 
+/* A Svelte page imports its client entry from an inline script, so
+ * there is no `<script src>` to recognise it by. The entry says which
+ * one it is when it registers its update. */
+describe('a page whose client entry is not a script on the page', () => {
+	const installScriptless = (declared: string) => {
+		const page = installPage('');
+		Reflect.set(page.__ABSOLUTE_PAGE_UPDATE__, 'index', declared);
+
+		return page;
+	};
+
+	test('is recognised by the entry it declared', async () => {
+		installScriptless(`http://localhost${INDEX}`);
+		answerWith({ body: envelope({ todos: ['a'] }) });
+
+		expect(await run()).toBe('updated');
+		expect(applied.props).toEqual([{ todos: ['a'] }]);
+	});
+
+	test('is still refused data that names another page', async () => {
+		installScriptless('http://localhost/svelte/indexes/Other.zzz.js');
+		answerWith();
+
+		expect(await run()).toBeUndefined();
+		expect(applied.props).toEqual([]);
+	});
+
+	test('with neither a script nor a declared entry, nothing is assumed', async () => {
+		installPage('');
+		answerWith();
+
+		expect(await run()).toBeUndefined();
+	});
+});
+
 describe('a refresh that must not be done in place', () => {
 	const declined = async (answer: Answer) => {
 		installPage();

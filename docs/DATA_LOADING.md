@@ -198,20 +198,22 @@ It is **off by default**, for the reason below.
 
 It depends on what kind of page it is.
 
-**A React page is given new props and is not unmounted.** Everything its
-components hold survives: an open menu, text typed into a field, a form
-binding's `data` and success state. Only what the new props change is
-re-rendered. This needs no navigation layer.
+**A React, Svelte or Vue page is given new props and is not unmounted.**
+Everything its components hold survives: an open menu, text typed into a
+field, a form binding's `data` and success state. Only what the new props
+change is re-rendered, including anything the page derives from them. A
+prop the new data no longer has is cleared. This needs no navigation
+layer.
 
 **Every other kind of page is fetched whole and swapped in**, for now:
-Svelte, Vue, Angular, HTML and HTMX. The page is mounted again, so state
+Angular, HTML and HTMX. The page is mounted again, so state
 its own components hold starts over. On those pages, turn `invalidate` on
 for a form whose outcome shows in the page's data (the new row in the
 list), not for one that shows a "saved" message from its own state. An
 island marked `persist` keeps its state, as it does across any soft
 navigation.
 
-A React page is also swapped whole whenever giving it new props would be
+A React, Svelte or Vue page is also swapped whole whenever giving it new props would be
 wrong: the request for its data was redirected, the route now renders a
 different page (a session that expired), or the server did not answer
 with data. Those are handled the way a reload would handle them.
