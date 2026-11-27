@@ -724,6 +724,7 @@ export const compileSvelte = async (
 				: '';
 			const bootstrap = `${hmrImports}import Component from "${importPath}";
 import { hydrate, mount, unmount } from "svelte";
+import { createSubscriber } from "svelte/reactivity";
 import { prepareBrowserTranslationHydration } from "@absolutejs/absolute/client";
 
 var initialProps = (typeof window !== "undefined" && window.__INITIAL_PROPS__) ? window.__INITIAL_PROPS__ : {};
@@ -732,6 +733,33 @@ var isSsrDirty = typeof window !== "undefined" && window.__SSR_DIRTY__;
 var isClientRender = typeof window !== "undefined" && window.__ABSOLUTE_PAGE_RENDER_MODE__ === "client";
 var shouldHydrate = typeof window === "undefined" || isClientRender ? false : true;
 var component;
+
+/* The page's props, as something that can change after it is mounted
+ * (client/refreshInPlace.ts).
+ *
+ * Svelte reads a component's props each time something that uses them
+ * re-runs, so the page is given an object that hands back the CURRENT
+ * props and says so to whatever read it: when a refresh brings new
+ * ones, everything that read a prop runs again and nothing else does.
+ * The component is never unmounted, so its own state is untouched.
+ * \`createSubscriber\` is Svelte's way of tying an outside source of
+ * change into its reactivity. */
+var currentProps = initialProps;
+var announceProps;
+var readingProps = createSubscriber(function (update) {
+  announceProps = update;
+  return function () { announceProps = undefined; };
+});
+var liveProps = new Proxy({}, {
+  get: function (_target, key) { readingProps(); return currentProps[key]; },
+  has: function (_target, key) { readingProps(); return key in currentProps; },
+  ownKeys: function () { readingProps(); return Reflect.ownKeys(currentProps); },
+  getOwnPropertyDescriptor: function (_target, key) {
+    readingProps();
+    var found = Reflect.getOwnPropertyDescriptor(currentProps, key);
+    return found ? { configurable: true, enumerable: found.enumerable, value: found.value, writable: true } : undefined;
+  }
+});
 var target = document.getElementById(${JSON.stringify(SVELTE_PAGE_ROOT_ID)}) || document.body;
 
 /* The island markup the server rendered, kept for the client render of
@@ -785,17 +813,17 @@ if (isHMR) {
   if (typeof window.__SVELTE_UNMOUNT__ === "function") {
     try { window.__SVELTE_UNMOUNT__(); } catch (err) { /* ignore */ }
   }
-  component = mount(Component, { target, props: initialProps });
+  component = mount(Component, { target, props: liveProps });
 } else if (isClientRender) {
-  component = mount(Component, { target, props: initialProps });
+  component = mount(Component, { target, props: liveProps });
 } else if (!shouldHydrate) {
   component = undefined;
 } else if (isSsrDirty) {
-  component = mount(Component, { target, props: initialProps });
+  component = mount(Component, { target, props: liveProps });
 } else {
   var restoreTranslation = prepareBrowserTranslationHydration(target);
   try {
-    component = hydrate(Component, { target, props: initialProps });
+    component = hydrate(Component, { target, props: liveProps });
   } finally {
     restoreTranslation();
   }
@@ -810,7 +838,17 @@ if (typeof window !== "undefined") {
     component = undefined;
     window.__SVELTE_COMPONENT__ = undefined;
     window.__SVELTE_UNMOUNT__ = undefined;
+    window.__ABSOLUTE_PAGE_UPDATE__ = undefined;
   };
+  window.__ABSOLUTE_PAGE_UPDATE__ = function(nextProps) {
+    if (!component) return false;
+    currentProps = nextProps;
+    window.__INITIAL_PROPS__ = nextProps;
+    if (announceProps) announceProps();
+    return true;
+  };
+  // Which page this is, for a refresh to check the data is for it.
+  window.__ABSOLUTE_PAGE_UPDATE__.index = import.meta.url;
   window.__SVELTE_REMOUNT__ = function(props) {
     if (typeof window.__SVELTE_UNMOUNT__ === "function") {
       try { window.__SVELTE_UNMOUNT__(); } catch (err) { /* ignore */ }

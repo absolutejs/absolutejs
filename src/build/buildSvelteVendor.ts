@@ -13,6 +13,12 @@ const svelteSpecifiers = [
 	'svelte/internal/flags/legacy',
 	'svelte/internal/client',
 	'svelte/internal/disclose-version',
+	// The generated page index reads its props through
+	// `createSubscriber`, so a refresh can change them (compileSvelte.ts).
+	// Vendored here, beside the runtime it has to share: a second copy
+	// of Svelte's reactivity would be a second set of signals, and the
+	// page would never see a change announced through it.
+	'svelte/reactivity',
 	'svelte/store'
 ];
 

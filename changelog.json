@@ -5,6 +5,20 @@
 		{
 			"changes": [
 				{
+					"detail": "`invalidate()` on a Svelte page and on a Vue page now gives the mounted page new props, as it does on a React page since beta.416, where it used to fetch the page's HTML and mount it again. Everything the page's components hold survives the refresh, what the page derives from its props follows them, and a prop the new data no longer has is cleared. A Svelte page reads its props through an object backed by `createSubscriber`, so a change to them re-runs what read them and nothing else; a Vue page has its root component's reactive props assigned. `svelte/reactivity` is now part of the Svelte vendor build, beside the runtime it must share. The check that the data is for the page on screen also recognises a page by the client entry it declares, not only by a `<script src>`: a Svelte page imports its entry from an inline script and has none. Angular, HTML and HTMX pages are still fetched whole and swapped, for now. BEHAVIOUR CHANGE: on a Svelte or Vue page a refresh no longer resets component state. A Vue prop the page does not declare is not updated by a refresh. See docs/DATA_LOADING.md.",
+					"kind": "added",
+					"summary": "`invalidate()` refreshes Svelte and Vue pages in place: their state survives",
+					"symbols": [
+						"invalidate"
+					]
+				}
+			],
+			"date": "2026-11-27",
+			"version": "0.20.0-beta.417"
+		},
+		{
+			"changes": [
+				{
 					"detail": "`invalidate()` on a React page now gives the mounted page new props, where it used to fetch the page's HTML and mount it again. Nothing is torn down, so everything the page's components hold survives a refresh: an open menu, text typed into a field, a form binding's `data` and success state. It asks the route for the page's data (the `application/vnd.absolute.route+json` representation every page handler already serves) and re-renders the existing root with the result; it needs no navigation layer, and resolves to the new outcome `'updated'`. The page is refreshed whole, as before, whenever giving it new props would be wrong: the data request was redirected, the route now renders a different page, the server did not answer with data, or the request failed. When two refreshes overlap only the later one's data is applied. The same applies to a form action with `invalidate: true`. Svelte, Vue, Angular, HTML and HTMX pages are still fetched whole and swapped, for now. BEHAVIOUR CHANGE: on a React page a refresh no longer resets component state, so code that relied on `invalidate()` to reset the page will not get that; and the visitor's scroll position is now left to the browser, which keeps the content in view steady when the page grows above it, where it used to be restored to the exact previous offset. See docs/DATA_LOADING.md.",
 					"kind": "added",
 					"summary": "`invalidate()` refreshes a React page in place: its state survives",

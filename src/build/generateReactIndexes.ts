@@ -569,6 +569,8 @@ export const generateReactIndexFiles = async (
 			`\t\twindow.__REACT_ROOT__.render(createElement(ErrorBoundary, null, createElement(RenderedPage, nextProps)));`,
 			`\t\treturn true;`,
 			`\t};`,
+			// Which page this is, for a refresh to check the data is for it.
+			`\twindow.__ABSOLUTE_PAGE_UPDATE__.index = import.meta.url;`,
 			`}`,
 			...(isDev
 				? [

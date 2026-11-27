@@ -202,7 +202,12 @@ declare global {
 		__REACT_ROOT__?: { render: (element: unknown) => void };
 		/** Gives the mounted page new props without unmounting it
 		 *  (client/refreshInPlace.ts). Returns `false` when it could not. */
-		__ABSOLUTE_PAGE_UPDATE__?: (props: Record<string, unknown>) => boolean;
+		__ABSOLUTE_PAGE_UPDATE__?: ((
+			props: Record<string, unknown>
+		) => boolean) & {
+			/** The address of the client entry that registered it. */
+			index?: string;
+		};
 		__SVELTE_COMPONENT__?: Record<string, unknown>;
 		__ABS_SVELTE_ISLAND_HTML__?: Record<string, string>;
 		__SVELTE_UNMOUNT__?: () => void;
