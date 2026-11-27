@@ -5,6 +5,22 @@
 		{
 			"changes": [
 				{
+					"detail": "Two additions to pages served as Markdown (`markdown: true`). A file route's server module may export `markdown`, the text or a function of the request and what `load` returned; it is served as written at `/page.md` and for `Accept: text/markdown`, in place of the Markdown the framework makes from the page's HTML, and the page is not rendered. Guards and `load` still run. It is for a page whose HTML does not convert well, or one with `ssr: false`, which has nothing on the server to convert. And every page's HTML response now carries `Link: </page.md>; rel=\"alternate\"; type=\"text/markdown\"`, so a reader of the page can find its Markdown; `/` names `/index.md`. A pre-rendered page served from its file does not carry the header yet. Neither does anything without `markdown: true`. See docs/FILE_ROUTER_PLAN.md.",
+					"kind": "added",
+					"summary": "A route can export its own markdown, and a page’s Link header names its Markdown",
+					"symbols": [
+						"RouteMarkdownExport",
+						"FileRouteServerModule",
+						"FileRouteDefinition"
+					]
+				}
+			],
+			"date": "2026-11-27",
+			"version": "0.20.0-beta.440"
+		},
+		{
+			"changes": [
+				{
 					"detail": "`markdown: true` in the config serves every page as Markdown too, for a reader that wants the text and not the markup: `/about.md` beside `/about`, and `/about` itself for a request that says `Accept: text/markdown` and does not also accept HTML. The Markdown is made from the page: the server asks itself for the page as HTML and converts what comes back, so guards and `load` have run, a pre-rendered page is the pre-rendered one, and a page that redirects or refuses does the same here. `/about.md` stands for the page only when `/about` is one, so a real .md file or a route of that name is served as before. What is converted is the page's `<main>`, failing that its `<article>`, failing that its body without navigation, header, footer, aside and forms. The converter is the framework's own, on Bun's HTML parser, with no new dependency: headings, paragraphs, links, emphasis, code, lists, quotes, images and simple tables, and the text of anything else. A streamed slot's content is in the Markdown, since the swap its script would make is made first; a page with `ssr: false` has no content on the server and its Markdown is its title alone. Opt-in: left out of the config, neither address is served. See docs/FILE_ROUTER_PLAN.md.",
 					"kind": "added",
 					"summary": "markdown: true serves every page as Markdown, at /page.md and by Accept",

@@ -61,7 +61,8 @@ export default defineConfig({
 		type: 'module'
 	}),
 	// Not rendered on the server at all.
-	'react/routes/app.server.ts': 'export const ssr = false;\n',
+	'react/routes/app.server.ts':
+		"export const ssr = false;\n\nexport const load = () => ({ plan: 'pro' });\n\nexport const markdown = ({ data }: { data: { plan: string } }) => '# The app\\n\\nYou are on the ' + data.plan + ' plan.';\n",
 	'react/routes/app.tsx': page(
 		'<main>an app with eight words of its own</main>'
 	),
@@ -335,6 +336,29 @@ describe('a page as Markdown', () => {
 		const { text } = await markdownAt('/blog/hello.md');
 
 		expect(text).toBe('# A title is not the page’s text\n\na post\n');
+	});
+
+	/* Not rendered on the server, so there is nothing to convert: the
+	 * route says what its Markdown is. */
+	test('is the route’s own, when its server module exports one', async () => {
+		const { text, type } = await markdownAt('/app.md');
+
+		expect(type).toBe('text/markdown; charset=utf-8');
+		expect(text).toBe('# The app\n\nYou are on the pro plan.\n');
+		expect((await markdownAt('/app', 'text/markdown')).text).toBe(text);
+	});
+
+	test('is named by a Link header on the page', async () => {
+		const linkOf = async (path: string) =>
+			(await fetch(url(path))).headers.get('link') ?? '';
+
+		expect(await linkOf('/feed')).toContain(
+			'</feed.md>; rel="alternate"; type="text/markdown"'
+		);
+		expect(await linkOf('/')).toContain(
+			'</index.md>; rel="alternate"; type="text/markdown"'
+		);
+		expect(await linkOf('/ready')).toBe('');
 	});
 
 	test('is not served for an address that is not a page', async () => {

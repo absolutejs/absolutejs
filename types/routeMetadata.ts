@@ -53,3 +53,9 @@ export type RouteMetadataExport<Data = Record<string, unknown>> =
 	| ((
 			context: RouteMetadataContext<Data>
 	  ) => RouteMetadata | Promise<RouteMetadata>);
+
+/** A module's `markdown` export: the page as Markdown, or a function
+ *  of the request and the page's data that returns it. */
+export type RouteMarkdownExport<Data = Record<string, unknown>> =
+	| string
+	| ((context: RouteMetadataContext<Data>) => string | Promise<string>);

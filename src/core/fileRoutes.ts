@@ -22,6 +22,7 @@ import {
 } from '../utils/resolveConvention';
 import { logWarn } from '../utils/logger';
 import { ssrErrorPage } from '../utils/ssrErrorPage';
+import { asksForMarkdownSource } from '../utils/pageMarkdownRef';
 import { withPageCacheHeaders } from './pageResponseCache';
 import { reportServerError } from './errorReporter';
 import { registerRouteHoles } from './routeHoles';
@@ -284,6 +285,18 @@ const serveFileRoute = async (
 	}
 	if (loaded instanceof Response) return loaded;
 	const props = isRecord(loaded) ? loaded : {};
+	// The Markdown plugin asking for this page (pageMarkdown.ts): a
+	// route that says what its Markdown is answers with it, unrendered.
+	const own = asksForMarkdownSource(context.request)
+		? await route.markdown?.(
+				toFileRouteContext(context, route.catchAll),
+				props
+			)
+		: undefined;
+	if (typeof own === 'string')
+		return new Response(own.endsWith('\n') ? own : `${own}\n`, {
+			headers: { 'content-type': 'text/markdown; charset=utf-8' }
+		});
 	// The route's metadata, noted for the response to be given it in
 	// its head (routeHead.ts) — or, for a request for the page's data,
 	// alongside the data.
