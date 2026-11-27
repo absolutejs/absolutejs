@@ -5,6 +5,24 @@
 		{
 			"changes": [
 				{
+					"detail": "A message can hold tags, and `html(key, tags, params?)` on the translator every framework hands a page formats it as HTML: `'Accept our <link>terms</link>.'` with `{ link: (text) => `<a href=\"/terms\">${text}</a>` }`. The translator decides where the link goes in the sentence and the developer decides what a link is. A tag is a name, never markup: it becomes what the function of that name returns, given the HTML between its tags; `<br/>` closes itself; tags nest and work inside a plural's or a select's branches. What is trusted is exactly what a tag function returns. Everything else is escaped: the message's own text, and every parameter's value, and a value cannot stand in for a tag, so `<link>` arriving in a parameter is text. A tag with no function becomes its text, with one warning; a closing tag that closes nothing and a tag left open are text. `basicTags` gives `b`, `i`, `em`, `strong`, `u`, `s`, `code` and `br` as the elements of the same names, and `formatRichMessage` is the function underneath, both from `@absolutejs/absolute/i18n`. `absolute i18n check` now reports a translation whose tags are not the default's. The result is a string, rendered with `dangerouslySetInnerHTML`, `{@html}`, `v-html` or `[innerHTML]`, so a tag cannot become a framework's component. `t()` is unchanged. See docs/I18N_PLAN.md.",
+					"kind": "added",
+					"summary": "html() on the i18n translator formats a message with tags in it as HTML",
+					"symbols": [
+						"basicTags",
+						"formatRichMessage",
+						"RichTags",
+						"TranslateHtml",
+						"Translator"
+					]
+				}
+			],
+			"date": "2026-11-27",
+			"version": "0.20.0-beta.450"
+		},
+		{
+			"changes": [
+				{
 					"detail": "`static.locales: true` pre-renders each route in `static.routes` at every locale's address: `/about` is rendered at `/about` and at `/fr/a-propos`, and each is served from its own copy. The locales are the config's `i18n` key's, under the `prefix` strategy, and the addresses are the ones `href()` writes, localized pathnames included. It is opt-in because not every page has every locale: a locale's address that no page answers is left out and not reported, while a route listed outright that fails is still reported. A pre-rendered page is now found by the address the visitor asked for before the path it was rewritten to, so a locale's own address is served from the copy stored under it, and `absolute export` writes that copy where a static host will be asked for it. `absolute start`, `absolute export` and `absolute compile` all take it. Without `static.locales` nothing changes. Also corrects the `fileRoutes` doc comment, which still said React and Svelte only: file routes are scanned for React, Svelte, Vue, Angular, HTML and HTMX. See docs/I18N_PLAN.md.",
 					"kind": "added",
 					"summary": "static.locales pre-renders each route at every locale’s address",

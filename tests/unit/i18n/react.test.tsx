@@ -77,3 +77,42 @@ describe('React i18n', () => {
 		expect(html).toContain('hrefLang="x-default"');
 	});
 });
+
+const rich: I18nPayload = {
+	defaultLocale: 'en',
+	dir: 'ltr',
+	locale: 'en',
+	messages: { terms: 'Hi {name}, accept our <link>terms</link>.' }
+};
+const Terms = () => {
+	const { html } = useI18n();
+
+	return (
+		<p
+			dangerouslySetInnerHTML={{
+				__html: html(
+					'terms',
+					{ link: (text) => `<a href="/terms">${text}</a>` },
+					{ name: '<b>Eve</b>' }
+				)
+			}}
+		/>
+	);
+};
+
+/* A message with tags in it. `html()` returns HTML, which React renders
+ * through `dangerouslySetInnerHTML`; what is in it besides the tag
+ * functions' own output is escaped. */
+describe('React html()', () => {
+	test('renders the tag’s markup and escapes the value', () => {
+		expect(
+			renderToStaticMarkup(
+				<I18nProvider value={rich}>
+					<Terms />
+				</I18nProvider>
+			)
+		).toBe(
+			'<p>Hi &lt;b&gt;Eve&lt;/b&gt;, accept our <a href="/terms">terms</a>.</p>'
+		);
+	});
+});
