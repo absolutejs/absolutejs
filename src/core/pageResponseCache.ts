@@ -1,3 +1,4 @@
+import { withRouteHead } from './routeHead';
 import { createHash } from 'node:crypto';
 import { modulePreloadLinkHeader } from '../build/modulePreload';
 import { modulePreloadsFor } from './modulePreloadRegistry';
@@ -81,9 +82,12 @@ export const withPageCacheHeaders = async (
 	 * flowing immediately, so its headers are the earliest chance the
 	 * browser gets to learn what the entry will import. */
 	addModulePreloadLinks(response);
+	// A file route's metadata, into the head (routeHead.ts). Here, ahead
+	// of the hash and the compression, so both are of the page as sent.
+	const page = withRouteHead(response);
 
 	return withRenderSpan('render.response', { phase: 'response' }, () =>
-		cachedPageResponse(response, request, options)
+		cachedPageResponse(page, request, options)
 	);
 };
 

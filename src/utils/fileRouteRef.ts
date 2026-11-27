@@ -14,16 +14,36 @@
 
 const STORAGE_KEY = Symbol.for('absolutejs.requestAsyncLocalStorage');
 const MARKS_KEY = Symbol.for('absolutejs.fileRouteOfRequest');
+const HEADS_KEY = Symbol.for('absolutejs.routeHeadOfRequest');
 
 type Marks = WeakMap<object, string>;
 
-const isMarks = (value: unknown): value is Marks => value instanceof WeakMap;
+/** A tag the route's metadata puts in the document's head, and what it
+ *  is the only one of (utils/routeMetadata.ts). */
+export type NotedHeadTag = { html: string; identity?: string };
+
+type Heads = WeakMap<object, readonly NotedHeadTag[]>;
+
+const isWeakMap = (value: unknown): value is WeakMap<object, unknown> =>
+	value instanceof WeakMap;
+
+const isMarks = (value: unknown): value is Marks => isWeakMap(value);
+const isHeads = (value: unknown): value is Heads => isWeakMap(value);
 
 const marks = () => {
 	const existing: unknown = Reflect.get(globalThis, MARKS_KEY);
 	if (isMarks(existing)) return existing;
 	const created: Marks = new WeakMap();
 	Reflect.set(globalThis, MARKS_KEY, created);
+
+	return created;
+};
+
+const heads = () => {
+	const existing: unknown = Reflect.get(globalThis, HEADS_KEY);
+	if (isHeads(existing)) return existing;
+	const created: Heads = new WeakMap();
+	Reflect.set(globalThis, HEADS_KEY, created);
 
 	return created;
 };
@@ -51,9 +71,27 @@ export const currentFileRoute = () => {
 	return entry ? marks().get(entry) : undefined;
 };
 
+/** The head tags this request's route asked for, when it has any. Noted
+ *  the same way and for the same reason: the tags are the route's, and
+ *  the response they go into is finished several layers down, in the
+ *  one place every framework's page passes through
+ *  (core/pageResponseCache.ts). */
+export const currentRouteHead = () => {
+	const entry = currentEntry();
+
+	return entry ? heads().get(entry) : undefined;
+};
+
 /** Notes that the current request is being served by the file route
  *  with this page name. Does nothing outside a request. */
 export const markCurrentFileRoute = (name: string) => {
 	const entry = currentEntry();
 	if (entry) marks().set(entry, name);
+};
+
+/** Notes the head tags the current request's route asked for. Does
+ *  nothing outside a request. */
+export const markCurrentRouteHead = (tags: readonly NotedHeadTag[]) => {
+	const entry = currentEntry();
+	if (entry) heads().set(entry, tags);
 };

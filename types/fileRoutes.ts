@@ -1,6 +1,7 @@
 import type { Context } from 'elysia';
 import type { PageAction } from './pageAction';
 import type { RouteHoles } from './routeHoles';
+import type { RouteMetadata, RouteMetadataExport } from './routeMetadata';
 
 /* File-system routing (opt-in). See docs/FILE_ROUTER_PLAN.md.
  *
@@ -149,6 +150,17 @@ export type FileRouteServerModule<
 	holes?: RouteHoles<FileRouteParams<Path>>;
 	/** Returns the props the page renders with. */
 	load?: (context: FileRouteContext<Path>) => MaybePromise<Props | Response>;
+	/** What this page says about itself, for the document's `<head>`:
+	 *  title, description, canonical URL, Open Graph, robots. The
+	 *  metadata, or a function of the request and what `load` returned.
+	 *  Merged over the `metadata` of the `layout.server` modules above
+	 *  it, and written into the head by the framework, for every kind
+	 *  of page. A tag the page wrote itself that this also sets is
+	 *  replaced. */
+	// A function's `data` is what this route's `load` returned, which
+	// the module knows and this type, shared by every route, cannot.
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	metadata?: RouteMetadataExport<any>;
 	/** `false` skips the server render for this route: the server sends
 	 *  the document shell and the browser renders the page. `load` and
 	 *  `beforeHandle` still run on the server. See `PageSsrOption`. */
@@ -168,6 +180,10 @@ export type FileRouteServerModule<
  *  route's path. */
 export type FileRouteGuardModule = {
 	beforeHandle?: (context: FileRouteContext) => unknown;
+	/** Metadata for every route in this folder and below: merged under
+	 *  each route's own, a nearer folder's over a farther one's. Where a
+	 *  site's title template and its defaults go. */
+	metadata?: RouteMetadataExport;
 };
 
 type RequiredKeysOf<Value> = {
@@ -213,6 +229,13 @@ export type FileRouteDefinition = {
 	 *  the name `[...rest].tsx` led its `load` to expect. */
 	catchAll?: string;
 	beforeHandle?: (context: FileRouteContext) => unknown;
+	/** Every `metadata` this route is under, outermost first, each
+	 *  resolved for this request: its folders' `layout.server` modules,
+	 *  then its own. */
+	metadata?: (
+		context: FileRouteContext,
+		data: Record<string, unknown>
+	) => Promise<RouteMetadata[]>;
 	/** The server module's `holes`, when the route has a server module. */
 	holes?: () => Promise<RouteHoles | undefined>;
 	load?: (context: FileRouteContext) => Promise<unknown>;

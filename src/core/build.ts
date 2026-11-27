@@ -45,6 +45,7 @@ import { outputLogs } from '../build/outputLogs';
 import { scanEntryPoints } from '../build/scanEntryPoints';
 import { createStampedFileCache } from '../build/stampedFileCache';
 import { isConventionFile, scanConventions } from '../build/scanConventions';
+import { routeMetadataWarnings } from '../build/routeMetadataWarnings';
 import { scanRouteFolderConventions } from '../build/routeFolderConventions';
 import {
 	RUNTIME_FILE_NAMES,
@@ -859,6 +860,18 @@ const rewriteFileRouteImports = (content: string, indexesDir: string) =>
 		}
 	);
 
+/* Said once per page per process: a dev server rebuilds on every edit,
+ * and the same line each time is noise. */
+const warnedOfOwnTitle = new Set<string>();
+
+const warnOfPagesWithOwnTitle = () =>
+	routeMetadataWarnings()
+		.filter((message) => !warnedOfOwnTitle.has(message))
+		.forEach((message) => {
+			warnedOfOwnTitle.add(message);
+			logWarn(message);
+		});
+
 /* File routes: route files that do not map to a URL are skipped and
  * listed; a production build stops on them, a dev build carries on. */
 const reportFileRouteProblems = (
@@ -1317,6 +1330,7 @@ const buildUnlocked = async ({
 			isDev
 		)
 	);
+	warnOfPagesWithOwnTitle();
 	const isIncremental = incrementalFiles && incrementalFiles.length > 0;
 	const styleTransformConfig = createStyleTransformConfig(
 		stylePreprocessors,

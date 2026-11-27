@@ -51,9 +51,27 @@ export const announce = (
 	cancelable: boolean
 ) => window.dispatchEvent(new CustomEvent(name, { cancelable, detail }));
 
+const ROUTE_META = '[data-absolute-meta]';
+
+/* The tags a route's `metadata` put in the head are marked, and the
+ * data for the page carries the set that goes with it. Exactly those
+ * are replaced: a page handed new data in place would otherwise keep
+ * the description and the canonical link of the address it came from. */
+const applyHeadTags = (tags: unknown) => {
+	if (typeof tags !== 'string') return;
+	const { head } = document;
+	if (!head || typeof head.querySelectorAll !== 'function') return;
+	head.querySelectorAll(ROUTE_META).forEach((tag) => tag.remove());
+	const holder = document.createElement('template');
+	holder.innerHTML = tags;
+	head.append(holder.content);
+};
+
 export const applyPageTitle = (envelope: Record<string, unknown>) => {
 	const { head } = envelope;
-	const title = isRecord(head) ? head.title : undefined;
+	if (!isRecord(head)) return;
+	applyHeadTags(head.tags);
+	const { title } = head;
 	if (typeof title === 'string' && title !== '') document.title = title;
 };
 

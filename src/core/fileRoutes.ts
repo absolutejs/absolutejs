@@ -6,7 +6,15 @@ import type {
 	FileRouteDefinition,
 	FileRouteRedirectStatus
 } from '../../types/fileRoutes';
-import { markCurrentFileRoute } from '../utils/fileRouteRef';
+import {
+	markCurrentFileRoute,
+	markCurrentRouteHead
+} from '../utils/fileRouteRef';
+import {
+	mergeRouteMetadata,
+	routeHeadTags,
+	type RouteHeadTag
+} from '../utils/routeMetadata';
 import {
 	isPageRequest,
 	renderConventionError,
@@ -160,6 +168,72 @@ const renderLoadError = async (route: FileRouteDefinition, error: unknown) => {
 	);
 };
 
+type RouteHead = { tags: RouteHeadTag[]; title: string | undefined };
+
+/* A route's `metadata`, every level of it, resolved for this request
+ * and turned into head tags. Metadata that cannot be worked out costs
+ * the page its metadata and nothing else: a title is not worth a 500. */
+const routeHeadFor = async (
+	route: FileRouteDefinition,
+	context: RouteRequestContext,
+	props: Record<string, unknown>
+) => {
+	if (!route.metadata) return undefined;
+	try {
+		const levels = await route.metadata(
+			toFileRouteContext(context, route.catchAll),
+			props
+		);
+		if (levels.length === 0) return undefined;
+		const resolved = mergeRouteMetadata(levels);
+		const head: RouteHead = {
+			tags: routeHeadTags(resolved),
+			title: resolved.title
+		};
+		markCurrentRouteHead(head.tags);
+
+		return head;
+	} catch (error) {
+		console.error(
+			`[file-routes] metadata failed for ${route.source}:`,
+			error
+		);
+		reportServerError({ error, kind: 'load', page: route.source });
+
+		return undefined;
+	}
+};
+
+const ROUTE_DATA_MEDIA_TYPE = 'application/vnd.absolute.route+json';
+
+/* A request for the page's DATA is answered with no document, so there
+ * is no head to put the tags in: they go with the data, and the browser
+ * that hands the data to a mounted page swaps them into the head it
+ * has (client/refreshInPlace.ts). */
+const withRouteDataHead = async (response: Response, head: RouteHead) => {
+	const contentType = response.headers.get('content-type') ?? '';
+	if (!response.ok || !contentType.includes(ROUTE_DATA_MEDIA_TYPE))
+		return response;
+	const envelope: unknown = await response.json();
+	if (!isRecord(envelope)) return response;
+	const headers = new Headers(response.headers);
+	// Neither describes the body any longer.
+	headers.delete('etag');
+	headers.delete('content-length');
+
+	return new Response(
+		JSON.stringify({
+			...envelope,
+			head: {
+				...(isRecord(envelope.head) ? envelope.head : {}),
+				tags: head.tags.map((tag) => tag.html).join(''),
+				...(head.title === undefined ? {} : { title: head.title })
+			}
+		}),
+		{ headers, status: response.status }
+	);
+};
+
 /* A page, so only for a request that wants one: a client asking for
  * JSON keeps Elysia's JSON 404, as it does for the app-wide not-found. */
 const routeNotFound = async (route: FileRouteDefinition, request: Request) =>
@@ -209,17 +283,23 @@ const serveFileRoute = async (
 		return answerLoadFailure(route, context.request, error);
 	}
 	if (loaded instanceof Response) return loaded;
+	const props = isRecord(loaded) ? loaded : {};
+	// The route's metadata, noted for the response to be given it in
+	// its head (routeHead.ts) — or, for a request for the page's data,
+	// alongside the data.
+	const head = await routeHeadFor(route, context, props);
 	/* Asked after `load`, not before: `load` runs on the server either
 	 * way, and its redirect or 404 must still answer a route whose page
 	 * the server does not render. */
 	const rendersOnServer = route.ssr ? await route.ssr() : true;
-
-	return route.render({
+	const response = await route.render({
 		manifest,
-		props: isRecord(loaded) ? loaded : {},
+		props,
 		request: context.request,
 		...(rendersOnServer ? {} : { ssr: false })
 	});
+
+	return head ? withRouteDataHead(response, head) : response;
 };
 
 /* Once per route per process: a dev entry re-run registers every route
