@@ -8,6 +8,7 @@ export { CsrfFieldComponent } from './csrf-field.component';
 export { AbsoluteActionDirective } from './form-action.directive';
 export type { FormActionTarget } from './form-action.directive';
 export { ImageComponent } from './image.component';
+export { JsonLdComponent, jsonLdText } from './json-ld.component';
 export {
 	AbsoluteLinkDirective,
 	type AbsoluteLinkPrefetchMode
