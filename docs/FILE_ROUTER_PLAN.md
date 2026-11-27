@@ -414,6 +414,36 @@ export const load = async ({ params }: FileRouteContext<'/blog/:slug'>) => {
     metadata written as a value can be known to a build; a route whose
     `metadata` is a function stays in, and `sitemap.exclude` is how to
     leave such a route out.
+- **Open Graph images are named, not generated.** A route points at its
+  card's image in its metadata, and the image is one the app has:
+
+  ```ts
+  export const metadata = ({ data }) => ({
+  	openGraph: {
+  		image: `https://acme.test/og/${data.post.slug}.png`,
+  		imageAlt: data.post.title,
+  		imageHeight: 630,
+  		imageWidth: 1200
+  	},
+  	twitter: { card: 'summary_large_image' }
+  });
+  ```
+
+  A layout can set one image for everything under it, and a route overrides
+  it, since `openGraph` is merged field by field. Use an absolute address:
+  the services that fetch a card are not on the page and do not resolve a
+  relative one. An image in `assetsDirectory` or `publicDirectory` is
+  served like any other file.
+
+  Generating a card from a page's title was considered and not built.
+  Drawing one from an SVG template with `sharp`, which is already an
+  optional dependency, needs nothing new but cannot wrap text, so a long
+  title runs off the card, and it draws with whatever fonts the server
+  has. Doing it properly means a layout engine and a rasteriser — what
+  Next.js uses for this is `satori` and `resvg` — which is two third-party
+  dependencies, one with a native binary per platform. That is the design
+  to build if generated cards are wanted, as optional peers; it was not
+  worth the dependencies yet.
 - **`robots.txt` (built, opt-in).** The `robots` config key writes one with
   the build, beside the sitemap:
 
