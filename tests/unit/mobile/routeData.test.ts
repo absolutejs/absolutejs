@@ -51,7 +51,7 @@ describe('web route data', () => {
 		expect(response.headers.get('content-type')).toBe(
 			`${ABSOLUTE_ROUTE_DATA_MEDIA_TYPE}; version=${ABSOLUTE_ROUTE_DATA_PROTOCOL_VERSION}`
 		);
-		expect(response.headers.get('vary')).toBe('Accept');
+		expect(response.headers.get('vary')).toBe('Accept, x-absolute-page');
 		expect(await response.json()).toEqual({
 			assets: {
 				client: '/vue/client/Account-def.js',
@@ -209,5 +209,59 @@ describe('web route data', () => {
 		if (!response) throw new Error('expected a route-data response');
 
 		expect(await response.json()).toMatchObject({ assets: { css: [] } });
+	});
+});
+
+/* A browser with a page mounted says which, and asks for either answer:
+ * that page's data, or the document of any other. */
+describe('web route data for the page the browser has mounted', () => {
+	const asking = (mounted: string) =>
+		new Request('https://example.test/account/42', {
+			headers: {
+				accept: `${ABSOLUTE_ROUTE_DATA_MEDIA_TYPE}, text/html;q=0.9`,
+				'x-absolute-page': mounted
+			}
+		});
+
+	test('is served when this route renders that page', async () => {
+		const response = finalize(asking('/vue/indexes/Account-abc.js'));
+		if (!response) throw new Error('expected a route-data response');
+
+		expect(response.status).toBe(200);
+		expect(await response.json()).toMatchObject({
+			kind: 'route',
+			props: { displayName: 'Ada' }
+		});
+	});
+
+	/* The browser reads its entry's address off the module it is
+	 * running, origin and all. */
+	test('matches the page by path, whatever origin the browser named', () => {
+		expect(
+			finalize(
+				asking('https://example.test/vue/indexes/Account-abc.js?v=1')
+			)
+		).toBeDefined();
+	});
+
+	test('is not served for any other page: the route renders its document', () => {
+		expect(
+			finalize(asking('/react/indexes/Dashboard-123.js'))
+		).toBeUndefined();
+	});
+
+	test('is not served by a page with no client entry', () => {
+		expect(
+			finalizeAbsoluteMobilePage({
+				compatibility,
+				props: { displayName: 'Ada' },
+				request: asking('/vue/indexes/Account-abc.js'),
+				route: { assets: { css: [] } }
+			})
+		).toBeUndefined();
+	});
+
+	test('a request that names no page is answered as before', () => {
+		expect(finalize(routeRequest())).toBeDefined();
 	});
 });

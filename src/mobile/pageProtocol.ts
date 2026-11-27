@@ -489,11 +489,41 @@ const routeDataEtag = (body: string) =>
 
 const ROUTE_DATA_CACHE_CONTROL = 'private, max-age=0, must-revalidate';
 
+/* "Data, if this address is the page I already have; the document if it
+ * is any other." A browser that has a page mounted names that page's
+ * client entry here when it navigates, and asks for both
+ * representations. The same page is answered with its data, which the
+ * mounted page is simply handed; another page is answered with its
+ * document, which the browser needed anyway. One request either way —
+ * without this the browser has to guess, and a wrong guess costs a
+ * second request and a second run of the route's loaders.
+ *
+ * Compared by path: the browser reads its entry's address off the
+ * module it is running, which carries an origin the manifest's does
+ * not. */
+const ROUTE_DATA_PAGE_HEADER = 'x-absolute-page';
+const ROUTE_DATA_VARY = `Accept, ${ROUTE_DATA_PAGE_HEADER}`;
+
+const pathOfAsset = (href: string) => {
+	try {
+		return new URL(href, 'http://localhost').pathname;
+	} catch {
+		return undefined;
+	}
+};
+
+const asksForAnotherPage = (request: Request, index: string | undefined) => {
+	const mounted = request.headers.get(ROUTE_DATA_PAGE_HEADER);
+	if (!mounted) return false;
+
+	return index === undefined || pathOfAsset(mounted) !== pathOfAsset(index);
+};
+
 const routeDataHeaders = (etag?: string) => {
 	const headers = new Headers({
 		'cache-control': etag ? ROUTE_DATA_CACHE_CONTROL : 'no-store',
 		'content-type': `${ABSOLUTE_ROUTE_DATA_MEDIA_TYPE}; version=${ABSOLUTE_ROUTE_DATA_PROTOCOL_VERSION}`,
-		vary: 'Accept'
+		vary: ROUTE_DATA_VARY
 	});
 	if (etag) headers.set('etag', etag);
 
@@ -559,8 +589,11 @@ export const createAbsoluteMobileUpgradeResponse = (
  * Serve the web route-data representation of a page when the request
  * asks for `application/vnd.absolute.route+json`; `undefined` otherwise.
  *
- * GET only, negotiated on `Accept` alone (no client identity headers),
- * available in every environment. The body is the page's props plus the
+ * GET only, negotiated on `Accept` (no client identity headers),
+ * available in every environment. A request that also names the page
+ * the browser has mounted (`x-absolute-page`) is answered with data only
+ * when this is that page; for any other this returns `undefined` too and
+ * the document is rendered. The body is the page's props plus the
  * asset URLs a client needs to warm before navigating, and it carries a
  * content-hash `ETag` with `private, max-age=0, must-revalidate` so the
  * browser keeps a prefetched copy and revalidates it with a 304.
@@ -584,6 +617,8 @@ export const finalizeAbsoluteRouteData = <Props>(
 	const status = input.status ?? OK_STATUS;
 	try {
 		const route = resolveRouteDataInput(input);
+		// The browser has another page mounted: it gets the document.
+		if (asksForAnotherPage(request, route.assets?.index)) return undefined;
 		const head = buildRouteDataHead(route.head);
 		const envelope: AbsoluteRouteDataEnvelope = {
 			assets: buildRouteDataAssets(route.assets),
