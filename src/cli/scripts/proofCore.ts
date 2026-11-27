@@ -123,15 +123,19 @@ const stagePaths = (
 /**
  * A Git tree of `files` as they are on disk, built in a temporary index and
  * object store so the real index is never touched. Missing paths (deleted
- * but not yet staged) and `excluded` (the proof itself) are left out. Git
+ * but not yet staged) and `excluded` (the proof itself, and any paths the
+ * proof names as outside its scope) are left out. Git
  * applies its normal clean filters, so the digest is the same on every
  * checkout platform.
  */
 export const createSourceTree = (
 	root: string,
 	files: string[],
-	excluded: string
+	excluded: string | readonly string[]
 ) => {
+	const leftOut = new Set(
+		typeof excluded === 'string' ? [excluded] : excluded
+	);
 	const temporaryDirectory = mkdtempSync(
 		resolve(tmpdir(), 'absolute-proof-')
 	);
@@ -156,7 +160,7 @@ export const createSourceTree = (
 	try {
 		runGit(['read-tree', '--empty'], { cwd: root, env });
 		const present = files.filter((path) => {
-			if (!path || path === excluded) return false;
+			if (!path || leftOut.has(path)) return false;
 			try {
 				lstatSync(resolve(root, path));
 

@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "A command proof covers every file, so it also covered the lint proof sitting next to it: re-signing lint (after any lint-only change) invalidated the test proof and meant running the whole suite again. `absolute proof run` and `verify` now take `--exclude <path>` (repeatable). The excluded paths are part of the signed payload and verify must name exactly the same ones, so a proof cannot be stretched afterwards to ignore anything else; only files inside the repository can be excluded, never a directory. A proof with no exclusions signs exactly as before, so existing proofs still verify.",
+					"kind": "added",
+					"summary": "`absolute proof --exclude <path>`: a test proof can leave the lint proof out of its tree"
+				}
+			],
+			"date": "2026-11-27",
+			"version": "0.20.0-beta.434"
+		},
+		{
+			"changes": [
+				{
 					"detail": "The `robots` config key writes a robots.txt with a production build, beside the sitemap. `robots: true` allows every crawler everything; `robots: { rules: [{ userAgent, allow, disallow, crawlDelay }], sitemap }` sets the groups. The Sitemap line points at the build's own sitemap when sitemap.baseUrl is set, can name sitemaps outright, or can be left out. Opt-in: left out of the config, no file is written, as before. A robots.txt in publicDirectory is served as it is and wins over the config key, with a warning. Also: a file route whose metadata says robots: { index: false }, its own or a folder's above it, is now left out of the sitemap, since a sitemap lists the pages a site wants found. Only metadata written as a value can be known to a build; a route whose metadata is a function stays in the sitemap, and sitemap.exclude leaves such a route out. See docs/FILE_ROUTER_PLAN.md.",
 					"kind": "added",
 					"summary": "The robots config key writes a robots.txt, and no-index routes stay out of the sitemap",

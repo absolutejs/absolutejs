@@ -306,3 +306,153 @@ describe('absolute proof run', () => {
 		expect(await runCommandProof(['run', '--signing-key'], cwd)).toBe(2);
 	});
 });
+
+describe('files a command proof leaves out', () => {
+	const command = ['bun', 'test'];
+	const LINT_PROOF = '.absolutejs/lint-proof.json';
+
+	const signExcluding = async (cwd: string, signing: string) => {
+		await Bun.write(join(cwd, LINT_PROOF), '{"lint":1}\n');
+		writeCommandProof(
+			command,
+			createCommandSourceTree(cwd, PROOF, [LINT_PROOF]),
+			signing,
+			{ cwd, excluded: [LINT_PROOF], proofLocation: PROOF }
+		);
+	};
+
+	test('an excluded file can change; everything else still invalidates', async () => {
+		const cwd = await project();
+		const { signing, trusted } = await keys();
+		await signExcluding(cwd, signing);
+		const verifyHere = () =>
+			verifyCommandProof(command, trusted, {
+				cwd,
+				excluded: [LINT_PROOF],
+				proofLocation: PROOF
+			});
+
+		expect((await readProof(cwd)).excluded).toEqual([LINT_PROOF]);
+		await writeFile(join(cwd, LINT_PROOF), '{"lint":2}\n');
+		expect(verifyHere().valid).toBeTrue();
+		await writeFile(join(cwd, 'README.md'), 'changed\n');
+		expect(verifyHere().valid).toBeFalse();
+	});
+
+	test('verify must name exactly the recorded exclusions', async () => {
+		const cwd = await project();
+		const { signing, trusted } = await keys();
+		await signExcluding(cwd, signing);
+
+		expect(
+			verifyCommandProof(command, trusted, { cwd, proofLocation: PROOF })
+		).toEqual({
+			reason: 'excluded files differ from the recorded exclusions',
+			valid: false
+		});
+		expect(
+			verifyCommandProof(command, trusted, {
+				cwd,
+				excluded: [LINT_PROOF, 'README.md'],
+				proofLocation: PROOF
+			})
+		).toEqual({
+			reason: 'excluded files differ from the recorded exclusions',
+			valid: false
+		});
+	});
+
+	test('the exclusions are signed: widening them in the proof breaks it', async () => {
+		const cwd = await project();
+		const { signing, trusted } = await keys();
+		await signExcluding(cwd, signing);
+		await rewriteProof(cwd, (proof) => {
+			proof.excluded = [LINT_PROOF, 'source.ts'];
+		});
+
+		// Either check refuses it: the widened set computes a different tree
+		// than the one signed, and the payload no longer matches its signature.
+		expect(
+			verifyCommandProof(command, trusted, {
+				cwd,
+				excluded: [LINT_PROOF, 'source.ts'],
+				proofLocation: PROOF
+			}).valid
+		).toBeFalse();
+	});
+
+	test('only files inside the repository can be excluded', async () => {
+		const cwd = await project();
+		await Bun.write(join(cwd, 'src/a.ts'), 'export {};\n');
+
+		expect(() => createCommandSourceTree(cwd, PROOF, ['src'])).toThrow(
+			'must name a file, not a directory'
+		);
+		expect(() => createCommandSourceTree(cwd, PROOF, ['.'])).toThrow(
+			'is not a file inside the repository'
+		);
+		expect(() =>
+			createCommandSourceTree(cwd, PROOF, ['../outside.json'])
+		).toThrow('is not a file inside the repository');
+	});
+
+	test('the CLI takes --exclude on both sides', async () => {
+		const cwd = await project();
+		const { signing, trusted } = await keys();
+		await Bun.write(join(cwd, LINT_PROOF), '{"lint":1}\n');
+
+		expect(
+			await runCommandProof(
+				[
+					'run',
+					'--proof',
+					PROOF,
+					'--exclude',
+					LINT_PROOF,
+					'--signing-key',
+					signing,
+					'--',
+					'bun',
+					'-e',
+					'0'
+				],
+				cwd
+			)
+		).toBe(0);
+		await writeFile(join(cwd, LINT_PROOF), '{"lint":2}\n');
+		expect(
+			await runCommandProof(
+				[
+					'verify',
+					'--proof',
+					PROOF,
+					'--exclude',
+					LINT_PROOF,
+					'--trusted-key',
+					trusted,
+					'--',
+					'bun',
+					'-e',
+					'0'
+				],
+				cwd
+			)
+		).toBe(0);
+		expect(
+			await runCommandProof(
+				[
+					'verify',
+					'--proof',
+					PROOF,
+					'--trusted-key',
+					trusted,
+					'--',
+					'bun',
+					'-e',
+					'0'
+				],
+				cwd
+			)
+		).toBe(1);
+	});
+});

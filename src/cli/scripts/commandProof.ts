@@ -1,12 +1,13 @@
 import { createPublicKey, sign, verify } from 'node:crypto';
 import {
 	existsSync,
+	lstatSync,
 	mkdirSync,
 	readFileSync,
 	renameSync,
 	writeFileSync
 } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { dirname, relative, resolve } from 'node:path';
 import {
 	createSourceTree,
 	proofPathInTree,
@@ -34,6 +35,13 @@ import {
  * - the exact Bun (`Bun.version`, build label included: a patched build is
  *   a different runtime), so the verifying side must run the same one.
  *
+ * `--exclude <path>` (repeatable, on both run and verify) leaves named files
+ * out of the tree: another proof, most often, so that re-signing the lint
+ * proof does not invalidate the test proof. The excluded paths are signed,
+ * and verify must name exactly the same ones, so a proof can never be
+ * stretched afterwards to ignore anything else. Only files can be excluded,
+ * never a directory.
+ *
  * `run` computes the tree before and after the command and refuses to sign
  * if they differ: a command that edits files (a formatter, a codegen step)
  * would otherwise sign a tree it never checked.
@@ -58,21 +66,26 @@ export type CommandProof = {
 	command: string[];
 	contractVersion: number;
 	createdAt: string;
+	/** Files left out of `sourceTree`, repo-relative and sorted. Absent when none. */
+	excluded?: string[];
 	sourceTree: string;
 };
 
 type Result =
 	{ proof: CommandProof; valid: true } | { reason: string; valid: false };
 
-type Options = { cwd?: string; proofLocation?: string };
+type Options = { cwd?: string; excluded?: string[]; proofLocation?: string };
 
 type ParsedArgs = {
 	command: string[];
+	excluded: string[];
 	proofLocation: string;
 	signingKeyLocation?: string;
 	trustedKeyLocation?: string;
 };
 
+/* Exclusions join the signed payload only when there are any, so proofs
+ * signed before they existed still verify. */
 const payload = (proof: CommandProof) =>
 	Buffer.from(
 		[
@@ -82,20 +95,61 @@ const payload = (proof: CommandProof) =>
 				command: proof.command,
 				contractVersion: proof.contractVersion,
 				createdAt: proof.createdAt,
+				...(proof.excluded?.length ? { excluded: proof.excluded } : {}),
 				sourceTree: proof.sourceTree
 			})
 		].join('\0')
 	);
 
-/** The tree a proof at `proofLocation` attests: every visible file but it. */
+/** Repo-relative, forward-slashed, sorted and unique: one spelling per set. */
+const normalizeExcluded = (root: string, cwd: string, paths: string[]) =>
+	[
+		...new Set(
+			paths.map((path) => {
+				const relativePath = relative(
+					root,
+					resolve(cwd, path)
+				).replaceAll('\\', '/');
+				if (
+					!relativePath ||
+					relativePath === '..' ||
+					relativePath.startsWith('../')
+				)
+					throw new Error(
+						`--exclude ${path} is not a file inside the repository`
+					);
+				const absolute = resolve(root, relativePath);
+				if (existsSync(absolute) && !lstatSync(absolute).isFile())
+					throw new Error(
+						`--exclude ${path} must name a file, not a directory`
+					);
+
+				return relativePath;
+			})
+		)
+	].sort();
+
+/** The tree a proof at `proofLocation` attests: every visible file but it
+ *  and the `excluded` files. */
 export const createCommandSourceTree = (
 	cwd = process.cwd(),
-	proofLocation = DEFAULT_PROOF_LOCATION
+	proofLocation = DEFAULT_PROOF_LOCATION,
+	excluded: string[] = []
 ) => {
 	const { proofRelative, root } = proofPathInTree(cwd, proofLocation, LABEL);
 
-	return createSourceTree(root, visibleFiles(root), proofRelative);
+	return createSourceTree(root, visibleFiles(root), [
+		proofRelative,
+		...normalizeExcluded(root, cwd, excluded)
+	]);
 };
+
+const excludedOf = (cwd: string, proofLocation: string, excluded: string[]) =>
+	normalizeExcluded(
+		proofPathInTree(cwd, proofLocation, LABEL).root,
+		cwd,
+		excluded
+	);
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
 	value !== null && typeof value === 'object';
@@ -114,6 +168,9 @@ const isCommandProof = (value: unknown): value is CommandProof =>
 	typeof value.bun === 'string' &&
 	typeof value.createdAt === 'string' &&
 	typeof value.sourceTree === 'string' &&
+	(value.excluded === undefined ||
+		(Array.isArray(value.excluded) &&
+			value.excluded.every((path) => typeof path === 'string'))) &&
 	(value.attestation === undefined || isAttestation(value.attestation));
 
 /** Sign and write a proof for a command that already passed on `sourceTree`. */
@@ -125,11 +182,13 @@ export const writeCommandProof = (
 ) => {
 	const cwd = options.cwd ?? process.cwd();
 	const proofLocation = options.proofLocation ?? DEFAULT_PROOF_LOCATION;
+	const excluded = excludedOf(cwd, proofLocation, options.excluded ?? []);
 	const proof: CommandProof = {
 		bun: Bun.version,
 		command,
 		contractVersion: CONTRACT_VERSION,
 		createdAt: new Date().toISOString(),
+		...(excluded.length > 0 ? { excluded } : {}),
 		sourceTree
 	};
 	const privateKey = readEd25519PrivateKey(cwd, signingKeyLocation, LABEL);
@@ -217,7 +276,13 @@ export const verifyCommandProof = (
 		return invalid(
 			`recorded on Bun ${proof.bun}, verifying on Bun ${Bun.version}`
 		);
-	if (proof.sourceTree !== createCommandSourceTree(cwd, proofLocation))
+	const excluded = excludedOf(cwd, proofLocation, options.excluded ?? []);
+	if (JSON.stringify(proof.excluded ?? []) !== JSON.stringify(excluded))
+		return invalid('excluded files differ from the recorded exclusions');
+	if (
+		proof.sourceTree !==
+		createCommandSourceTree(cwd, proofLocation, excluded)
+	)
 		return invalid('source tree changed since the command passed');
 
 	return checkSignature(proof, cwd, trustedKeyLocation);
@@ -240,6 +305,11 @@ const parseArgs = (args: string[]): ParsedArgs => {
 
 	return {
 		command: separator === FLAG_NOT_FOUND ? [] : args.slice(separator + 1),
+		excluded: control.flatMap((arg, index) =>
+			arg === '--exclude'
+				? [flagValue(control.slice(index), '--exclude') ?? '']
+				: []
+		),
 		proofLocation: flagValue(control, '--proof') ?? DEFAULT_PROOF_LOCATION,
 		signingKeyLocation: flagValue(control, '--signing-key'),
 		trustedKeyLocation: flagValue(control, '--trusted-key')
@@ -247,15 +317,23 @@ const parseArgs = (args: string[]): ParsedArgs => {
 };
 
 const USAGE =
-	'Usage: absolute proof <run|verify> [--proof path] (--signing-key path | --trusted-key path) -- <command>';
+	'Usage: absolute proof <run|verify> [--proof path] [--exclude path]... (--signing-key path | --trusted-key path) -- <command>';
 
 const runAndSign = async (
 	parsed: ParsedArgs,
 	signingKeyLocation: string,
 	cwd: string
 ) => {
-	const options: Options = { cwd, proofLocation: parsed.proofLocation };
-	const before = createCommandSourceTree(cwd, parsed.proofLocation);
+	const options: Options = {
+		cwd,
+		excluded: parsed.excluded,
+		proofLocation: parsed.proofLocation
+	};
+	const before = createCommandSourceTree(
+		cwd,
+		parsed.proofLocation,
+		parsed.excluded
+	);
 	const exitCode = await Bun.spawn(parsed.command, {
 		cwd,
 		stderr: 'inherit',
@@ -269,7 +347,11 @@ const runAndSign = async (
 
 		return exitCode;
 	}
-	const after = createCommandSourceTree(cwd, parsed.proofLocation);
+	const after = createCommandSourceTree(
+		cwd,
+		parsed.proofLocation,
+		parsed.excluded
+	);
 	if (after !== before) {
 		console.error(
 			'\x1b[31m✗\x1b[0m The command changed files; commit or discard the changes and run it again'
@@ -313,6 +395,7 @@ const reportVerification = (
 ) => {
 	const result = verifyCommandProof(parsed.command, trustedKeyLocation, {
 		cwd,
+		excluded: parsed.excluded,
 		proofLocation: parsed.proofLocation
 	});
 	if (!result.valid) {
