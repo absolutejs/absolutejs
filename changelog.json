@@ -12,6 +12,7 @@
 						"defineHoles",
 						"holeComponent",
 						"StreamSlot",
+						"StreamSlotComponent",
 						"FileRouteServerModule",
 						"FileRouteDefinition",
 						"RouteHoles",
