@@ -44,6 +44,9 @@ export type ScannedFileRoute = {
 	guards?: string[];
 	/** `layout.<ext>` files wrapping this route, outermost first. */
 	layouts?: string[];
+	/** Whether the server module exports `action`: a form action the
+	 *  generated module registers as `POST` on this route's path. */
+	action?: true;
 	/** Co-located `<route>.server.ts`, absolute, when present. */
 	server?: string;
 	/** The path the route's types are written against: a catch-all appears
@@ -519,11 +522,13 @@ const routesFromFile = (
 			`${toPosix(relative(process.cwd(), layouts[0] ?? ''))}: layouts are applied to React, Svelte, Vue and Angular routes so far, so this file would be ignored. Remove it, or move the route to one of those route folders.`
 		);
 	}
+	const server = findServerModule(root.framework, source);
 	const shared: Omit<ScannedFileRoute, 'path'> = {
 		framework: root.framework,
 		name: fileRoutePageName(root.framework, relativePath),
-		server: findServerModule(root.framework, source),
+		server,
 		source,
+		...(server && exportsAction(server) ? { action: true } : {}),
 		typePath: mapped.typePath,
 		...(mapped.catchAll === undefined ? {} : { catchAll: mapped.catchAll }),
 		...(guards.length > 0 ? { guards } : {}),
@@ -602,6 +607,16 @@ const staticSsrProblems = (routes: readonly ScannedFileRoute[]) =>
 			(server) =>
 				`${toPosix(relative(process.cwd(), server))}: \`ssr\` does nothing for an HTML or HTMX route, which is served as the file it is.`
 		);
+
+/* `export const action = defineAction(…)` — a route's own form action
+ * (core/pageAction.ts). Read from the source, as `ssr` is: the generated
+ * module imports a server module that has one when the server starts,
+ * because a route's schema has to exist when the route is registered,
+ * and every other server module stays lazily imported. */
+const ACTION_EXPORT_RE = /^\s*export\s+const\s+action\b/m;
+
+const exportsAction = (server: string) =>
+	ACTION_EXPORT_RE.test(readFileSync(server, 'utf8'));
 
 const compareRoutes = (left: ScannedFileRoute, right: ScannedFileRoute) =>
 	left.path.localeCompare(right.path) ||
@@ -790,6 +805,50 @@ const renderRoute = (route: ScannedFileRoute, outputDir: string) => {
 	return lines.join('\n');
 };
 
+const ACTIONS_PLUGIN = `new Elysia({ name: 'absolutejs-file-route-actions' })`;
+
+/* The routes' own form actions, as the plugin the app `.use()`s.
+ *
+ * A real Elysia instance, written out route by route, and not something
+ * `fileRoutes()` registers at run time: the typed client finds an app's
+ * form routes in the app's TYPE, and a type can only come from code the
+ * compiler sees. Each action is the `.post(path, { form }, handler)` an
+ * app would write by hand, with the action's own `form` and `handler`.
+ *
+ * Always exported, empty when no route has an action, so a server can
+ * `.use(routeActions)` once and never revisit it. */
+const routeActionsOf = (routes: ScannedFileRoute[], outputDir: string) => {
+	const withAction = routes.filter(
+		(route): route is ScannedFileRoute & { server: string } =>
+			route.action === true && route.server !== undefined
+	);
+	// One import per server module: an `[[optional]]` route is two
+	// paths from one file.
+	const servers = [...new Set(withAction.map((route) => route.server))];
+	const alias = (server: string) => `action${servers.indexOf(server)}`;
+	const posts = withAction.map(
+		(route) =>
+			`\t.post(${quote(route.path)}, { form: ${alias(route.server)}.form }, ${alias(route.server)}.handler)`
+	);
+
+	return {
+		body:
+			posts.length === 0
+				? `export const routeActions = ${ACTIONS_PLUGIN};`
+				: [
+						`export const routeActions = ${ACTIONS_PLUGIN}`,
+						`\t.use(formActions())`,
+						...posts
+					]
+						.join('\n')
+						.concat(';'),
+		imports: servers.map(
+			(server) =>
+				`import { action as ${alias(server)} } from ${quote(importSpecifier(outputDir, server))};`
+		)
+	};
+};
+
 /** The route module's source. */
 export const renderFileRouteModule = (
 	routes: ScannedFileRoute[],
@@ -809,12 +868,18 @@ export const renderFileRouteModule = (
 			adapter.name
 		]);
 	}
+	const actions = routeActionsOf(routes, outputDir);
 	const imports = [
+		`import { Elysia } from 'elysia';`,
 		`import type { FileRouteDefinition } from '@absolutejs/absolute';`,
+		...(actions.imports.length > 0
+			? [`import { formActions } from '@absolutejs/absolute';`]
+			: []),
 		...[...bySpecifier.entries()].map(
 			([specifier, names]) =>
 				`import { ${names.join(', ')} } from '${specifier}';`
-		)
+		),
+		...actions.imports
 	];
 	const body =
 		routes.length === 0
@@ -834,6 +899,8 @@ export const renderFileRouteModule = (
 		...imports,
 		'',
 		body,
+		'',
+		actions.body,
 		''
 	].join('\n');
 };

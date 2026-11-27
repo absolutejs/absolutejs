@@ -1182,6 +1182,12 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 			name: 'prerendered-pages'
 		}).onRequest(({ request, set }) => {
 			const url = new URL(request.url);
+			// A pre-rendered page is the answer to asking for the page.
+			// A POST to its address is a form action's (a file route's
+			// own is registered on the page's path — pageAction.ts),
+			// and must reach the route.
+			if (request.method !== 'GET' && request.method !== 'HEAD')
+				return undefined;
 
 			// The server's own re-render and hole requests, and a form
 			// posted without JavaScript whose result rides in a cookie the

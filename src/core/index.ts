@@ -9,6 +9,7 @@ export { cookies, headers } from './requestHelpers';
 export { revalidateAll, revalidatePath, revalidateTag } from './revalidate';
 export { cacheTag } from './cacheTags';
 export { defineHoles, holeComponent } from './routeHoles';
+export { defineAction } from './pageAction';
 export { registerPageStore } from './pageStore';
 export { redisPageStore, s3PageStore } from './pageStores';
 export { registerHealthCheck } from './healthChecks';

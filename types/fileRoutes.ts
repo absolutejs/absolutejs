@@ -1,4 +1,5 @@
 import type { Context } from 'elysia';
+import type { PageAction } from './pageAction';
 import type { RouteHoles } from './routeHoles';
 
 /* File-system routing (opt-in). See docs/FILE_ROUTER_PLAN.md.
@@ -105,6 +106,16 @@ export type FileRouteServerModule<
 	Path extends string = string,
 	Props = Record<string, unknown>
 > = {
+	/** This route's form action, made with `defineAction`: registered
+	 *  as `POST` on the route's own path, so the page's `<form
+	 *  method="post">` posts to it with no `action` attribute. An
+	 *  ordinary form action in every other way. The server module is
+	 *  then imported when the server starts, not on first request: a
+	 *  route's schema has to exist when the route is registered. */
+	// The schema and result are the action's own, checked where it is
+	// defined; any of them is a server module's `action`.
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	action?: PageAction<any, any>;
 	/** Runs before `load`; return a value (a `Response`, a redirect) to
 	 *  answer the request instead of rendering the page. */
 	beforeHandle?: (context: FileRouteContext<Path>) => unknown;
