@@ -200,7 +200,12 @@ const run = async (...args: string[]) => {
 };
 
 type Report = {
-	checked: { findings: { kind: string }[]; path: string; words: number }[];
+	checked: {
+		citation: string[];
+		findings: { kind: string }[];
+		path: string;
+		words: number;
+	}[];
 	unchecked: { path: string; reason: string }[];
 };
 
@@ -262,6 +267,29 @@ describe('absolute content', () => {
 
 		expect(given.unchecked).toEqual([]);
 		expect(kindsAt(given.checked, '/blog/hello')).toEqual([]);
+	}, 60_000);
+
+	/* The home page has a title and nothing else in its head. That is
+	 * advice: the page itself has no finding. */
+	test('notes what a page is missing to be cited, without failing it', async () => {
+		const { checked } = await report();
+		const home = checked.find((entry) => entry.path === '/');
+
+		expect(home?.citation).toEqual([
+			'no description',
+			'no canonical address'
+		]);
+		expect(home?.findings).toEqual([]);
+		// Nothing to quote, so nothing to attribute.
+		expect(
+			checked.find((entry) => entry.path === '/app')?.citation
+		).toEqual([]);
+
+		const { stdout } = await run();
+
+		expect(stdout).toMatch(
+			/✓ \/ +8 words {2}to be cited: no description, no canonical address/
+		);
 	}, 60_000);
 
 	test('holds a page to --min-words', async () => {

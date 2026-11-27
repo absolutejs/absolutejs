@@ -155,7 +155,7 @@ const printUsage = (write: (line: string) => void) => {
 		'  links [--config path] Report literal <a href="/…"> links no route serves (exits 1 on findings)'
 	);
 	write(
-		'  content [paths…] [--url origin] [--min-words n] [--json] Report what each page of a running server says to a crawler that runs no JavaScript (exits 1 on findings)'
+		'  content [paths…] [--url origin] [--min-words n] [--strict] [--json] Report what each page of a running server says to a crawler that runs no JavaScript (exits 1 on findings)'
 	);
 	write(
 		'  upgrade [--to version] [--dry-run] Apply the migrations between the installed version and a newer one, and list the ones a person has to make'

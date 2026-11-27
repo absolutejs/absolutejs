@@ -131,6 +131,14 @@ export type WebSiteSchema = {
 
 // --- Article ---
 
+/** The parts of a page suited to being read aloud: by CSS selector,
+ *  by XPath, or both. */
+export type SpeakableSpecification = {
+	'@type': 'SpeakableSpecification';
+	cssSelector?: string | string[];
+	xpath?: string | string[];
+};
+
 export type ArticleSchema = {
 	'@type': 'Article' | 'BlogPosting' | 'NewsArticle';
 	headline: string;
@@ -141,6 +149,9 @@ export type ArticleSchema = {
 	description?: string;
 	articleBody?: string;
 	publisher?: OrganizationSchema;
+	/** The parts of the page best read aloud, for an assistant that
+	 *  answers by voice. */
+	speakable?: SpeakableSpecification;
 };
 
 // --- Product ---

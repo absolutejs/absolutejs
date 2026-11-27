@@ -44,6 +44,7 @@ describe('the text a reader is shown', () => {
 describe('a page', () => {
 	test('rendered in full has no findings', () => {
 		expect(auditContent(doc('<main>Plenty to read here</main>'))).toEqual({
+			citation: ['no description', 'no canonical address'],
 			findings: [],
 			notes: [],
 			words: 4
