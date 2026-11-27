@@ -118,7 +118,7 @@ export default defineConfig({
 	htmlDirectory: './html',
 	llms: { optional: ['/help/faq'], summary: 'An example site.' },
 	reactDirectory: './react',
-	robots: { rules: [{ userAgent: '*' }, { disallow: '/', userAgent: 'GPTBot' }] },
+	robots: { ai: { search: false }, rules: [{ userAgent: '*' }, { disallow: '/', userAgent: 'GPTBot' }] },
 	sitemap: { baseUrl: 'https://acme.test' },
 	svelteDirectory: './svelte'
 });
@@ -406,6 +406,11 @@ describe('what the build writes for crawlers', () => {
 				'Allow: /',
 				'',
 				'User-agent: GPTBot',
+				'Disallow: /',
+				'',
+				'User-agent: OAI-SearchBot',
+				'User-agent: Claude-SearchBot',
+				'User-agent: PerplexityBot',
 				'Disallow: /',
 				'',
 				'Sitemap: https://acme.test/sitemap.xml',

@@ -1,4 +1,13 @@
-import type { RobotsConfig, RobotsRule } from '../../types/robots';
+import {
+	AI_ASSISTANT_AGENTS,
+	AI_SEARCH_CRAWLERS,
+	AI_TRAINING_CRAWLERS
+} from '../constants';
+import type {
+	RobotsAiPolicy,
+	RobotsConfig,
+	RobotsRule
+} from '../../types/robots';
 
 /* The text of a `robots.txt`.
  *
@@ -37,6 +46,25 @@ const groupLines = (rule: RobotsRule) => {
 
 const DEFAULT_RULES: RobotsRule[] = [{ allow: '/', userAgent: '*' }];
 
+/* The groups `robots.ai` asks for: one per kind turned off, naming
+ * every crawler of that kind and disallowing everything. A crawler
+ * follows the group that names it over the one for `*`, so these hold
+ * whatever `rules` says to everyone. A kind left on writes nothing. */
+const aiRules = (policy: RobotsAiPolicy | undefined) => {
+	const kinds: [boolean | undefined, string[]][] = [
+		[policy?.training, AI_TRAINING_CRAWLERS],
+		[policy?.search, AI_SEARCH_CRAWLERS],
+		[policy?.assistants, AI_ASSISTANT_AGENTS]
+	];
+
+	return kinds.flatMap(([allowed, userAgent]) => {
+		if (allowed !== false) return [];
+		const rule: RobotsRule = { disallow: '/', userAgent };
+
+		return [rule];
+	});
+};
+
 const sitemapsOf = (
 	sitemap: RobotsConfig['sitemap'],
 	baseUrl: string | undefined
@@ -56,10 +84,15 @@ export const generateRobots = (
 	config: RobotsConfig | true,
 	baseUrl?: string
 ) => {
-	const { rules, sitemap }: RobotsConfig = config === true ? {} : config;
-	const groups = (rules && rules.length > 0 ? rules : DEFAULT_RULES).map(
-		(rule) => groupLines(rule).join('\n')
-	);
+	const {
+		ai: aiPolicy,
+		rules,
+		sitemap
+	}: RobotsConfig = config === true ? {} : config;
+	const groups = [
+		...(rules && rules.length > 0 ? rules : DEFAULT_RULES),
+		...aiRules(aiPolicy)
+	].map((rule) => groupLines(rule).join('\n'));
 	const sitemaps = sitemapsOf(sitemap, baseUrl).map(
 		(address) => `Sitemap: ${oneLine(address)}`
 	);

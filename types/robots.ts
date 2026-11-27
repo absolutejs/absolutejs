@@ -16,7 +16,29 @@ export type RobotsRule = {
 	userAgent?: string | string[];
 };
 
+/** Which of the crawlers run for language models may fetch the site.
+ *  Each is `true` (the default: nothing is written, and the crawler
+ *  follows the rules for everyone) or `false` (a group that disallows
+ *  everything, for every crawler of that kind the framework knows by
+ *  name). */
+export type RobotsAiPolicy = {
+	/** Fetchers that load a page because a person asked an assistant
+	 *  about it, there and then (`AI_ASSISTANT_AGENTS`). Some of them
+	 *  say they do not follow `robots.txt`, since a person sent them. */
+	assistants?: boolean;
+	/** Crawlers that index pages so an answer can cite and link them
+	 *  (`AI_SEARCH_CRAWLERS`). Disallowing them takes the site out of
+	 *  those answers. */
+	search?: boolean;
+	/** Crawlers that collect pages to train models on
+	 *  (`AI_TRAINING_CRAWLERS`). */
+	training?: boolean;
+};
+
 export type RobotsConfig = {
+	/** Which crawlers run for language models may fetch the site, by
+	 *  what they fetch it for. Written as groups after `rules`. */
+	ai?: RobotsAiPolicy;
 	/** The groups, in the order written. Left out, every crawler is
 	 *  allowed everything. */
 	rules?: RobotsRule[];

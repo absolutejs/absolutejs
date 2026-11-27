@@ -33,6 +33,8 @@ export const renderRobotsContent = (robots: RobotsDirective) => {
 	if (robots.noarchive) directives.push('noarchive');
 	if (robots.nosnippet) directives.push('nosnippet');
 	if (robots.noimageindex) directives.push('noimageindex');
+	if (robots.noai) directives.push('noai');
+	if (robots.noimageai) directives.push('noimageai');
 	if (robots.maxSnippet !== undefined)
 		directives.push(`max-snippet:${robots.maxSnippet}`);
 	if (robots.maxImagePreview)

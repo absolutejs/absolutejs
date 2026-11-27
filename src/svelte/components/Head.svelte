@@ -32,6 +32,8 @@
 		if (r.noarchive) directives.push('noarchive');
 		if (r.nosnippet) directives.push('nosnippet');
 		if (r.noimageindex) directives.push('noimageindex');
+		if (r.noai) directives.push('noai');
+		if (r.noimageai) directives.push('noimageai');
 		if (r.maxSnippet !== undefined)
 			directives.push(`max-snippet:${r.maxSnippet}`);
 		if (r.maxImagePreview)

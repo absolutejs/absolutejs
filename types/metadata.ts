@@ -27,6 +27,12 @@ export type RobotsDirective = {
 	noarchive?: boolean;
 	nosnippet?: boolean;
 	noimageindex?: boolean;
+	/** Asks that the page not be used to train a model. Not a standard:
+	 *  a few crawlers honour it and most do not. Which crawlers may
+	 *  fetch the site at all is `robots.ai` in the config. */
+	noai?: boolean;
+	/** The same, for the page's images. */
+	noimageai?: boolean;
 	maxSnippet?: number;
 	maxImagePreview?: 'none' | 'standard' | 'large';
 	maxVideoPreview?: number;
