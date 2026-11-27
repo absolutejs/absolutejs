@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "The Svelte router browser test \"the lazy route chunk is requested only on prefetch or navigation\" failed intermittently in the nightly run. It waited for the browser's own count of script resources to grow, then read a separate list filled by a request listener that is attached after the page starts loading and can therefore hold fewer scripts. When it did, the wait returned before the hover prefetch had been made. The test now waits on the list it asserts against. No change to the framework.",
+					"kind": "internal",
+					"summary": "A Svelte router browser test no longer races its own script list"
+				}
+			],
+			"date": "2026-11-27",
+			"version": "0.20.0-beta.426"
+		},
+		{
+			"changes": [
+				{
 					"detail": "static.partial: { edge: true } serves a partially pre-rendered page as two responses instead of one. Until now the shell and its per-visitor holes travelled in a single response marked private, no-cache, so no CDN could keep any of it and every view reached the server. In edge mode the shell is served alone — identical for every visitor, with a strong ETag, a 304 for a current copy, Cache-Control: public, no-cache and Vary: Accept — and a small loader in it fetches the holes from the same address with ?__absolute_holes. That response is private, no-store and carries each slot's content as a line of JSON as it resolves, which the loader hands to the slot runtime already in the shell. edge: { maxAge } adds s-maxage, letting a shared cache answer on its own for that many seconds. Off by default: the holes arrive one round trip later than in the single response, which only pays when a CDN serves the shell. Not served to an app that sends per-request CSP nonces (secureHeaders()), since a stored page cannot carry a fresh one; such an app keeps the single response and says so once in its log. Works with holes declared on the route and with holes resolved through the page. See docs/PARTIAL_PRERENDERING_PLAN.md.",
 					"kind": "added",
 					"summary": "Edge mode serves a partial page's shell cacheably and fetches its holes separately",
