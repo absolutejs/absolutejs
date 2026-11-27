@@ -337,8 +337,22 @@ extraction from source, pseudo-localization for layout testing, and a
 - The locale must be the first path segment under `prefix`.
 - Type-level parameter extraction ignores apostrophe quoting (`'{x}'`); a
   quoted brace may be reported as a parameter.
-- Catalogs are cached for the server's lifetime; editing a catalog in dev
-  relies on the server restart the dev watcher already does for server files.
+- Catalogs are cached for the server's lifetime in production. Under
+  `absolute dev` an edit to one shows on the next request:
+  - The default locale's, and any locale's that is a module, is swapped in
+    place by the dev server's backend reload, in milliseconds.
+  - A locale loaded by its loader is asked for again on each request in
+    dev, not kept. It was once kept, which made a lazily loaded module the
+    one catalog an edit could not reach: the server swapped the module and
+    the page kept the old message, with nothing to restart it.
+  - A JSON catalog a loader reads when a request needs it is read again
+    by the next request. Named in `i18n.catalogs`, it no longer restarts
+    the server either; any other `.json` is still assumed to be read once
+    at startup.
+  - A JSON catalog imported as a module is held by the process, and still
+    restarts the server.
+  - An open page shows the new message when it is next loaded; it is not
+    pushed to the browser.
 - A catalog whose only top-level key is `default` is read as a module
   (`{ default: catalog }`).
 - The React page sets `<html lang dir>` itself (React owns the document).

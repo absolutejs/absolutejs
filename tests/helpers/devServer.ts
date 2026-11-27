@@ -29,6 +29,10 @@ export type DevServer = {
 };
 
 type DevServerOptions = {
+	/** The directory the server runs in. Default: the repository's root,
+	 *  which the example app is written for. A fixture with its own
+	 *  `src` passes its own, since the watcher follows the project's. */
+	cwd?: string;
 	port?: number;
 	serverEntry?: string;
 	configPath?: string;
@@ -109,7 +113,7 @@ export const startDevServer = async (options?: DevServerOptions | number) => {
 	const proc = Bun.spawn(
 		[process.execPath, '--no-clear-screen', serverBootstrap],
 		{
-			cwd: PROJECT_ROOT,
+			cwd: opts.cwd ?? PROJECT_ROOT,
 			env: {
 				...process.env,
 				ABSOLUTE_CONFIG: configPath,

@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "Under `absolute dev`, an edit to a locale's catalog that `defineI18n` loads through a loader (`fr: () => import('./messages/fr')`) did not show: the dev server swapped the module in place and reported it updated, and pages kept the old message until the server was restarted by something else. A loaded catalog was kept for the server's lifetime, and nothing cleared it. In development a locale's catalog is now asked for again on each request, which is cheap because a module that has not changed is the same module; production keeps them as before. The default locale's catalog already reloaded in place and still does. Also: a JSON catalog named in the config's `i18n.catalogs` that a loader reads when a request needs it no longer restarts the dev server when edited, since the next request reads the new file. A JSON catalog imported as a module is held by the process and still restarts it, as does any other `.json`. An open page shows the new message when it is next loaded.",
+					"kind": "fixed",
+					"summary": "A lazily loaded i18n catalog edited under absolute dev now shows without a restart"
+				}
+			],
+			"date": "2026-11-27",
+			"version": "0.20.0-beta.448"
+		},
+		{
+			"changes": [
+				{
 					"detail": "Three additions to the i18n commands. `absolute i18n extract [default] [locale…]` lists the keys each locale's catalog is missing; a missing key is not broken, since the default locale's message is served, so it exits 0. `--write` adds them to the catalog, each with the default's message as its value, in the default's key order and the file's own indentation. Only a JSON catalog is written to: a module can hold comments and expressions a rewrite would lose, so its keys are listed to be added by hand. `absolute i18n check --unused` also reads the project's source and reports the default catalog's keys nothing reads: `t('…')`, `$t('…')`, `.t('…')` and `has('…')` in script, `'…' | t` in an Angular template, and `data-i18n` / `data-i18n-attr` in an HTML or HTMX page. A key built at run time is counted by its literal prefix, and calls whose key is a variable are counted and said, so the report says how sure it is; it never fails the run. And `i18n.catalogs` in the config says where each locale's catalog is, after which `check` and `extract` need no paths on the command line. See docs/I18N_PLAN.md.",
 					"kind": "added",
 					"summary": "absolute i18n extract, check --unused, and catalogs found from the config",

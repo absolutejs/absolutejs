@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { changeNeedsRestart } from '../../../src/dev/restartScope';
+import { setI18nRouting } from '../../../src/utils/i18nRoutingRef';
 
 const loaded = new Set(['/app/src/backend/routes.ts', '/app/src/lib/db.js']);
 const isLoaded = (path: string) => loaded.has(path);
@@ -59,6 +60,33 @@ describe('changeNeedsRestart', () => {
 			// An extensionless file next to it still does.
 			expect(changeNeedsRestart(join(root, '.env'), isLoaded)).toBe(true);
 		} finally {
+			rmSync(root, { force: true, recursive: true });
+		}
+	});
+
+	/* A message catalog the config names (`i18n.catalogs`). One a loader
+	 * reads when a request needs it is read again by the next request;
+	 * one imported as a module is held by this process. */
+	test('a declared catalog restarts only when this process loaded it', () => {
+		const root = mkdtempSync(join(tmpdir(), 'restart-scope-'));
+		const french = join(root, 'fr.json');
+		const german = join(root, 'de.json');
+		const other = join(root, 'settings.json');
+		for (const file of [french, german, other]) writeFileSync(file, '{}');
+		setI18nRouting({
+			catalogs: { de: german, fr: french },
+			defaultLocale: 'en',
+			locales: ['en', 'fr', 'de']
+		});
+		try {
+			expect(changeNeedsRestart(french, () => false)).toBe(false);
+			expect(changeNeedsRestart(german, (path) => path === german)).toBe(
+				true
+			);
+			// Any other JSON file is still assumed to be read at startup.
+			expect(changeNeedsRestart(other, () => false)).toBe(true);
+		} finally {
+			setI18nRouting(undefined);
 			rmSync(root, { force: true, recursive: true });
 		}
 	});

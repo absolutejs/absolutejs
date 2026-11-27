@@ -1,4 +1,6 @@
 import { realpathSync, statSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { currentI18nRouting } from '../utils/i18nRoutingRef';
 import { isTestSourcePath } from '../utils/isTestSourcePath';
 
 /* Which file changes need the dev server process restarted. Files no HMR
@@ -12,6 +14,10 @@ import { isTestSourcePath } from '../utils/isTestSourcePath';
  *     change inside a directory arrives as its own event. Watchers also
  *     report a bare directory (an mtime touch, e.g. right after a project
  *     is copied and first booted), which used to restart for nothing;
+ *   - a message catalog the config names (`i18n.catalogs`) does only
+ *     when this process has loaded it as a module. One a loader reads
+ *     when a request needs it is read again by the next request, so
+ *     there is nothing to restart for;
  *   - anything else (`.env`, `package.json`, `tsconfig.json`, …) still
  *     does, since it is read once at startup. */
 
@@ -37,12 +43,23 @@ const isDirectory = (path: string) => {
 const isLoadedByThisProcess = (path: string) =>
 	path in require.cache || realPath(path) in require.cache;
 
+/* Whether the config's `i18n.catalogs` names this file. */
+const isDeclaredCatalog = (path: string) => {
+	const real = realPath(path);
+
+	return Object.values(currentI18nRouting()?.catalogs ?? {}).some(
+		(catalog) =>
+			catalog !== undefined && realPath(resolve(catalog)) === real
+	);
+};
+
 export const changeNeedsRestart = (
 	path: string,
 	isLoaded: (path: string) => boolean = isLoadedByThisProcess
 ) => {
 	if (DOCUMENT_FILE.test(path) || isTestSourcePath(path)) return false;
-	if (MODULE_FILE.test(path)) return isLoaded(path);
+	if (MODULE_FILE.test(path) || isDeclaredCatalog(path))
+		return isLoaded(path);
 
 	return !isDirectory(path);
 };
