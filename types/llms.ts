@@ -17,6 +17,16 @@ export type LlmsSection = {
 	title: string;
 };
 
+/** How `llms-full.txt` is made. */
+export type LlmsFullConfig = {
+	/** The most pages the file holds, in the order `llms.txt` lists
+	 *  them. Default 500. */
+	maxPages?: number;
+	/** Seconds the server keeps the file before making it again.
+	 *  Default 3600. */
+	revalidate?: number;
+};
+
 export type LlmsConfig = {
 	/** Anything a reader should know before the lists: Markdown, placed
 	 *  under the summary. */
@@ -27,6 +37,11 @@ export type LlmsConfig = {
 	/** Pages a reader short of room can skip. They are listed under
 	 *  `## Optional`, which is what the format calls that list. */
 	optional?: (string | RegExp)[];
+	/** Also serve `llms-full.txt`: the text of every page `llms.txt`
+	 *  lists, in one Markdown file. The running server makes it the
+	 *  first time it is asked for, from the pages as it serves them to a
+	 *  visitor who is not signed in, and keeps it. */
+	full?: boolean | LlmsFullConfig;
 	/** `false` leaves out the list of the site's own pages, for a file
 	 *  made of `sections` alone. */
 	pages?: boolean;

@@ -53,6 +53,16 @@ const list = (title: string, links: LlmsLink[]) =>
 		? []
 		: [`## ${oneLine(title)}\n\n${links.map(linkLine).join('\n')}`];
 
+const listedOf = (settings: LlmsConfig, pages: readonly LlmsPage[]) =>
+	settings.pages === false
+		? []
+		: pages.filter((page) => !matches(page.path, settings.exclude));
+
+const fullAddress = (baseUrl: string | undefined) =>
+	baseUrl === undefined
+		? '/llms-full.txt'
+		: `${baseUrl.replace(/\/+$/, '')}/llms-full.txt`;
+
 const hostOf = (baseUrl: string | undefined) => {
 	if (baseUrl === undefined) return undefined;
 	try {
@@ -84,16 +94,18 @@ export const generateLlms = (
 	const settings: LlmsConfig = config === true ? {} : config;
 	const home = pages.find((page) => page.path === '/');
 	const summary = settings.summary ?? home?.description;
-	const listed =
-		settings.pages === false
-			? []
-			: pages.filter((page) => !matches(page.path, settings.exclude));
-	const optional = listed.filter((page) =>
-		matches(page.path, settings.optional)
-	);
-	const main = listed.filter(
-		(page) => !matches(page.path, settings.optional)
-	);
+	const listed = listedOf(settings, pages);
+	const { main, optional } = llmsListedPages(settings, pages);
+	const full: LlmsLink[] =
+		settings.full && listed.length > 0
+			? [
+					{
+						description: 'The text of every page, in one file.',
+						title: 'llms-full.txt',
+						url: fullAddress(baseUrl)
+					}
+				]
+			: [];
 	const blocks = [
 		`# ${oneLine(llmsTitle(settings, pages, baseUrl) ?? 'Site')}`,
 		...(summary === undefined || oneLine(summary) === ''
@@ -105,11 +117,27 @@ export const generateLlms = (
 		...(settings.sections ?? []).flatMap((section) =>
 			list(section.title, section.links)
 		),
+		...list('Full text', full),
 		...list('Pages', main.map(pageLink)),
 		...list('Optional', optional.map(pageLink))
 	];
 
 	return `${blocks.join('\n\n')}\n`;
+};
+
+/** The pages `config` lists, after `exclude`: the ones it lists first,
+ *  and the ones it marks as optional. */
+export const llmsListedPages = (
+	config: LlmsConfig | true,
+	pages: readonly LlmsPage[]
+) => {
+	const settings: LlmsConfig = config === true ? {} : config;
+	const listed = listedOf(settings, pages);
+
+	return {
+		main: listed.filter((page) => !matches(page.path, settings.optional)),
+		optional: listed.filter((page) => matches(page.path, settings.optional))
+	};
 };
 
 /** The site's name for the file's heading: the one configured, the
