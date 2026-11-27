@@ -1,4 +1,5 @@
 import type { DocumentNavigationOutcome } from '../../types/navigation';
+import { isDocumentPage, refreshDocumentInPlace } from './refreshDocument';
 import { readPageUpdate, refreshInPlace } from './refreshInPlace';
 
 /* `invalidate()`: the page's data changed, show the page again.
@@ -81,6 +82,15 @@ export const invalidate = async () => {
 	const update = readPageUpdate();
 	const inPlace = update ? await refreshInPlace(update) : undefined;
 	if (inPlace !== undefined) return inPlace;
+	// A page with no framework has no props to be handed: the document
+	// on screen is morphed into a fresh copy of itself, which keeps
+	// what was typed, what is open and what scripts attached
+	// (refreshDocument.ts).
+	const morphed =
+		!update && isDocumentPage()
+			? await refreshDocumentInPlace()
+			: undefined;
+	if (morphed !== undefined) return morphed;
 	const refresh = readRefresh();
 	if (!refresh) return reloaded();
 	const result: unknown = await Reflect.apply(refresh, undefined, []);

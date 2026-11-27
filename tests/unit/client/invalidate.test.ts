@@ -20,6 +20,11 @@ const calls: Calls = { refreshes: 0, reloads: 0 };
  * so whatever was there is put back afterwards. */
 const installWindow = () => {
 	Reflect.set(globalThis, 'window', {
+		// A framework page that has finished starting, and has no way
+		// to take new props: the case the whole-page refresh is for.
+		// Without this the page would read as one with no framework,
+		// which is refreshed by morphing (refreshDocument.test.ts).
+		__ABSOLUTE_PAGE_READY__: Promise.resolve(),
 		location: {
 			reload: () => {
 				calls.reloads += 1;

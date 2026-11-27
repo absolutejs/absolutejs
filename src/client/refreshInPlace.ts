@@ -45,14 +45,11 @@ const isRefreshState = (value: unknown): value is RefreshState =>
 	'latest' in value &&
 	typeof value.latest === 'number';
 
-const refreshState = () => {
-	const existing: unknown = Reflect.get(globalThis, STATE_KEY);
-	if (isRefreshState(existing)) return existing;
-	const created: RefreshState = { latest: 0 };
-	Reflect.set(globalThis, STATE_KEY, created);
-
-	return created;
-};
+export const announce = (
+	name: string,
+	detail: DocumentNavigationEventDetail,
+	cancelable: boolean
+) => window.dispatchEvent(new CustomEvent(name, { cancelable, detail }));
 
 /** The mounted page's way of taking new props, when its framework's
  *  client entry registered one. */
@@ -120,12 +117,6 @@ const readEnvelope = async (response: Response, update: PageUpdate) => {
 		: undefined;
 };
 
-const announce = (
-	name: string,
-	detail: DocumentNavigationEventDetail,
-	cancelable: boolean
-) => window.dispatchEvent(new CustomEvent(name, { cancelable, detail }));
-
 const applyTitle = (envelope: Record<string, unknown>) => {
 	const { head } = envelope;
 	const title = isRecord(head) ? head.title : undefined;
@@ -170,4 +161,16 @@ export const refreshInPlace = async (update: PageUpdate) => {
 	announce('absolute:after-navigate', detail, false);
 
 	return done('updated');
+};
+
+/* The newest refresh is the one whose answer is applied; shared with the
+ * document refresh (refreshDocument.ts), so a page is never brought up
+ * to date by an older request than the last one made. */
+export const refreshState = () => {
+	const existing: unknown = Reflect.get(globalThis, STATE_KEY);
+	if (isRefreshState(existing)) return existing;
+	const created: RefreshState = { latest: 0 };
+	Reflect.set(globalThis, STATE_KEY, created);
+
+	return created;
 };
