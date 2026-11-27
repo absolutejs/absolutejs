@@ -469,6 +469,33 @@ export const load = async ({ params }: FileRouteContext<'/blog/:slug'>) => {
     page's metadata is about search results. A crawler has to be allowed to
     fetch a page to see that it asks not to be indexed, so a page marked
     that way should not also be disallowed.
+  - **Crawlers run for language models.** `robots.ai` says which may fetch
+    the site, by what they fetch it for:
+
+    ```ts
+    robots: { ai: { training: false, search: true, assistants: true } }
+    ```
+
+    `training` is the crawlers that collect pages to train on, `search` the
+    ones that index pages so an answer can cite them, and `assistants` the
+    fetchers that load a page because a person asked about it. A kind set
+    to `false` gets a group naming every crawler of that kind the framework
+    knows and disallowing everything, written after `rules`; a kind left on
+    writes nothing. The names are exported — `AI_TRAINING_CRAWLERS`,
+    `AI_SEARCH_CRAWLERS`, `AI_ASSISTANT_AGENTS` — for a rule that is not all
+    or nothing, such as `{ userAgent: AI_TRAINING_CRAWLERS, disallow:
+    '/blog' }`.
+    - It is a request. A crawler that ignores `robots.txt` ignores this,
+      and some assistant fetchers say they do, since a person sent them.
+      Keeping a crawler out for certain is a server rule, not this file.
+    - The lists are the names published when they were written. Operators
+      add and rename crawlers; a site that depends on the list should read
+      it.
+    - `Google-Extended` and `Applebot-Extended` are names the search
+      crawlers look for, not crawlers of their own. Disallowing them leaves
+      search as it was.
+    - A page can also say `robots: { noai: true, noimageai: true }` in its
+      metadata. That is not a standard and few crawlers honour it.
 - **`llms.txt` (built, opt-in).** The `llms` config key writes one with
   the build: a Markdown file at the site's root that names the site, says
   what it is, and lists its pages, for a language model reading the site on

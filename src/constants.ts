@@ -1,3 +1,36 @@
+/* The crawlers run for language models, by what they fetch a page for,
+ * as their operators name them. For `robots.rules`, and what
+ * `robots.ai` writes groups for. The names are the ones published when
+ * this was written: operators add and rename them, so a site that
+ * depends on the list should read it. */
+
+/** Fetchers that load a page because a person asked an assistant about
+ *  it. */
+export const AI_ASSISTANT_AGENTS = [
+	'ChatGPT-User',
+	'Claude-User',
+	'Perplexity-User',
+	'Meta-ExternalFetcher'
+];
+/** Crawlers that index pages so an answer can cite them. */
+export const AI_SEARCH_CRAWLERS = [
+	'OAI-SearchBot',
+	'Claude-SearchBot',
+	'PerplexityBot'
+];
+/** Crawlers, and the names search crawlers answer to, that collect
+ *  pages to train models on. `Google-Extended` and `Applebot-Extended`
+ *  are names Googlebot and Applebot look for, not crawlers of their
+ *  own: disallowing them leaves search as it was. */
+export const AI_TRAINING_CRAWLERS = [
+	'GPTBot',
+	'ClaudeBot',
+	'Google-Extended',
+	'Applebot-Extended',
+	'CCBot',
+	'Bytespider',
+	'Meta-ExternalAgent'
+];
 export const ANGULAR_INIT_TIMEOUT_MS = 500;
 export const ANSI_ESCAPE_CODE = 27;
 export const ANSI_ESCAPE_LENGTH = 3;

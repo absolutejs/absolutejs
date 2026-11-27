@@ -1,5 +1,11 @@
 import { describe, expect, test } from 'bun:test';
+import {
+	AI_ASSISTANT_AGENTS,
+	AI_SEARCH_CRAWLERS,
+	AI_TRAINING_CRAWLERS
+} from '../../../src/constants';
 import { generateRobots } from '../../../src/utils/generateRobots';
+import { renderRobotsContent } from '../../../src/utils/headEscape';
 
 /* The text of the `robots.txt` the build writes from the `robots`
  * config key. */
@@ -117,5 +123,62 @@ describe('a value with a line break in it', () => {
 			'Disallow: /a Allow: /',
 			''
 		]);
+	});
+});
+
+describe('ai', () => {
+	test('writes a group for each kind turned off, after the rules', () => {
+		expect(
+			generateRobots({
+				ai: { search: true, training: false },
+				rules: [{ disallow: '/admin' }]
+			})
+		).toBe(
+			[
+				'User-agent: *',
+				'Disallow: /admin',
+				'',
+				...AI_TRAINING_CRAWLERS.map((name) => `User-agent: ${name}`),
+				'Disallow: /',
+				''
+			].join('\n')
+		);
+	});
+
+	test('keeps the kinds apart', () => {
+		const text = generateRobots({
+			ai: { assistants: false, search: false, training: false }
+		});
+		const [everyone, ...groups] = text.trim().split('\n\n');
+
+		expect(everyone).toBe('User-agent: *\nAllow: /');
+		expect(groups.map((group) => group.split('\n')[0])).toEqual([
+			`User-agent: ${AI_TRAINING_CRAWLERS[0]}`,
+			`User-agent: ${AI_SEARCH_CRAWLERS[0]}`,
+			`User-agent: ${AI_ASSISTANT_AGENTS[0]}`
+		]);
+	});
+
+	test('writes nothing for a kind left on, or for none', () => {
+		expect(generateRobots({ ai: {} })).toBe(generateRobots(true));
+		expect(generateRobots({ ai: { training: true } })).toBe(
+			generateRobots(true)
+		);
+	});
+
+	/* Disallowing the name a search crawler looks for is not disallowing
+	 * the search crawler. */
+	test('names the training tokens, not the search crawlers behind them', () => {
+		expect(AI_TRAINING_CRAWLERS).toContain('Google-Extended');
+		expect(AI_TRAINING_CRAWLERS).not.toContain('Googlebot');
+		expect(AI_SEARCH_CRAWLERS).not.toContain('GPTBot');
+	});
+});
+
+describe('a page’s own directive', () => {
+	test('can ask not to be trained on', () => {
+		expect(
+			renderRobotsContent({ index: true, noai: true, noimageai: true })
+		).toBe('index, noai, noimageai');
 	});
 });
