@@ -683,6 +683,79 @@ const nextResolvedSlot = async (
 	return Promise.race(wrapped);
 };
 
+type SlotLinesOptions = Pick<
+	AppendStreamingSlotsOptions,
+	'onError' | 'onSlotMetric' | 'policy'
+>;
+
+/** Each slot's resolved payload as a line of JSON (`{"id":…,"payload":…}`),
+ *  in the order they resolve.
+ *
+ *  The same slots, policy, timeouts and error handling as the patches
+ *  streamed into a document — but as data, for a page that has already
+ *  finished loading and asks for its slots in a request of its own
+ *  (core/partialPrerenderEdge.ts). A patch is a `<script>`, which needs
+ *  the nonce of the document it lands in; a line of JSON needs nothing.
+ *  A slot that failed with no `errorHtml` sends no line, and keeps its
+ *  fallback. */
+export const streamSlotPayloadLines = (
+	slots: DeferredStreamingSlot[],
+	{ onError, onSlotMetric, policy }: SlotLinesOptions = {}
+) => {
+	const resolvedPolicy = resolveStreamingSlotPolicy(policy);
+	const combinedOnError = createCombinedSlotErrorHandler(
+		resolvedPolicy.onError,
+		onError
+	);
+	const combinedOnSlotMetric = createCombinedSlotMetricHandler(
+		resolvedPolicy.onSlotMetric,
+		onSlotMetric
+	);
+	const effectivePolicy: StreamingSlotPolicyValue = {
+		...resolvedPolicy,
+		onSlotMetric: combinedOnSlotMetric
+	};
+	const pending = prepareSlots({
+		onError: combinedOnError,
+		onSlotMetric: combinedOnSlotMetric,
+		policy: effectivePolicy,
+		slots
+	}).map((slot) =>
+		resolveSlot(
+			slot,
+			combinedOnError,
+			effectivePolicy,
+			combinedOnSlotMetric
+		)
+	);
+	const encoder = new TextEncoder();
+	const write = async (
+		controller: ReadableStreamDefaultController<Uint8Array>,
+		remaining: Array<Promise<ResolvedStreamingSlot>>
+	): Promise<void> => {
+		if (remaining.length === 0) return;
+		const { original, result } = await nextResolvedSlot(remaining);
+		if (result.payload !== null)
+			controller.enqueue(
+				encoder.encode(
+					`${JSON.stringify({ id: result.id, payload: result.payload })}\n`
+				)
+			);
+		await write(
+			controller,
+			remaining.filter((promise) => promise !== original)
+		);
+	};
+
+	return new ReadableStream<Uint8Array>({
+		start: (controller) =>
+			write(controller, pending).then(
+				() => controller.close(),
+				(error: unknown) => controller.error(error)
+			)
+	});
+};
+
 const streamChunkToString = (
 	value: string | Uint8Array,
 	decoder: TextDecoder

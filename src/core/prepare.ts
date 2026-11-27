@@ -63,6 +63,7 @@ import {
 import { setSpaRouteManifest } from '../utils/spaRouteManifest';
 import { logStartupTimingBlock } from '../utils/startupTimings';
 import { markBoot } from '../utils/bootTimeline';
+import type { ServePartialPrerenderInput } from './partialPrerenderServe';
 import { logWarn } from '../utils/logger';
 import { deferUntilServing, setBootPhase } from '../dev/bootLifecycle';
 import { createLoadingIndicatorPlugin } from './loadingIndicator';
@@ -1164,6 +1165,8 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 		const { readPartialHoles } = await import('./partialPrerender');
 		const { servePartialPrerender } =
 			await import('./partialPrerenderServe');
+		const { edgeResponseFor } = await import('./partialPrerenderEdge');
+		const edgeSetting = config.static?.partial?.edge;
 		let appHandle: ((request: Request) => Promise<Response>) | undefined;
 
 		const prerenderPlugin = new Elysia({
@@ -1204,7 +1207,7 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 				request.method === 'GET' ? readPartialHoles(filePath) : [];
 			if (holes.length > 0 && !appHandle) return undefined;
 			if (holes.length > 0 && appHandle) {
-				return servePartialPrerender({
+				const partial: ServePartialPrerenderInput = {
 					bypassHeader: PRERENDER_BYPASS_HEADER,
 					bypassValue: PRERENDER_BYPASS_TOKEN,
 					filePath,
@@ -1213,11 +1216,21 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 					nonce,
 					request,
 					securityHeaders: securityHeaders ?? undefined
-				}).then(({ dropHeaders, response }) => {
-					for (const name of dropHeaders) delete set.headers[name];
+				};
+				// Edge mode: the shell alone, for a CDN to keep, and
+				// the holes in a request of their own
+				// (partialPrerenderEdge.ts).
+				const edge = edgeResponseFor(partial, edgeSetting);
+				if (edge) return edge;
 
-					return response;
-				});
+				return servePartialPrerender(partial).then(
+					({ dropHeaders, response }) => {
+						for (const name of dropHeaders)
+							delete set.headers[name];
+
+						return response;
+					}
+				);
 			}
 
 			if (securityHeaders && nonce) {

@@ -102,7 +102,7 @@ const collectHoleSlotsFromPage = async (input: ServePartialPrerenderInput) => {
 
 /* The route's own declaration first (routeHoles.ts): when it covers
  * every hole of the shell, neither the handler nor the page is run. */
-const collectHoleSlots = async (input: ServePartialPrerenderInput) =>
+export const collectHoleSlots = async (input: ServePartialPrerenderInput) =>
 	(await routeHoleSlots(input.request, input.holes)) ??
 	collectHoleSlotsFromPage(input);
 

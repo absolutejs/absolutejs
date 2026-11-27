@@ -5,6 +5,21 @@
 		{
 			"changes": [
 				{
+					"detail": "static.partial: { edge: true } serves a partially pre-rendered page as two responses instead of one. Until now the shell and its per-visitor holes travelled in a single response marked private, no-cache, so no CDN could keep any of it and every view reached the server. In edge mode the shell is served alone — identical for every visitor, with a strong ETag, a 304 for a current copy, Cache-Control: public, no-cache and Vary: Accept — and a small loader in it fetches the holes from the same address with ?__absolute_holes. That response is private, no-store and carries each slot's content as a line of JSON as it resolves, which the loader hands to the slot runtime already in the shell. edge: { maxAge } adds s-maxage, letting a shared cache answer on its own for that many seconds. Off by default: the holes arrive one round trip later than in the single response, which only pays when a CDN serves the shell. Not served to an app that sends per-request CSP nonces (secureHeaders()), since a stored page cannot carry a fresh one; such an app keeps the single response and says so once in its log. Works with holes declared on the route and with holes resolved through the page. See docs/PARTIAL_PRERENDERING_PLAN.md.",
+					"kind": "added",
+					"summary": "Edge mode serves a partial page's shell cacheably and fetches its holes separately",
+					"symbols": [
+						"StaticConfig",
+						"StaticPartialConfig"
+					]
+				}
+			],
+			"date": "2026-11-27",
+			"version": "0.20.0-beta.425"
+		},
+		{
+			"changes": [
+				{
 					"detail": "A partially pre-rendered page fills its dynamic slots on every request, and reaching a slot's resolver meant running the route's handler and rendering the page again, then discarding the page: measured on a React page, about 60% of the CPU of rendering it from scratch, plus whatever the handler loads. A hole can now be declared beside the route instead: defineHoles(path, { id: ({ request, params }) => … }) for a route written by hand, or `export const holes` in a file route's server module. When every dynamic slot of the page has one, the server fills them from the shell and the resolvers alone and does not run the route (0.005 ms per request in the same measurement, whatever the page's size). A resolver returns HTML, or holeComponent.react / .svelte / .vue / .angular(Component, props) to render a component of any framework on its own; that markup is not hydrated. StreamSlot's `resolve` is now optional in all four frameworks, for a slot that is only the placeholder. Where the page is rendered anyway, a slot is filled by its route's hole in place of its own resolve, and a slot with neither is reported once in the log. Because the route does not run, neither do its beforeHandle or folder guards: a hole that shows something private must check the request itself. A route that declares only some of its page's holes is run as before and says so once in the log. See docs/PARTIAL_PRERENDERING_PLAN.md.",
 					"kind": "added",
 					"summary": "Route-level holes fill a pre-rendered page's dynamic slots without running its route",

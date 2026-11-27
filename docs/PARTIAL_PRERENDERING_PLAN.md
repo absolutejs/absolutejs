@@ -276,10 +276,11 @@ the HTMX model.
 
 **Phase 3: Edge or CDN mode and HTMX**
 
-- `static.partial: { edge: true }`: the shell is served by itself with a
-  strong `ETag`, a 304 and a public cache policy. Holes come from
-  `GET <route>?__absolute_holes` (never cached). That response is a
-  `text/html` stream of patch scripts appended by a tiny loader in the shell.
+- `static.partial: { edge: true }` (done, see "Edge mode"): the shell is
+  served by itself with a strong `ETag`, a 304 and a public cache policy.
+  Holes come from `GET <route>?__absolute_holes` (never cached), as lines of
+  JSON read by a tiny loader in the shell — data and not patch scripts, so
+  the nonce question below does not arise.
 - An HTMX hole helper, and capture handling for it.
 - Exit criteria:
   - A shell request returns 304 on a matching `If-None-Match`.
@@ -391,6 +392,57 @@ What to know:
   children, a Svelte `{#await}` block, an Angular `DeferSlot`) can be
   declared too, but the resolver's HTML replaces that markup: move it into a
   component and return it with `holeComponent`.
+
+## Edge mode
+
+```ts
+export default defineConfig({
+	static: { routes: ['/dashboard'], partial: { edge: true } }
+});
+```
+
+Ordinarily a partial page is one response, the shell and then its holes, and
+because the holes are the visitor's the whole response is `private`: no CDN
+may keep any of it, and every view reaches the server. In edge mode they are
+two responses:
+
+- **The shell**, alone. The same bytes for every visitor, with a strong
+  `ETag`, a `304` for a copy that is current, `Cache-Control: public,
+  no-cache` and `Vary: Accept`. A CDN keeps it.
+- **The holes**, from the same address with `?__absolute_holes`. Each slot's
+  content is a line of JSON, sent as it resolves, `private, no-store`. A
+  small loader in the shell asks for them and hands each to the slot runtime
+  the shell already carries.
+
+It is off by default, because it costs a round trip: the holes start
+arriving one request later than they do in the same response. That is a good
+trade when a CDN serves the shell from near the visitor, and a loss when
+nothing does. It pairs with route-level holes (above), which make the holes
+request cost only what the resolvers cost.
+
+Caching:
+
+- `edge: true` has the shell checked on every use. The CDN asks the server
+  whether its copy is current and is usually answered with a `304`, so a page
+  revalidated on the server is current everywhere at once.
+- `edge: { maxAge: 300 }` lets the CDN answer on its own for that many
+  seconds (`s-maxage`), which is faster and means a revalidated page can be
+  that stale. Browsers still check every time.
+
+What to know:
+
+- **Not with per-request CSP nonces.** A stored page cannot carry a fresh
+  nonce, and the shell's inline scripts would need one. An app using
+  `secureHeaders()` is served the ordinary way, in one uncached response,
+  and says so once in its log.
+- **`Vary: Accept` matters.** The page's address also answers requests for
+  the page's data (`<Link>` prefetch, `invalidate()`, in-place navigation).
+  A CDN that ignores `Vary` will answer those with the shell; the browser
+  then falls back to loading the page as a document, which is correct but
+  slower.
+- The holes are data, not `<script>` patches, so they need no nonce. A slot
+  that fails keeps its fallback, as it does in the single response.
+- A resolver sees the visitor's address without the loader's marker.
 
 Internal: `PARTIAL_SHELL_HEADER`, `PARTIAL_HOLES_HEADER`,
 `collectPartialHoles`, `readPartialHoles`, `writePartialHoles`

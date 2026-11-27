@@ -521,6 +521,30 @@ export type StaticConfig = {
 	 *  environment, at least 16 characters. Without it the endpoint does
 	 *  not exist. */
 	revalidateToken?: string;
+	/** How a partially pre-rendered page (one with `dynamic` slots) is
+	 *  served. */
+	partial?: StaticPartialConfig;
+};
+
+export type StaticPartialConfig = {
+	/** Serve the page's static shell on its own, so that a CDN can keep
+	 *  it, and have the page fetch its dynamic slots in a second request
+	 *  that is never cached.
+	 *
+	 *  Off by default: without a CDN in front, the second request only
+	 *  delays the slots, which otherwise arrive in the same response.
+	 *
+	 *  `true` has the shell revalidated on every request (`public,
+	 *  no-cache`): the CDN asks this server whether its copy is current
+	 *  and is usually told so in a few bytes, and a page revalidated
+	 *  here is current everywhere at once. `{ maxAge }` lets the CDN
+	 *  answer without asking for that many seconds, which is faster and
+	 *  means a revalidated page can be that stale.
+	 *
+	 *  Not available with per-request CSP nonces (`secureHeaders()`): a
+	 *  stored page cannot carry a fresh one. Such an app is served as
+	 *  if this were off, and says so once in its log. */
+	edge?: boolean | { maxAge?: number };
 };
 
 export type CompileNativeAssetConfig = {
