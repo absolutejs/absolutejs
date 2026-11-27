@@ -60,9 +60,9 @@ const REENTERED_HEADER = 'x-absolute-rewritten';
 const REENTRY_TOKEN = crypto.randomUUID();
 const TOKEN_SEPARATOR = ':';
 
-/* The path the visitor asked for, when `request` is one this plugin
- * rewrote and sent through the server again. */
-const askedPathOf = (request: Request) => {
+/** The path the visitor asked for, when `request` is one this plugin
+ *  rewrote and sent through the server again. */
+export const askedPathOf = (request: Request) => {
 	const mark = request.headers.get(REENTERED_HEADER);
 	const prefix = `${REENTRY_TOKEN}${TOKEN_SEPARATOR}`;
 

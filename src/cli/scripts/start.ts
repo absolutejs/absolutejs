@@ -1,4 +1,5 @@
 import { env } from 'bun';
+import { withStaticLocales } from '../../utils/staticLocales';
 import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { resolveClusterPlan } from '../../core/clusterPlan';
@@ -867,12 +868,13 @@ export const start = async (
 	});
 
 	// ── Pre-render static pages (if configured) ─────────────────────
-	if (buildConfig.static && options.skipPrerender !== true) {
+	const staticPages = withStaticLocales(buildConfig.static, buildConfig.i18n);
+	if (staticPages && options.skipPrerender !== true) {
 		await prerenderStaticPages(
 			outputPath,
 			port + 1,
 			resolvedOutdir,
-			buildConfig.static,
+			staticPages,
 			absoluteVersion,
 			staticRouteExpander(buildConfig),
 			configPath
@@ -889,7 +891,7 @@ export const start = async (
 			expandStaticRoutes: staticRouteExpander(buildConfig),
 			outputPath,
 			resolvedOutdir,
-			staticConfig: buildConfig.static
+			staticConfig: staticPages
 		};
 
 		return prepared;

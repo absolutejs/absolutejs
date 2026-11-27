@@ -172,6 +172,33 @@ It is done with the app's own routing rules: the table becomes redirects
 and rewrites, added after the app's, so one of the app's rules can still
 answer for a path first.
 
+### Pre-rendering per locale
+
+`static.locales: true` pre-renders each route in `static.routes` at every
+locale's address:
+
+```ts
+export default defineConfig({
+	i18n: routing,
+	static: { routes: ['/about', '/pricing'], locales: true }
+});
+```
+
+`/about` is rendered at `/about` and at `/fr/a-propos`, and each is served
+from its own copy. The locales are the config's `i18n` key's, under the
+`prefix` strategy, and the addresses are the ones `href()` writes, localized
+pathnames included.
+
+- It is opt-in because not every page has every locale. A page registered
+  at `/pricing` alone has no `/fr/pricing`, and asking for one would report
+  a page that failed to render when it was never meant to exist. With
+  `locales` on, a locale's address no page answers is left out and not
+  reported. A route listed outright that fails is still reported.
+- A pre-rendered page is found by the address the visitor asked for. A
+  locale's own address is served by rewriting it to the route's path, and
+  the copy is kept under the address, not the path, so `absolute export`
+  writes it where a static host will be asked for it.
+
 Strategies:
 
 - **prefix** (default): first path segment if it is a locale; otherwise the

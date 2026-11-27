@@ -503,6 +503,12 @@ export type StaticConfig = {
 	 *  `entries()` returns. Written as `route()` takes it: `:name`, and
 	 *  `:name?` for an `[[optional]]` segment. */
 	routes: StaticRoutePath[] | 'all';
+	/** Also pre-render each route at every locale's address: `/about`,
+	 *  and `/fr/a-propos`. `true` takes the locales from the config's
+	 *  `i18n` key, under the `prefix` strategy. A locale's address that
+	 *  no page answers is left out, since not every page has every
+	 *  locale. */
+	locales?: boolean | I18nRoutingConfig;
 	/** Revalidation interval in seconds. When set, stale pages are re-rendered in the background (ISR). */
 	revalidate?: number;
 	/** Where the running server keeps its pre-rendered pages, in place
@@ -1001,10 +1007,10 @@ export type BaseBuildConfig = {
 	 *  served as it is either way, and wins over this. */
 	robots?: boolean | RobotsConfig;
 	sitemap?: SitemapConfig;
-	/** Opt-in file-system routing: route files under each framework
-	 *  directory's `routes/` folder become GET routes (React and Svelte for
-	 *  now). Explicit routes stay the default and take precedence. See
-	 *  docs/FILE_ROUTER_PLAN.md. */
+	/** Opt-in file-system routing: route files under each configured
+	 *  framework directory's `routes/` folder become GET routes, for
+	 *  React, Svelte, Vue, Angular, HTML and HTMX. Explicit routes stay
+	 *  the default and take precedence. See docs/FILE_ROUTER_PLAN.md. */
 	fileRoutes?: boolean | FileRoutesConfig;
 	/** The dead-link check (build/auditLinks.ts). It reads every literal
 	 *  `<a href="/…">` in the project's source and warns about ones no
