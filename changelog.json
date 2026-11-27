@@ -5,6 +5,21 @@
 		{
 			"changes": [
 				{
+					"detail": "`markdown: true` in the config serves every page as Markdown too, for a reader that wants the text and not the markup: `/about.md` beside `/about`, and `/about` itself for a request that says `Accept: text/markdown` and does not also accept HTML. The Markdown is made from the page: the server asks itself for the page as HTML and converts what comes back, so guards and `load` have run, a pre-rendered page is the pre-rendered one, and a page that redirects or refuses does the same here. `/about.md` stands for the page only when `/about` is one, so a real .md file or a route of that name is served as before. What is converted is the page's `<main>`, failing that its `<article>`, failing that its body without navigation, header, footer, aside and forms. The converter is the framework's own, on Bun's HTML parser, with no new dependency: headings, paragraphs, links, emphasis, code, lists, quotes, images and simple tables, and the text of anything else. A streamed slot's content is in the Markdown, since the swap its script would make is made first; a page with `ssr: false` has no content on the server and its Markdown is its title alone. Opt-in: left out of the config, neither address is served. See docs/FILE_ROUTER_PLAN.md.",
+					"kind": "added",
+					"summary": "markdown: true serves every page as Markdown, at /page.md and by Accept",
+					"symbols": [
+						"BaseBuildConfig",
+						"BuildConfig"
+					]
+				}
+			],
+			"date": "2026-11-27",
+			"version": "0.20.0-beta.439"
+		},
+		{
+			"changes": [
+				{
 					"detail": "`absolute content` fetches each page of a running server the way a crawler that runs no JavaScript does, which is most of the crawlers run for language models, and prints how many words each page has in its HTML and why some are missing: a page with `ssr: false` (a document shell), a streamed slot shown as its fallback (its content is in the response, inside the script that swaps it in), a dynamic part of a page served in edge mode (fetched by a second request), or a page with no text at all, which is what a component that fetches its data after mounting looks like. It reads the server's sitemap.xml, or the static file routes where there is none, plus any paths passed as arguments. The server is this project's running one, a production server before a dev server, or the one `--url` names. `--header 'Name: value'` sends a header with every request, `--min-words <n>` makes a page with fewer words a finding, and `--json` prints the report as data. What it could not check is listed: a dynamic route no page of which was named, a page that redirected, one that did not answer 200. Exits 1 on a finding. See docs/FILE_ROUTER_PLAN.md.",
 					"kind": "added",
 					"summary": "absolute content reports what each page says to a crawler that runs no JavaScript"

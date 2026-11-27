@@ -51,6 +51,7 @@ const FILES: Record<string, string> = {
 export default defineConfig({
 	buildDirectory: './build',
 	fileRoutes: { output: './routes.gen.ts' },
+	markdown: true,
 	reactDirectory: './react',
 	sitemap: { baseUrl: 'https://acme.test' }
 });
@@ -279,4 +280,65 @@ describe('absolute content', () => {
 		);
 		expect(stdout).toContain('Not checked:\n  /blog/:slug  is dynamic');
 	}, 60_000);
+});
+
+/* The same pages as Markdown (`markdown: true`): the text, for a reader
+ * that asks for it. */
+describe('a page as Markdown', () => {
+	const markdownAt = async (path: string, accept?: string) => {
+		const response = await fetch(url(path), {
+			headers: accept ? { accept } : {}
+		});
+
+		return {
+			link: response.headers.get('link'),
+			status: response.status,
+			text: await response.text(),
+			type: response.headers.get('content-type')
+		};
+	};
+
+	test('is at the page’s address with .md after it', async () => {
+		const { link, status, text, type } = await markdownAt('/index.md');
+
+		expect(status).toBe(200);
+		expect(type).toBe('text/markdown; charset=utf-8');
+		expect(link).toBe('</>; rel="canonical"');
+		expect(text).toBe(
+			'# Acme anvils\n\nMade to order & shipped by rail.\n'
+		);
+	});
+
+	test('is the page itself for a request that accepts only Markdown', async () => {
+		const asked = await markdownAt('/', 'text/markdown');
+
+		expect(asked.type).toBe('text/markdown; charset=utf-8');
+		expect(asked.text).toStartWith('# Acme anvils');
+
+		const browser = await markdownAt(
+			'/',
+			'text/html,application/xhtml+xml,text/markdown;q=0.5'
+		);
+
+		expect(browser.type).toContain('text/html');
+	});
+
+	/* The audit above counts two words on this page: the list is in a
+	 * script. Here the script's swap is done first. */
+	test('has a streamed slot’s content, not its fallback', async () => {
+		const { text } = await markdownAt('/feed.md');
+
+		expect(text).toBe('# Feed\n\n- the newest post of them all\n');
+	});
+
+	test('is headed by the title when the page has no heading', async () => {
+		const { text } = await markdownAt('/blog/hello.md');
+
+		expect(text).toBe('# A title is not the page’s text\n\na post\n');
+	});
+
+	test('is not served for an address that is not a page', async () => {
+		expect((await markdownAt('/nope.md')).status).toBe(404);
+		expect((await markdownAt('/ready.md')).status).toBe(404);
+	});
 });
