@@ -38,29 +38,35 @@ const document = (id: string, body: string) => `<html lang="en">
 			</body>
 		</html>`;
 
-const errorPage = (
-	id: string
-) => `export default function ErrorPage({ name }: { name: string }) {
+/* Both convention pages call a hook. A production build bundled React into
+ * each convention page while the renderer used the app's own React, so any
+ * hook threw "Invalid hook call" and the 404 fell back to plain JSON
+ * (absolutejs.ai, 2026-11-27). */
+const errorPage = (id: string) => `import { useState } from 'react';
+export default function ErrorPage({ name }: { name: string }) {
+	const [shown] = useState(name);
 	return (
-		${document(id, '{name}')}
+		${document(id, '{shown}')}
 	);
 }
 `;
 
-const notFoundPage = (id: string) => `export default function NotFoundPage() {
+const notFoundPage = (id: string) => `import { useState } from 'react';
+export default function NotFoundPage() {
+	const [message] = useState('nothing here');
 	return (
-		${document(id, 'nothing here')}
+		${document(id, '{message}')}
 	);
 }
 `;
 
-const page = (
-	id: string
-) => `export default function Page({ explode }: { explode?: boolean }) {
+const page = (id: string) => `import { useState } from 'react';
+export default function Page({ explode }: { explode?: boolean }) {
+	const [status] = useState('ok');
 	if (explode) throw new Error('the page could not be rendered');
 
 	return (
-		${document(id, 'ok')}
+		${document(id, '{status}')}
 	);
 }
 `;
