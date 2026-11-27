@@ -8,6 +8,7 @@ import type {
 	FileRouteServerModule
 } from '../../types/fileRoutes';
 import type { RouteHoles } from '../../types/routeHoles';
+import type { RouteMetadataExport } from '../../types/routeMetadata';
 
 /* Shared by the framework adapters (`reactFileRoute`, `svelteFileRoute`):
  * turns a route's lazily imported server module into the framework-neutral
@@ -130,6 +131,47 @@ const guardedBeforeHandle = (
 	return guarded;
 };
 
+type MetadataModule = { metadata?: RouteMetadataExport };
+type MetadataLoader = () => Promise<MetadataModule | undefined>;
+
+/* Every `metadata` a route is under, outermost first: its folders'
+ * `layout.server` modules, as they guard it, then its own server
+ * module. Each is the metadata or a function of the request and the
+ * page's data. Absent for a route with neither kind of module, which
+ * can have no metadata. */
+const metadataOf = (
+	guards: readonly GuardLoader[] | undefined,
+	server: MetadataLoader | undefined
+) => {
+	const loaders: MetadataLoader[] = [
+		...(guards ?? []),
+		...(server ? [server] : [])
+	];
+	if (loaders.length === 0) return undefined;
+	const levels: NonNullable<FileRouteDefinition['metadata']> = async (
+		context,
+		data
+	) => {
+		const modules = await Promise.all(loaders.map((load) => load()));
+
+		return Promise.all(
+			modules
+				.flatMap((module) => module?.metadata ?? [])
+				.map((exported) =>
+					typeof exported === 'function'
+						? exported({
+								data,
+								params: context.params,
+								request: context.request
+							})
+						: exported
+				)
+		);
+	};
+
+	return levels;
+};
+
 /* `path` is the string Elysia registers, which is not always the path the
  * route's params are typed against: `/docs/[...rest]` types against
  * `/docs/:rest` and registers `/docs/*`. The type path reaches the adapters
@@ -163,6 +205,7 @@ export const defineFileRouteWith = <Path extends string>(
 ) => {
 	const hooks = serverHooksOf(route, route.typePath ?? route.path);
 	const beforeHandle = guardedBeforeHandle(route.guards, hooks.beforeHandle);
+	const metadata = metadataOf(route.guards, route.server);
 	const definition: FileRouteDefinition = {
 		framework,
 		name: route.name,
@@ -171,7 +214,8 @@ export const defineFileRouteWith = <Path extends string>(
 		source: route.source,
 		...(route.catchAll === undefined ? {} : { catchAll: route.catchAll }),
 		...hooks,
-		...(beforeHandle === undefined ? {} : { beforeHandle })
+		...(beforeHandle === undefined ? {} : { beforeHandle }),
+		...(metadata === undefined ? {} : { metadata })
 	};
 
 	return definition;

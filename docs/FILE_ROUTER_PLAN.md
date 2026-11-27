@@ -348,6 +348,66 @@ export const load = async ({ params }: FileRouteContext<'/blog/:slug'>) => {
   This is also the `generateStaticParams` equivalent prerendering needs,
   which is why it is an export on the server module rather than a sitemap
   option.
+- **A route's metadata (built).** The server module may export `metadata`,
+  and so may the `layout.server` module of any folder above it:
+
+  ```ts
+  // routes/layout.server.ts — the site
+  export const metadata = {
+  	openGraph: { siteName: 'Acme' },
+  	title: { default: 'Acme', template: '%s | Acme' }
+  };
+
+  // routes/blog/[slug].server.ts — a page
+  export const metadata = ({ data, params }) => ({
+  	canonical: `https://acme.test/blog/${params.slug}`,
+  	description: data.post.summary,
+  	title: data.post.title
+  });
+  ```
+
+  The framework writes the result into the document's `<head>`, for every
+  kind of page, with no code in the page. A function is given the request,
+  the route's params and what `load` returned.
+
+  - **Merged down the folders**, outermost first, a nearer level over a
+    farther one, the way layouts nest. `openGraph`, `twitter` and `robots`
+    are merged field by field, so a layout names the site once and a page
+    adds what is its own. Custom `meta` tags accumulate, a nearer one
+    replacing a farther one of the same name.
+  - **Titles.** A string is the route's title, formed by the nearest
+    `template` above it (`%s` is the title). `default` is the title for a
+    route below that sets none, and is not itself templated. `absolute` is
+    used exactly. A template applies to the levels below the one that
+    declares it.
+  - **Only what is set is written.** A route that sets a title adds a title.
+    Open Graph and Twitter cards take the page's title and description when
+    they have none of their own.
+  - **One place for all six kinds of page.** Every framework's HTML response
+    passes through one function before it is hashed and compressed, and the
+    tags are put in the head there. A streamed page's head is held until
+    `</head>` has arrived; only the head is rewritten, and the rest goes out
+    as the bytes it came in as.
+  - **The route's replaces the page's.** A `<title>` or a
+    `<meta name="description">` the page wrote itself, which the route also
+    sets, is taken out of the document: the server sends one of each.
+  - **The limit of that, for React and Svelte.** A page that renders a
+    `<title>` renders it again in the browser, and the framework underneath
+    makes it the document's title: React takes over the first `<title>` in
+    the document as it hydrates and writes the component's text into it. So
+    the document is sent with the route's title and the tab shows the page's
+    once it hydrates. Nothing sent from the server outlasts that. The build
+    names each such page, and the fix is to delete the tag from it. Vue and
+    Angular pages take their head from the handler and HTML pages have no
+    script, so they are not affected.
+  - **In-place updates.** A page handed new data without a document load
+    (a query-only navigation, `invalidate()`) is sent the route's tags with
+    the data and swaps exactly those in its head; each carries
+    `data-absolute-meta`.
+  - **A `metadata` function that throws** costs the page its metadata, not
+    the page: the error is logged and reported, and the page is served.
+  - An error page or a 404 keeps its own head: it is not the page the
+    metadata describes.
 - **A route's own form action (built).** The server module may export
   `action`, made with `defineAction`:
 
