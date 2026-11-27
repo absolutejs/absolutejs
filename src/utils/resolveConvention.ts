@@ -6,6 +6,7 @@ import { toPascal } from './stringModifiers';
 import { nonceAttr, nonceSvelteHeadStyles, readCspNonce } from './cspNonceRef';
 import { nonceStaticHtml } from '../core/staticHtmlNonce';
 import { GENERIC_ERROR_MESSAGE } from './ssrErrorPage';
+import { currentFileRoute } from './fileRouteRef';
 
 // Use globalThis so the conventions map is shared across all bundles.
 // The main bundle (dist/index.js) calls setConventions, but framework
@@ -34,6 +35,18 @@ export const derivePageName = (pagePath: string) => {
 };
 export const getConventions = () => getMap();
 
+/* The route-folder conventions of the file route this request is being
+ * served by (fileRouteRef.ts), when it is one and has any. Route names
+ * are unique across frameworks, so asking another framework's entry —
+ * as the HTML fallback does — finds nothing. */
+const routeFolderConventions = (framework: keyof ConventionsMap) => {
+	const route = currentFileRoute();
+
+	return route === undefined
+		? undefined
+		: getMap()[framework]?.routes?.[route];
+};
+
 const normalizeConventionPageName = (name: string) =>
 	toPascal(name).replace(/\d+$/, '');
 
@@ -55,6 +68,9 @@ export const resolveErrorConventionPath = (
 
 	const exact = conventions.pages?.[pageName]?.error;
 	if (exact) return exact;
+	// A file route's own: the nearest `error` in its route folder.
+	const viaRoute = routeFolderConventions(framework)?.error;
+	if (viaRoute) return viaRoute;
 
 	const normalizedPageName = normalizeConventionPageName(pageName);
 	for (const [candidate, page] of Object.entries(conventions.pages ?? {})) {
@@ -488,10 +504,10 @@ const NOT_FOUND_RENDERERS: Record<
 	vue: renderVueNotFound
 };
 
-export const renderConventionNotFound = async (
-	framework: keyof ConventionsMap
+const renderNotFoundAt = async (
+	framework: keyof ConventionsMap,
+	conventionPath: string | undefined
 ) => {
-	const conventionPath = resolveNotFoundConventionPath(framework);
 	if (!conventionPath) return null;
 
 	const renderer = NOT_FOUND_RENDERERS[framework];
@@ -505,6 +521,111 @@ export const renderConventionNotFound = async (
 
 	return null;
 };
+
+export const renderConventionNotFound = async (
+	framework: keyof ConventionsMap
+) => renderNotFoundAt(framework, resolveNotFoundConventionPath(framework));
+
+/* `/blog/:slug` as the start of an address: that folder, and anything
+ * below it. A catch-all folder is the folder it is in. */
+const folderPattern = (path: string) => {
+	const segments = path
+		.split('/')
+		.filter(Boolean)
+		.filter((segment) => segment !== '*');
+	const source = segments
+		.map((segment) =>
+			segment.startsWith(':')
+				? '/[^/]+'
+				: `/${segment.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`
+		)
+		.join('');
+
+	return {
+		depth: segments.length,
+		literal: segments.filter((segment) => !segment.startsWith(':')).length,
+		pattern: new RegExp(`^${source}(?:/.*)?$`)
+	};
+};
+
+type FolderMatch = {
+	depth: number;
+	framework: keyof ConventionsMap;
+	literal: number;
+	notFound: string;
+};
+
+/* Deepest folder first; between two as deep, the one that names more of
+ * the address outright. */
+const closerFolder = (left: FolderMatch, right: FolderMatch) =>
+	right.depth - left.depth || right.literal - left.literal;
+
+const matchFolder = (
+	framework: string,
+	folder: { notFound: string; path: string },
+	pathname: string
+) => {
+	const { depth, literal, pattern } = folderPattern(folder.path);
+	if (!pattern.test(pathname) || !isConventionFramework(framework)) return [];
+	const match: FolderMatch = {
+		depth,
+		framework,
+		literal,
+		notFound: folder.notFound
+	};
+
+	return [match];
+};
+
+const foldersFor = (pathname: string) =>
+	Object.entries(getMap())
+		.flatMap(([framework, entry]) =>
+			(entry?.folders ?? []).flatMap((folder) =>
+				matchFolder(framework, folder, pathname)
+			)
+		)
+		.sort(closerFolder);
+
+/** The `not-found` of the route folder an address falls under, for an
+ *  address that no route answers: `routes/blog/not-found` for
+ *  `/blog/anything`. The deepest folder that has one. `null` when no
+ *  folder above the address does, and the app-wide one is next. */
+export const renderFolderNotFound = async (pathname: string) => {
+	const renderNext = async (
+		remaining: FolderMatch[]
+	): Promise<Response | null> => {
+		const [folder, ...rest] = remaining;
+		if (!folder) return null;
+		const response = await renderNotFoundAt(
+			folder.framework,
+			folder.notFound
+		);
+
+		return response ?? renderNext(rest);
+	};
+
+	return renderNext(foldersFor(pathname));
+};
+
+/** The `not-found` of the file route this request is being served by:
+ *  the nearest one in its route folder. For a route whose `load` threw
+ *  `NotFound`. `null` when its folders have none. */
+export const renderRouteNotFound = async (framework: keyof ConventionsMap) =>
+	renderNotFoundAt(framework, routeFolderConventions(framework)?.notFound);
+
+const CONVENTION_FRAMEWORKS = new Set<string>([
+	'angular',
+	'ember',
+	'html',
+	'htmx',
+	'react',
+	'svelte',
+	'vue'
+]);
+
+const isConventionFramework = (
+	framework: string
+): framework is keyof ConventionsMap => CONVENTION_FRAMEWORKS.has(framework);
 
 const NOT_FOUND_PRIORITY: (keyof ConventionsMap)[] = [
 	'react',

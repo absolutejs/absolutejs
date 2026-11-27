@@ -11,9 +11,28 @@ export type FrameworkConventions = {
 	notFound?: string;
 };
 
+/** The nearest `error` and `not-found` above a file route, in its route
+ *  folder (build/routeFolderConventions.ts). */
+export type RouteFolderConventions = {
+	error?: string;
+	notFound?: string;
+};
+
+/** A route folder's `not-found`, and the address the folder stands for
+ *  (`/blog`, `/blog/:slug`): the 404 for an address under it that no
+ *  route answers. */
+export type FolderNotFound = {
+	notFound: string;
+	path: string;
+};
+
 export type FrameworkConventionEntry = {
 	defaults?: FrameworkConventions;
 	pages?: Record<string, PageConventions>;
+	/** Route folders that have a `not-found`. */
+	folders?: FolderNotFound[];
+	/** File routes' folder conventions, by route page name. */
+	routes?: Record<string, RouteFolderConventions>;
 };
 
 export type ConventionsMap = {

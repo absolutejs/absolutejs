@@ -105,7 +105,8 @@ export const server = new Elysia()
 | `docs/[...rest].tsx` | `/docs/*` (`params.rest: string`, from Elysia's `*`) | 2 |
 | `[[lang]]/about.tsx` | `/about` and `/:lang/about` (`params.lang?: string`) | 2 |
 | `(marketing)/pricing.tsx` | `/pricing` (group folder left out of the path) | 2 |
-| `blog/error.tsx`, `blog/loading.tsx`, `blog/not-found.tsx` | conventions for `/blog/**` | 3 |
+| `blog/error.tsx`, `blog/not-found.tsx` | error page and 404 for `/blog/**` (built) | 3 |
+| `blog/loading.tsx` | loading indicator for `/blog/**` | 3 |
 | `layout.tsx`, `blog/layout.tsx` | wraps `/**` and `/blog/**` (React, Svelte, Vue, Angular; built) | 2 |
 
 - Unsupported segments and two files claiming one path are **build errors**
@@ -497,9 +498,36 @@ reactFileRoute<'/blog/:slug', typeof import('./react/routes/blog/[slug]'),
   path over HTTP, so listed file routes prerender; Phase 3 adds
   `static.routes: 'all'`-style expansion from the route scan plus
   `entries()`, and checks nested-path file naming in `_prerendered/`.
-- **Conventions per folder (Phase 3).** `error`/`loading`/`not-found` files in
-  a route folder apply to that folder's routes and below, falling back to
-  the framework's `pages/` conventions.
+- **`error` and `not-found` per folder (built).** `routes/blog/error.tsx` is
+  the error page for every route under `routes/blog/`, and
+  `routes/blog/not-found.tsx` their 404. Each is found the way a layout or a
+  guard is: from the route's own folder up to the route root, nearest first,
+  and each kind on its own, so a folder with an `error` and no `not-found`
+  takes its 404 from further up. Failing that, the framework's `pages/`
+  conventions apply as before. Every framework's route folder may have them
+  (`.tsx`, `.svelte`, `.vue`, an Angular render function in `.ts`, `.html`).
+  - **An error page** answers a route whose `load` throws, and one whose
+    page throws while rendering.
+  - **A not-found** answers two things. A route whose `load` throws
+    `NotFound` gets the nearest one above it. An address that no route
+    answers gets the one of the deepest folder it falls under:
+    `/blog/2024/anything` is answered by `routes/blog/not-found`. A param
+    folder stands for one segment (`users/[id]/not-found` covers
+    `/users/7/…`), and between two folders as deep, the one that names more
+    of the address wins.
+  - **A `(group)` folder takes part for its routes.** `(admin)/error.tsx`
+    covers the group's routes and no others. Its `not-found` serves those
+    routes too, but not unmatched addresses: a group adds nothing to an
+    address, so there is no path for it to answer for.
+  - **Two frameworks, one folder.** If two frameworks' route folders both
+    hold a `not-found` for the same path, an unmatched address under it
+    could show either. That is a build error in production and a warning in
+    dev, like two files serving one path.
+  - A page's own `<Page>.error` file in `pages/` still wins for that page.
+  - Only page requests get these pages: a client asking for JSON keeps the
+    JSON 404, as with the app-wide conventions.
+- **`loading` per folder (Phase 3, open).** Still one indicator for the app,
+  from `pages/`.
 
 ## 3. Phases and exit criteria
 
@@ -524,7 +552,8 @@ context~~ **done**; the `actions` hook wired to the form-actions runtime
 (waiting on that runtime, which is parallel work).
 
 **Phase 3 — Angular, conventions, static generation.**
-Exit criteria: Angular route folders; per-folder `error`/`loading`/`not-found`;
+Exit criteria: Angular route folders; ~~per-folder `error` and
+`not-found`~~ **done**; per-folder `loading` (open);
 prerender/ISR expansion of file routes; `absolute compile` (standalone
 binary) e2e with file routes.
 

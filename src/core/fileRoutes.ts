@@ -6,7 +6,12 @@ import type {
 	FileRouteDefinition,
 	FileRouteRedirectStatus
 } from '../../types/fileRoutes';
-import { renderConventionError } from '../utils/resolveConvention';
+import { markCurrentFileRoute } from '../utils/fileRouteRef';
+import {
+	isPageRequest,
+	renderConventionError,
+	renderRouteNotFound
+} from '../utils/resolveConvention';
 import { logWarn } from '../utils/logger';
 import { ssrErrorPage } from '../utils/ssrErrorPage';
 import { withPageCacheHeaders } from './pageResponseCache';
@@ -155,6 +160,31 @@ const renderLoadError = async (route: FileRouteDefinition, error: unknown) => {
 	);
 };
 
+/* A page, so only for a request that wants one: a client asking for
+ * JSON keeps Elysia's JSON 404, as it does for the app-wide not-found. */
+const routeNotFound = async (route: FileRouteDefinition, request: Request) =>
+	isPageRequest(request) ? renderRouteNotFound(route.framework) : null;
+
+/* `throw new NotFound()` from `load` renders the not-found page: the
+ * nearest in the route's folders, or failing that the app's, which the
+ * error handler renders when this is thrown on. Anything else `load`
+ * threw renders the error page. */
+const answerLoadFailure = async (
+	route: FileRouteDefinition,
+	request: Request,
+	error: unknown
+) => {
+	if (!(error instanceof NotFound))
+		return withPageCacheHeaders(
+			await renderLoadError(route, error),
+			request
+		);
+	const notFound = await routeNotFound(route, request);
+	if (notFound) return notFound;
+
+	throw error;
+};
+
 const loadProps = async (
 	route: FileRouteDefinition,
 	context: RouteRequestContext
@@ -169,17 +199,14 @@ const serveFileRoute = async (
 	manifest: Record<string, string>,
 	context: RouteRequestContext
 ) => {
+	// So that whatever renders an error or a 404 for this request can
+	// find this route's own, in its route folder (fileRouteRef.ts).
+	markCurrentFileRoute(route.name);
 	let loaded: unknown;
 	try {
 		loaded = await loadProps(route, context);
 	} catch (error) {
-		// `throw new NotFound()` from `load` renders the not-found page.
-		if (error instanceof NotFound) throw error;
-
-		return withPageCacheHeaders(
-			await renderLoadError(route, error),
-			context.request
-		);
+		return answerLoadFailure(route, context.request, error);
 	}
 	if (loaded instanceof Response) return loaded;
 	/* Asked after `load`, not before: `load` runs on the server either
