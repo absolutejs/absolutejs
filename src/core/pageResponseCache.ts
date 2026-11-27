@@ -10,6 +10,7 @@ import {
 } from './compressHtmlResponse';
 import { HTML_CONTENT_TYPE } from '../constants';
 import { ACTION_FLASH_COOKIE } from '../utils/formActionState';
+import { markdownAlternateLink } from '../utils/pageMarkdownRef';
 import { withRenderSpan } from './renderTracing';
 
 // The SPA cache policy, applied to every framework's HTML page response.
@@ -82,6 +83,10 @@ export const withPageCacheHeaders = async (
 	 * flowing immediately, so its headers are the earliest chance the
 	 * browser gets to learn what the entry will import. */
 	addModulePreloadLinks(response);
+	// Where this page's Markdown is, when pages are served that way
+	// (pageMarkdown.ts).
+	const alternate = response.ok ? markdownAlternateLink(request) : undefined;
+	if (alternate) response.headers.append('link', alternate);
 	// A file route's metadata, into the head (routeHead.ts). Here, ahead
 	// of the hash and the compression, so both are of the page as sent.
 	const page = withRouteHead(response);

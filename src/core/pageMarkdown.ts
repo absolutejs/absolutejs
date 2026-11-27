@@ -1,5 +1,9 @@
 import { Elysia } from 'elysia';
 import { htmlToMarkdown, inlineStreamedSlots } from '../utils/htmlToMarkdown';
+import {
+	enablePageMarkdown,
+	MARKDOWN_SOURCE_HEADER
+} from '../utils/pageMarkdownRef';
 
 /* A page as Markdown, for a reader that wants the text and not the
  * markup: `/about.md` beside `/about`, and `/about` itself when the
@@ -12,15 +16,17 @@ import { htmlToMarkdown, inlineStreamedSlots } from '../utils/htmlToMarkdown';
  * page is the pre-rendered one — and a page that would redirect or
  * refuse answers the same way here.
  *
+ * A file route may say what its Markdown is, with `export const
+ * markdown` in its server module; that is served as written, and the
+ * page is not rendered. Every page's HTML response carries a `Link`
+ * header naming its Markdown (pageResponseCache.ts).
+ *
  * `/about.md` only stands for the page when `/about` is one. Anything
  * else — a real `.md` file in the public directory, a route of that
  * name — is left to whatever serves it. */
 
 const MARKDOWN_TYPE = 'text/markdown';
 const HTML_TYPE = 'text/html';
-/* Marks the request this makes for the page itself, so it is not asked
- * for as Markdown in turn. */
-const INNER_HEADER = 'x-absolute-markdown-source';
 const SUFFIX = '.md';
 
 type Handle = (request: Request) => Promise<Response>;
@@ -42,7 +48,7 @@ const pagePathOf = (pathname: string) => {
 const pageRequest = (request: Request, url: URL) => {
 	const headers = new Headers(request.headers);
 	headers.set('accept', HTML_TYPE);
-	headers.set(INNER_HEADER, '1');
+	headers.set(MARKDOWN_SOURCE_HEADER, '1');
 	// The page is read here, not sent: uncompressed and in full.
 	headers.delete('accept-encoding');
 	headers.delete('if-none-match');
@@ -53,15 +59,18 @@ const pageRequest = (request: Request, url: URL) => {
 
 const answer = async (request: Request, handle: Handle | undefined) => {
 	if (request.method !== 'GET' || !handle) return undefined;
-	if (request.headers.has(INNER_HEADER)) return undefined;
+	if (request.headers.has(MARKDOWN_SOURCE_HEADER)) return undefined;
 	const url = new URL(request.url);
 	const bySuffix = url.pathname.endsWith(SUFFIX);
 	if (!bySuffix && !asksForMarkdown(request.headers.get('accept')))
 		return undefined;
 	if (bySuffix) url.pathname = pagePathOf(url.pathname);
 	const page = await handle(pageRequest(request, url));
-	const isPage =
-		page.ok && (page.headers.get('content-type') ?? '').includes(HTML_TYPE);
+	const type = page.headers.get('content-type') ?? '';
+	// A route with Markdown of its own has answered with it
+	// (fileRoutes.ts): that is the page's Markdown, as written.
+	const isOwn = page.ok && type.includes(MARKDOWN_TYPE);
+	const isPage = isOwn || (page.ok && type.includes(HTML_TYPE));
 	if (!isPage && bySuffix) {
 		await page.body?.cancel();
 
@@ -71,9 +80,10 @@ const answer = async (request: Request, handle: Handle | undefined) => {
 	// page answered — a redirect, a refusal, something not HTML — is
 	// the answer.
 	if (!isPage) return page;
-	const markdown = await htmlToMarkdown(
-		await inlineStreamedSlots(await page.text())
-	);
+	const body = await page.text();
+	const markdown = isOwn
+		? body
+		: await htmlToMarkdown(await inlineStreamedSlots(body));
 
 	return new Response(markdown, {
 		headers: {
@@ -91,6 +101,7 @@ const answer = async (request: Request, handle: Handle | undefined) => {
  *  config. */
 export const pageMarkdown = (enabled: boolean | undefined) => {
 	if (!enabled) return new Elysia({ name: 'absolutejs-page-markdown-off' });
+	enablePageMarkdown();
 	let handle: Handle | undefined;
 	const plugin = new Elysia({ name: 'absolutejs-page-markdown' }).onRequest(
 		({ request }) => answer(request, handle)

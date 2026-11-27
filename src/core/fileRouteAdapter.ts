@@ -8,7 +8,10 @@ import type {
 	FileRouteServerModule
 } from '../../types/fileRoutes';
 import type { RouteHoles } from '../../types/routeHoles';
-import type { RouteMetadataExport } from '../../types/routeMetadata';
+import type {
+	RouteMarkdownExport,
+	RouteMetadataExport
+} from '../../types/routeMetadata';
 
 /* Shared by the framework adapters (`reactFileRoute`, `svelteFileRoute`):
  * turns a route's lazily imported server module into the framework-neutral
@@ -172,6 +175,32 @@ const metadataOf = (
 	return levels;
 };
 
+type MarkdownModule = { markdown?: RouteMarkdownExport };
+
+/* The route's own Markdown, from its server module. Asked per request:
+ * a module without the export costs the request nothing but the
+ * import it has already made for `load`. */
+const markdownOf = (
+	server: (() => Promise<MarkdownModule | undefined>) | undefined
+) => {
+	if (!server) return undefined;
+	const own: NonNullable<FileRouteDefinition['markdown']> = async (
+		context,
+		data
+	) => {
+		const exported = (await server())?.markdown;
+		if (typeof exported !== 'function') return exported;
+
+		return exported({
+			data,
+			params: context.params,
+			request: context.request
+		});
+	};
+
+	return own;
+};
+
 /* `path` is the string Elysia registers, which is not always the path the
  * route's params are typed against: `/docs/[...rest]` types against
  * `/docs/:rest` and registers `/docs/*`. The type path reaches the adapters
@@ -206,6 +235,7 @@ export const defineFileRouteWith = <Path extends string>(
 	const hooks = serverHooksOf(route, route.typePath ?? route.path);
 	const beforeHandle = guardedBeforeHandle(route.guards, hooks.beforeHandle);
 	const metadata = metadataOf(route.guards, route.server);
+	const markdown = markdownOf(route.server);
 	const definition: FileRouteDefinition = {
 		framework,
 		name: route.name,
@@ -215,6 +245,7 @@ export const defineFileRouteWith = <Path extends string>(
 		...(route.catchAll === undefined ? {} : { catchAll: route.catchAll }),
 		...hooks,
 		...(beforeHandle === undefined ? {} : { beforeHandle }),
+		...(markdown === undefined ? {} : { markdown }),
 		...(metadata === undefined ? {} : { metadata })
 	};
 

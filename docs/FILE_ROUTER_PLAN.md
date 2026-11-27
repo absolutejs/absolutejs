@@ -610,8 +610,26 @@ export const load = async ({ params }: FileRouteContext<'/blog/:slug'>) => {
     server, so its Markdown is its title and nothing else.
   - A request that accepts HTML as well as Markdown gets HTML. Markdown is
     for a request that asks for it alone.
-  - Not yet: a route supplying its own Markdown, a `<link rel="alternate">`
-    on the page pointing at it, and `llms-full.txt`.
+  - **A route's own Markdown.** A file route's server module may export
+    `markdown`, the text or a function of the request and what `load`
+    returned:
+
+    ```ts
+    // routes/app.server.ts
+    export const ssr = false;
+    export const load = () => ({ plan: currentPlan() });
+    export const markdown = ({ data }) =>
+    	`# The app\n\nYou are on the ${data.plan} plan.`;
+    ```
+
+    It is served as written, in place of the conversion, and the page is
+    not rendered. Guards and `load` still run. For a page whose HTML does
+    not convert well, or one with `ssr: false`, which has nothing to
+    convert.
+  - **How a reader finds it.** Every page's HTML response carries
+    `Link: </about.md>; rel="alternate"; type="text/markdown"`. A
+    pre-rendered page served from its file does not carry it yet.
+  - Not yet: `llms-full.txt`.
 - **A route's own form action (built).** The server module may export
   `action`, made with `defineAction`:
 

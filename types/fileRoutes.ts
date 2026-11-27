@@ -1,7 +1,11 @@
 import type { Context } from 'elysia';
 import type { PageAction } from './pageAction';
 import type { RouteHoles } from './routeHoles';
-import type { RouteMetadata, RouteMetadataExport } from './routeMetadata';
+import type {
+	RouteMarkdownExport,
+	RouteMetadata,
+	RouteMetadataExport
+} from './routeMetadata';
 
 /* File-system routing (opt-in). See docs/FILE_ROUTER_PLAN.md.
  *
@@ -150,6 +154,16 @@ export type FileRouteServerModule<
 	holes?: RouteHoles<FileRouteParams<Path>>;
 	/** Returns the props the page renders with. */
 	load?: (context: FileRouteContext<Path>) => MaybePromise<Props | Response>;
+	/** This page as Markdown, where the app serves pages that way
+	 *  (`markdown: true` in the config): the text, or a function of the
+	 *  request and what `load` returned. Served as written, at
+	 *  `/page.md` and for `Accept: text/markdown`, in place of the
+	 *  Markdown the framework makes from the page's HTML. For a page
+	 *  whose HTML does not convert well, or that is not rendered on the
+	 *  server at all. */
+	// As for `metadata`: `data` is what this route's `load` returned.
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	markdown?: RouteMarkdownExport<any>;
 	/** What this page says about itself, for the document's `<head>`:
 	 *  title, description, canonical URL, Open Graph, robots. The
 	 *  metadata, or a function of the request and what `load` returned.
@@ -236,6 +250,12 @@ export type FileRouteDefinition = {
 		context: FileRouteContext,
 		data: Record<string, unknown>
 	) => Promise<RouteMetadata[]>;
+	/** The route's own Markdown for this request, when its server
+	 *  module exports `markdown`. */
+	markdown?: (
+		context: FileRouteContext,
+		data: Record<string, unknown>
+	) => Promise<string | undefined>;
 	/** The server module's `holes`, when the route has a server module. */
 	holes?: () => Promise<RouteHoles | undefined>;
 	load?: (context: FileRouteContext) => Promise<unknown>;
