@@ -207,9 +207,13 @@ layer.
 
 **An Angular page is too, if it reads its data as a signal.** See below.
 
-**Every other kind of page is fetched whole and swapped in**, for now:
-HTML and HTMX, and an Angular page that reads its data with
-`usePageContext()`. The page is mounted again, so state
+**An HTML or HTMX page is morphed.** It has no props; its state is the
+document. The page is fetched again and the document on screen is changed
+into it node by node, keeping every node that is still wanted. See below.
+
+**An Angular page that reads its data with `usePageContext()` is fetched
+whole and swapped in.** It is the one kind of page that still mounts
+again. The page is mounted again, so state
 its own components hold starts over. On those pages, turn `invalidate` on
 for a form whose outcome shows in the page's data (the new row in the
 list), not for one that shows a "saved" message from its own state. An
@@ -257,6 +261,39 @@ refreshed whole, as before. It is never left half-updated.
 
 To get in-place refresh on an existing page, switch its reads to
 `usePageData()` and derive from the signal instead of copying.
+
+### HTML and HTMX: the document is morphed
+
+What survives a refresh, because the node holding it is kept:
+
+- text typed into a field, a ticked box, a chosen option;
+- an open `<details>` or `<dialog>`;
+- listeners and anything else a script attached to an element;
+- scroll position, including inside a scrolling element.
+
+Elements are matched by `id`, then by `data-key`, then by position. Give
+the rows of a list an `id` or a `data-key` and a row that moves is moved,
+and one added at the top goes to the top without disturbing the rest.
+
+What is left alone entirely:
+
+- an island (`data-island="true"`), which a framework owns;
+- anything marked `data-absolute-preserve` or `hx-preserve`. Use it for
+  an element whose content a script writes: without it, the element's
+  text and attributes are brought back to what the server sent;
+- scripts. One already on the page is not run again, and a new one in
+  the fresh copy is not run at all.
+
+On an HTMX page, markup that arrives in a refresh is handed to
+`htmx.process()`, so its `hx-*` attributes work. Content HTMX loaded into
+the page earlier is not in the server's fresh copy and is replaced by it;
+that is the nature of asking the server for the page again. An HTMX page
+usually has a better tool for this than `invalidate()`: have the response
+swap the fragment, or trigger the element to reload itself.
+
+The page is fetched whole and swapped instead when morphing would not be
+enough: the request was redirected, the fresh copy loads different
+stylesheets, or it holds a different number of islands.
 
 ### How it ended
 

@@ -5,6 +5,20 @@
 		{
 			"changes": [
 				{
+					"detail": "`invalidate()` on an HTML or HTMX page now morphs the document on screen into a fresh copy of itself, where it used to replace the body. Such a page has no props to be handed; its state is the document, and replacing the body threw it away. Every node that is still wanted is kept, with what is attached to it: text typed into a field, an open `<details>` or `<dialog>`, a script's listeners, scroll position. Elements are matched by `id`, then `data-key`, then position, and a matched element that changed places is moved, so an item added at the top of a list goes to the top and the rows after it are the same elements. An island, anything marked `data-absolute-preserve` or `hx-preserve`, and scripts are left alone; a new script in the fresh copy is not run. On an HTMX page, markup that arrives is handed to `htmx.process()`. It needs no navigation layer and resolves to `'updated'`. The page is refreshed whole, as before, when the request was redirected, the fresh copy loads different stylesheets, or it holds a different number of islands. With this, every kind of page keeps its state across a refresh except an Angular page that reads its data with `usePageContext()`. BEHAVIOUR CHANGE: an element whose text or attributes a script changed is brought back to what the server sent unless it is marked `data-absolute-preserve`, and content HTMX loaded earlier is replaced by the server's copy; both were also true of the body replacement, but scripts on the page are no longer run again by a refresh. See docs/DATA_LOADING.md.",
+					"kind": "added",
+					"summary": "`invalidate()` morphs HTML and HTMX pages in place: what was typed, opened and attached survives",
+					"symbols": [
+						"invalidate"
+					]
+				}
+			],
+			"date": "2026-11-27",
+			"version": "0.20.0-beta.419"
+		},
+		{
+			"changes": [
+				{
 					"detail": "`usePageData<T>()` from `@absolutejs/absolute/angular` returns an Angular page's data as a signal, and `invalidate()` refreshes a page that reads its data that way in place: the signal is set, Angular re-renders what read it, and the page's own state is kept. It works with `OnPush` and zoneless change detection. A page that calls `usePageContext()` or injects `REQUEST_CONTEXT` anywhere is still fetched whole and mounted again, on purpose. That accessor returns the object itself and a page usually copies values out of it into plain fields as it is constructed; nothing can update such a field, and updating the rest of the page around it would show two answers at once. The client entry now provides `REQUEST_CONTEXT` through a factory so it knows whether anything asked for it, and declines the in-place refresh if so. Existing pages behave exactly as before; a page opts in by switching its reads to `usePageData()` and deriving with `computed`. See docs/DATA_LOADING.md.",
 					"kind": "added",
 					"summary": "`usePageData()` gives an Angular page its data as a signal, so `invalidate()` can refresh it in place",

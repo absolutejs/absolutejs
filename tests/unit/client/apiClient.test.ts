@@ -315,7 +315,12 @@ type Seen = { refreshes: number };
 describe('invalidate: true', () => {
 	const watchRefreshes = () => {
 		const seen: Seen = { refreshes: 0 };
-		Reflect.set(globalThis, 'window', { location: { reload: () => {} } });
+		// A framework page with no way to take new props, so the
+		// refresh goes to the navigation layer being watched here.
+		Reflect.set(globalThis, 'window', {
+			__ABSOLUTE_PAGE_READY__: Promise.resolve(),
+			location: { reload: () => {} }
+		});
 		Reflect.set(globalThis, NAVIGATION_RUNTIME, {
 			disable: () => undefined,
 			navigate: () => Promise.resolve('swapped'),
