@@ -155,6 +155,9 @@ const printUsage = (write: (line: string) => void) => {
 		'  links [--config path] Report literal <a href="/…"> links no route serves (exits 1 on findings)'
 	);
 	write(
+		'  content [paths…] [--url origin] [--min-words n] [--json] Report what each page of a running server says to a crawler that runs no JavaScript (exits 1 on findings)'
+	);
+	write(
 		'  upgrade [--to version] [--dry-run] Apply the migrations between the installed version and a newer one, and list the ones a person has to make'
 	);
 	write(
@@ -462,6 +465,10 @@ if (command === 'dev') {
 	sendTelemetryEvent('cli:command', { command });
 	const { links } = await import('./scripts/links');
 	await links(parseNamedArg('--config'));
+} else if (command === 'content') {
+	sendTelemetryEvent('cli:command', { command });
+	const { content } = await import('./scripts/content');
+	await content(args);
 } else if (command === 'scan') {
 	const { runScanCli } = await import('@absolutejs/vulnerabilities/scan/cli');
 	process.exitCode = await runScanCli(args);

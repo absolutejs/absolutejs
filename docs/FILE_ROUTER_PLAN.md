@@ -537,6 +537,43 @@ export const load = async ({ params }: FileRouteContext<'/blog/:slug'>) => {
   - Links are absolute when `sitemap.baseUrl` is set and from the site's
     root when it is not. Under i18n a page is listed once, in the default
     locale.
+- **`absolute content` (built).** Fetches each page of a running server the
+  way a crawler that runs no JavaScript does — which is most of the
+  crawlers run for language models — and says how many words each has in
+  its HTML and why some are missing:
+
+  ```
+  $ absolute content
+  4 pages at http://localhost:3000, read as a crawler that runs no JavaScript:
+
+    ✓ /           8 words
+    ✗ /app        0 words  not rendered on the server (ssr: false)
+    ✗ /feed       2 words  1 streamed slot shown as its fallback; the content arrives in a script
+    ✗ /late       0 words  no text in the HTML
+
+  Not checked:
+    /blog/:slug  is dynamic and nothing lists its pages: pass one as an argument
+  ```
+
+  It reads the server's `sitemap.xml` (or, where there is none, the static
+  file routes) plus any paths passed as arguments, and exits 1 on a
+  finding. The server is this project's running one, a production server
+  before a dev server, or the one `--url` names. `--header 'Cookie: …'`
+  sends a header with every request, for pages behind a login;
+  `--min-words <n>` makes a page with fewer words a finding; `--json`
+  prints the report as data.
+  - It fetches rather than scans the source, because the commonest reason a
+    page is empty to such a reader is a component that fetches its data
+    after it mounts, and nothing in the source tells that from one that
+    does not. Such a page has no marker; it shows as few words, or none.
+  - A streamed slot's content is in the response, inside the script that
+    swaps it in. A reader that takes the text does not get it. A slot whose
+    content matters to a crawler should be rendered in place.
+  - What it could not check is listed, so a clean run is not read as "every
+    page is fine": a dynamic route no page of which was named, a page that
+    redirected, one that did not answer 200.
+  - It is a command and not a build warning: it needs a server, and takes a
+    request per page.
 - **A route's own form action (built).** The server module may export
   `action`, made with `defineAction`:
 

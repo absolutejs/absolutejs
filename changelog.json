@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "`absolute content` fetches each page of a running server the way a crawler that runs no JavaScript does, which is most of the crawlers run for language models, and prints how many words each page has in its HTML and why some are missing: a page with `ssr: false` (a document shell), a streamed slot shown as its fallback (its content is in the response, inside the script that swaps it in), a dynamic part of a page served in edge mode (fetched by a second request), or a page with no text at all, which is what a component that fetches its data after mounting looks like. It reads the server's sitemap.xml, or the static file routes where there is none, plus any paths passed as arguments. The server is this project's running one, a production server before a dev server, or the one `--url` names. `--header 'Name: value'` sends a header with every request, `--min-words <n>` makes a page with fewer words a finding, and `--json` prints the report as data. What it could not check is listed: a dynamic route no page of which was named, a page that redirected, one that did not answer 200. Exits 1 on a finding. See docs/FILE_ROUTER_PLAN.md.",
+					"kind": "added",
+					"summary": "absolute content reports what each page says to a crawler that runs no JavaScript"
+				}
+			],
+			"date": "2026-11-27",
+			"version": "0.20.0-beta.438"
+		},
+		{
+			"changes": [
+				{
 					"detail": "`robots.ai` says which crawlers run for language models may fetch the site, by what they fetch it for: `training` (crawlers that collect pages to train on), `search` (crawlers that index pages so an answer can cite them) and `assistants` (fetchers that load a page because a person asked about it). A kind set to `false` gets a group in robots.txt naming every crawler of that kind the framework knows and disallowing everything, written after `rules`; a kind left on writes nothing, so a config without `ai` writes the same file as before. The names are exported as AI_TRAINING_CRAWLERS, AI_SEARCH_CRAWLERS and AI_ASSISTANT_AGENTS, for a rule that is not all or nothing. A page's `robots` metadata also takes `noai` and `noimageai`, in route metadata and in the React and Svelte Head components. robots.txt is a request: a crawler that ignores it ignores this, the lists hold the names published when they were written, and `noai` is not a standard and few crawlers honour it. See docs/FILE_ROUTER_PLAN.md.",
 					"kind": "added",
 					"summary": "robots.ai sets which AI crawlers may fetch the site, and a page can say noai",
