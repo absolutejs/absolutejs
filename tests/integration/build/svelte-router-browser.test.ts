@@ -242,6 +242,34 @@ const withPage = async (
 const scriptContains = async (url: string, needle: string) =>
 	(await (await fetch(url)).text()).includes(needle);
 
+const SCRIPT_POLL_MS = 50;
+
+/* Until one of the scripts requested since `from` contains `needle`, or
+ * the deadline passes.
+ *
+ * Waits on the list the test goes on to read. It used to wait for the
+ * browser's own count of script resources to pass `from` instead — but
+ * `scripts` is filled by a listener attached after the page has started
+ * loading, so it can hold fewer scripts than the browser has fetched.
+ * Then that count was already past `from` before anything was hovered,
+ * the wait returned at once, and the test read a list the prefetch had
+ * not reached yet. */
+const requestedSince = async (
+	scripts: string[],
+	from: number,
+	needle: string,
+	deadline: number
+): Promise<boolean> => {
+	const found = await Promise.all(
+		scripts.slice(from).map((url) => scriptContains(url, needle))
+	);
+	if (found.some(Boolean)) return true;
+	if (Date.now() > deadline) return false;
+	await Bun.sleep(SCRIPT_POLL_MS);
+
+	return requestedSince(scripts, from, needle, deadline);
+};
+
 const pathnameOf = (page: Page) => new URL(page.url()).pathname;
 
 const scrollY = (page: Page) => page.evaluate(() => window.scrollY);
@@ -306,20 +334,14 @@ describe('svelte router lazy routes', () => {
 
 			// Hover prefetch (debounced) loads the chunk before any click.
 			await page.hover('#lazy-link');
-			await page.waitForFunction(
-				(count) =>
-					performance
-						.getEntriesByType('resource')
-						.filter((entry) => entry.name.endsWith('.js')).length >
-					count,
-				initial.length,
-				{ timeout: 10_000 }
-			);
-			const afterHover = scripts.slice(initial.length);
-			const hoverHasPanel = await Promise.all(
-				afterHover.map((url) => scriptContains(url, lazyPanelSource))
-			);
-			expect(hoverHasPanel.some(Boolean)).toBe(true);
+			expect(
+				await requestedSince(
+					scripts,
+					initial.length,
+					lazyPanelSource,
+					Date.now() + 10_000
+				)
+			).toBe(true);
 
 			await page.click('#lazy-link');
 			await page.waitForSelector('#lazy-panel', { timeout: 10_000 });
