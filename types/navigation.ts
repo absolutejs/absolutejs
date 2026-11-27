@@ -29,6 +29,23 @@ export type EnableNavigationOptions = {
 	 *  (same origin, no `target` / `download` / modifier keys, no
 	 *  `data-absolute-navigation="off"`). */
 	shouldIntercept?: (url: URL) => boolean;
+	/** Navigating to the page that is already on screen, with a different
+	 *  query string — the next page of a list, a filter, a sort order.
+	 *
+	 *  `'query'` (the default) hands the mounted page the new data and
+	 *  leaves it mounted: no document is fetched, nothing is torn down,
+	 *  and what the page's components hold stays — the open filter
+	 *  panel, the text in the search box. History, scroll and the page
+	 *  announcement work as for any navigation, and the outcome is
+	 *  `'updated'`.
+	 *
+	 *  That means a component is NOT started afresh when only the query
+	 *  changes. One that copies a query-derived prop into its own state
+	 *  keeps the old copy; derive it instead, or set `false` to have
+	 *  every navigation replace the page as before.
+	 *
+	 *  A navigation to a different path always replaces the page. */
+	inPlace?: 'query' | false;
 	/** Wrap the swap in `document.startViewTransition` where supported.
 	 *  Default `true`; skipped for users who prefer reduced motion. */
 	viewTransition?: boolean;

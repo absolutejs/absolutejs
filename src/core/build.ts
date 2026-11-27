@@ -1080,7 +1080,7 @@ const buildUnlocked = async ({
 	/* Set on every run from the config this build was given, so a dev
 	 * rebuild or the next test in the same process overwrites it rather
 	 * than inheriting it (build/navigationAutoEnable.ts). */
-	setNavigationAutoEnable(navigation === true);
+	setNavigationAutoEnable(navigation);
 	const vueFeatureFlags = resolveVueFeatureFlags(isDev);
 	const clientDefine = resolveClientDefine(isDev);
 	const clientDefineWithVue = resolveClientDefine(

@@ -37,7 +37,8 @@ import type {
 	NavigateDocumentOptions
 } from '../../types/navigation';
 import { disposeIslandsIn } from './islandDisposers';
-import { consumePrefetch } from './prefetch';
+import { consumePrefetch, ROUTE_DATA_MEDIA_TYPE } from './prefetch';
+import { applyPageTitle, readPageData, readPageUpdate } from './refreshInPlace';
 import {
 	keepRunningScripts,
 	liveScriptsByIdentity,
@@ -122,6 +123,10 @@ type LoadedDocument = {
 type NavigationRequest = {
 	/** Document the destination entry belongs to (traversals). */
 	documentId?: string;
+	/** The address being left, when the browser has already moved to
+	 *  the destination by the time the navigation runs (`intercept()`).
+	 *  Otherwise `Runtime.shown` says it. */
+	from?: string;
 	/** The Navigation API already committed the entry for this navigation
 	 *  (`intercept()`), so the swap stamps the entry it is on instead of
 	 *  pushing another one. */
@@ -154,6 +159,11 @@ type Runtime = {
 	restoreHistory: (() => void) | undefined;
 	scroll: Map<string, ScrollPosition>;
 	scrollFrame: number;
+	/** Path and query of the address the page on screen is showing.
+	 *  Not always `location`: a traversal has moved the address before
+	 *  the layer hears of it, and what it needs to know then is where
+	 *  the page it still has came from. */
+	shown: string;
 	teardown: Array<() => void>;
 	token: number;
 };
@@ -175,6 +185,15 @@ let runtime: Runtime | undefined;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
 	typeof value === 'object' && value !== null && !Array.isArray(value);
+
+const addressOf = (url: Location | URL) => `${url.pathname}${url.search}`;
+
+/* The address changed and the page on screen is still the one showing
+ * it: a router pushed an entry, a hash link was followed, a traversal
+ * stayed inside this document. */
+const noteShown = (nav: Runtime) => {
+	nav.shown = addressOf(window.location);
+};
 
 const createId = () =>
 	typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
@@ -280,6 +299,7 @@ const trackEntries = (nav: Runtime, api: NavigationLike) => {
 	const onEntryChange = (event: Event) => {
 		if (Reflect.get(event, 'navigationType') === 'traverse') return;
 		recordCurrentEntry(nav);
+		noteShown(nav);
 	};
 	api.addEventListener('currententrychange', onEntryChange);
 	nav.teardown.push(() =>
@@ -299,17 +319,19 @@ const patchHistory = (nav: Runtime) => {
 		state: unknown,
 		unused: string,
 		url?: string | URL | null
-	) =>
+	) => {
 		Reflect.apply(originalPush, history, [
 			stampState(state, nav.documentId, createId()),
 			unused,
 			url
 		]);
+		noteShown(nav);
+	};
 	history.replaceState = (
 		state: unknown,
 		unused: string,
 		url?: string | URL | null
-	) =>
+	) => {
 		Reflect.apply(originalReplace, history, [
 			stampState(
 				state,
@@ -319,6 +341,8 @@ const patchHistory = (nav: Runtime) => {
 			unused,
 			url
 		]);
+		noteShown(nav);
+	};
 	history.replaceState(history.state, '');
 	nav.restoreHistory = () => {
 		history.pushState = originalPush;
@@ -1141,6 +1165,116 @@ const swapDocument = async (
 const isCurrent = (nav: Runtime, token: number) => nav.token === token;
 
 /* ------------------------------------------------------------------ */
+/* In place: the same page, asked for with a different query           */
+/* ------------------------------------------------------------------ */
+
+/* The next page of a list, a filter, a sort order: the address differs
+ * from the one on screen only after the `?`. That is nearly always the
+ * same page with different data, and a page that is already mounted can
+ * simply be given the data (`__ABSOLUTE_PAGE_UPDATE__`, which every
+ * framework's client entry registers — see refreshInPlace.ts). Nothing
+ * is fetched but the data, nothing is torn down, and the page keeps
+ * what its components hold.
+ *
+ * "Nearly always" is checked, not assumed: the data names the client
+ * entry of the page it is for, and anything but the one on screen —
+ * a route that renders another page for this query, a redirect to
+ * somewhere else — is declined here and swapped in whole, as before.
+ * Declining costs the request that found out, which is why this is
+ * tried only where it is expected to succeed. A navigation to another
+ * path is not tried at all. */
+
+const isQueryChange = (from: string, url: URL) =>
+	from !== addressOf(url) && from.split('?', 1)[0] === url.pathname;
+
+const takePrefetchedData = async (url: URL) => {
+	const pending =
+		consumePrefetch(url.href, 'data') ??
+		consumePrefetch(addressOf(url), 'data');
+	const response = await pending?.catch(() => undefined);
+
+	return response?.ok ? response : undefined;
+};
+
+const fetchPageData = async (url: URL, signal: AbortSignal) =>
+	(await takePrefetchedData(url)) ??
+	fetch(url.href, {
+		credentials: 'same-origin',
+		headers: { Accept: ROUTE_DATA_MEDIA_TYPE },
+		signal
+	});
+
+const TYPING_IN = 'input, textarea, select, [contenteditable]';
+
+/* A page navigated to is announced, and focus starts again at the top
+ * of it — except when the visitor is in a control. A search box that
+ * submits as it is typed in must not lose the caret to its own
+ * results. */
+const settleFocus = () => {
+	const active = document.activeElement;
+	const typing = active?.isConnected === true && active.matches(TYPING_IN);
+	announcePage(typing ? false : resetFocus());
+};
+
+type Taken = { value: boolean };
+
+/* Undefined when the navigation is not one for this, or turned out not
+ * to be: the caller goes on to swap the page in. */
+const navigateInPlace = async (
+	nav: Runtime,
+	request: NavigationRequest,
+	signal: AbortSignal,
+	isStale: () => boolean
+) => {
+	if (request.type === 'refresh' || nav.options.inPlace === false)
+		return undefined;
+	const update = readPageUpdate();
+	if (!update || !isQueryChange(request.from ?? nav.shown, request.url))
+		return undefined;
+	const response = await fetchPageData(request.url, signal).catch(
+		() => undefined
+	);
+	if (isStale()) return outcome('superseded');
+	if (!response) return undefined;
+	// A redirect is followed, as a document navigation follows one: the
+	// address shown is the one arrived at.
+	const url = new URL(response.url || request.url.href);
+	url.hash = request.url.hash;
+	const data =
+		url.origin === window.location.origin
+			? await readPageData(response, update)
+			: undefined;
+	if (isStale()) return outcome('superseded');
+	const props = data?.props;
+	// The page was swapped out, or its hook withdrawn, while the data
+	// was on its way.
+	if (!data || !isRecord(props) || readPageUpdate() !== update)
+		return undefined;
+	nav.navigating = true;
+	commitHistory(nav, request, url);
+	const taken: Taken = { value: true };
+	await runSwap(
+		nav,
+		async () => {
+			taken.value = update(props) !== false;
+			if (!taken.value) return;
+			applyPageTitle(data);
+			applyScroll(request, url);
+			// A framework renders after it is told to, not as it is told;
+			// a view transition photographs the page when this returns.
+			await delay(0);
+		},
+		true
+	);
+	// The address has moved and the page would not take the data.
+	if (!taken.value) return reload(nav, request, true);
+	nav.shown = addressOf(url);
+	settleFocus();
+
+	return outcome('updated');
+};
+
+/* ------------------------------------------------------------------ */
 
 /* The `loading` convention, shown while a soft navigation is in flight.
  *
@@ -1247,6 +1381,15 @@ const performNavigation = async (nav: Runtime, request: NavigationRequest) => {
 		() => !isCurrent(nav, token)
 	);
 	try {
+		const inPlace = await navigateInPlace(
+			nav,
+			request,
+			controller.signal,
+			() => !isCurrent(nav, token)
+		);
+		if (inPlace === 'updated')
+			dispatch('absolute:after-navigate', detail, false);
+		if (inPlace !== undefined) return inPlace;
 		const loaded = await loadDocument(
 			nav,
 			request.url,
@@ -1263,6 +1406,7 @@ const performNavigation = async (nav: Runtime, request: NavigationRequest) => {
 			() => !isCurrent(nav, token)
 		);
 		if (!swapped) return outcome('superseded');
+		nav.shown = addressOf(loaded.url);
 		dispatch('absolute:after-navigate', detail, false);
 
 		return outcome('swapped');
@@ -1372,7 +1516,11 @@ const listenForClicks = (nav: Runtime) => {
  * traversal onto another document's entry is stopped here and swapped. */
 const listenForTraversals = (nav: Runtime) => {
 	const onPopState = (event: PopStateEvent) => {
-		if (!isForeignEntry(nav)) return;
+		if (!isForeignEntry(nav)) {
+			noteShown(nav);
+
+			return;
+		}
 		event.stopImmediatePropagation();
 		const owner = currentEntryOwner(nav);
 		const key = currentEntryKey(nav);
@@ -1509,6 +1657,9 @@ const listenForNavigations = (nav: Runtime, api: NavigationLike) => {
 		 * immediately: after it, the entry being left is no longer the
 		 * current one and its scroll position has nowhere to go. */
 		rememberScroll(nav);
+		// Also before it, for the same reason: afterwards the address
+		// is the destination's.
+		const from = addressOf(window.location);
 		intercept({
 			/* The swap resets focus and handles scroll itself, including
 			 * restoring a saved position on a traversal. Left to the API
@@ -1517,6 +1668,7 @@ const listenForNavigations = (nav: Runtime, api: NavigationLike) => {
 			scroll: 'manual',
 			handler: async () => {
 				await performNavigation(nav, {
+					from,
 					managedHistory: true,
 					replace,
 					type: 'navigate',
@@ -1599,6 +1751,7 @@ export const enableNavigation = (options: EnableNavigationOptions = {}) => {
 		restoreHistory: undefined,
 		scroll: new Map(),
 		scrollFrame: 0,
+		shown: addressOf(window.location),
 		teardown: [],
 		token: 0
 	};

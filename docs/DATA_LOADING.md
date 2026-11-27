@@ -326,3 +326,50 @@ The promise resolves to one of:
 | `'reloaded'` | The browser was asked to load the page: there is no navigation layer (`enableNavigation()`), or the page cannot be torn down. |
 | `'superseded'` | A newer navigation or refresh started first. |
 | `'cancelled'` | An `absolute:before-navigate` listener refused it. The event's `type` is `'refresh'`. |
+
+## The same page with a different query
+
+`/products?page=1` to `/products?page=2`, a filter, a sort order: a
+navigation whose address differs from the one on screen only after the
+`?`. With the navigation layer on (`navigation: true`, or
+`enableNavigation()`), a page that is already mounted is handed the data
+for the new address and stays mounted. No document is fetched and nothing
+is torn down, so the open filter panel stays open and the text in the
+search box stays put.
+
+In every other way it is a navigation. The address and the history entry
+change, Back and Forward move through the queries the same way and
+restore the scroll position, the window starts at the top, the page is
+announced, and `navigateDocument()` resolves to `'updated'`. Focus moves
+to the top of the page as it does for any navigation, unless the visitor
+is in a field: a search form submitted from its own input keeps the caret.
+
+It applies to React, Svelte and Vue pages, and to an Angular page that
+reads its data with `usePageData()`. An HTML or HTMX page, and an Angular
+page that reads `usePageContext()`, is replaced as before.
+
+**A component is not started afresh when only the query changes.** One
+that copies a query-derived prop into its own state keeps the old copy:
+
+```tsx
+// Stays at the first page's value. Read `page` from props instead.
+const [current] = useState(props.page);
+```
+
+The page is replaced, as it always was, when:
+
+- the path changes, even to a route that renders the same page;
+- the route answers the new query with a different page, or redirects to
+  one (the data says which page it is for, and anything but the one on
+  screen is declined);
+- the app turned it off.
+
+To turn it off, so that every navigation replaces the page:
+
+```ts
+// absolute.config.ts
+export default defineConfig({ navigation: { inPlace: false } });
+
+// or, where the layer is enabled by hand
+enableNavigation({ inPlace: false });
+```

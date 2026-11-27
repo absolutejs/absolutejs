@@ -25,16 +25,30 @@
  * needs nothing — the layer marks it as having no framework app to tear
  * down (client/navigation.ts). */
 
-let autoEnabled = false;
+import type { BuildConfig } from '../../types/build';
 
-/** Called by `build()` from `config.navigation`. */
-export const NAVIGATION_AUTO_ENABLE_SOURCE = `
+type NavigationSetting = BuildConfig['navigation'];
+
+let setting: NavigationSetting = false;
+
+/* The options the config gave, written into the call. Only what JSON
+ * can carry, which is everything the config key accepts: a function
+ * such as `shouldIntercept` cannot cross from a config file into a
+ * page's bundle, and a page that needs one calls `enableNavigation()`
+ * itself — the first call wins. */
+const optionsSource = () =>
+	typeof setting === 'object' ? JSON.stringify(setting) : '';
+
+const autoEnableSource = () => `
 import { enableNavigation as __absoluteEnableNavigation__ } from '@absolutejs/absolute/client/navigation';
-if (typeof window !== 'undefined') __absoluteEnableNavigation__();
+if (typeof window !== 'undefined') __absoluteEnableNavigation__(${optionsSource()});
 `;
-export const navigationAutoEnabled = () => autoEnabled;
-export const setNavigationAutoEnable = (value: boolean) => {
-	autoEnabled = value;
+
+export const navigationAutoEnabled = () =>
+	setting === true || typeof setting === 'object';
+/** Called by `build()` from `config.navigation`. */
+export const setNavigationAutoEnable = (value: NavigationSetting) => {
+	setting = value ?? false;
 };
 export const withNavigationAutoEnable = (source: string) =>
-	autoEnabled ? `${source}\n${NAVIGATION_AUTO_ENABLE_SOURCE}` : source;
+	navigationAutoEnabled() ? `${source}\n${autoEnableSource()}` : source;

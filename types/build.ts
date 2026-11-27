@@ -8,6 +8,7 @@ import type { HealthConfig } from './health';
 import type { ImageConfig } from './image';
 import type { LinksConfig } from './links';
 import type { LoggingConfig } from './logging';
+import type { EnableNavigationOptions } from './navigation';
 import type { PageStoreConfig } from './pageStores';
 import type { AbsoluteRoutePath } from './routeMap';
 import type { RateLimitConfig } from './rateLimit';
@@ -690,8 +691,12 @@ export type BaseBuildConfig = {
 	 *  it has no hydration index to inject into, so it still imports
 	 *  `@absolutejs/absolute/client/navigation` and calls
 	 *  `enableNavigation()` itself. One swapped in by another page needs
-	 *  nothing. */
-	navigation?: boolean;
+	 *  nothing.
+	 *
+	 *  An object turns the layer on with options: `{ inPlace: false }`
+	 *  has a navigation that changes only the query string replace the
+	 *  page instead of handing it new data. See `EnableNavigationOptions`. */
+	navigation?: boolean | Pick<EnableNavigationOptions, 'inPlace'>;
 	/** What the build enforces at the server/client boundary.
 	 *
 	 *  A module that must never reach a browser bundle says so with
