@@ -1,4 +1,5 @@
 import type { DocumentNavigationOutcome } from '../../types/navigation';
+import { readPageUpdate, refreshInPlace } from './refreshInPlace';
 
 /* `invalidate()`: the page's data changed, show the page again.
  *
@@ -30,7 +31,8 @@ const OUTCOMES = new Set<unknown>([
 	'cancelled',
 	'reloaded',
 	'superseded',
-	'swapped'
+	'swapped',
+	'updated'
 ]);
 
 const isOutcome = (value: unknown): value is DocumentNavigationOutcome =>
@@ -58,8 +60,9 @@ const reloaded = () => {
  *     await fetch('/api/todos', { body, method: 'POST' });
  *     await invalidate();
  *
- * Resolves to how it ended: `'swapped'` when the page was replaced in
- * place, `'reloaded'` when the browser was asked to load it instead —
+ * Resolves to how it ended: `'updated'` when the mounted page was given
+ * new data and nothing was torn down, `'swapped'` when the page was
+ * replaced in place, `'reloaded'` when the browser was asked to load it instead —
  * which is what happens on a page without the navigation layer, or one
  * that cannot be torn down — `'superseded'` when a newer navigation or
  * refresh started first, and `'cancelled'` when an
@@ -71,6 +74,13 @@ export const invalidate = async () => {
 
 		return outcome;
 	}
+	// First choice: hand the mounted page new props, so that nothing it
+	// is holding is lost (refreshInPlace.ts). Whatever it declines —
+	// a page with no way to take props, a redirect, a different page —
+	// is refreshed whole, below.
+	const update = readPageUpdate();
+	const inPlace = update ? await refreshInPlace(update) : undefined;
+	if (inPlace !== undefined) return inPlace;
 	const refresh = readRefresh();
 	if (!refresh) return reloaded();
 	const result: unknown = await Reflect.apply(refresh, undefined, []);
