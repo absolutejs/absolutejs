@@ -2,6 +2,7 @@
 	import {
 		isStreamingSlotCollectionActive,
 		registerStreamingSlot,
+		unresolvedSlot,
 		warnMissingStreamingSlotCollector
 	} from '../../core/streamingSlotRegistrar';
 
@@ -23,7 +24,9 @@
 		errorHtml?: string;
 		fallbackHtml?: string;
 		id: string;
-		resolve: Resolver;
+		/** Left out when the route declares a hole with this slot's
+		 *  `id`: the slot is then only the placeholder. */
+		resolve?: Resolver;
 		timeoutMs?: number;
 	} = $props();
 
@@ -33,7 +36,7 @@
 			errorHtml,
 			fallbackHtml,
 			id,
-			resolve,
+			resolve: resolve ?? unresolvedSlot(id),
 			timeoutMs
 		});
 	} else {

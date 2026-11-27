@@ -10,6 +10,7 @@ import { DomSanitizer, type SafeHtml } from '@angular/platform-browser';
 import {
 	isStreamingSlotCollectionActive,
 	registerStreamingSlot,
+	unresolvedSlot,
 	warnMissingStreamingSlotCollector
 } from '../../core/streamingSlotRegistrar';
 
@@ -71,7 +72,9 @@ export class StreamSlotComponent {
 	@Input() errorHtml?: string;
 	@Input() fallbackHtml = '';
 	@Input({ required: true }) id!: string;
-	@Input({ required: true }) resolve!: SlotResolver;
+	/** Left out when the route declares a hole with this slot's `id`:
+	 *  the slot is then only the placeholder. */
+	@Input() resolve?: SlotResolver;
 	@Input() timeoutMs?: number;
 	readonly currentHtml = signal<SafeHtml | string>('');
 
@@ -86,7 +89,7 @@ export class StreamSlotComponent {
 				errorHtml: this.errorHtml,
 				fallbackHtml: this.fallbackHtml,
 				id: this.id,
-				resolve: this.resolve,
+				resolve: this.resolve ?? unresolvedSlot(this.id),
 				timeoutMs: this.timeoutMs
 			});
 

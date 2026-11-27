@@ -167,15 +167,20 @@ Failure modes:
 - If the plugin has no app handle (the app was never started, as with
   `app.handle()` in tests), the route renders fully.
 
-Phase 1 cost: the holes render still runs the route handler and the page
-render to obtain the slot closures. That work is off the first-byte path but
-still CPU. Phase 2 can cut it:
+Phase 1 cost: the holes render runs the route handler and the page render to
+obtain the slot closures. That work is off the first-byte path but still CPU:
+measured on a React page with one dynamic slot, about 60% of rendering the
+page from scratch (1.5 ms against 2.3 ms at 500 rows, 8.5 ms against 13 ms at
+3000), plus whatever the handler loads for the static parts.
 
-- The page handler, in hole mode, aborts the framework render as soon as
-  every listed hole has registered. React and Svelte register slots while
-  rendering the shell, before any Suspense content.
-- A dynamic slot can be declared as a route-level resolver that needs no page
-  render at all: `static.holes: { '/dashboard': { cart: (request) => … } }`.
+**Route-level holes** remove it (see "Route-level holes" below): a hole
+declared beside the route is filled without running the route at all. The
+same measurement gives 0.005 ms per request, whatever the size of the page.
+
+Aborting the render once every hole has registered was the other idea and
+was not built. Its saving depends on where the slot sits in the page, it
+cannot skip the handler, and cutting a render short is a different fragile
+thing in each framework.
 
 ### Invalidation
 
@@ -260,13 +265,14 @@ the HTMX model.
 - `revalidatePath`/`revalidateAll`, atomic shell writes and an optional
   webhook endpoint.
 - Request-read detection during capture, with a build warning.
-- Hole-mode render abort once the listed holes have registered.
+- Cheaper holes: done as route-level holes, not as a render abort.
 - Exit criteria:
   - Vue and Angular integration tests matching Phase 1's.
   - A `revalidatePath` test showing the next request gets the new static
     content while holes are unaffected.
   - A capture warning test.
-  - A benchmark showing hole-mode CPU per request below a full render.
+  - A benchmark showing hole-mode CPU per request below a full render: met
+    by route-level holes (0.005 ms against 2.3 ms at 500 rows).
 
 **Phase 3: Edge or CDN mode and HTMX**
 
@@ -318,6 +324,74 @@ export default defineConfig({ static: { routes: ['/dashboard'], revalidate: 60 }
 handleReactPageRequest({ collectStreamingSlots: true, Page, index, props });
 ```
 
+## Route-level holes
+
+A hole can be declared beside its route instead of inside its page. The page
+keeps the slot as a placeholder, without a `resolve`:
+
+```tsx
+<StreamSlot dynamic id="cart" fallbackHtml="<p>…</p>" />
+```
+
+and the route says what fills it, as a function of the visitor's request:
+
+```ts
+// A route written by hand: where the routes are defined.
+import { defineHoles } from '@absolutejs/absolute';
+
+defineHoles('/dashboard', {
+	cart: async ({ request }) => `<p>${await cartCount(request)} items</p>`
+});
+
+// A file route: an export of its server module, typed by the route's params.
+// routes/blog/[slug].server.ts
+export const holes = {
+	views: async ({ params }) => `<p>${await viewsOf(params.slug)} views</p>`
+};
+```
+
+When every dynamic slot of a pre-rendered page has a hole declared this way,
+a request for the page is answered from the shell and the resolvers alone.
+The route's handler, its `load` and the page render do not run.
+
+A resolver returns HTML, or a component to render to it, of any framework:
+
+```ts
+import { holeComponent } from '@absolutejs/absolute';
+
+defineHoles('/dashboard', {
+	cart: async ({ request }) =>
+		holeComponent.react(CartSummary, { cart: await loadCart(request) })
+});
+```
+
+`holeComponent.react`, `.svelte`, `.vue` and `.angular` render the component
+on its own, the way an island is rendered on the server, so a React page can
+have a Svelte hole. The markup arrives as HTML and is not hydrated.
+
+What to know:
+
+- **Guards do not run.** `beforeHandle`, and a file route's folder guards,
+  belong to the route, and the route is what is skipped. The shell is
+  public either way; a hole that shows something private must check the
+  request itself.
+- **All or nothing per page.** One dynamic slot the route did not declare
+  means the page is rendered to reach it, as before, and every slot is then
+  filled in that render. The server says so once per route in its log.
+- **One definition.** Where the page is rendered anyway (development, a
+  route that is not pre-rendered), a slot is filled by the route's hole and
+  not by its own `resolve`, so it shows the same thing everywhere. A slot
+  with neither is reported in the log.
+- **The request helpers work.** `cookies()` and `headers()` inside a
+  resolver read the visitor's request.
+- A resolver is given `{ request, params }`. It is not given what plugins
+  derive onto a route's context (a session, for instance), because no route
+  context exists.
+- Slots whose content is rendered by the page's own markup (`SuspenseSlot`'s
+  children, a Svelte `{#await}` block, an Angular `DeferSlot`) can be
+  declared too, but the resolver's HTML replaces that markup: move it into a
+  component and return it with `holeComponent`.
+
 Internal: `PARTIAL_SHELL_HEADER`, `PARTIAL_HOLES_HEADER`,
 `collectPartialHoles`, `readPartialHoles`, `writePartialHoles`
 (`src/core/partialPrerender.ts`) and `servePartialPrerender`
@@ -325,8 +399,8 @@ Internal: `PARTIAL_SHELL_HEADER`, `PARTIAL_HOLES_HEADER`,
 
 ## Known limits (Phase 1)
 
-- The holes render runs the route handler and page render each request (off
-  the first-byte path).
+- Unless the route declares its holes (above), the holes render runs the
+  route handler and page render each request (off the first-byte path).
 - No status or redirect after the shell is sent.
 - The shell's hydration props are captured at build time.
 - Svelte lowered await-slot ids are numbered per component file. Two

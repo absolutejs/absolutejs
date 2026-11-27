@@ -14,6 +14,7 @@ import {
 	PARTIAL_HOLES_HEADER
 } from './partialPrerender';
 import { getCurrentAbsoluteRequest } from './requestContext';
+import { warnUnfilledSlots, withRouteHoles } from './routeHoles';
 import { runWithStreamingSlotRegistry } from './streamingSlotRegistry';
 
 type ResponseLike = Response | Promise<Response>;
@@ -154,10 +155,17 @@ export const withRegisteredStreamingSlots = async (
 	const { result, slots } =
 		await runWithStreamingSlotRegistry(renderResponse);
 	const explicit = options.streamingSlots ?? [];
-	const streamingSlots = mergeStreamingSlots(slots, explicit);
+	const request = getCurrentAbsoluteRequest();
+	// A slot the route declared a hole for is filled by the route's
+	// resolver, wherever the page is rendered (routeHoles.ts).
+	const streamingSlots = await withRouteHoles(
+		mergeStreamingSlots(slots, explicit),
+		request
+	);
+	warnUnfilledSlots(streamingSlots, request);
 	const holesSink = activePartialHolesSink();
 	if (holesSink) return handOverHoles(result, streamingSlots, holesSink);
-	if (isPartialShellCapture(getCurrentAbsoluteRequest())) {
+	if (isPartialShellCapture(request)) {
 		return captureStaticShell(result, streamingSlots, options);
 	}
 

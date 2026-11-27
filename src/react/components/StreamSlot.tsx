@@ -1,6 +1,7 @@
 import {
 	isStreamingSlotCollectionActive,
 	registerStreamingSlot,
+	unresolvedSlot,
 	warnMissingStreamingSlotCollector
 } from '../../core/streamingSlotRegistrar';
 
@@ -13,7 +14,11 @@ type StreamSlotProps = {
 	errorHtml?: string;
 	fallbackHtml?: string;
 	id: string;
-	resolve: () => Promise<string> | string;
+	/** What the slot shows once it resolves. Left out when the route
+	 *  declares a hole with this slot's `id` (`defineHoles`, or the
+	 *  `holes` export of a file route's server module): the slot is
+	 *  then only the placeholder, and the route's resolver fills it. */
+	resolve?: () => Promise<string> | string;
 	timeoutMs?: number;
 };
 
@@ -32,7 +37,7 @@ export const StreamSlot = ({
 			errorHtml,
 			fallbackHtml,
 			id,
-			resolve,
+			resolve: resolve ?? unresolvedSlot(id),
 			timeoutMs
 		});
 	} else {
