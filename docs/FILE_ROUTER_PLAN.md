@@ -469,6 +469,47 @@ export const load = async ({ params }: FileRouteContext<'/blog/:slug'>) => {
     page's metadata is about search results. A crawler has to be allowed to
     fetch a page to see that it asks not to be indexed, so a page marked
     that way should not also be disallowed.
+- **`llms.txt` (built, opt-in).** The `llms` config key writes one with
+  the build: a Markdown file at the site's root that names the site, says
+  what it is, and lists its pages, for a language model reading the site on
+  someone's behalf ([llmstxt.org](https://llmstxt.org)).
+
+  ```ts
+  export default defineConfig({
+  	llms: {
+  		title: 'Acme',
+  		summary: 'Anvils, made to order.',
+  		optional: [/^\/blog\//],
+  		sections: [
+  			{
+  				title: 'Docs',
+  				links: [{ title: 'API reference', url: 'https://docs.acme.test/api' }]
+  			}
+  		]
+  	},
+  	sitemap: { baseUrl: 'https://acme.test' }
+  });
+  ```
+
+  `llms: true` needs nothing else. The pages listed are the sitemap's, so
+  what `sitemap.exclude` or `robots: { index: false }` leaves out of one is
+  left out of the other; `llms.exclude` leaves out more. A file route's
+  link text is its `metadata` title and the sentence after it is its
+  `description`; a page with neither is listed by its path. The heading is
+  `llms.title`, or the home page's title, or the host name; the summary is
+  `llms.summary`, or the home page's description. `optional` moves pages
+  under `## Optional`, the format's name for what a reader short of room
+  can skip, and `sections` are lists written by hand, placed first. An
+  `llms.txt` in `publicDirectory` is served as it is and wins over the
+  config key, with a warning.
+  - It is a proposal, not a standard. Nothing obliges a model's crawler to
+    read the file, and several do not. It costs one small file.
+  - Only metadata written as a value is known to a build. A page whose
+    `metadata` is a function is listed by its path, and so is every page of
+    a dynamic route: its metadata is one text for all of them.
+  - Links are absolute when `sitemap.baseUrl` is set and from the site's
+    root when it is not. Under i18n a page is listed once, in the default
+    locale.
 - **A route's own form action (built).** The server module may export
   `action`, made with `defineAction`:
 

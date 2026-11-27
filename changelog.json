@@ -5,6 +5,24 @@
 		{
 			"changes": [
 				{
+					"detail": "The `llms` config key writes an llms.txt with a production build: a Markdown file at the site's root that names the site, says what it is and lists its pages, for a language model reading the site on someone's behalf (llmstxt.org). `llms: true` needs nothing else; `llms: { title, summary, details, sections, optional, exclude, pages }` sets the heading, the summary, hand-written lists placed first, which pages go under `## Optional`, and which are left out. The pages listed are the sitemap's, so what sitemap.exclude or robots: { index: false } leaves out of one is left out of the other. A file route's link text is its metadata title and the sentence after it is its description; a page with neither, a page whose metadata is a function, and every page of a dynamic route are listed by path. Links are absolute when sitemap.baseUrl is set and from the site's root when it is not, and under i18n a page is listed once, in the default locale. Opt-in: left out of the config, no file is written. An llms.txt in publicDirectory is served as it is and wins over the config key, with a warning. llms.txt is a proposal, not a standard, and nothing obliges a crawler to read it. See docs/FILE_ROUTER_PLAN.md.",
+					"kind": "added",
+					"summary": "The llms config key writes an llms.txt listing the site’s pages",
+					"symbols": [
+						"LlmsConfig",
+						"LlmsLink",
+						"LlmsSection",
+						"BaseBuildConfig",
+						"BuildConfig"
+					]
+				}
+			],
+			"date": "2026-11-27",
+			"version": "0.20.0-beta.436"
+		},
+		{
+			"changes": [
+				{
 					"detail": "A React error, not-found or loading page was bundled with its own copy of React, while the renderer used the app's, so any hook it called threw \"Invalid hook call\" and the response fell back to plain JSON. absolutejs.ai's 404 page did this after its upgrade to beta.434, where route-folder conventions route unmatched addresses through the not-found page. A convention page's `react`, `react/jsx-runtime` and `react/jsx-dev-runtime` imports now compile to small modules that read the React the renderer installs just before importing the page, so it always calls hooks on the React that renders it, whether the server runs from source, as a bundled `absolute start` build or as a compiled executable. The route-folder convention tests now use hooks in every page, convention and route alike. (`scriptAttributes` and `insertedScriptAttributes` are named only because TypeScript reordered the members of their inferred `referrerpolicy` union; nothing about them changed.)",
 					"kind": "fixed",
 					"summary": "React convention pages (error, not-found, loading) can use hooks in production",
