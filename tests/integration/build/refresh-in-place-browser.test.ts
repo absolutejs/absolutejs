@@ -37,9 +37,15 @@ const INVALIDATE = resolve(repoRoot, 'src/client/invalidate').replace(
 	'/'
 );
 
+const NAVIGATION = resolve(repoRoot, 'src/client/navigation').replace(
+	/\\/g,
+	'/'
+);
+
 const SVELTE_PAGE = `<script lang="ts">
 	import { onMount } from 'svelte';
 	import { invalidate } from '${INVALIDATE}';
+	import { enableNavigation, navigateDocument } from '${NAVIGATION}';
 
 	let { items, heading = 'Items' }: { items: string[]; heading?: string } = $props();
 	let clicks = $state(0);
@@ -47,6 +53,8 @@ const SVELTE_PAGE = `<script lang="ts">
 	let total = $derived(items.length);
 
 	onMount(() => {
+		enableNavigation();
+		Reflect.set(window, '__go', navigateDocument);
 		Reflect.set(window, '__mounts', Number(Reflect.get(window, '__mounts') ?? 0) + 1);
 		Reflect.set(window, '__pageHydrated', true);
 	});
@@ -76,6 +84,7 @@ const SVELTE_PAGE = `<script lang="ts">
 const VUE_PAGE = `<script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { invalidate } from '${INVALIDATE}';
+import { enableNavigation, navigateDocument } from '${NAVIGATION}';
 
 const props = defineProps<{ items: string[]; heading?: string }>();
 const clicks = ref(0);
@@ -83,6 +92,8 @@ const clicks = ref(0);
 const total = computed(() => props.items.length);
 
 onMounted(() => {
+	enableNavigation();
+	Reflect.set(window, '__go', navigateDocument);
 	Reflect.set(window, '__mounts', Number(Reflect.get(window, '__mounts') ?? 0) + 1);
 	Reflect.set(window, '__pageHydrated', true);
 });
@@ -132,12 +143,19 @@ const createApp = (
 	manifest: Record<string, string>,
 	state: ServerState
 ) => {
-	const propsNow = () => ({
-		items: [...state.items],
-		...(state.heading === undefined ? {} : { heading: state.heading })
-	});
+	/* `?heading=` in the address wins: a page asked for with a query is
+	 * a page whose data depends on it. */
+	const propsFor = (asked: string | null) => {
+		const heading = asked ?? state.heading;
+
+		return {
+			items: [...state.items],
+			...(heading === undefined ? {} : { heading })
+		};
+	};
 	const renderPage = (request: Request) => {
-		const { pathname } = new URL(request.url);
+		const { pathname, searchParams } = new URL(request.url);
+		const propsNow = () => propsFor(searchParams.get('heading'));
 		// One manifest per process; set here so the page is not handed
 		// another fixture's (see ssr-false-browser.test.ts).
 		setCurrentIslandManifest(manifest, buildDir);
@@ -317,6 +335,37 @@ describe.each([
 			// Everything the page was holding is still there.
 			expect(await page.locator('#clicks').textContent()).toBe('2');
 			expect(await page.inputValue('#note')).toBe('half-typed');
+			expect(log.entries).toEqual([]);
+		} finally {
+			await session.close();
+		}
+	}, 120_000);
+
+	/* Not a refresh but a navigation, to the same page with a different
+	 * query: the page is handed the data for it the same way
+	 * (in-place-navigation-browser.test.ts has the whole of it, on a
+	 * React page; this is that the other frameworks' pages take part). */
+	test('a navigation that changes only the query is handed over the same way', async () => {
+		const log: PageLog = { entries: [] };
+		const session = await openItems(path, log);
+		try {
+			const { page } = session;
+			await page.click('#clicks');
+
+			const outcome = await page.evaluate((href) => {
+				const navigate: unknown = Reflect.get(window, '__go');
+
+				return typeof navigate === 'function'
+					? (Reflect.apply(navigate, undefined, [href]) as unknown)
+					: undefined;
+			}, `${path}?heading=Second`);
+
+			expect(outcome).toBe('updated');
+			expect(await page.locator('#heading').textContent()).toBe('Second');
+			expect(new URL(page.url()).search).toBe('?heading=Second');
+			expect(await read(page, '__mounts')).toBe(1);
+			expect(await read(page, '__sameDocument')).toBe(true);
+			expect(await page.locator('#clicks').textContent()).toBe('1');
 			expect(log.entries).toEqual([]);
 		} finally {
 			await session.close();

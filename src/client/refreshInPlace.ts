@@ -51,12 +51,10 @@ export const announce = (
 	cancelable: boolean
 ) => window.dispatchEvent(new CustomEvent(name, { cancelable, detail }));
 
-/** The mounted page's way of taking new props, when its framework's
- *  client entry registered one. */
-export const readPageUpdate = () => {
-	const update: unknown = Reflect.get(window, UPDATE_GLOBAL);
-
-	return isPageUpdate(update) ? update : undefined;
+export const applyPageTitle = (envelope: Record<string, unknown>) => {
+	const { head } = envelope;
+	const title = isRecord(head) ? head.title : undefined;
+	if (typeof title === 'string' && title !== '') document.title = title;
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -98,13 +96,16 @@ const isForThisPage = (
 	);
 };
 
-const readEnvelope = async (response: Response, update: PageUpdate) => {
+/** The data in `response`, when it is data and is for the page that
+ *  `update` belongs to; undefined otherwise, with the body let go.
+ *
+ *  A redirect is not judged here. A refresh refuses one — the page
+ *  asked about itself and was sent elsewhere — while a navigation
+ *  follows it, and both then need the same check: is this data for the
+ *  page on screen. */
+export const readPageData = async (response: Response, update: PageUpdate) => {
 	const contentType = response.headers.get('content-type') ?? '';
-	if (
-		!response.ok ||
-		response.redirected ||
-		!contentType.includes(ROUTE_DATA_MEDIA_TYPE)
-	) {
+	if (!response.ok || !contentType.includes(ROUTE_DATA_MEDIA_TYPE)) {
 		await response.body?.cancel().catch(() => undefined);
 
 		return undefined;
@@ -117,10 +118,12 @@ const readEnvelope = async (response: Response, update: PageUpdate) => {
 		: undefined;
 };
 
-const applyTitle = (envelope: Record<string, unknown>) => {
-	const { head } = envelope;
-	const title = isRecord(head) ? head.title : undefined;
-	if (typeof title === 'string' && title !== '') document.title = title;
+/** The mounted page's way of taking new props, when its framework's
+ *  client entry registered one. */
+export const readPageUpdate = () => {
+	const update: unknown = Reflect.get(window, UPDATE_GLOBAL);
+
+	return isPageUpdate(update) ? update : undefined;
 };
 
 /** Refreshes the mounted page's data without unmounting it.
@@ -148,16 +151,19 @@ export const refreshInPlace = async (update: PageUpdate) => {
 		credentials: 'same-origin',
 		headers: { Accept: ROUTE_DATA_MEDIA_TYPE }
 	}).catch(() => undefined);
-	const envelope = response
-		? await readEnvelope(response, update)
-		: undefined;
+	if (response?.redirected)
+		await response.body?.cancel().catch(() => undefined);
+	const envelope =
+		response && !response.redirected
+			? await readPageData(response, update)
+			: undefined;
 	if (mine !== state.latest) return done('superseded');
 	if (!envelope || !isRecord(envelope.props)) return undefined;
 	// The page was swapped out, or its hook withdrawn, while the data
 	// was on its way.
 	if (readPageUpdate() !== update) return undefined;
 	if (update(envelope.props) === false) return undefined;
-	applyTitle(envelope);
+	applyPageTitle(envelope);
 	announce('absolute:after-navigate', detail, false);
 
 	return done('updated');

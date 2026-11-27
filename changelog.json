@@ -5,6 +5,22 @@
 		{
 			"changes": [
 				{
+					"detail": "With the navigation layer on, a navigation whose address differs from the one on screen only in its query string (the next page of a list, a filter, a sort order) no longer fetches the document and replaces the page. The mounted page is handed the data for the new address and stays mounted, so nothing is torn down and what its components hold is kept. It is otherwise a navigation: the history entry, Back and Forward, scroll restoration, the page announcement and the absolute:before-navigate / absolute:after-navigate events work as before, and navigateDocument() resolves to 'updated'. Focus is reset as for any navigation unless the visitor is in a form control. Applies to React, Svelte and Vue pages and to Angular pages that read usePageData(). A component is therefore not started afresh when only the query changes: one that copies a query-derived prop into its own state keeps the old copy. The page is still replaced when the path changes, when the route answers the query with a different page, and when the new inPlace option is false: enableNavigation({ inPlace: false }), or navigation: { inPlace: false } in the config, whose navigation key now accepts that object as well as a boolean. See docs/DATA_LOADING.md.",
+					"kind": "changed",
+					"summary": "A navigation that changes only the query string updates the mounted page in place",
+					"symbols": [
+						"enableNavigation",
+						"EnableNavigationOptions",
+						"BuildConfig"
+					]
+				}
+			],
+			"date": "2026-11-27",
+			"version": "0.20.0-beta.421"
+		},
+		{
+			"changes": [
+				{
 					"detail": "A form action that succeeds without redirecting now refreshes the page it was submitted from, without being asked: useFormAction (React, Vue, Angular), formAction (Svelte), submitFormAction and enhanced <form data-absolute-action> forms. That refresh only ever keeps the page — a mounted page is handed new props, an HTML or HTMX page is morphed — so typed text, open elements and the form's own result stay, and a page that cannot be refreshed that way is left as it is, never reloaded. It costs one request for the page per successful submission. invalidate: true (data-action-invalidate) still refreshes at any cost, as before. New: invalidate: false (data-action-invalidate=\"false\") turns the refresh off for an action that changes nothing the page shows. On an HTML or HTMX page, an enhanced form's result is written into the form again after the refresh, so its success message is no longer wiped by the server's copy. createApiClient is unchanged and refreshes only when asked. See docs/DATA_LOADING.md.",
 					"kind": "changed",
 					"summary": "A successful form action refreshes the page in place by default",
