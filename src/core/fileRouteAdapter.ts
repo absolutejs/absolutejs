@@ -7,6 +7,7 @@ import type {
 	FileRouteRenderInput,
 	FileRouteServerModule
 } from '../../types/fileRoutes';
+import type { RouteHoles } from '../../types/routeHoles';
 
 /* Shared by the framework adapters (`reactFileRoute`, `svelteFileRoute`):
  * turns a route's lazily imported server module into the framework-neutral
@@ -15,6 +16,11 @@ import type {
  * props; at run time the request's params are checked against the path. */
 
 const PARAM_NAME_RE = /:([A-Za-z_$][\w$]*)(\?)?/g;
+
+const isRouteHoles = (value: unknown): value is RouteHoles =>
+	typeof value === 'object' &&
+	value !== null &&
+	Object.values(value).every((resolver) => typeof resolver === 'function');
 
 /* The params a request must carry for the route's `load` to be given a
  * context of the type it was written against. An `[[optional]]` segment is
@@ -59,11 +65,22 @@ export const serverHooksOf = <Path extends string>(
 
 		return run(module, context);
 	};
-	const hooks: Pick<FileRouteDefinition, 'beforeHandle' | 'load' | 'ssr'> = {
+	const hooks: Pick<
+		FileRouteDefinition,
+		'beforeHandle' | 'holes' | 'load' | 'ssr'
+	> = {
 		beforeHandle: (context) =>
 			withParams(context, (module, typed) =>
 				module.beforeHandle?.(typed)
 			),
+		// Typed against this route's params where it is written; the
+		// registry it goes into holds every route's, so the params are
+		// plain strings there (routeHoles.ts).
+		holes: async () => {
+			const declared: unknown = (await server())?.holes;
+
+			return isRouteHoles(declared) ? declared : undefined;
+		},
 		load: (context) =>
 			withParams(context, (module, typed) => module.load?.(typed)),
 		// Only the literal `false` turns it off; anything else is a page

@@ -1,4 +1,5 @@
 import type { Context } from 'elysia';
+import type { RouteHoles } from './routeHoles';
 
 /* File-system routing (opt-in). See docs/FILE_ROUTER_PLAN.md.
  *
@@ -119,6 +120,14 @@ export type FileRouteServerModule<
 	 *  Called at BUILD time, in the build's own process, so it may read a
 	 *  database or the filesystem but should not expect a request. */
 	entries?: () => MaybePromise<readonly FileRouteParams<Path>[]>;
+	/** The dynamic parts of this route's pre-rendered page, keyed by the
+	 *  `id` of the slot each fills: `<StreamSlot dynamic id="cart" />`
+	 *  in the page, `cart` here. When every dynamic slot has one, a
+	 *  request for the pre-rendered page is answered without running
+	 *  the route — no `load`, no `beforeHandle`, no page render — so a
+	 *  hole that shows something private checks the request itself.
+	 *  See `defineHoles`. */
+	holes?: RouteHoles<FileRouteParams<Path>>;
 	/** Returns the props the page renders with. */
 	load?: (context: FileRouteContext<Path>) => MaybePromise<Props | Response>;
 	/** `false` skips the server render for this route: the server sends
@@ -185,6 +194,8 @@ export type FileRouteDefinition = {
 	 *  the name `[...rest].tsx` led its `load` to expect. */
 	catchAll?: string;
 	beforeHandle?: (context: FileRouteContext) => unknown;
+	/** The server module's `holes`, when the route has a server module. */
+	holes?: () => Promise<RouteHoles | undefined>;
 	load?: (context: FileRouteContext) => Promise<unknown>;
 	/** Whether the route's page is rendered on the server. Absent means
 	 *  it is. */

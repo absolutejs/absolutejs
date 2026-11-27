@@ -11,6 +11,7 @@ import { logWarn } from '../utils/logger';
 import { ssrErrorPage } from '../utils/ssrErrorPage';
 import { withPageCacheHeaders } from './pageResponseCache';
 import { reportServerError } from './errorReporter';
+import { registerRouteHoles } from './routeHoles';
 
 /* `fileRoutes()` — serve the routes of the generated route module (see
  * docs/FILE_ROUTER_PLAN.md). Each route becomes a real Elysia GET route, so
@@ -218,7 +219,9 @@ const registerRoute = (
 	route: FileRouteDefinition,
 	manifest: Record<string, string>
 ) => {
-	const { beforeHandle } = route;
+	const { beforeHandle, holes } = route;
+	// The server module's `holes`, read when a request first needs them.
+	if (holes) registerRouteHoles(route.path, holes, route.catchAll);
 	const handle = (context: RouteRequestContext) =>
 		serveFileRoute(route, manifest, context);
 	recordRouteSource(handle, { kind: 'file', location: route.source });

@@ -3,6 +3,7 @@ import {
 	type StreamingSlot
 } from '../utils/streamingSlots';
 import { collectPartialHoles } from './partialPrerender';
+import { routeHoleSlots } from './routeHoles';
 import { servePrerenderedPage } from './prerenderNonce';
 import { runWithAbsoluteRequest } from './requestContext';
 import { reportServerError } from './errorReporter';
@@ -80,7 +81,10 @@ const holesRequest = (
 	return new Request(request.url, { headers, method: 'GET' });
 };
 
-const collectHoleSlots = async (input: ServePartialPrerenderInput) => {
+/* Through the route: it is run in-process and its page rendered, for the
+ * slots the page registers on the way. What a hole costs when its
+ * resolver is a prop inside the page. */
+const collectHoleSlotsFromPage = async (input: ServePartialPrerenderInput) => {
 	const inner = holesRequest(
 		input.request,
 		input.bypassHeader,
@@ -95,6 +99,12 @@ const collectHoleSlots = async (input: ServePartialPrerenderInput) => {
 
 	return collected.filter((slot) => input.holes.includes(slot.id));
 };
+
+/* The route's own declaration first (routeHoles.ts): when it covers
+ * every hole of the shell, neither the handler nor the page is run. */
+const collectHoleSlots = async (input: ServePartialPrerenderInput) =>
+	(await routeHoleSlots(input.request, input.holes)) ??
+	collectHoleSlotsFromPage(input);
 
 const pipeInto = async (
 	source: ReadableStream<Uint8Array>,

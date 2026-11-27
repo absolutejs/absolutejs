@@ -24,6 +24,7 @@ export * from './requestHelpers';
 export * from './pageStore';
 export * from './pageStores';
 export * from './revalidate';
+export * from './routeHoles';
 export * from './staticRoutes';
 export * from './routingRules';
 export * from './routeMap';
