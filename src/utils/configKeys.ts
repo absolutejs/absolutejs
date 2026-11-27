@@ -43,6 +43,7 @@ export const CONFIG_KEYS = [
 	'health',
 	'htmlDirectory',
 	'htmxDirectory',
+	'i18n',
 	'images',
 	'incrementalFiles',
 	'islands',

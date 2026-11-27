@@ -62,6 +62,41 @@ export const i18n = defineI18n({
 });
 ```
 
+### The `i18n` config key
+
+The routing half of that — which locales there are and how a request's is
+chosen — can also be declared in `absolute.config.ts`, where the build and
+the CLI can read it:
+
+```ts
+// src/i18n.routing.ts
+import { defineI18nRouting } from '@absolutejs/absolute';
+
+export const routing = defineI18nRouting({
+	locales: ['en', 'fr', 'ar'],
+	defaultLocale: 'en'
+});
+
+// absolute.config.ts
+export default defineConfig({ i18n: routing });
+
+// src/i18n.ts
+export const i18n = defineI18n({ ...routing, messages: en, loaders });
+```
+
+With it, the sitemap lists every page once per locale without `sitemap.i18n`
+saying the locales again, and `llms.txt` lists each page in the default
+locale. `sitemap.i18n` still wins where it is given.
+
+`defineI18n` is still given the routing itself, and has to be: the locale
+types every `t()` and `payload()` is checked against come from the locales
+written in that call, which a config read at run time cannot supply. So the
+two are declared from one object, and `defineI18nRouting` makes it — it
+returns what it is given, with the locales kept as literals. When they
+differ anyway, the server says so at its first request, naming the settings:
+the sitemap and the CLI go by the config, and requests are routed by
+`defineI18n`.
+
 Strategies:
 
 - **prefix** (default): first path segment if it is a locale; otherwise the
@@ -152,8 +187,9 @@ export default { … } satisfies Translation<typeof en>;
   literal `{n}`), and (c) unbalanced ICU braces in any catalog, which
   renders the message's own source. `--json` for CI. Non-zero exit on all
   three; a key the default does not have is reported and does not fail.
-  Catalogs are **named on the command line**, not discovered: `absolute.config.ts`
-  has no i18n field, because `defineI18n` is called in app code. Discovering
+  Catalogs are **named on the command line**, not discovered: the config's
+  `i18n` key declares the routing and not where the catalogs are, because
+  `defineI18n` is called in app code. Discovering
   them would mean duplicating that declaration in the config or importing the
   server to find it — a decision worth making deliberately, not inside this
   command.

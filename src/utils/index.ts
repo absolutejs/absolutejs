@@ -5,6 +5,7 @@ export * from './generateHeadElement';
 export { fontAssets } from './fontAssets';
 export * from './iconVersion';
 export * from './jsonLd';
+export { defineI18nRouting } from './i18nRoutingRef';
 export * from './defineEnv';
 export * from './getEnv';
 export * from './networking';

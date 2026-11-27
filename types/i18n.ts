@@ -361,6 +361,15 @@ export type RequestI18n<
 	) => I18nPayload<Locale>;
 };
 
+/** The app's locale routing, as `i18n` in the config declares it:
+ *  which locales there are and how a request's is chosen. The same
+ *  settings `defineI18n` takes, without the messages. */
+export type I18nRoutingConfig<Locale extends string = string> =
+	LocaleRoutingConfig<Locale> & {
+		/** Route param that carries the locale. Default `locale`. */
+		localeParam?: string;
+	};
+
 /** Sitemap localization: every page is listed once per locale with
  *  `xhtml:link` alternates. Routes registered as `/:locale/…` or
  *  `/:locale?/…` are picked up under their unprefixed path. */

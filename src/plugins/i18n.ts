@@ -26,6 +26,11 @@ import {
 	type RequestTranslate,
 	type RequestLocale
 } from '../utils/localeRef';
+import {
+	currentI18nRouting,
+	i18nRoutingDifferences
+} from '../utils/i18nRoutingRef';
+import { logWarn } from '../utils/logger';
 import { requestHost, requestOrigin } from '../utils/requestOrigin';
 
 /* Internationalization on the server.
@@ -342,13 +347,32 @@ export const i18nPlugin = <
 		});
 	};
 
+	/* The config's `i18n` is what the build and the CLI went by, and
+	 * this is what requests are routed by. Said once, at the first
+	 * request and not before: the config is read by `prepare()`, which
+	 * an app may call after it has made this plugin. */
+	let isCompared = false;
+	const warnIfConfigDiffers = () => {
+		if (isCompared) return;
+		isCompared = true;
+		const declared = currentI18nRouting();
+		if (!declared) return;
+		const differences = i18nRoutingDifferences(declared, config);
+		if (differences.length === 0) return;
+		logWarn(
+			`i18n in the config and defineI18n() disagree on ${differences.join(', ')}. The sitemap and the CLI go by the config; requests are routed by defineI18n(). Declare both from one object: see defineI18nRouting.`
+		);
+	};
+
 	return new Elysia({
 		name: 'absolutejs-i18n',
 		seed: `${config.locales.join(',')}|${config.defaultLocale}`
 	})
-		.onRequest(({ request }) =>
-			shouldRedirect ? redirectToLocale(request) : undefined
-		)
+		.onRequest(({ request }) => {
+			warnIfConfigDiffers();
+
+			return shouldRedirect ? redirectToLocale(request) : undefined;
+		})
 		.derive('global', async ({ request, set }) => {
 			const resolution = i18n.resolve(request);
 			const { locale } = resolution;
