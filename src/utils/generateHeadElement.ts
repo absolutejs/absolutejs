@@ -9,7 +9,11 @@ import { applyIconVersion, iconMimeType } from './iconVersion';
 import { nonceAttr, readCspNonce } from './cspNonceRef';
 import { scriptTag } from './scriptAttributes';
 import { serializeJsonLd } from './jsonLd';
-import { escapeAttribute, escapeText, renderRobotsContent } from './headEscape';
+import {
+	escapeHeadAttribute,
+	escapeHeadText,
+	renderRobotsContent
+} from './headEscape';
 
 const renderOpenGraphTags = (
 	openGraph: Metadata['openGraph'],
@@ -24,43 +28,43 @@ const renderOpenGraphTags = (
 
 	if (ogTitle)
 		tags.push(
-			`<meta property="og:title" content="${escapeAttribute(ogTitle)}">`
+			`<meta property="og:title" content="${escapeHeadAttribute(ogTitle)}">`
 		);
 	if (ogDescription)
 		tags.push(
-			`<meta property="og:description" content="${escapeAttribute(ogDescription)}">`
+			`<meta property="og:description" content="${escapeHeadAttribute(ogDescription)}">`
 		);
 	if (openGraph.url)
 		tags.push(
-			`<meta property="og:url" content="${escapeAttribute(openGraph.url)}">`
+			`<meta property="og:url" content="${escapeHeadAttribute(openGraph.url)}">`
 		);
 	if (openGraph.image)
 		tags.push(
-			`<meta property="og:image" content="${escapeAttribute(openGraph.image)}">`
+			`<meta property="og:image" content="${escapeHeadAttribute(openGraph.image)}">`
 		);
 	if (openGraph.imageAlt)
 		tags.push(
-			`<meta property="og:image:alt" content="${escapeAttribute(openGraph.imageAlt)}">`
+			`<meta property="og:image:alt" content="${escapeHeadAttribute(openGraph.imageAlt)}">`
 		);
 	if (openGraph.imageWidth)
 		tags.push(
-			`<meta property="og:image:width" content="${escapeAttribute(openGraph.imageWidth)}">`
+			`<meta property="og:image:width" content="${escapeHeadAttribute(openGraph.imageWidth)}">`
 		);
 	if (openGraph.imageHeight)
 		tags.push(
-			`<meta property="og:image:height" content="${escapeAttribute(openGraph.imageHeight)}">`
+			`<meta property="og:image:height" content="${escapeHeadAttribute(openGraph.imageHeight)}">`
 		);
 	if (openGraph.type)
 		tags.push(
-			`<meta property="og:type" content="${escapeAttribute(openGraph.type)}">`
+			`<meta property="og:type" content="${escapeHeadAttribute(openGraph.type)}">`
 		);
 	if (openGraph.siteName)
 		tags.push(
-			`<meta property="og:site_name" content="${escapeAttribute(openGraph.siteName)}">`
+			`<meta property="og:site_name" content="${escapeHeadAttribute(openGraph.siteName)}">`
 		);
 	if (openGraph.locale)
 		tags.push(
-			`<meta property="og:locale" content="${escapeAttribute(openGraph.locale)}">`
+			`<meta property="og:locale" content="${escapeHeadAttribute(openGraph.locale)}">`
 		);
 
 	return tags;
@@ -79,31 +83,31 @@ const renderTwitterTags = (
 
 	if (twitter.card)
 		tags.push(
-			`<meta name="twitter:card" content="${escapeAttribute(twitter.card)}">`
+			`<meta name="twitter:card" content="${escapeHeadAttribute(twitter.card)}">`
 		);
 	if (twitterTitle)
 		tags.push(
-			`<meta name="twitter:title" content="${escapeAttribute(twitterTitle)}">`
+			`<meta name="twitter:title" content="${escapeHeadAttribute(twitterTitle)}">`
 		);
 	if (twitterDescription)
 		tags.push(
-			`<meta name="twitter:description" content="${escapeAttribute(twitterDescription)}">`
+			`<meta name="twitter:description" content="${escapeHeadAttribute(twitterDescription)}">`
 		);
 	if (twitter.image)
 		tags.push(
-			`<meta name="twitter:image" content="${escapeAttribute(twitter.image)}">`
+			`<meta name="twitter:image" content="${escapeHeadAttribute(twitter.image)}">`
 		);
 	if (twitter.imageAlt)
 		tags.push(
-			`<meta name="twitter:image:alt" content="${escapeAttribute(twitter.imageAlt)}">`
+			`<meta name="twitter:image:alt" content="${escapeHeadAttribute(twitter.imageAlt)}">`
 		);
 	if (twitter.site)
 		tags.push(
-			`<meta name="twitter:site" content="${escapeAttribute(twitter.site)}">`
+			`<meta name="twitter:site" content="${escapeHeadAttribute(twitter.site)}">`
 		);
 	if (twitter.creator)
 		tags.push(
-			`<meta name="twitter:creator" content="${escapeAttribute(twitter.creator)}">`
+			`<meta name="twitter:creator" content="${escapeHeadAttribute(twitter.creator)}">`
 		);
 
 	return tags;
@@ -116,11 +120,11 @@ const renderMetaTag = (tag: {
 	content: string;
 }) => {
 	if (tag.property)
-		return `<meta property="${escapeAttribute(tag.property)}" content="${escapeAttribute(tag.content)}">`;
+		return `<meta property="${escapeHeadAttribute(tag.property)}" content="${escapeHeadAttribute(tag.content)}">`;
 	if (tag.httpEquiv)
-		return `<meta http-equiv="${escapeAttribute(tag.httpEquiv)}" content="${escapeAttribute(tag.content)}">`;
+		return `<meta http-equiv="${escapeHeadAttribute(tag.httpEquiv)}" content="${escapeHeadAttribute(tag.content)}">`;
 	if (tag.name)
-		return `<meta name="${escapeAttribute(tag.name)}" content="${escapeAttribute(tag.content)}">`;
+		return `<meta name="${escapeHeadAttribute(tag.name)}" content="${escapeHeadAttribute(tag.content)}">`;
 
 	return undefined;
 };
@@ -129,21 +133,21 @@ const renderMetaTag = (tag: {
 const renderAlternateLinks = (alternates: AlternateLink[] = []) =>
 	alternates.map(
 		({ href, hreflang }) =>
-			`<link rel="alternate" hreflang="${escapeAttribute(hreflang)}" href="${escapeAttribute(href)}">`
+			`<link rel="alternate" hreflang="${escapeHeadAttribute(hreflang)}" href="${escapeHeadAttribute(href)}">`
 	);
 
 const renderPreloadLink = (preload: PreloadLink) => {
 	const rel = preload.module ? 'modulepreload' : 'preload';
 	const asAttribute =
 		!preload.module && preload.as
-			? ` as="${escapeAttribute(preload.as)}"`
+			? ` as="${escapeHeadAttribute(preload.as)}"`
 			: '';
 	const crossoriginAttribute =
 		preload.crossorigin !== undefined
-			? ` crossorigin="${escapeAttribute(preload.crossorigin)}"`
+			? ` crossorigin="${escapeHeadAttribute(preload.crossorigin)}"`
 			: '';
 
-	return `<link rel="${escapeAttribute(rel)}" href="${escapeAttribute(preload.href)}"${asAttribute}${crossoriginAttribute}>`;
+	return `<link rel="${escapeHeadAttribute(rel)}" href="${escapeHeadAttribute(preload.href)}"${asAttribute}${crossoriginAttribute}>`;
 };
 
 export const generateHeadElement = ({
@@ -167,14 +171,14 @@ export const generateHeadElement = ({
 	const tags: string[] = [
 		'<meta charset="UTF-8">',
 		'<meta name="viewport" content="width=device-width, initial-scale=1.0">',
-		`<title>${escapeText(title)}</title>`,
-		`<meta name="description" content="${escapeAttribute(description)}">`,
-		`<link rel="icon" href="${escapeAttribute(applyIconVersion(icon))}" type="${escapeAttribute(iconMimeType(icon))}">`
+		`<title>${escapeHeadText(title)}</title>`,
+		`<meta name="description" content="${escapeHeadAttribute(description)}">`,
+		`<link rel="icon" href="${escapeHeadAttribute(applyIconVersion(icon))}" type="${escapeHeadAttribute(iconMimeType(icon))}">`
 	];
 
 	if (canonical) {
 		tags.push(
-			`<link rel="canonical" href="${escapeAttribute(canonical)}">`
+			`<link rel="canonical" href="${escapeHeadAttribute(canonical)}">`
 		);
 	}
 
@@ -187,7 +191,7 @@ export const generateHeadElement = ({
 
 	if (robotsContent) {
 		tags.push(
-			`<meta name="robots" content="${escapeAttribute(robotsContent)}">`
+			`<meta name="robots" content="${escapeHeadAttribute(robotsContent)}">`
 		);
 	}
 
@@ -201,7 +205,7 @@ export const generateHeadElement = ({
 		tags.push(
 			`<link rel="preconnect" href="https://fonts.googleapis.com">`,
 			`<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>`,
-			`<link href="https://fonts.googleapis.com/css2?family=${escapeAttribute(font)}:wght@100..900&amp;display=swap" rel="stylesheet">`
+			`<link href="https://fonts.googleapis.com/css2?family=${escapeHeadAttribute(font)}:wght@100..900&amp;display=swap" rel="stylesheet">`
 		);
 	}
 
@@ -227,7 +231,7 @@ export const generateHeadElement = ({
 
 	for (const path of cssPaths) {
 		tags.push(
-			`<link rel="stylesheet" href="${escapeAttribute(path)}" type="text/css">`
+			`<link rel="stylesheet" href="${escapeHeadAttribute(path)}" type="text/css">`
 		);
 	}
 

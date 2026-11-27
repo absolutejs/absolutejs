@@ -15,10 +15,10 @@ import type { RobotsDirective } from '../../types/metadata';
  * markup. */
 const BARE_AMPERSAND = /&(?!(?:[a-zA-Z][a-zA-Z0-9]*|#\d+|#[xX][0-9a-fA-F]+);)/g;
 
-export const escapeAttribute = (value: string | number) =>
-	escapeText(String(value)).replace(/"/g, '&quot;');
+export const escapeHeadAttribute = (value: string | number) =>
+	escapeHeadText(String(value)).replace(/"/g, '&quot;');
 
-export const escapeText = (value: string) =>
+export const escapeHeadText = (value: string) =>
 	value
 		.replace(BARE_AMPERSAND, '&amp;')
 		.replace(/</g, '&lt;')

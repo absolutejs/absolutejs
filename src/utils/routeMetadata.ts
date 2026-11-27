@@ -1,6 +1,10 @@
 import type { MetaTag } from '../../types/metadata';
 import type { RouteMetadata, RouteTitle } from '../../types/routeMetadata';
-import { escapeAttribute, escapeText, renderRobotsContent } from './headEscape';
+import {
+	escapeHeadAttribute,
+	escapeHeadText,
+	renderRobotsContent
+} from './headEscape';
 import { serializeJsonLd } from './jsonLd';
 
 /* A file route's metadata, from what its modules export to the tags
@@ -127,7 +131,7 @@ const metaByName = (name: string, content: string | number | undefined) =>
 		? []
 		: [
 				{
-					html: `<meta name="${escapeAttribute(name)}" content="${escapeAttribute(content)}"${MARK}>`,
+					html: `<meta name="${escapeHeadAttribute(name)}" content="${escapeHeadAttribute(content)}"${MARK}>`,
 					identity: `meta:name:${name}`
 				}
 			];
@@ -140,7 +144,7 @@ const metaByProperty = (
 		? []
 		: [
 				{
-					html: `<meta property="${escapeAttribute(property)}" content="${escapeAttribute(content)}"${MARK}>`,
+					html: `<meta property="${escapeHeadAttribute(property)}" content="${escapeHeadAttribute(content)}"${MARK}>`,
 					identity: `meta:property:${property}`
 				}
 			];
@@ -152,7 +156,7 @@ const customMeta = (tag: MetaTag) => {
 
 	return [
 		{
-			html: `<meta http-equiv="${escapeAttribute(tag.httpEquiv)}" content="${escapeAttribute(tag.content)}"${MARK}>`,
+			html: `<meta http-equiv="${escapeHeadAttribute(tag.httpEquiv)}" content="${escapeHeadAttribute(tag.content)}"${MARK}>`,
 			identity: `meta:http-equiv:${tag.httpEquiv}`
 		}
 	];
@@ -211,7 +215,7 @@ export const routeHeadTags = (metadata: ResolvedRouteMetadata) => {
 			? []
 			: [
 					{
-						html: `<title${MARK}>${escapeText(title)}</title>`,
+						html: `<title${MARK}>${escapeHeadText(title)}</title>`,
 						identity: 'title'
 					}
 				]),
@@ -219,13 +223,13 @@ export const routeHeadTags = (metadata: ResolvedRouteMetadata) => {
 		...(canonical
 			? [
 					{
-						html: `<link rel="canonical" href="${escapeAttribute(canonical)}"${MARK}>`,
+						html: `<link rel="canonical" href="${escapeHeadAttribute(canonical)}"${MARK}>`,
 						identity: 'link:canonical'
 					}
 				]
 			: []),
 		...(alternates ?? []).map(({ href, hreflang }) => ({
-			html: `<link rel="alternate" hreflang="${escapeAttribute(hreflang)}" href="${escapeAttribute(href)}"${MARK}>`,
+			html: `<link rel="alternate" hreflang="${escapeHeadAttribute(hreflang)}" href="${escapeHeadAttribute(href)}"${MARK}>`,
 			identity: `link:alternate:${hreflang}`
 		})),
 		...openGraphTags(metadata),
