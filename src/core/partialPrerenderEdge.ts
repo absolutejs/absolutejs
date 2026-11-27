@@ -1,4 +1,3 @@
-import { statSync } from 'node:fs';
 import type { StaticPartialConfig } from '../../types/build';
 import { streamSlotPayloadLines } from '../utils/streamingSlots';
 import { logWarn } from '../utils/logger';
@@ -7,6 +6,7 @@ import {
 	collectHoleSlots,
 	type ServePartialPrerenderInput
 } from './partialPrerenderServe';
+import { asksForSharedCaching, serveValidated } from './prerenderValidators';
 import { runWithAbsoluteRequest } from './requestContext';
 
 /* Partial prerendering, edge mode (`static.partial.edge`).
@@ -42,7 +42,6 @@ import { runWithAbsoluteRequest } from './requestContext';
 /** The query parameter that asks a partial page for its holes. */
 export const HOLES_QUERY = '__absolute_holes';
 
-const NOT_MODIFIED = 304;
 const HOLES_CONTENT_TYPE = 'application/x-ndjson; charset=utf-8';
 const CLOSING_BODY = /<\/body>/i;
 
@@ -61,84 +60,23 @@ const withLoader = (html: string) => {
 		: `${html.slice(0, bodyEnd)}${LOADER}${html.slice(bodyEnd)}`;
 };
 
-type EdgeShell = { etag: string; html: string; stamp: string };
-
-/* One per shell file, until the file changes: a revalidation replaces
- * it, and the next request reads the new one. */
-const shells = new Map<string, EdgeShell>();
-
-const stampOf = (filePath: string) => {
-	const { mtimeMs, size } = statSync(filePath);
-
-	return `${mtimeMs}:${size}`;
-};
-
-const HASH_RADIX = 36;
-
-const readShell = async (filePath: string) => {
-	const stamp = stampOf(filePath);
-	const known = shells.get(filePath);
-	if (known?.stamp === stamp) return known;
-	const html = withLoader(await Bun.file(filePath).text());
-	const shell: EdgeShell = {
-		etag: `"${Bun.hash(html).toString(HASH_RADIX)}"`,
-		html,
-		stamp
-	};
-	shells.set(filePath, shell);
-
-	return shell;
-};
-
-/* A cache between here and the browser may have compressed the page
- * and, rightly, weakened the tag it sends back. The content is the
- * same content. */
-const matches = (request: Request, etag: string) =>
-	(request.headers.get('if-none-match') ?? '')
-		.split(',')
-		.map((value) => value.trim().replace(/^W\//, ''))
-		.some((value) => value === '*' || value === etag);
-
-const cacheControlFor = (edge: StaticPartialConfig['edge']) => {
-	const maxAge = typeof edge === 'object' ? edge.maxAge : undefined;
-
-	/* `no-cache` is "keep it, and ask before using it". With a lifetime,
-	 * the browser still asks every time; it is the shared cache that is
-	 * trusted for that long. */
-	return typeof maxAge === 'number' && maxAge > 0
-		? `public, max-age=0, s-maxage=${Math.floor(maxAge)}, must-revalidate`
-		: 'public, no-cache';
-};
-
-const isEdgeMode = (edge: StaticPartialConfig['edge']) =>
-	edge === true || (typeof edge === 'object' && edge !== null);
-
 /* Whether `request` is a partial page's loader asking for its holes. */
 const isHolesRequest = (request: Request) =>
 	new URL(request.url).searchParams.has(HOLES_QUERY);
 
-/* The shell on its own, for any cache to keep. */
-const serveEdgeShell = async (
+/* The shell on its own, for any cache to keep (prerenderValidators.ts). */
+const serveEdgeShell = (
 	filePath: string,
 	request: Request,
 	edge: StaticPartialConfig['edge']
-) => {
-	const { etag, html } = await readShell(filePath);
-	const headers = new Headers({
-		'cache-control': cacheControlFor(edge),
-		etag,
-		/* The same address also answers a request for the page's data
-		 * (`Accept: application/vnd.absolute.route+json`), and a cache
-		 * must not hand this document to that. */
-		vary: 'Accept',
-		'x-absolute-partial-prerender': 'edge-shell'
+) =>
+	serveValidated({
+		filePath,
+		kind: 'edge-shell',
+		policy: edge,
+		request,
+		transform: withLoader
 	});
-	if (matches(request, etag))
-		return new Response(null, { headers, status: NOT_MODIFIED });
-	headers.set('content-type', 'text/html; charset=utf-8');
-
-	return new Response(html, { headers });
-};
 
 /* The request the holes are resolved for: the visitor's, as it would
  * have been without the marker the loader added. */
@@ -209,7 +147,7 @@ export const edgeResponseFor = (
 	input: ServePartialPrerenderInput,
 	edge: StaticPartialConfig['edge']
 ) => {
-	if (!isEdgeMode(edge)) return undefined;
+	if (!asksForSharedCaching(edge)) return undefined;
 	if (input.securityHeaders) {
 		warnNoncesOnce();
 

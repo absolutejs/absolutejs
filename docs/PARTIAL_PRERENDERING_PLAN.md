@@ -281,7 +281,8 @@ the HTMX model.
   Holes come from `GET <route>?__absolute_holes` (never cached), as lines of
   JSON read by a tiny loader in the shell — data and not patch scripts, so
   the nonce question below does not arise.
-- An HTMX hole helper, and capture handling for it.
+- An HTMX hole helper, and capture handling for it: not built, and not
+  needed (see "HTMX pages"). The pattern is documented and tested instead.
 - Exit criteria:
   - A shell request returns 304 on a matching `If-None-Match`.
   - The holes endpoint returns only patches, and they carry a nonce valid
@@ -443,6 +444,51 @@ What to know:
 - The holes are data, not `<script>` patches, so they need no nonce. A slot
   that fails keeps its fallback, as it does in the single response.
 - A resolver sees the visitor's address without the loader's marker.
+
+## HTMX pages
+
+An HTMX page needs none of the above. It is an HTML file, and HTMX already
+has a way to leave part of a page for later:
+
+```html
+<div hx-get="/fragments/cart" hx-trigger="load" hx-swap="outerHTML">
+	<p>Loading cart…</p>
+</div>
+```
+
+That element is a hole. The page is pre-rendered as written, fallback
+included (nothing runs HTMX while a page is captured), and `/fragments/cart`
+is an ordinary route, answered for each visitor and never pre-rendered. The
+cost is the fragment's own request in place of a stream into the document,
+which is the HTMX model.
+
+The plan called for a helper to write that element and for capture handling
+of it. Neither was built: an HTML file has no step in which a helper could
+run, and capture already stores the fallback.
+
+To let a CDN keep such a page, which for an HTMX page is the whole of edge
+mode, turn on `static.cache` (below).
+
+## Caching pre-rendered pages: `static.cache`
+
+```ts
+export default defineConfig({ static: { routes: ['/about'], cache: true } });
+```
+
+Without it a pre-rendered page is sent whole on every request, with a
+content type and no cache headers. With it the page carries a strong `ETag`,
+is answered with a `304` when the browser's or the CDN's copy is current,
+and is marked `Cache-Control: public, no-cache` and `Vary: Accept`.
+
+- `cache: true` has the page checked on every use, so a page revalidated on
+  the server is current everywhere at once.
+- `cache: { maxAge: 300 }` lets a shared cache answer on its own for that
+  many seconds (`s-maxage`). Browsers still check every time.
+
+It applies to every fully pre-rendered page, of any framework. A page with
+`dynamic` slots is governed by `partial.edge` instead. Under per-request CSP
+nonces (`secureHeaders()`) pages are rewritten for each request and are
+served without cache headers, as before; the server says so once in its log.
 
 Internal: `PARTIAL_SHELL_HEADER`, `PARTIAL_HOLES_HEADER`,
 `collectPartialHoles`, `readPartialHoles`, `writePartialHoles`

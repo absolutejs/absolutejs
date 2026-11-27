@@ -1167,6 +1167,9 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 			await import('./partialPrerenderServe');
 		const { edgeResponseFor } = await import('./partialPrerenderEdge');
 		const edgeSetting = config.static?.partial?.edge;
+		const { asksForSharedCaching, serveValidated, warnCacheUnderNonces } =
+			await import('./prerenderValidators');
+		const cachePolicy = config.static?.cache;
 		let appHandle: ((request: Request) => Promise<Response>) | undefined;
 
 		const prerenderPlugin = new Elysia({
@@ -1234,6 +1237,9 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 			}
 
 			if (securityHeaders && nonce) {
+				// Rewritten for this request, so not a page to store.
+				warnCacheUnderNonces(cachePolicy);
+
 				return servePrerenderedPage(
 					filePath,
 					nonce,
@@ -1244,6 +1250,16 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 					return response;
 				});
 			}
+
+			// With validators and a public policy, when asked for
+			// (prerenderValidators.ts).
+			if (asksForSharedCaching(cachePolicy) && request.method === 'GET')
+				return serveValidated({
+					filePath,
+					kind: 'page',
+					policy: cachePolicy,
+					request
+				});
 
 			// Serve the cached page immediately (even if stale)
 			return new Response(Bun.file(filePath), {

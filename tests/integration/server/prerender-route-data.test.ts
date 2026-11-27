@@ -163,6 +163,11 @@ describe('a pre-rendered page asked for its data', () => {
 
 		// The build's copy: the counter has moved on since.
 		expect(await response.text()).toContain('count:<!-- -->0');
+		/* And sent as it always was, with nothing for a cache to act
+		 * on: `static.cache` is asked for, not assumed
+		 * (prerender-cache-htmx.test.ts has it on). */
+		expect(response.headers.get('etag')).toBeNull();
+		expect(response.headers.get('cache-control')).toBeNull();
 	});
 
 	/* Was the same HTML file, whatever was asked for. */

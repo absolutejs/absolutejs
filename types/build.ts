@@ -521,6 +521,23 @@ export type StaticConfig = {
 	 *  environment, at least 16 characters. Without it the endpoint does
 	 *  not exist. */
 	revalidateToken?: string;
+	/** Serve pre-rendered pages so that a browser and a CDN can keep
+	 *  them: with an `ETag`, a `304` for a copy that is still current,
+	 *  and a public cache policy. Off by default, when a pre-rendered
+	 *  page is sent whole on every request with no cache headers.
+	 *
+	 *  `true` has the page checked on every use (`public, no-cache`):
+	 *  a cache asks this server whether its copy is current and is
+	 *  usually told so in a few bytes, so a page revalidated here is
+	 *  current everywhere at once. `{ maxAge }` lets a shared cache
+	 *  answer on its own for that many seconds, which is faster and
+	 *  means a revalidated page can be that stale.
+	 *
+	 *  A pre-rendered page is the same for every visitor, which is what
+	 *  makes `public` right. Not applied under per-request CSP nonces
+	 *  (`secureHeaders()`): those pages are rewritten for each request.
+	 *  A page with `dynamic` slots is governed by `partial.edge`. */
+	cache?: boolean | { maxAge?: number };
 	/** How a partially pre-rendered page (one with `dynamic` slots) is
 	 *  served. */
 	partial?: StaticPartialConfig;

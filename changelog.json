@@ -5,6 +5,20 @@
 		{
 			"changes": [
 				{
+					"detail": "static.cache serves fully pre-rendered pages so that a browser and a CDN can keep them. Until now such a page was sent whole on every request with a content type and no cache headers. With cache: true it carries a strong ETag, is answered with a 304 when the copy named in If-None-Match is current (a tag weakened by a compressing cache still matches), and is marked Cache-Control: public, no-cache and Vary: Accept. cache: { maxAge } adds s-maxage so a shared cache can answer on its own for that many seconds. Off by default, so nothing changes for an app that does not ask. Applies to pages of every framework; a page with dynamic slots is governed by static.partial.edge, which now shares the same code. Not applied under per-request CSP nonces (secureHeaders()), where each page is rewritten for its request; the server says so once in its log. Also documented and tested: an HTMX page needs no hole machinery, because an element with hx-get and hx-trigger=\"load\" is pre-rendered with its fallback and its fragment is answered per visitor by an ordinary route. The HTMX hole helper the partial-prerendering plan listed was not built, since an HTML file has no step in which a helper could run. See docs/PARTIAL_PRERENDERING_PLAN.md.",
+					"kind": "added",
+					"summary": "static.cache gives pre-rendered pages an ETag, a 304 and a public cache policy",
+					"symbols": [
+						"StaticConfig"
+					]
+				}
+			],
+			"date": "2026-11-27",
+			"version": "0.20.0-beta.427"
+		},
+		{
+			"changes": [
+				{
 					"detail": "The Svelte router browser test \"the lazy route chunk is requested only on prefetch or navigation\" failed intermittently in the nightly run. It waited for the browser's own count of script resources to grow, then read a separate list filled by a request listener that is attached after the page starts loading and can therefore hold fewer scripts. When it did, the wait returned before the hover prefetch had been made. The test now waits on the list it asserts against. No change to the framework.",
 					"kind": "internal",
 					"summary": "A Svelte router browser test no longer races its own script list"
