@@ -1,3 +1,4 @@
+import { installConventionReactRuntime } from '../build/conventionReactRuntime';
 import { HTML_CONTENT_TYPE } from '../constants';
 import { isDevelopmentRuntime } from './runtimeMode';
 import { basename } from 'node:path';
@@ -115,6 +116,7 @@ const renderReactError = async (
 ) => {
 	const { createElement } = await import('react');
 	const { renderToReadableStream } = await import('react-dom/server');
+	await installConventionReactRuntime();
 	const mod = await import(conventionPath);
 	const ErrorComponent = mod.default;
 	if (typeof ErrorComponent !== 'function') return null;
@@ -414,6 +416,7 @@ export const renderStaticRouteError = async (
 const renderReactNotFound = async (conventionPath: string) => {
 	const { createElement } = await import('react');
 	const { renderToReadableStream } = await import('react-dom/server');
+	await installConventionReactRuntime();
 	const mod = await import(conventionPath);
 	const NotFoundComponent = mod.default;
 	if (typeof NotFoundComponent !== 'function') return null;
@@ -657,6 +660,7 @@ export const resolveLoadingConventionPath = (framework: keyof ConventionsMap) =>
 const renderReactLoading = async (conventionPath: string) => {
 	const { createElement } = await import('react');
 	const { renderToReadableStream } = await import('react-dom/server');
+	await installConventionReactRuntime();
 	const mod = await import(conventionPath);
 	const LoadingComponent = mod.default;
 	if (typeof LoadingComponent !== 'function') return null;

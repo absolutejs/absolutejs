@@ -1,4 +1,5 @@
 import { DEFAULT_PORT } from '../constants';
+import { createConventionReactRuntimePlugin } from '../build/conventionReactRuntime';
 import {
 	resolveClientModules,
 	writeClientModuleStubs
@@ -2439,6 +2440,10 @@ const buildUnlocked = async ({
 			const destDir = join(buildPath, 'conventions', 'react');
 			rmSync(destDir, { force: true, recursive: true });
 			mkdirSync(destDir, { recursive: true });
+			// A convention page calls hooks on the renderer's React, never a
+			// copy of its own (build/conventionReactRuntime.ts).
+			const conventionReactRuntime =
+				await createConventionReactRuntimePlugin();
 
 			const destPaths = await Promise.all(
 				reactConventionSources.map(async (source, idx) => {
@@ -2450,6 +2455,7 @@ const buildUnlocked = async ({
 						naming: `${idx}-[name].[ext]`,
 						outdir: destDir,
 						plugins: [
+							conventionReactRuntime,
 							...devServerExternalsPlugins,
 							stylePreprocessorPlugin,
 							createBunStringRawUnicodePlugin()
