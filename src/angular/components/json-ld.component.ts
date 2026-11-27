@@ -10,7 +10,7 @@ import {
 /* A schema.org thing. Any `JsonLdSchema` is one. The package's own
  * types are not imported, type or not: this directory is compiled apart
  * from the rest of the package, where `types/` cannot be found. */
-type JsonLdThing = { '@type': string };
+type JsonLdThing = { '@type': string; [property: string]: unknown };
 
 const SCHEMA_ORG = 'https://schema.org';
 const UNSAFE_IN_SCRIPT: Record<string, string> = {
