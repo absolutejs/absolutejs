@@ -6,8 +6,10 @@ import {
 	auditLinks,
 	collectLinks,
 	deadLinkWarning,
-	pathMatchesPattern
+	pathMatchesPattern,
+	unservedPathnames
 } from '../../../src/build/auditLinks';
+import type { ExtractedRoute } from '../../../src/build/scanRouteRegistrations';
 import type { BuildConfig } from '../../../types/build';
 
 /* The dead-link check: the typo `route()` cannot catch, because a
@@ -212,5 +214,41 @@ describe('deadLinkWarning', () => {
 		expect(warning).toContain('1 link points at a path no route serves');
 		expect(warning).toContain('src/Nav.tsx:7 → /pricng');
 		expect(warning).toContain('links.ignore');
+	});
+});
+
+/* Localized pathnames (`i18n.pathnames`): a locale's own address is
+ * served by the route it is rewritten to, and a table entry for a path
+ * no route is registered at is a route that was renamed. */
+describe('localized pathnames', () => {
+	const i18n: BuildConfig['i18n'] = {
+		defaultLocale: 'en',
+		locales: ['en', 'fr'],
+		pathnames: {
+			'/about': { fr: '/a-propos' },
+			'/blog/:slug': { fr: '/articles/:slug' },
+			'/gone': { fr: '/parti' }
+		}
+	};
+	const registered: ExtractedRoute[] = [
+		{ handlerSource: '', method: 'GET', path: '/:locale?/about' },
+		{ handlerSource: '', method: 'GET', path: '/:locale?/blog/:slug' }
+	];
+
+	test('a link to a locale’s own address is not dead', async () => {
+		const root = await makeProject({
+			'pages/nav.html':
+				'<a href="/fr/a-propos">À propos</a><a href="/fr/articles/hello">Article</a><a href="/fr/nulle-part">Nulle part</a>'
+		});
+		const dead = auditLinks({ i18n }, root, registered);
+
+		expect(dead.map((link) => link.path)).toEqual(['/fr/nulle-part']);
+	});
+
+	test('a translated path no route is registered at is reported', () => {
+		expect(unservedPathnames({ i18n }, process.cwd(), registered)).toEqual([
+			'/gone'
+		]);
+		expect(unservedPathnames({}, process.cwd(), registered)).toEqual([]);
 	});
 });

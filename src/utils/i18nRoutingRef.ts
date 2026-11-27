@@ -59,6 +59,16 @@ const normalized = (routing: I18nRoutingConfig) =>
 		),
 		localeParam: routing.localeParam ?? 'locale',
 		locales: [...routing.locales],
+		pathnames: Object.entries(routing.pathnames ?? {})
+			.map(([path, byLocale]) => [
+				path,
+				Object.entries(byLocale).sort(([left], [right]) =>
+					left.localeCompare(right)
+				)
+			])
+			.sort(([left], [right]) =>
+				String(left).localeCompare(String(right))
+			),
 		prefixDefault: routing.prefixDefault ?? false,
 		strategy: routing.strategy ?? 'prefix'
 	});
@@ -75,7 +85,8 @@ export const i18nRoutingDifferences = (
 		'strategy',
 		'prefixDefault',
 		'domains',
-		'localeParam'
+		'localeParam',
+		'pathnames'
 	] as const;
 	const only = (
 		routing: I18nRoutingConfig,

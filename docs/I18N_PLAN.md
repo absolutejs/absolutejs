@@ -127,6 +127,51 @@ has links such as `/fr/about` on its English pages — its language switcher —
 and rewriting those to the page's locale would break exactly that link.
 `localizeHref(href, locale, routing)` is the same thing as a function.
 
+### Localized pathnames
+
+A page's address can be written in each locale's own words:
+
+```ts
+export const routing = defineI18nRouting({
+	locales: ['en', 'fr'],
+	defaultLocale: 'en',
+	pathnames: {
+		'/about': { fr: '/a-propos' },
+		'/blog/:slug': { fr: '/articles/:slug' }
+	}
+});
+```
+
+The table is keyed by the path a route is registered at, without a locale
+prefix and with its `:params`; each locale named addresses the page at the
+path given instead, with the same params. A locale not named uses the
+route's own path. The route is registered once, as before
+(`/:locale?/about`).
+
+- `/fr/a-propos` is served by the route at `/fr/about`: the request is
+  rewritten before any route is looked up, so it works for every kind of
+  page, and the route sees `locale: 'fr'` as it always did.
+- `/fr/about` redirects permanently to `/fr/a-propos`, so a page has one
+  address per locale.
+- `href()`, `localizePath`, the hreflang alternates and the sitemap all
+  write the locale's own address. `href('/fr/a-propos', 'en')` is `/about`.
+- A translation whose params are not the route's cannot be filled in from
+  a request; the table is refused, with the reason, and nothing is
+  rewritten.
+- `absolute links` and a production build say when a path in the table has
+  no route registered at it — a route that was renamed — and count a link
+  to a locale's own address as a link to its route.
+
+It is under the `prefix` strategy only, where the path says which locale an
+address is in. The table is declared in the `i18n` config key, which the
+server applies it from, and given to `defineI18n` too (`...routing`), which
+writes links from it. It travels to the browser in the i18n payload, for
+`href()`: a large table is on every localized page.
+
+It is done with the app's own routing rules: the table becomes redirects
+and rewrites, added after the app's, so one of the app's rules can still
+answer for a path first.
+
 Strategies:
 
 - **prefix** (default): first path segment if it is a locale; otherwise the

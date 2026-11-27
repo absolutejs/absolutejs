@@ -1,4 +1,5 @@
 import { CLIENT_MODULE_PREFIX } from '../dev/clientModuleHmr';
+import { withPathnameRules } from '../utils/i18nPathnameRules';
 import { setI18nRouting } from '../utils/i18nRoutingRef';
 import { llmsFull } from './llmsFull';
 import { pageMarkdown } from './pageMarkdown';
@@ -581,7 +582,7 @@ const prepareDev = async (
 		// After the rate limit, so a redirect is not a way around it;
 		// before every route, so a rule can answer for a path none serves.
 		.use(
-			routingRules(config, {
+			routingRules(withPathnameRules(config), {
 				isFrameworkFile: servedFromBuildDirectory(buildDir)
 			})
 		)
@@ -1319,7 +1320,7 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 			// After the rate limit, so a redirect is not a way around it;
 			// before every route, so a rule can answer for a path none serves.
 			.use(
-				routingRules(config, {
+				routingRules(withPathnameRules(config), {
 					isFrameworkFile: servedFromBuildDirectory(buildDir)
 				})
 			)
@@ -1375,7 +1376,7 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 		// After the rate limit, so a redirect is not a way around it;
 		// before every route, so a rule can answer for a path none serves.
 		.use(
-			routingRules(config, {
+			routingRules(withPathnameRules(config), {
 				isFrameworkFile: servedFromBuildDirectory(buildDir)
 			})
 		)

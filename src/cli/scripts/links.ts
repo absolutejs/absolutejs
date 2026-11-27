@@ -1,5 +1,9 @@
 import { loadConfig } from '../../utils/loadConfig';
-import { auditLinks, deadLinkWarning } from '../../build/auditLinks';
+import {
+	auditLinks,
+	deadLinkWarning,
+	unservedPathnames
+} from '../../build/auditLinks';
 
 /* `absolute links [--config <path>]`
  *
@@ -37,6 +41,13 @@ export const links = async (configPath?: string) => {
 
 	const dead = auditLinks(config);
 	const warning = deadLinkWarning(dead);
+	// A route renamed, and its translations left behind. Said, and not
+	// a failure: nothing links to an address nobody wrote.
+	const unserved = unservedPathnames(config);
+	if (unserved.length > 0)
+		console.error(
+			`i18n.pathnames translates ${unserved.length === 1 ? 'a path' : 'paths'} no route is registered at: ${unserved.join(', ')}`
+		);
 	if (!warning) {
 		console.log('No dead links.');
 

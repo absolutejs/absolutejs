@@ -8,10 +8,17 @@
  * its new address. It is the only way that is right in general: the
  * destination may be a page, an API route, a static file or a file
  * route, each with its own hooks, and they all sit behind the same
- * `fetch`. The re-entered request is remembered by identity so it is not
- * rewritten or redirected a second time — a rewrite to `/b` followed by a
- * redirect from `/b` would otherwise leak the address the rewrite was
- * hiding.
+ * `fetch`. The re-entered request is marked so it is not rewritten or
+ * redirected a second time — a rewrite to `/b` followed by a redirect
+ * from `/b` would otherwise leak the address the rewrite was hiding, and
+ * when the redirect leads back to the rewritten address, never end.
+ *
+ * The mark is a header, carrying a token made when the process started
+ * and the path the visitor asked for. It was once the request object's
+ * identity, which holds when a test hands the request straight to the
+ * app and does not survive a real server's `fetch`: there the object
+ * that arrives is another one. Without the token a visitor could send
+ * the header and skip the app's redirects.
  *
  * HEADERS are matched against the path the visitor asked for, and set
  * before the route runs. A route that sets the same header itself, or
@@ -49,6 +56,18 @@ export type RoutingRulesOptions = {
 };
 
 const NOT_FOUND = 404;
+const REENTERED_HEADER = 'x-absolute-rewritten';
+const REENTRY_TOKEN = crypto.randomUUID();
+const TOKEN_SEPARATOR = ':';
+
+/* The path the visitor asked for, when `request` is one this plugin
+ * rewrote and sent through the server again. */
+const askedPathOf = (request: Request) => {
+	const mark = request.headers.get(REENTERED_HEADER);
+	const prefix = `${REENTRY_TOKEN}${TOKEN_SEPARATOR}`;
+
+	return mark?.startsWith(prefix) ? mark.slice(prefix.length) : undefined;
+};
 
 export const routingRules = (
 	config: RoutingRulesConfig,
@@ -58,16 +77,12 @@ export const routingRules = (
 		return new Elysia({ name: 'absolutejs-routing-rules-none' });
 
 	const rules = compileRoutingRules(config);
-	/* A rewritten request, and the path the visitor asked for: header
-	 * rules are matched against that one, not the address it is served
-	 * from. */
-	const reentered = new WeakMap<Request, string>();
 	const isFrameworkFile = options.isFrameworkFile ?? (() => false);
 
 	return (
 		new Elysia({ name: 'absolutejs-routing-rules', seed: config })
 			.onRequest(({ request, server, set }) => {
-				if (reentered.has(request)) return undefined;
+				if (askedPathOf(request) !== undefined) return undefined;
 				const url = new URL(request.url);
 				Object.assign(set.headers, headersFor(rules, url.pathname));
 
@@ -82,7 +97,13 @@ export const routingRules = (
 				url.pathname = decision.pathname;
 				url.search = decision.search;
 				const rewritten = new Request(url, request);
-				reentered.set(rewritten, new URL(request.url).pathname);
+				// The path the visitor asked for goes with it: header
+				// rules are matched against that one, not the address
+				// it is served from.
+				rewritten.headers.set(
+					REENTERED_HEADER,
+					`${REENTRY_TOKEN}${TOKEN_SEPARATOR}${new URL(request.url).pathname}`
+				);
 				const dispatch =
 					options.dispatch ??
 					(server
@@ -104,7 +125,7 @@ export const routingRules = (
 				if (!isFrameworkFile(served)) return;
 				const headers = headersFor(
 					rules,
-					reentered.get(request) ?? served
+					askedPathOf(request) ?? served
 				);
 				if (!(responseValue instanceof Response)) {
 					Object.assign(set.headers, headers);

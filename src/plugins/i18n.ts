@@ -249,6 +249,8 @@ export const defineI18n = <
 		locales,
 		...(strategy === 'prefix' ? {} : { strategy }),
 		...(config.prefixDefault ? { prefixDefault: true } : {}),
+		// A link in a locale's own words needs the words.
+		...(config.pathnames ? { pathnames: config.pathnames } : {}),
 		// Hosts only matter to a link under `domain` routing.
 		...(strategy === 'domain' && config.domains
 			? { domains: config.domains }
