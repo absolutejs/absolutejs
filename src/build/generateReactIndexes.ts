@@ -557,6 +557,17 @@ export const generateReactIndexFiles = async (
 			`\t\t\twindow.__REACT_ROOT__.unmount();`,
 			`\t\t}`,
 			`\t\twindow.__REACT_ROOT__ = null;`,
+			`\t\twindow.__ABSOLUTE_PAGE_UPDATE__ = undefined;`,
+			`\t};`,
+			// New props for the page that is already mounted
+			// (client/refreshInPlace.ts). The same root and the same
+			// component, so React keeps every piece of state the page
+			// holds and only what the props changed is re-rendered.
+			`\twindow.__ABSOLUTE_PAGE_UPDATE__ = function(nextProps) {`,
+			`\t\tif (!window.__REACT_ROOT__) return false;`,
+			`\t\twindow.__INITIAL_PROPS__ = nextProps;`,
+			`\t\twindow.__REACT_ROOT__.render(createElement(ErrorBoundary, null, createElement(RenderedPage, nextProps)));`,
+			`\t\treturn true;`,
 			`\t};`,
 			`}`,
 			...(isDev

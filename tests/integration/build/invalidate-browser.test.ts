@@ -42,6 +42,8 @@ export function InvalidatePage({ items, layer }: Props) {
 		if (layer) enableNavigation();
 		const removeEnhancement = enhanceForms();
 		Reflect.set(window, '__pageHydrated', true);
+		// How many times the page has been mounted in this document.
+		Reflect.set(window, '__mounts', Number(Reflect.get(window, '__mounts') ?? 0) + 1);
 
 		return removeEnhancement;
 	}, [layer]);
@@ -111,6 +113,8 @@ const contentType = (path: string) => {
 
 /* Cacheable for ten minutes, so only a refresh that bypasses the HTTP
  * cache can see a change made after the first load. */
+const PAGE_PATHS = new Set(['/items', '/plain', '/document-only', '/expiring']);
+
 const cacheable = async (response: Response) => {
 	const headers = new Headers(response.headers);
 	headers.set('Cache-Control', 'private, max-age=600');
@@ -141,16 +145,24 @@ const createApp =
 
 			return Response.json({ status: 'success' });
 		}
-		if (
-			(pathname === '/items' || pathname === '/plain') &&
-			isReactPage(Page)
-		)
+		// A session that ended: once the page is open, every request
+		// for it is sent somewhere else.
+		if (pathname === '/expiring' && items.length > 1)
+			return Response.redirect(new URL('/items', request.url), 302);
+		if (PAGE_PATHS.has(pathname) && isReactPage(Page))
 			return cacheable(
 				await handleReactPageRequest({
 					index: manifest.InvalidatePageIndex ?? '',
 					Page,
-					props: { items: [...items], layer: pathname === '/items' },
-					request
+					props: { items: [...items], layer: pathname !== '/plain' },
+					// A server that does not answer with data: it is
+					// asked for the page's data and sends the document.
+					request:
+						pathname === '/document-only'
+							? new Request(request.url, {
+									headers: { accept: 'text/html' }
+								})
+							: request
 				})
 			);
 		if (extname(pathname) === '') return unservedPath(pathname);
@@ -239,14 +251,26 @@ const openItems = async (path: string) => {
 	return session;
 };
 
-const waitForItems = (page: Page, count: number) =>
+/* Until the list has `count` items. For a refresh that replaced the
+ * page (`replaced`), also until the new copy has hydrated: its marker
+ * was cleared when the page was opened. A page refreshed in place never
+ * hydrates again, which is the point. */
+const waitForItems = (page: Page, count: number, replaced = false) =>
 	page.waitForFunction(
-		(expected) =>
+		({ expected, needsHydration }) =>
 			document.querySelectorAll('#items li').length === expected &&
-			Reflect.get(window, '__pageHydrated') === true,
-		count,
+			(!needsHydration || Reflect.get(window, '__pageHydrated') === true),
+		{ expected: count, needsHydration: replaced },
 		{ timeout: 30_000 }
 	);
+
+const outcomeOf = (page: Page) =>
+	page
+		.waitForFunction(() => Reflect.get(window, '__outcome') !== undefined)
+		.then(() => page.evaluate(() => Reflect.get(window, '__outcome')));
+
+const mountsOf = (page: Page) =>
+	page.evaluate(() => Reflect.get(window, '__mounts'));
 
 describe('invalidate()', () => {
 	test('shows the changed data without reloading the document', async () => {
@@ -262,15 +286,13 @@ describe('invalidate()', () => {
 			expect(
 				await page.evaluate(() => Reflect.get(window, '__sameDocument'))
 			).toBe(true);
-			await page.waitForFunction(
-				() => Reflect.get(window, '__outcome') === 'swapped'
-			);
+			expect(await outcomeOf(page)).toBe('updated');
 		} finally {
 			await session.close();
 		}
 	}, 120_000);
 
-	test('keeps the address, the history entry and the scroll position', async () => {
+	test('keeps the address, the history entry and the visitor’s place on the page', async () => {
 		const session = await openItems('/items?view=all');
 		try {
 			const { page } = session;
@@ -296,7 +318,14 @@ describe('invalidate()', () => {
 			}));
 			expect(after.url).toBe(before.url);
 			expect(after.entries).toBe(before.entries);
-			expect(after.scrollY).toBe(400);
+			/* Not exactly 400: an item was added above what is in view,
+			 * and the browser moves the window by that item's height so
+			 * the content being looked at stays put (scroll anchoring).
+			 * Nothing here sets the scroll position at all — the page
+			 * was never replaced — so what matters is that the visitor
+			 * was not thrown back to the top. */
+			expect(after.scrollY).toBeGreaterThanOrEqual(400);
+			expect(after.scrollY).toBeLessThan(480);
 		} finally {
 			await session.close();
 		}
@@ -325,20 +354,43 @@ describe('invalidate()', () => {
 		}
 	}, 120_000);
 
-	/* What it costs, pinned so that it is a decision and not a surprise:
-	 * the page is mounted again, so its own component state starts over. */
-	test('mounts the page again: component state starts over', async () => {
+	/* The reason it is done this way. The page is handed new props; it
+	 * is never unmounted, so everything its components hold is still
+	 * there — where replacing the page used to start it all over. */
+	test('keeps what the page’s components are holding', async () => {
 		const session = await openItems('/items');
 		try {
 			const { page } = session;
 			await page.click('#clicks');
 			await page.click('#clicks');
-			expect(await page.locator('#clicks').textContent()).toBe('2');
+			await page.fill('#note', 'half-typed');
 
 			await page.click('#add');
 			await waitForItems(page, 2);
 
-			expect(await page.locator('#clicks').textContent()).toBe('0');
+			expect(await page.locator('#clicks').textContent()).toBe('2');
+			expect(await page.inputValue('#note')).toBe('half-typed');
+			expect(await mountsOf(page)).toBe(1);
+		} finally {
+			await session.close();
+		}
+	}, 120_000);
+
+	test('applies the newest data when refreshed twice in a row', async () => {
+		const session = await openItems('/items');
+		try {
+			const { page } = session;
+
+			await page.click('#add');
+			await page.click('#add');
+			await waitForItems(page, 3);
+
+			expect(await itemTexts(page)).toEqual([
+				'item 1',
+				'item 2',
+				'item 3'
+			]);
+			expect(await mountsOf(page)).toBe(1);
 		} finally {
 			await session.close();
 		}
@@ -363,21 +415,62 @@ describe('invalidate()', () => {
 		}
 	}, 120_000);
 
-	test('without the navigation layer it reloads the page', async () => {
+	/* It does not need the navigation layer: it is a request for data
+	 * and a re-render, not a page swap. */
+	test('works on a page without the navigation layer', async () => {
 		const session = await openItems('/plain');
 		try {
 			const { page } = session;
 
-			await Promise.all([
-				page.waitForEvent('load', { timeout: 30_000 }),
-				page.click('#add')
-			]);
+			await page.click('#add');
 			await waitForItems(page, 2);
 
-			expect(await itemTexts(page)).toEqual(['item 1', 'item 2']);
+			expect(await outcomeOf(page)).toBe('updated');
 			expect(
 				await page.evaluate(() => Reflect.get(window, '__sameDocument'))
-			).toBeUndefined();
+			).toBe(true);
+		} finally {
+			await session.close();
+		}
+	}, 120_000);
+});
+
+describe('invalidate() when the page cannot simply be given new data', () => {
+	/* The server answers the data request with the document. The page
+	 * is refreshed the way it always was: fetched whole and swapped. */
+	test('refreshes the whole page when the server does not answer with data', async () => {
+		const session = await openItems('/document-only');
+		try {
+			const { page } = session;
+
+			await page.click('#add');
+			await waitForItems(page, 2, true);
+
+			expect(await itemTexts(page)).toEqual(['item 1', 'item 2']);
+			expect(await outcomeOf(page)).toBe('swapped');
+			// Replaced, not updated: mounted a second time.
+			expect(await mountsOf(page)).toBe(2);
+		} finally {
+			await session.close();
+		}
+	}, 120_000);
+
+	/* The data request is redirected: the session ended, and the route
+	 * now sends everyone elsewhere. Props that came back from somewhere
+	 * else must not be put into this page. The whole-page refresh
+	 * follows the redirect, as a reload would. */
+	test('follows a redirect instead of applying another page’s data', async () => {
+		const session = await openItems('/expiring');
+		try {
+			const { page } = session;
+
+			await page.click('#add');
+			await page.waitForFunction(() => location.pathname === '/items', {
+				timeout: 30_000
+			});
+			await waitForItems(page, 2, true);
+
+			expect(await itemTexts(page)).toEqual(['item 1', 'item 2']);
 		} finally {
 			await session.close();
 		}

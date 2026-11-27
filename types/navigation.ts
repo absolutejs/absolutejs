@@ -10,11 +10,13 @@
  *  - `'reloaded'` — the layer handed the navigation to the browser (an
  *    error, a non-HTML / non-2xx response, a cross-origin redirect, or a
  *    current page that can't be torn down).
+ *  - `'updated'` — a refresh gave the mounted page new data without
+ *    unmounting it: nothing its components were holding was lost.
  *  - `'superseded'` — a newer navigation started before this one finished.
  *  - `'cancelled'` — an `absolute:before-navigate` listener called
  *    `preventDefault()`. */
 export type DocumentNavigationOutcome =
-	'cancelled' | 'reloaded' | 'superseded' | 'swapped';
+	'cancelled' | 'reloaded' | 'superseded' | 'swapped' | 'updated';
 
 /** What started a document navigation. `'refresh'` is `invalidate()`:
  *  the current page fetched again and swapped in place. */

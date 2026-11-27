@@ -156,7 +156,7 @@ swallowing one would render a page for something that does not exist.
 
 A page gets its data once, as it is rendered. After the browser changes
 that data, the page on screen shows how things were. `invalidate()` asks
-the server for the page again and swaps the answer in:
+the server for the page's data again and shows it:
 
 ```ts
 import { invalidate } from '@absolutejs/absolute/client';
@@ -165,11 +165,11 @@ await fetch('/api/todos', { body, method: 'POST' });
 await invalidate();
 ```
 
-The route's `load` runs again and the page shows the result. The address,
-the history entry and the scroll position stay as they were, focus goes
-back to the element that had it (matched by `id`), and there is no view
-transition. It never answers from the HTTP cache or from a prefetched copy
-of the page.
+The route's `load` runs again and the page shows the result. The address
+and the history entry stay as they were, the visitor stays where they
+were on the page, focus stays on the element that had it, and there is
+no view transition. It never answers from the HTTP cache or from a
+prefetched copy of the page.
 
 It works on every kind of page — React, Svelte, Vue, Angular, HTML, HTMX —
 because the browser keeps no second copy of the data: the server remains
@@ -194,21 +194,36 @@ screen.
 
 It is **off by default**, for the reason below.
 
-### What it costs
+### Whether the page keeps its state
 
-The page is mounted again. State the page's own components hold starts
-over: an open menu, text typed into an uncontrolled field, and a form
-binding's own `data` and success state. So turn `invalidate` on for a form
-whose outcome shows in the page's data (the new row in the list), not for
-one that shows a "saved" message from its own state.
+It depends on what kind of page it is.
 
-An island marked `persist` keeps its state, as it does across any soft
+**A React page is given new props and is not unmounted.** Everything its
+components hold survives: an open menu, text typed into a field, a form
+binding's `data` and success state. Only what the new props change is
+re-rendered. This needs no navigation layer.
+
+**Every other kind of page is fetched whole and swapped in**, for now:
+Svelte, Vue, Angular, HTML and HTMX. The page is mounted again, so state
+its own components hold starts over. On those pages, turn `invalidate` on
+for a form whose outcome shows in the page's data (the new row in the
+list), not for one that shows a "saved" message from its own state. An
+island marked `persist` keeps its state, as it does across any soft
 navigation.
 
-### Without the navigation layer
+A React page is also swapped whole whenever giving it new props would be
+wrong: the request for its data was redirected, the route now renders a
+different page (a session that expired), or the server did not answer
+with data. Those are handled the way a reload would handle them.
 
-On a page that has not called `enableNavigation()`, or one that cannot be
-torn down, `invalidate()` reloads the page. The promise resolves to how it
-ended: `'swapped'`, `'reloaded'`, `'superseded'` (a newer navigation or
-refresh started first) or `'cancelled'` (an `absolute:before-navigate`
-listener refused it; the event's `type` is `'refresh'`).
+### How it ended
+
+The promise resolves to one of:
+
+| Outcome | Meaning |
+| --- | --- |
+| `'updated'` | The mounted page was given new data. Nothing was torn down. |
+| `'swapped'` | The page was fetched whole and replaced in place. |
+| `'reloaded'` | The browser was asked to load the page: there is no navigation layer (`enableNavigation()`), or the page cannot be torn down. |
+| `'superseded'` | A newer navigation or refresh started first. |
+| `'cancelled'` | An `absolute:before-navigate` listener refused it. The event's `type` is `'refresh'`. |

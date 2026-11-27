@@ -77,7 +77,8 @@ const PAGE_GLOBALS = [
 	'__ABS_ANGULAR_REQUEST_CONTEXT__',
 	'__ABS_ANGULAR_BASE_HREF__',
 	DISPOSE_GLOBAL,
-	READY_GLOBAL
+	READY_GLOBAL,
+	'__ABSOLUTE_PAGE_UPDATE__'
 ];
 
 const JAVASCRIPT_TYPES = new Set([
@@ -1626,7 +1627,8 @@ const OUTCOMES = new Set<unknown>([
 	'cancelled',
 	'reloaded',
 	'superseded',
-	'swapped'
+	'swapped',
+	'updated'
 ]);
 
 const isOutcome = (value: unknown): value is DocumentNavigationOutcome =>
