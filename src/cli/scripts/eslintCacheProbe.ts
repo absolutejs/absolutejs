@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
 
@@ -22,6 +22,11 @@ import { resolve } from 'node:path';
  *
  * Anything uncertain (no marker, an unreadable cache, `flatted` not found)
  * means no skipping, never a wrong skip.
+ *
+ * The verdict cache is the runner's, not any one ESLint process's: each
+ * process lints with its own scratch cache, and its entries are merged in
+ * afterwards (`mergeVerdicts`). So any file can go to any process, and a
+ * file only ever has one verdict, its newest.
  */
 
 type CachedVerdict = { clean: boolean; hash: string };
@@ -31,9 +36,14 @@ const markerPath = (cacheLocation: string) => `${cacheLocation}.config`;
 const isRecord = (value: unknown): value is Record<string, unknown> =>
 	value !== null && typeof value === 'object';
 
+type Flatted = {
+	parse: (text: string) => unknown;
+	stringify: (value: unknown) => string;
+};
+
 /* The `flatted` ESLint writes its cache with, reached through its own
  * dependency chain (eslint → file-entry-cache → flat-cache → flatted). */
-const loadFlattedParse = (cwd: string) => {
+const loadFlatted = (cwd: string) => {
 	try {
 		const fromEslint = createRequire(
 			resolve(cwd, 'node_modules/eslint/package.json')
@@ -45,19 +55,31 @@ const loadFlattedParse = (cwd: string) => {
 			fromEntryCache.resolve('flat-cache')
 		);
 		const flatted: unknown = fromFlatCache('flatted');
-		const parse = isRecord(flatted) ? flatted.parse : undefined;
+		if (!isRecord(flatted)) return null;
+		const { parse, stringify } = flatted;
+		if (typeof parse !== 'function' || typeof stringify !== 'function')
+			return null;
 
-		if (typeof parse !== 'function') return null;
-		const parseCache = (text: string) => {
-			const parsed: unknown = parse(text);
+		const loaded: Flatted = {
+			parse: (text: string) => {
+				const parsed: unknown = parse(text);
 
-			return parsed;
+				return parsed;
+			},
+			stringify: (value: unknown) => String(stringify(value))
 		};
 
-		return parseCache;
+		return loaded;
 	} catch {
 		return null;
 	}
+};
+
+const readEntries = (path: string, flatted: Flatted) => {
+	if (!existsSync(path)) return {};
+	const cache = flatted.parse(readFileSync(path, 'utf-8'));
+
+	return isRecord(cache) ? cache : {};
 };
 
 const isClean = (results: unknown) =>
@@ -68,16 +90,14 @@ const isClean = (results: unknown) =>
 
 const readVerdicts = (cacheLocation: string, cwd: string) => {
 	const verdicts = new Map<string, CachedVerdict>();
-	const path = resolve(cwd, cacheLocation);
-	const parse = loadFlattedParse(cwd);
-	if (!parse || !existsSync(path)) return verdicts;
-	let cache: unknown;
+	const flatted = loadFlatted(cwd);
+	if (!flatted) return verdicts;
+	let cache: Record<string, unknown>;
 	try {
-		cache = parse(readFileSync(path, 'utf-8'));
+		cache = readEntries(resolve(cwd, cacheLocation), flatted);
 	} catch {
 		return verdicts;
 	}
-	if (!isRecord(cache)) return verdicts;
 	for (const [file, entry] of Object.entries(cache)) {
 		if (!isRecord(entry) || typeof entry.hash !== 'string') continue;
 		verdicts.set(file, { clean: isClean(entry.results), hash: entry.hash });
@@ -86,7 +106,7 @@ const readVerdicts = (cacheLocation: string, cwd: string) => {
 	return verdicts;
 };
 
-/** The files of a shard whose cached verdict is clean and still applies. */
+/** The files whose cached verdict is clean and still applies. */
 export const cachedCleanFiles = (
 	files: string[],
 	cacheLocation: string,
@@ -114,8 +134,8 @@ export const cachedCleanFiles = (
 	return clean;
 };
 
-/** What a shard cache's verdicts depend on beyond the toolchain: the
- *  config digest and the ESLint arguments the run passed. */
+/** What the verdicts depend on beyond the toolchain: the config digest
+ *  and the ESLint arguments the run passed. */
 export const lintContextKey = (configDigest: string, passthrough: string[]) =>
 	createHash('sha256')
 		.update(configDigest)
@@ -123,9 +143,38 @@ export const lintContextKey = (configDigest: string, passthrough: string[]) =>
 		.update(JSON.stringify(passthrough))
 		.digest('hex');
 
-/** Record that a shard cache was written under `contextKey`. */
-export const markShardCache = (
+/** Record that the verdict cache was written under `contextKey`. */
+export const markVerdictCache = (
 	cacheLocation: string,
 	contextKey: string,
 	cwd: string
 ) => writeFileSync(resolve(cwd, markerPath(cacheLocation)), `${contextKey}\n`);
+
+/**
+ * Copy one process's cache entries into the verdict cache, replacing any
+ * older verdict for the same file. Written to a temporary file and renamed,
+ * so a run that stops mid-write leaves the previous cache whole. False when
+ * either cache can't be read: those files are simply linted again.
+ */
+export const mergeVerdicts = (
+	fromCache: string,
+	intoCache: string,
+	cwd: string
+) => {
+	const flatted = loadFlatted(cwd);
+	if (!flatted) return false;
+	try {
+		const merged: Record<string, unknown> = {
+			...readEntries(resolve(cwd, intoCache), flatted),
+			...readEntries(resolve(cwd, fromCache), flatted)
+		};
+		const target = resolve(cwd, intoCache);
+		const temporary = `${target}.${process.pid}.tmp`;
+		writeFileSync(temporary, flatted.stringify(merged));
+		renameSync(temporary, target);
+
+		return true;
+	} catch {
+		return false;
+	}
+};
