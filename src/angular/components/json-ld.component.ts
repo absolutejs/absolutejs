@@ -6,7 +6,11 @@ import {
 	Input,
 	Renderer2
 } from '@angular/core';
-import type { JsonLdSchema } from '../../../types/jsonLd';
+
+/* A schema.org thing. Any `JsonLdSchema` is one. The package's own
+ * types are not imported, type or not: this directory is compiled apart
+ * from the rest of the package, where `types/` cannot be found. */
+type JsonLdThing = { '@type': string };
 
 const SCHEMA_ORG = 'https://schema.org';
 const UNSAFE_IN_SCRIPT: Record<string, string> = {
@@ -41,7 +45,7 @@ export class JsonLdComponent {
 	 * value arrives, on the server as in the browser, with nothing to
 	 * wait for. */
 	@Input({ required: true })
-	set schema(schema: JsonLdSchema | JsonLdSchema[]) {
+	set schema(schema: JsonLdThing | JsonLdThing[]) {
 		const element = this.host.nativeElement;
 		// The server's, found again after hydration, and any earlier
 		// one of this component's own.
@@ -62,7 +66,7 @@ export class JsonLdComponent {
  *  `@graph`, and `<` escaped so no value can end the script. Written
  *  here and not imported, because this directory is compiled apart from
  *  the rest of the package. */
-export const jsonLdText = (schema: JsonLdSchema | JsonLdSchema[]) =>
+export const jsonLdText = (schema: JsonLdThing | JsonLdThing[]) =>
 	JSON.stringify(
 		Array.isArray(schema)
 			? { '@context': SCHEMA_ORG, '@graph': schema }

@@ -78,10 +78,9 @@ describe('Angular JsonLdComponent', () => {
 			'utf8'
 		);
 
-		// A type import is erased; anything else from outside the
-		// directory would be published as an import of a missing file.
-		expect(source.match(/^import (?!type )[^;]*from '[^']+'/gms)).toEqual([
-			expect.stringContaining("from '@angular/core'")
-		]);
+		// Nothing from outside the directory, a type included: the
+		// partial compile cannot find `types/`, and anything else would
+		// be published as an import of a missing file.
+		expect(source.match(/from '[^']+'/g)).toEqual(["from '@angular/core'"]);
 	});
 });
