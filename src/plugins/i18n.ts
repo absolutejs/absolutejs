@@ -33,6 +33,7 @@ import {
 } from '../utils/i18nRoutingRef';
 import { logWarn } from '../utils/logger';
 import { requestHost, requestOrigin } from '../utils/requestOrigin';
+import { isDevelopmentRuntime } from '../utils/runtimeMode';
 
 /* Internationalization on the server.
  *
@@ -169,9 +170,19 @@ export const defineI18n = <
 		return mergeCatalogs(defaultTree, loaded);
 	};
 
+	/* Under `absolute dev` a catalog is asked for again each time and
+	 * not kept. A lazily loaded one was otherwise the one catalog an
+	 * edit could not reach: the dev server swaps the module in place,
+	 * and the copy kept here was the old one, with nothing to restart
+	 * the server and clear it. Asking again is cheap, since a module
+	 * that has not changed is the same module. */
+	const keepsCatalogs = !isDevelopmentRuntime();
+
 	/** The locale's messages merged over the default locale's. Loaded on
 	 *  first use, then cached. */
 	const load = (locale: Locale) => {
+		if (!keepsCatalogs && locale !== defaultLocale)
+			return loadCatalog(locale);
 		const existing = catalogs.get(locale);
 		if (existing) return existing;
 		const loading = loadCatalog(locale);
