@@ -21,6 +21,7 @@ import {
 	acceptsAbsoluteRouteData
 } from '../mobile/pageProtocol';
 import { logWarn } from '../utils/logger';
+import { localeRoutes, type StaticLocaleRoute } from '../utils/staticLocales';
 
 export type PrerenderFailure = {
 	/** Why the route couldn't be pre-rendered */
@@ -527,9 +528,11 @@ const prerenderRoute = async (
 	return undefined;
 };
 
+const NOT_FOUND_REASON = 'the route responded with HTTP 404';
+
 const recordPrerenderRoute = async (
 	baseUrl: string,
-	route: string,
+	{ asked, route }: StaticLocaleRoute,
 	prerenderDir: string,
 	result: PrerenderResult,
 	log?: LogFn
@@ -542,6 +545,9 @@ const recordPrerenderRoute = async (
 		log
 	).catch((error: unknown) => `rendering it threw (${describeError(error)})`);
 	if (reason === undefined) return;
+	// A locale's address for a page that has no such locale: not every
+	// page has every one, and nobody listed this address.
+	if (!asked && reason === NOT_FOUND_REASON) return;
 
 	const failure: PrerenderFailure = { reason, route };
 	result.failures.push(failure);
@@ -594,7 +600,9 @@ export const prerender = async (
 	const baseUrl = `http://localhost:${port}`;
 
 	const listed = await listedRoutes(staticConfig, baseUrl, expandRoutes, log);
-	const { routes } = listed;
+	// Each page at every locale's address, when asked
+	// (utils/staticLocales.ts).
+	const routes = localeRoutes(listed.routes, staticConfig.locales);
 
 	const result: PrerenderResult = {
 		dir: prerenderDir,
@@ -629,9 +637,9 @@ export const prerender = async (
 	 * and the app under render is one process. */
 	const waiting = [...routes];
 	const renderNext = async (): Promise<void> => {
-		const route = waiting.shift();
-		if (route === undefined) return;
-		await recordPrerenderRoute(baseUrl, route, prerenderDir, result, log);
+		const next = waiting.shift();
+		if (next === undefined) return;
+		await recordPrerenderRoute(baseUrl, next, prerenderDir, result, log);
 		await renderNext();
 	};
 	await Promise.all(

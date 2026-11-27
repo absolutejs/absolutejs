@@ -1,4 +1,5 @@
 import { env } from 'bun';
+import { withStaticLocales } from '../../utils/staticLocales';
 import { prepareCompiledClientGraph } from '../../build/compiledClientGraph';
 import { createExternalAssetPlugin } from '../../build/externalAssetPlugin';
 import { maskLiterals } from '../../build/maskLiterals';
@@ -1763,7 +1764,10 @@ export default server;
 	});
 
 	// Compile always pre-renders all routes
-	const staticConfig = buildConfig.static ?? { routes: 'all' as const };
+	const staticConfig = withStaticLocales(
+		buildConfig.static,
+		buildConfig.i18n
+	) ?? { routes: 'all' as const };
 
 	const prerenderResult = await prerenderWithServer(
 		outputPath,

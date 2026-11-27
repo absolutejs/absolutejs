@@ -33,7 +33,8 @@ export default defineConfig({
 	buildDirectory: './build',
 	htmlDirectory: './html',
 	i18n: routing,
-	sitemap: { baseUrl: 'https://acme.test' }
+	sitemap: { baseUrl: 'https://acme.test' },
+	static: { locales: true, routes: ['/page', '/english-only'] }
 });
 `,
 	'html/pages/Placeholder.html':
@@ -49,7 +50,8 @@ export const routing = defineI18nRouting({
 	locales: ['en', 'fr'],
 	pathnames: {
 		'/about': { fr: '/a-propos' },
-		'/blog/:slug': { fr: '/articles/:slug' }
+		'/blog/:slug': { fr: '/articles/:slug' },
+		'/page': { fr: '/la-page' }
 	}
 });
 `,
@@ -58,6 +60,7 @@ import { defineI18n, i18nPlugin, networking, prepare } from '${fromSource('index
 import { routing } from './routing';
 
 const { absolutejs } = await prepare();
+const renders = { page: 0 };
 const i18n = defineI18n({
 	...routing,
 	loaders: { fr: { hello: 'Bonjour' } },
@@ -77,6 +80,21 @@ export const server = new Elysia()
 		locale: request.locale,
 		slug: params.slug
 	}))
+	// Pages, for pre-rendering: one in every locale, one in English alone.
+	.get('/:locale?/page', ({ i18n: request }) => {
+		renders.page += 1;
+
+		return new Response(
+			'<!doctype html><html><body><main>' + request.t('hello') + '</main></body></html>',
+			{ headers: { 'content-type': 'text/html; charset=utf-8' } }
+		);
+	})
+	.get('/english-only', () =>
+		new Response('<!doctype html><html><body><main>only</main></body></html>', {
+			headers: { 'content-type': 'text/html; charset=utf-8' }
+		})
+	)
+	.get('/renders', () => renders)
 	.get('/ready', () => 'ready')
 	.use(networking);
 `,
@@ -186,5 +204,37 @@ describe('localized pathnames, on a production server', () => {
 		expect(body.hello).toBe('Hello');
 		expect(body.locale).toBe('en');
 		expect(body.link).toBe('/blog/hello');
+	});
+});
+
+/* `static.locales`: each listed route pre-rendered at every locale's
+ * address, and served from there. */
+describe('pre-rendering per locale', () => {
+	const page = async (path: string) => (await ask(path)).text();
+	const renders = async () =>
+		(await (await ask('/renders')).json()) as { page: number };
+
+	test('a page is served from its pre-rendered copy in each locale', async () => {
+		const before = await renders();
+
+		expect(await page('/page')).toContain('<main>Hello</main>');
+		expect(await page('/fr/la-page')).toContain('<main>Bonjour</main>');
+		// Neither request rendered anything: both were on disk.
+		expect(await renders()).toEqual(before);
+	});
+
+	test('the untranslated address still redirects to the locale’s own', async () => {
+		const response = await ask('/fr/page');
+
+		expect(response.status).toBe(308);
+		expect(response.headers.get('location')).toBe('/fr/la-page');
+	});
+
+	/* `/english-only` has no French page. Asking for one would have been
+	 * reported as a page that failed to render; the server would not
+	 * have started. */
+	test('a page with no such locale is pre-rendered once, and is not a failure', async () => {
+		expect(await page('/english-only')).toContain('<main>only</main>');
+		expect((await ask('/fr/english-only')).status).toBe(404);
 	});
 });

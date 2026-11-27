@@ -46,7 +46,7 @@ import { startPageSync } from './pageSync';
 import { isPrerendering } from '../utils/isPrerendering';
 import { health, resolveHealthConfig } from '../plugins/health';
 import { rateLimit } from '../plugins/rateLimit';
-import { routingRules } from '../plugins/routingRules';
+import { askedPathOf, routingRules } from '../plugins/routingRules';
 import { requestLog } from '../plugins/requestLog';
 import { shutdown } from '../plugins/shutdown';
 import { hasForeignErrorHook } from './appErrorHooks';
@@ -1206,7 +1206,15 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 
 			// Checked against the disk: another worker may have taken
 			// this page down, or put one here (prerenderLookup.ts).
-			const filePath = prerendered.fileFor(url.pathname);
+			// A rewritten request is a page by the address the visitor
+			// asked for, which is the one it was pre-rendered at: a
+			// locale's own (`/fr/a-propos`), served by `/fr/about`.
+			const asked = askedPathOf(request);
+			const filePath =
+				(asked === undefined
+					? undefined
+					: prerendered.fileFor(asked)) ??
+				prerendered.fileFor(url.pathname);
 			if (!filePath) return undefined;
 
 			// ISR: check if page is stale and trigger background re-render
