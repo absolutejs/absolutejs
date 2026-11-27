@@ -20,6 +20,8 @@
  * data in the browser. That one has no marker. It shows as a page with
  * few words, or none. */
 
+import { auditCitation } from './auditCitation';
+
 /** Why a page's text is not all in its HTML. */
 export type ContentFindingKind =
 	'below-minimum' | 'client-only' | 'empty' | 'holes' | 'slots';
@@ -28,6 +30,10 @@ export type ContentFinding = { kind: ContentFindingKind; message: string };
 
 /** What one response says to a reader that runs no JavaScript. */
 export type PageContent = {
+	/** What the page is missing for an answer that quotes it to say
+	 *  whose words they are and where they came from
+	 *  (auditCitation.ts). Advice, not findings. */
+	citation: string[];
 	/** Reasons the page fails the audit. */
 	findings: ContentFinding[];
 	/** Things worth knowing that are not failures. */
@@ -138,6 +144,8 @@ export const auditContent = (
 			]
 		: [];
 	const content: PageContent = {
+		// A page with nothing to quote has nothing to attribute.
+		citation: isClientOnly || words === 0 ? [] : auditCitation(html),
 		findings: [
 			...clientOnly,
 			...slotFinding(

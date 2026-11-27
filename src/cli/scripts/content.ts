@@ -12,7 +12,7 @@ import type { BuildConfig } from '../../../types/build';
 import type { LiveInstance } from '../../../types/cli';
 
 /* `absolute content [paths…] [--url <origin>] [--header 'Name: value']
- *                   [--min-words <n>] [--json] [--config <path>]`
+ *                   [--min-words <n>] [--strict] [--json] [--config <path>]`
  *
  * Fetches each page of a running server the way a crawler that runs no
  * JavaScript does, and says how much text each one has in its HTML and
@@ -27,10 +27,15 @@ import type { LiveInstance } from '../../../types/cli';
  * only the pages it can name: the sitemap's, and any passed as
  * arguments. What it did not check is listed rather than left out, so a
  * clean run is never read as "every page is fine". It exits 1 on a
- * finding, so CI can decide. */
+ * finding, so CI can decide.
+ *
+ * Beside what a page says, it notes what the page is missing to be
+ * CITED — a description, a canonical address, an article's author and
+ * dates (build/auditCitation.ts). Those are advice and do not fail the
+ * run unless `--strict` says they should. */
 
 const USAGE =
-	"Usage: absolute content [paths…] [--url <origin>] [--header 'Name: value'] [--min-words <n>] [--json] [--config <path>]";
+	"Usage: absolute content [paths…] [--url <origin>] [--header 'Name: value'] [--min-words <n>] [--strict] [--json] [--config <path>]";
 
 const VALUE_FLAGS = new Set(['--config', '--header', '--min-words', '--url']);
 
@@ -40,6 +45,8 @@ type ContentArgs = {
 	json: boolean;
 	minWords: number;
 	paths: string[];
+	/** Whether what a page is missing to be cited fails the run. */
+	strict: boolean;
 	url?: string;
 };
 
@@ -80,6 +87,7 @@ const parseArgs = (args: string[]) => {
 			(arg, index) =>
 				arg.startsWith('/') && !VALUE_FLAGS.has(args[index - 1] ?? '')
 		),
+		strict: args.includes('--strict'),
 		...(url === undefined ? {} : { url })
 	};
 
@@ -176,7 +184,10 @@ const printReport = ({ checked, origin, unchecked }: ContentReport) => {
 	const lines = checked.map((page) => {
 		const said = [
 			...page.findings.map((finding) => finding.message),
-			...page.notes
+			...page.notes,
+			...(page.citation.length === 0
+				? []
+				: [`to be cited: ${page.citation.join(', ')}`])
 		].join('; ');
 
 		return `  ${page.findings.length > 0 ? '✗' : '✓'} ${page.path.padEnd(width)}  ${String(page.words).padStart(6)} words${said === '' ? '' : `  ${said}`}`;
@@ -229,6 +240,7 @@ export const content = async (args: string[]) => {
 	};
 	if (parsed.json) console.log(JSON.stringify(report, null, '\t'));
 	else printReport(report);
-	if (report.checked.some((page) => page.findings.length > 0))
-		process.exit(1);
+	const fails = (page: Checked) =>
+		page.findings.length > 0 || (parsed.strict && page.citation.length > 0);
+	if (report.checked.some(fails)) process.exit(1);
 };

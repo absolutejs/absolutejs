@@ -574,6 +574,16 @@ export const load = async ({ params }: FileRouteContext<'/blog/:slug'>) => {
     redirected, one that did not answer 200.
   - It is a command and not a build warning: it needs a server, and takes a
     request per page.
+  - **To be cited.** Beside what a page says, it notes what the page is
+    missing for an answer that quotes it to say whose words they are and
+    where they came from: a title, a description, a canonical address, and
+    for an `Article`, `BlogPosting` or `NewsArticle` in its JSON-LD a
+    headline, a named author, `datePublished` and `dateModified`. It reads
+    the page's HTML, so it sees JSON-LD however it got there, in any
+    framework. These are advice — whether an article needs a named author
+    is the site's call — and do not fail the run unless `--strict` is
+    passed. A page with nothing to quote is not also told what it lacks to
+    be cited.
 - **`llms-full.txt` (built, opt-in).** `llms: { full: true }` also serves
   `/llms-full.txt`: the text of every page `llms.txt` lists, in one
   Markdown file, each page under a line saying where it is. `llms.txt`

@@ -5,6 +5,21 @@
 		{
 			"changes": [
 				{
+					"detail": "`absolute content` now also notes what each page is missing to be cited: a title, a description, a canonical address, and for an Article, BlogPosting or NewsArticle in its JSON-LD a headline, a named author, datePublished and dateModified. An article without them can be quoted and not attributed. It reads the page's HTML, so it sees JSON-LD however it got onto the page — route metadata, a JsonLd component or a script tag written by hand — in any framework, and says when a JSON-LD block could not be parsed. These are advice and do not fail the run; `--strict` makes them fail it. A page with nothing to quote is not also told what it lacks. The `--json` report carries them as `citation` on each page. Also: `ArticleSchema` takes `speakable`, a `SpeakableSpecification` naming the parts of a page best read aloud, by CSS selector or XPath. See docs/FILE_ROUTER_PLAN.md.",
+					"kind": "added",
+					"summary": "absolute content notes what a page is missing to be cited, and Article JSON-LD takes speakable",
+					"symbols": [
+						"ArticleSchema",
+						"SpeakableSpecification"
+					]
+				}
+			],
+			"date": "2026-11-27",
+			"version": "0.20.0-beta.442"
+		},
+		{
+			"changes": [
+				{
 					"detail": "`llms: { full: true }` also serves /llms-full.txt: the text of every page llms.txt lists, in one Markdown file, each page under a line saying where it is, and llms.txt links to it. A build cannot write the file, since a page's text exists once something renders the page and most pages are rendered by the running server; so the build leaves the list of pages and the server makes the file the first time it is asked for, asking itself for each page as Markdown one at a time, and keeps it. Requests that arrive while it is being made wait for that one making. Once the kept copy is `revalidate` seconds old (default 3600) the next request is served it and a new one is made behind it. The pages are asked for with no cookie and no authorization, because the file is one copy for everyone: a page that redirects or refuses such a visitor is left out, and so is a page with a title and no text. A route's own `markdown` export is used where there is one. The file holds at most `maxPages` pages (default 500). It does not need `markdown: true`. Each server process keeps its own copy; an llms-full.txt in publicDirectory wins, with a warning; there is none under `absolute dev`. See docs/FILE_ROUTER_PLAN.md.",
 					"kind": "added",
 					"summary": "llms: { full: true } serves llms-full.txt, every page’s text in one file",
