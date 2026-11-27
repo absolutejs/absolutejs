@@ -5,6 +5,23 @@
 		{
 			"changes": [
 				{
+					"detail": "The translator every framework hands a page (`useI18n()` in React and Vue, `getI18n()` in Svelte, `injectI18n()` in Angular) has `href(path, locale?)`, which writes a link to a page in the page's own locale: `href('/about')` is `/fr/about` on a French page, and `href(currentPath, 'en')` is the English address, for a language switcher. Under `prefix` routing it adds or swaps the locale segment, leaving the default locale unprefixed unless `prefixDefault` is set; under `domain` a link to another locale goes to that locale's host; under `negotiate` every locale shares one address. A query and a fragment are kept, and an address that is not a page of this site — another site, a relative address, `mailto:`, a file — is returned as it is. It works in the browser as on the server because the i18n payload now carries the routing it needs (`routing`: the locales, and the strategy, prefixDefault and domains only when they are not the defaults); a payload made by hand has none and its `href()` returns the path as given. Links are not localized on their own: a site's existing `/fr/about` link on an English page is its language switcher. `localizeHref(href, locale, routing)` is exported from `@absolutejs/absolute/i18n` as a function. See docs/I18N_PLAN.md.",
+					"kind": "added",
+					"summary": "href() on the i18n translator writes a link in the page’s locale, in every framework",
+					"symbols": [
+						"localizeHref",
+						"I18nPayload",
+						"I18nPayloadRouting",
+						"Translator"
+					]
+				}
+			],
+			"date": "2026-11-27",
+			"version": "0.20.0-beta.445"
+		},
+		{
+			"changes": [
+				{
 					"detail": "`i18n` in absolute.config.ts declares the app's locale routing — locales, defaultLocale, strategy, prefixDefault, domains, localeParam — where the build and the CLI can read it. With it, the sitemap lists every page once per locale without `sitemap.i18n` repeating the locales, and llms.txt lists each page in the default locale; `sitemap.i18n` still wins where it is given, with a warning when the two differ. `defineI18n` is still given the routing itself, because the locale types every `t()` and `payload()` is checked against come from the locales written in that call; `defineI18nRouting({ … })` makes one object for both, keeping the locales as literals. When the config and `defineI18n` differ anyway, the server says so once, at its first request, naming the settings that differ. Nothing changes for an app without the key. See docs/I18N_PLAN.md.",
 					"kind": "added",
 					"summary": "The i18n config key declares locale routing for the build, with defineI18nRouting to share it",

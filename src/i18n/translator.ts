@@ -7,6 +7,7 @@ import type {
 	Translator
 } from '../../types/i18n';
 import { formatMessage } from './formatMessage';
+import { localizeHref } from './routing';
 import {
 	getDateTimeFormat,
 	getListFormat,
@@ -60,7 +61,7 @@ const warnMissing = (locale: string, key: string) => {
 export const createTranslator = <Catalog = MessageCatalog>(
 	payload: I18nPayload
 ) => {
-	const { locale, messages } = payload;
+	const { defaultLocale, locale, messages, routing } = payload;
 	const t: Translate<Catalog> = (key, ...args: unknown[]) => {
 		const message = lookupMessage(messages, key);
 		if (message === undefined) {
@@ -84,7 +85,16 @@ export const createTranslator = <Catalog = MessageCatalog>(
 			getNumberFormat(locale, options).format(value),
 		formatRelativeTime: (value, unit, options) =>
 			getRelativeTimeFormat(locale, options).format(value, unit),
-		has: (key) => lookupMessage(messages, key) !== undefined
+		has: (key) => lookupMessage(messages, key) !== undefined,
+		href: (path, target = locale) =>
+			routing
+				? localizeHref(
+						path,
+						target,
+						{ ...routing, defaultLocale },
+						locale
+					)
+				: path
 	};
 
 	return translator;

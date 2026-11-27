@@ -207,7 +207,19 @@ export type I18nPayload<Locale extends string = string> = {
 	defaultLocale: Locale;
 	dir: TextDirection;
 	messages: MessageTree;
+	/** How a path is addressed in a locale, so a link can be written
+	 *  for one in the browser as on the server (`href()` on the
+	 *  translator). Absent from a payload made by hand, where `href()`
+	 *  returns the path as it was given. */
+	routing?: I18nPayloadRouting<Locale>;
 };
+
+/** The routing a payload carries: the config's, without the default
+ *  locale the payload already names. */
+export type I18nPayloadRouting<Locale extends string = string> = Omit<
+	LocaleRoutingConfig<Locale>,
+	'defaultLocale'
+>;
 
 export type DateInput = Date | number | string;
 
@@ -219,6 +231,12 @@ export type Translator<Catalog = MessageCatalog> = {
 	t: Translate<Catalog>;
 	/** Whether the loaded catalog has a message at `key`. */
 	has: (key: string) => boolean;
+	/** The address of a page in this locale, or in `locale`: under
+	 *  `prefix` routing `href('/about')` is `/fr/about` on a French
+	 *  page, and `href('/about', 'en')` is the English one, for a
+	 *  language switcher. A query and a fragment are kept. An address
+	 *  on another site, or one that is a file's, is returned as it is. */
+	href: (path: string, locale?: string) => string;
 	formatNumber: (
 		value: number | bigint,
 		options?: Intl.NumberFormatOptions

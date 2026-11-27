@@ -127,7 +127,9 @@ describe('i18nPlugin — prefix strategy', () => {
 			defaultLocale: 'en',
 			dir: 'ltr',
 			locale: 'fr',
-			messages: { about: { title: 'À propos de {site}' } }
+			messages: { about: { title: 'À propos de {site}' } },
+			// What `href()` needs to write a link for a locale.
+			routing: { locales: ['en', 'fr', 'ar'] }
 		});
 	});
 
