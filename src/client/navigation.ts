@@ -1357,20 +1357,93 @@ const navigateInPlace = async (
 const LOADING_INDICATOR_PATH = '/__absolute/loading';
 const LOADING_INDICATOR_ATTRIBUTE = 'data-absolute-loading';
 const LOADING_INDICATOR_DELAY_MS = 150;
-const LOADING_INDICATOR_EMPTY = 204;
 
-let loadingMarkup: Promise<string | null> | undefined;
+/* Every `loading` the app has, fetched once: the app-wide one, and each
+ * route folder's with the address it covers. Which to show depends on
+ * where a navigation is going, and that is known here, in the browser,
+ * before anything is asked of the server — so the choice is made here,
+ * and the fetch stays one per session however many sections are
+ * visited. */
+type LoadingFolder = {
+	depth: number;
+	html: string;
+	literal: number;
+	pattern: RegExp;
+};
 
-const fetchLoadingMarkup = () =>
-	(loadingMarkup ??= fetch(LOADING_INDICATOR_PATH, {
-		headers: { accept: 'text/html' }
-	})
-		.then((response) =>
-			response.status === LOADING_INDICATOR_EMPTY || !response.ok
-				? null
-				: response.text()
+type LoadingSet = { fallback: string | null; folders: LoadingFolder[] };
+
+const NO_LOADING: LoadingSet = { fallback: null, folders: [] };
+
+/* `/blog/:slug` as the start of an address: that folder and anything
+ * below it. The same reading the server gives a folder's `not-found`
+ * (utils/resolveConvention.ts). */
+const loadingFolderOf = (path: string, html: string) => {
+	const segments = path
+		.split('/')
+		.filter((segment) => segment !== '' && segment !== '*');
+	const source = segments
+		.map((segment) =>
+			segment.startsWith(':')
+				? '/[^/]+'
+				: `/${segment.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`
 		)
-		.catch(() => null));
+		.join('');
+	const folder: LoadingFolder = {
+		depth: segments.length,
+		html,
+		literal: segments.filter((segment) => !segment.startsWith(':')).length,
+		pattern: new RegExp(`^${source}(?:/.*)?$`)
+	};
+
+	return folder;
+};
+
+const readLoadingFolder = (value: unknown) => {
+	if (!isRecord(value)) return [];
+	const { html, path } = value;
+
+	return typeof html === 'string' && typeof path === 'string'
+		? [loadingFolderOf(path, html)]
+		: [];
+};
+
+const readLoadingSet = (value: unknown) => {
+	if (!isRecord(value)) return NO_LOADING;
+	const { fallback, folders } = value;
+	const set: LoadingSet = {
+		fallback: typeof fallback === 'string' ? fallback : null,
+		folders: Array.isArray(folders)
+			? folders.flatMap(readLoadingFolder)
+			: []
+	};
+
+	return set;
+};
+
+let loadingSet: Promise<LoadingSet> | undefined;
+
+const fetchLoadingSet = () =>
+	(loadingSet ??= fetch(LOADING_INDICATOR_PATH, {
+		headers: { accept: 'application/json' }
+	})
+		.then(async (response) =>
+			response.ok ? readLoadingSet(await response.json()) : NO_LOADING
+		)
+		.catch(() => NO_LOADING));
+
+/* The deepest folder the destination falls under; between two as deep,
+ * the one that names more of the address. Failing any, the app's. */
+const loadingMarkupFor = ({ fallback, folders }: LoadingSet, url: URL) => {
+	const [closest] = folders
+		.filter((folder) => folder.pattern.test(url.pathname))
+		.sort(
+			(left, right) =>
+				right.depth - left.depth || right.literal - left.literal
+		);
+
+	return closest?.html ?? fallback;
+};
 
 const removeLoadingIndicator = () => {
 	for (const host of Array.from(
@@ -1380,8 +1453,12 @@ const removeLoadingIndicator = () => {
 	}
 };
 
-const showLoadingIndicator = async (nav: Runtime, isStale: () => boolean) => {
-	const markup = await fetchLoadingMarkup();
+const showLoadingIndicator = async (
+	nav: Runtime,
+	destination: URL,
+	isStale: () => boolean
+) => {
+	const markup = loadingMarkupFor(await fetchLoadingSet(), destination);
 	// The navigation may have finished while this was in flight, and a
 	// second one may have started: either way there is nothing to show.
 	if (markup === null || isStale()) return;
@@ -1397,9 +1474,13 @@ const showLoadingIndicator = async (nav: Runtime, isStale: () => boolean) => {
 
 /** Starts the delay; the returned function cancels it and clears the
  *  indicator, whichever of the two is still pending. */
-const startLoadingIndicator = (nav: Runtime, isStale: () => boolean) => {
+const startLoadingIndicator = (
+	nav: Runtime,
+	destination: URL,
+	isStale: () => boolean
+) => {
 	const timer = setTimeout(() => {
-		void showLoadingIndicator(nav, isStale);
+		void showLoadingIndicator(nav, destination, isStale);
 	}, LOADING_INDICATOR_DELAY_MS);
 
 	return () => {
@@ -1438,6 +1519,7 @@ const performNavigation = async (nav: Runtime, request: NavigationRequest) => {
 	const committedBefore = nav.documentId;
 	const stopLoadingIndicator = startLoadingIndicator(
 		nav,
+		request.url,
 		() => !isCurrent(nav, token)
 	);
 	try {

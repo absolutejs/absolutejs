@@ -2,13 +2,14 @@ import { existsSync } from 'node:fs';
 import { dirname, join, relative, sep } from 'node:path';
 import { Glob } from 'bun';
 import type {
+	FolderLoading,
 	FolderNotFound,
 	RouteFolderConventions
 } from '../../types/conventions';
 import type { FileRouteFramework } from '../../types/fileRoutes';
 import { fileRoutePath, fileRouteRootOf, fileRoutesOf } from './fileRoutes';
 
-/* `error` and `not-found` files inside a route folder.
+/* `error`, `not-found` and `loading` files inside a route folder.
  *
  * `routes/blog/error.tsx` is the error page for every route under
  * `routes/blog/`, and `routes/blog/not-found.tsx` its 404 — the way a
@@ -90,26 +91,31 @@ const pathsOfFolder = (
 	return 'error' in mapped ? [] : mapped.paths;
 };
 
-const notFoundFiles = (rootDir: string, extension: string) =>
+type FolderFile = { file: string; path: string };
+
+const filesNamed = (rootDir: string, name: string, extension: string) =>
 	Array.fromAsync(
-		new Glob(`**/not-found${extension}`).scan({
+		new Glob(`**/${name}${extension}`).scan({
 			absolute: true,
 			cwd: rootDir
 		})
 	);
 
-const foldersWithNotFound = async (
+/* Every folder that has a file of this name, with the addresses the
+ * folder stands for. */
+const foldersWith = async (
 	framework: FileRouteFramework,
-	rootDir: string
+	rootDir: string,
+	name: string
 ) => {
 	const perExtension = await Promise.all(
 		EXTENSIONS[framework].map(async (extension) =>
-			(await notFoundFiles(rootDir, extension)).flatMap((file) =>
+			(await filesNamed(rootDir, name, extension)).flatMap((file) =>
 				pathsOfFolder(
 					framework,
 					toPosix(relative(rootDir, dirname(file))),
 					extension
-				).map((path): FolderNotFound => ({ notFound: file, path }))
+				).map((path): FolderFile => ({ file, path }))
 			)
 		)
 	);
@@ -121,6 +127,11 @@ const foldersWithNotFound = async (
 
 export type ScannedRouteFolderConventions = {
 	folders: FolderNotFound[];
+	/** A folder's `loading` is chosen by the address being navigated
+	 *  to, in the browser, where there is no route to ask: so it is
+	 *  kept by path only, and a `(group)` folder's is left out as its
+	 *  `not-found` is for unmatched addresses. */
+	loadingFolders: FolderLoading[];
 	/** By route page name. */
 	routes: Record<string, RouteFolderConventions>;
 };
@@ -144,10 +155,23 @@ export const scanRouteFolderConventions = async (
 				...(notFound ? { notFound } : {})
 			};
 	}
-	const folders = await foldersWithNotFound(framework, rootDir);
-	if (folders.length === 0 && Object.keys(routes).length === 0)
+	const folders = (await foldersWith(framework, rootDir, 'not-found')).map(
+		({ file, path }): FolderNotFound => ({ notFound: file, path })
+	);
+	const loadingFolders = (
+		await foldersWith(framework, rootDir, 'loading')
+	).map(({ file, path }): FolderLoading => ({ loading: file, path }));
+	if (
+		folders.length === 0 &&
+		loadingFolders.length === 0 &&
+		Object.keys(routes).length === 0
+	)
 		return undefined;
-	const scanned: ScannedRouteFolderConventions = { folders, routes };
+	const scanned: ScannedRouteFolderConventions = {
+		folders,
+		loadingFolders,
+		routes
+	};
 
 	return scanned;
 };

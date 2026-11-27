@@ -226,6 +226,7 @@ const collectConventionSourceFiles = (
 		if (route.notFound) files.push(route.notFound);
 	}
 	for (const folder of entry.folders ?? []) files.push(folder.notFound);
+	for (const folder of entry.loadingFolders ?? []) files.push(folder.loading);
 
 	return [...new Set(files)];
 };
@@ -275,6 +276,8 @@ const updateConventionCompiledPaths = (
 	}
 	for (const folder of entry.folders ?? [])
 		folder.notFound = compiled(folder.notFound);
+	for (const folder of entry.loadingFolders ?? [])
+		folder.loading = compiled(folder.loading);
 };
 
 type RouteConventionFramework =
@@ -292,6 +295,7 @@ const addRouteFolderConventions = async (
 	const entry = conventionsMap[framework] ?? {};
 	entry.routes = scanned.routes;
 	entry.folders = scanned.folders;
+	entry.loadingFolders = scanned.loadingFolders;
 	conventionsMap[framework] = entry;
 };
 
@@ -309,6 +313,7 @@ const addStaticRouteFolderConventions = async (
 	const entry = conventionsMap[framework];
 	const sources = collectConventionSourceFiles({
 		folders: entry?.folders,
+		loadingFolders: entry?.loadingFolders,
 		routes: entry?.routes
 	});
 	if (sources.length === 0) return;
@@ -320,33 +325,49 @@ const addStaticRouteFolderConventions = async (
 		return dest;
 	});
 	updateConventionCompiledPaths(
-		{ folders: entry?.folders, routes: entry?.routes },
+		{
+			folders: entry?.folders,
+			loadingFolders: entry?.loadingFolders,
+			routes: entry?.routes
+		},
 		sources,
 		copies
 	);
 };
 
-/* Two frameworks' route folders may both hold a `not-found` for one
- * address, and an address that no route answers belongs to neither:
- * there is nothing to say which page to show. A production build stops
- * on it, as it does on two files serving one path. */
+/* Two frameworks' route folders may both hold a `not-found`, or a
+ * `loading`, for one address — and an address belongs to neither: for
+ * one that no route answers, or one being navigated to, there is
+ * nothing to say which to show. A production build stops on it, as it
+ * does on two files serving one path. */
+const clashesOf = (
+	conventionsMap: ConventionsMap,
+	kind: 'loading' | 'not-found'
+) => {
+	const owners = new Map<string, Set<string>>();
+	for (const [framework, entry] of Object.entries(conventionsMap)) {
+		const folders =
+			kind === 'loading' ? entry?.loadingFolders : entry?.folders;
+		for (const { path } of folders ?? [])
+			owners.set(path, (owners.get(path) ?? new Set()).add(framework));
+	}
+
+	return [...owners]
+		.filter(([, frameworks]) => frameworks.size > 1)
+		.map(
+			([path, frameworks]) =>
+				`${path}: ${[...frameworks].join(' and ')} route folders each have a ${kind} for this path, and an address under it could show either. Keep one.`
+		);
+};
+
 const reportFolderNotFoundConflicts = (
 	conventionsMap: ConventionsMap,
 	isDev: boolean
 ) => {
-	const owners = new Map<string, string[]>();
-	for (const [framework, entry] of Object.entries(conventionsMap))
-		for (const folder of entry?.folders ?? [])
-			owners.set(folder.path, [
-				...(owners.get(folder.path) ?? []),
-				framework
-			]);
-	const problems = [...owners]
-		.filter(([, frameworks]) => new Set(frameworks).size > 1)
-		.map(
-			([path, frameworks]) =>
-				`${path}: ${[...new Set(frameworks)].join(' and ')} route folders each have a not-found for this path, and an address under it that no route answers could show either. Keep one.`
-		);
+	const problems = [
+		...clashesOf(conventionsMap, 'not-found'),
+		...clashesOf(conventionsMap, 'loading')
+	];
 	if (problems.length === 0) return;
 	const message = `File routes:\n  ${problems.join('\n  ')}`;
 	if (!isDev) throw new Error(message);

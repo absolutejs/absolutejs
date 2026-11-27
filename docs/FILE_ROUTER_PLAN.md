@@ -106,7 +106,7 @@ export const server = new Elysia()
 | `[[lang]]/about.tsx` | `/about` and `/:lang/about` (`params.lang?: string`) | 2 |
 | `(marketing)/pricing.tsx` | `/pricing` (group folder left out of the path) | 2 |
 | `blog/error.tsx`, `blog/not-found.tsx` | error page and 404 for `/blog/**` (built) | 3 |
-| `blog/loading.tsx` | loading indicator for `/blog/**` | 3 |
+| `blog/loading.tsx` | loading indicator for navigations to `/blog/**` (built) | 3 |
 | `layout.tsx`, `blog/layout.tsx` | wraps `/**` and `/blog/**` (React, Svelte, Vue, Angular; built) | 2 |
 
 - Unsupported segments and two files claiming one path are **build errors**
@@ -526,8 +526,21 @@ reactFileRoute<'/blog/:slug', typeof import('./react/routes/blog/[slug]'),
   - A page's own `<Page>.error` file in `pages/` still wins for that page.
   - Only page requests get these pages: a client asking for JSON keeps the
     JSON 404, as with the app-wide conventions.
-- **`loading` per folder (Phase 3, open).** Still one indicator for the app,
-  from `pages/`.
+- **`loading` per folder (built).** `routes/dashboard/loading.tsx` is the
+  indicator the navigation layer shows while a soft navigation to an address
+  under `/dashboard/` is in flight; the app's own, from `pages/`, is shown for
+  anywhere else. The deepest folder the destination falls under wins, by the
+  same rule as a folder's `not-found` for an unmatched address.
+  - It is chosen by where the navigation is GOING, in the browser, before
+    the server is asked anything. So the layer fetches every indicator the
+    app has in one request, once per session (`/__absolute/loading`, asked
+    for as JSON), and picks among them itself. Visiting ten sections is
+    still one fetch.
+  - Because it is chosen by address and not by route, a `(group)` folder's
+    `loading` has no address of its own and is not used; put it in a folder
+    that names a path segment.
+  - Two frameworks holding a `loading` for the same folder path is a build
+    error in production and a warning in dev.
 
 ## 3. Phases and exit criteria
 
@@ -553,7 +566,7 @@ context~~ **done**; the `actions` hook wired to the form-actions runtime
 
 **Phase 3 — Angular, conventions, static generation.**
 Exit criteria: Angular route folders; ~~per-folder `error` and
-`not-found`~~ **done**; per-folder `loading` (open);
+`not-found`~~ **done**; ~~per-folder `loading`~~ **done**;
 prerender/ISR expansion of file routes; `absolute compile` (standalone
 binary) e2e with file routes.
 

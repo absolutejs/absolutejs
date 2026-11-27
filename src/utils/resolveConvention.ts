@@ -782,3 +782,64 @@ export const renderFirstNotFound = async (
 			: NOT_FOUND_PRIORITY
 	);
 };
+
+/** One route folder's `loading`, rendered: the address the folder
+ *  stands for, and the markup. */
+export type FolderLoadingFragment = { html: string; path: string };
+
+/** Every `loading` the app has, rendered: the app-wide one, and each
+ *  route folder's. */
+export type LoadingSet = {
+	fallback: string | null;
+	folders: FolderLoadingFragment[];
+};
+
+const renderLoadingAt = async (
+	framework: keyof ConventionsMap,
+	conventionPath: string
+) => {
+	try {
+		const fragment = await LOADING_RENDERERS[framework](conventionPath);
+
+		return fragment !== null && fragment.trim() !== ''
+			? stripNonces(fragment)
+			: null;
+	} catch (renderError) {
+		logConventionRenderError(framework, 'loading', renderError);
+
+		return null;
+	}
+};
+
+const renderFolderLoading = async (
+	framework: string,
+	folder: { loading: string; path: string }
+) => {
+	if (!isConventionFramework(framework)) return [];
+	const html = await renderLoadingAt(framework, folder.loading);
+	if (html === null) return [];
+	const fragment: FolderLoadingFragment = { html, path: folder.path };
+
+	return [fragment];
+};
+
+/** All of the app's `loading` conventions as insertable markup: the one
+ *  in `pages/`, and each route folder's with the address it covers
+ *  (`routes/dashboard/loading` for `/dashboard/**`). The navigation
+ *  layer fetches the set once and picks, for each navigation, the
+ *  deepest folder its destination falls under. */
+export const renderLoadingSet = async () => {
+	const perFolder = await Promise.all(
+		Object.entries(getMap()).flatMap(([framework, entry]) =>
+			(entry?.loadingFolders ?? []).map((folder) =>
+				renderFolderLoading(framework, folder)
+			)
+		)
+	);
+	const set: LoadingSet = {
+		fallback: await renderFirstLoadingFragment(),
+		folders: perFolder.flat()
+	};
+
+	return set;
+};

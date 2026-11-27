@@ -9,6 +9,7 @@ import {
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { openPage } from '../../helpers/browser';
 
 /* `error` and `not-found` files in a route folder, under `absolute start`.
  *
@@ -70,6 +71,8 @@ const STATIC_PAGE = (id: string) =>
 /* Every route fails the same three ways, by what it is asked for. */
 const SERVER_MODULE = `import { NotFound } from 'elysia';
 
+const SLOW_MS = 1500;
+
 const failing = (what: string | undefined) => {
 	if (what === 'missing') throw new NotFound();
 	if (what === 'broken') throw new Error('the data could not be loaded');
@@ -77,8 +80,29 @@ const failing = (what: string | undefined) => {
 	return { explode: what === 'unrenderable' };
 };
 
-export const load = ({ params, query }: { params: Record<string, string | undefined>; query: Record<string, string | undefined> }) =>
-	failing(params.slug ?? query.fail);
+export const load = async ({ params, query }: { params: Record<string, string | undefined>; query: Record<string, string | undefined> }) => {
+	// Long enough for the navigation layer to show its indicator.
+	if (query.slow) await Bun.sleep(SLOW_MS);
+
+	return failing(params.slug ?? query.fail);
+};
+`;
+
+const loadingPart = (id: string) => `export default function Loading() {
+	return <div id="${id}">loading</div>;
+}
+`;
+
+/* Links to a route under `blog/`, which has its own `loading`, and to
+ * one that has only the app's. */
+const HOME = `export default function Page() {
+	return (
+		${document(
+			'home',
+			'<a href="/blog/hello?slow=1" id="to-blog">blog</a> <a href="/shop/item?slow=1" id="to-shop">shop</a>'
+		)}
+	);
+}
 `;
 
 const FILES: Record<string, string> = {
@@ -88,6 +112,7 @@ export default defineConfig({
 	buildDirectory: './build',
 	fileRoutes: { output: './routes.gen.ts' },
 	htmlDirectory: './html',
+	navigation: true,
 	reactDirectory: './react',
 	svelteDirectory: './svelte'
 });
@@ -101,6 +126,7 @@ export default defineConfig({
 	}),
 	// The app's own, for whatever no route folder covers.
 	'react/pages/error.tsx': errorPage('app-error'),
+	'react/pages/loading.tsx': loadingPart('app-loading'),
 	'react/pages/not-found.tsx': notFoundPage('app-not-found'),
 	// A group: no segment in the address, and its own error page.
 	'react/routes/(admin)/error.tsx': errorPage('admin-error'),
@@ -113,8 +139,9 @@ export default defineConfig({
 	'react/routes/blog/drafts/list.server.ts': SERVER_MODULE,
 	'react/routes/blog/drafts/list.tsx': page('drafts'),
 	'react/routes/blog/error.tsx': errorPage('blog-error'),
+	'react/routes/blog/loading.tsx': loadingPart('blog-loading'),
 	'react/routes/blog/not-found.tsx': notFoundPage('blog-not-found'),
-	'react/routes/index.tsx': page('home'),
+	'react/routes/index.tsx': HOME,
 	// No conventions anywhere above it but the app's.
 	'react/routes/shop/item.server.ts': SERVER_MODULE,
 	'react/routes/shop/item.tsx': page('item'),
@@ -143,6 +170,9 @@ export const server = new Elysia()
 			paths: {
 				'@absolutejs/absolute': [fromSource('index.ts')],
 				'@absolutejs/absolute/client': [fromSource('client/index.ts')],
+				'@absolutejs/absolute/client/navigation': [
+					fromSource('client/navigation.ts')
+				],
 				'@absolutejs/absolute/react': [fromSource('react/index.ts')],
 				'@absolutejs/absolute/react/components': [
 					fromSource('react/components/index.ts')
@@ -390,4 +420,70 @@ describe('a route that works', () => {
 		expect(answer.status).toBe(200);
 		expect(shows(answer, 'post')).toBe(true);
 	});
+});
+
+/* `loading` in a route folder: the indicator the navigation layer shows
+ * while a soft navigation to an address under that folder is in
+ * flight. The app's own, from `pages/`, for anywhere else. */
+describe('the loading indicators', () => {
+	test('are served together: the app’s, and each folder’s with its address', async () => {
+		const response = await fetch(url('/__absolute/loading'), {
+			headers: { accept: 'application/json' }
+		});
+		const set: { fallback: string | null; folders: unknown[] } =
+			await response.json();
+
+		expect(set.fallback).toContain('id="app-loading"');
+		expect(set.folders).toEqual([
+			{
+				html: expect.stringContaining('id="blog-loading"'),
+				path: '/blog'
+			}
+		]);
+	});
+
+	test('asked for as markup, is still the app’s alone', async () => {
+		const response = await fetch(url('/__absolute/loading'), {
+			headers: { accept: 'text/html' }
+		});
+
+		expect(await response.text()).toContain('id="app-loading"');
+	});
+
+	test('in a browser, a navigation shows its destination folder’s, and the app’s elsewhere', async () => {
+		const session = await openPage(url('/'), { waitUntil: 'load' });
+		try {
+			const { page: tab } = session;
+			await tab.waitForFunction(
+				() =>
+					typeof Reflect.get(window, '__ABSOLUTE_PAGE_DISPOSE__') ===
+					'function',
+				undefined,
+				{ timeout: 30_000 }
+			);
+			await tab.evaluate(() => {
+				Reflect.set(window, '__sameDocument', true);
+			});
+
+			await tab.click('#to-blog');
+			await tab.waitForSelector('#blog-loading', { timeout: 10_000 });
+			expect(await tab.locator('#app-loading').count()).toBe(0);
+			await tab.waitForSelector('#post', { timeout: 20_000 });
+			// Gone with the navigation it was for.
+			expect(await tab.locator('#blog-loading').count()).toBe(0);
+
+			await tab.goBack();
+			await tab.waitForSelector('#to-shop', { timeout: 20_000 });
+			await tab.click('#to-shop');
+			await tab.waitForSelector('#app-loading', { timeout: 10_000 });
+			expect(await tab.locator('#blog-loading').count()).toBe(0);
+			await tab.waitForSelector('#item', { timeout: 20_000 });
+
+			expect(
+				await tab.evaluate(() => Reflect.get(window, '__sameDocument'))
+			).toBe(true);
+		} finally {
+			await session.close();
+		}
+	}, 120_000);
 });

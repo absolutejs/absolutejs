@@ -20,6 +20,8 @@ const FILES = [
 	'react/routes/blog/[slug].tsx',
 	'react/routes/blog/error.tsx',
 	'react/routes/blog/not-found.tsx',
+	'react/routes/blog/loading.tsx',
+	'react/routes/(admin)/loading.tsx',
 	'react/routes/blog/drafts/list.tsx',
 	'react/routes/blog/drafts/error.tsx',
 	'react/routes/users/[id]/profile.tsx',
@@ -153,6 +155,23 @@ describe('the addresses a folder’s not-found stands for', () => {
 
 		expect(files).not.toContain('(admin)/not-found.tsx');
 		expect(files).not.toContain('_parts/not-found.tsx');
+	});
+});
+
+describe('the addresses a folder’s loading stands for', () => {
+	/* Chosen in the browser by where a navigation is going, where there
+	 * is no route to ask: kept by path, like a not-found for an
+	 * unmatched address, and a (group) folder's is left out the same
+	 * way. */
+	test('are the folder’s, with a (group) folder left out', async () => {
+		const { loadingFolders } = await scanned();
+
+		expect(
+			loadingFolders.map((folder) => ({
+				file: inRoutes(folder.loading),
+				path: folder.path
+			}))
+		).toEqual([{ file: 'blog/loading.tsx', path: '/blog' }]);
 	});
 });
 

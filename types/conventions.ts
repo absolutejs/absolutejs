@@ -26,11 +26,20 @@ export type FolderNotFound = {
 	path: string;
 };
 
+/** A route folder's `loading`, and the address the folder stands for:
+ *  the indicator shown while navigating to an address under it. */
+export type FolderLoading = {
+	loading: string;
+	path: string;
+};
+
 export type FrameworkConventionEntry = {
 	defaults?: FrameworkConventions;
 	pages?: Record<string, PageConventions>;
 	/** Route folders that have a `not-found`. */
 	folders?: FolderNotFound[];
+	/** Route folders that have a `loading`. */
+	loadingFolders?: FolderLoading[];
 	/** File routes' folder conventions, by route page name. */
 	routes?: Record<string, RouteFolderConventions>;
 };
