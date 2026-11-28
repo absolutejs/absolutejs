@@ -1,5 +1,6 @@
 import { resolve } from 'node:path';
 import { getAvailablePort } from './ports';
+import { forgetDevServer, recordDevServer } from './devServerDiagnostics';
 import { waitForServer } from './http';
 
 const PROJECT_ROOT = resolve(import.meta.dir, '..', '..');
@@ -135,8 +136,10 @@ export const startDevServer = async (options?: DevServerOptions | number) => {
 		pattern: RegExp;
 		resolve: (line: string) => void;
 	}> = [];
+	const recordForDiagnostics = recordDevServer(resolvedPort);
 	const recordLine = (line: string) => {
 		outputLines.push(line);
+		recordForDiagnostics(line);
 		opts.onLine?.(line);
 		for (let i = lineWaiters.length - 1; i >= 0; i--) {
 			const entry = lineWaiters[i];
@@ -178,6 +181,7 @@ export const startDevServer = async (options?: DevServerOptions | number) => {
 	}
 
 	const kill = async () => {
+		forgetDevServer(resolvedPort);
 		try {
 			proc.kill('SIGTERM');
 		} catch {
