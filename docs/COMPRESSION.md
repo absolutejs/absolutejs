@@ -125,10 +125,61 @@ response under 1 KB, and a `HEAD` request, are sent as they are.
 Before this, measured on a production server: a page as Markdown (3.7 KB)
 and `llms-full.txt` (13.8 KB) both left with no `content-encoding`.
 
+## The app's own routes (opt-in)
+
+What the app's routes return — JSON, text, XML — is compressed when the app
+mounts `compressResponses()`:
+
+```ts
+import { compressResponses } from '@absolutejs/absolute';
+
+export const server = new Elysia()
+	.use(absolutejs)
+	.use(myResponseHook) // the app's own response hooks first
+	.use(compressResponses()) // then this
+	.get('/api/items', () => items); // and the routes it covers after
+```
+
+Or inside a group, to cover that group alone:
+
+```ts
+app.group('/api', (api) => api.use(compressResponses()).get('/items', () => items));
+```
+
+It is opt-in, and mounted by the app where it wants it, because this is the
+one place compression touches responses the app wrote. Two rules of
+Elysia's decide where it goes:
+
+- **It reaches only what comes after it**: the routes registered after it,
+  and the plugins and groups mounted after it. A route registered before it
+  is sent uncompressed. In development, it says which of the app's routes it
+  was mounted after.
+- **The app's own response hooks belong before it.** When a response hook
+  replaces a response, the response hooks registered after it do not run,
+  and this replaces every response it compresses.
+
+The replacement keeps the route's status, headers and cookies.
+
+A plain object, an array or a string the route returns is compressed whole.
+A `Response` the route returns is compressed as it streams, so a large one
+is not read into memory first.
+
+Never compressed:
+
+- an event stream (`text/event-stream`), or a route written as a generator,
+  which Elysia turns into a stream: replacing its response would end it;
+- a page (`text/html`), which is the page path's to compress or not;
+- a body already encoded, or marked `cache-control: no-transform`;
+- a `HEAD` request, a range request, a `206`;
+- a body under 1 KB, where its size is known, and one that would not shrink
+  by a tenth;
+- anything that is not text: a file, binary data.
+
 ## Not yet
 
 - Streamed pages by default, as above.
 - A pre-rendered page under `static.cache` or under a per-request CSP
   nonce, as above.
-- An API route's response.
-- zstd.
+- An app route's response without `compressResponses()`, as above.
+- zstd. Browsers do not all accept it yet, and brotli is accepted wherever
+  it would be.

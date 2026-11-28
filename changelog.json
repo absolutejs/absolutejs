@@ -5,6 +5,20 @@
 		{
 			"changes": [
 				{
+					"detail": "`compressResponses()` compresses what the app's own routes return — JSON, text, XML — for the client that asked, brotli or gzip. It is opt-in and mounted by the app: `.use(absolutejs).use(compressResponses()).get('/api/items', …)`, or inside a group to cover that group alone. It reaches only the routes, plugins and groups registered after it, and in development it says which of the app's routes it was mounted after; the app's own response hooks belong before it, because a hook that replaces a response stops the hooks after it from running. The replacement keeps the route's status, headers and cookies. A plain object, array or string is compressed whole; a `Response` is compressed as it streams. Never compressed: an event stream or a route written as a generator (replacing its response would end the stream), a page (`text/html`, the page path's), a body already encoded or marked `cache-control: no-transform`, a HEAD or range request or a 206, a body under 1 KB, one that would not shrink by a tenth, and anything that is not text. See docs/COMPRESSION.md.",
+					"kind": "added",
+					"summary": "compressResponses() compresses what the app’s own routes return, opt-in",
+					"symbols": [
+						"compressResponses"
+					]
+				}
+			],
+			"date": "2026-11-28",
+			"version": "0.20.0-beta.457"
+		},
+		{
+			"changes": [
+				{
 					"detail": "A page as Markdown (`markdown: true`) and `llms-full.txt` are now compressed for the client that asked, brotli or gzip, with `Accept-Encoding` added to their `vary`. Measured before: a page as Markdown (3.7 KB) and `llms-full.txt` (13.8 KB) both left a production server with no `content-encoding`. Both are answered by the framework's own plugins before any route runs, so no route of the app holds the response and compressing it changes nothing the app can see, which is why this is on by default where streamed pages are not. A response under 1 KB and a HEAD request are sent as they are, and `compression: { pages: false }` turns this off with the pages. See docs/COMPRESSION.md.",
 					"kind": "changed",
 					"summary": "A page as Markdown and llms-full.txt are sent compressed"
