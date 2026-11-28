@@ -5,6 +5,7 @@ import {
 	type StreamingSlotPolicy,
 	type StreamingSlot
 } from '../utils/streamingSlots';
+import { uncompressedPage } from './compressPageStream';
 import { STREAMING_PAGE_HEADER } from './pageResponseCache';
 import {
 	activePartialHolesSink,
@@ -27,7 +28,11 @@ export type StreamingSlotEnhancerOptions = Omit<
 	policy?: StreamingSlotPolicy;
 };
 
-const toResponse = async (responseLike: ResponseLike) => responseLike;
+/* A handler's response has been through the page funnel, and may be
+ * leaving compressed (compressPageStream.ts). Everything here reads or
+ * adds to the page's HTML, so it takes the page back first. */
+const toResponse = async (responseLike: ResponseLike) =>
+	uncompressedPage(await responseLike);
 
 const cloneHeaders = (response: Response) => {
 	const headers = new Headers(response.headers);

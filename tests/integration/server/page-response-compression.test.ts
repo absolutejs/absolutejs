@@ -73,16 +73,16 @@ describe('page response compression', () => {
 		expect(response.status).toBe(200);
 	}, 120_000);
 
-	/* Compressing through this path buffers the body, which forfeits the
-	 * fast first byte that is the whole point of streaming. These pages
-	 * use streaming slots, so they are skipped rather than silently
-	 * de-streamed — the remaining half of the work, and it needs a
-	 * streaming compressor rather than this one. */
-	test('a streaming page is left uncompressed', async () => {
+	/* Compressing through the buffered path would forfeit the fast first
+	 * byte that is the whole point of streaming, so these pages were
+	 * once left uncompressed. They are now compressed as they stream
+	 * (compressPageStream.ts); streamed-page-compression.test.ts checks
+	 * that the first byte still leaves early. */
+	test('a streaming page is compressed as it streams', async () => {
 		const response = await fetchPage('/react', 'br, gzip');
 
 		expect(response.status).toBe(200);
-		expect(response.headers.get('content-encoding')).toBeNull();
+		expect(response.headers.get('content-encoding')).toBe('br');
 	}, 120_000);
 
 	/* The encoded body is a different representation, so it carries its

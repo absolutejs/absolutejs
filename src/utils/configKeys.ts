@@ -30,6 +30,7 @@ export const CONFIG_KEYS = [
 	'cluster',
 	'command',
 	'compile',
+	'compression',
 	'config',
 	'cwd',
 	'dependsOn',

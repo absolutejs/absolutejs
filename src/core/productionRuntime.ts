@@ -43,6 +43,8 @@ const RUNTIME_KEYS = [
 	'basePath',
 	'basePathShared',
 	'cluster',
+	/* Read by the running server (compressionRef.ts). */
+	'compression',
 	'emberDirectory',
 	/* Redirects, rewrites and headers are applied by the running server,
 	 * so this list is where they have to be: left out, they would work

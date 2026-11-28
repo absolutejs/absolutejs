@@ -1,5 +1,6 @@
 import { CLIENT_MODULE_PREFIX } from '../dev/clientModuleHmr';
 import { withPathnameRules } from '../utils/i18nPathnameRules';
+import { setCompression } from '../utils/compressionRef';
 import { setI18nRouting } from '../utils/i18nRoutingRef';
 import { llmsFull } from './llmsFull';
 import { pageMarkdown } from './pageMarkdown';
@@ -918,6 +919,7 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 	// For whatever routes by locale to compare itself with, and read
 	// (i18nRoutingRef.ts).
 	setI18nRouting(config.i18n);
+	setCompression(config.compression);
 	// The base path the browser reaches the app under: the environment's,
 	// else the config's (read everywhere through getBasePath()).
 	if (process.env.ABSOLUTE_BASE_PATH === undefined && config.basePath)
