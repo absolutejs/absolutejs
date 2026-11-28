@@ -11,6 +11,10 @@ import {
 import { HTML_CONTENT_TYPE } from '../constants';
 import { ACTION_FLASH_COOKIE } from '../utils/formActionState';
 import { markdownAlternateLink } from '../utils/pageMarkdownRef';
+import { compressedPage } from './compressPageStream';
+import { PARTIAL_SHELL_HEADER } from './partialPrerender';
+import { acceptedEncodings } from './precompressed';
+import { compressesPages } from '../utils/compressionRef';
 import { withRenderSpan } from './renderTracing';
 
 // The SPA cache policy, applied to every framework's HTML page response.
@@ -137,6 +141,32 @@ const awaitsActionFlash = (request: Request | undefined) =>
 	request?.headers.get('cookie')?.includes(`${ACTION_FLASH_COOKIE}=`) ===
 	true;
 
+/* The encoding to stream a page in, or nothing to send it as it is.
+ *
+ * As it is: when the config turns page compression off, when the
+ * handler encoded the body itself, when there is nothing to read
+ * `accept-encoding` from, and for a request carrying a form result,
+ * which is written into the page after this (see `awaitsActionFlash`).
+ * Also for the pre-renderer's own request for a page's shell: the copy
+ * it stores is the page, not one client's encoding of it. */
+const streamEncodingFor = (
+	response: Response,
+	request: Request | undefined
+) => {
+	if (!request || !response.body || !response.ok) return undefined;
+	if (!compressesPages() || response.headers.has('content-encoding'))
+		return undefined;
+	if (awaitsActionFlash(request)) return undefined;
+	if (request.headers.has(PARTIAL_SHELL_HEADER)) return undefined;
+	const [preferred] = acceptedEncodings(
+		request.headers.get('accept-encoding')
+	);
+
+	return preferred?.encoding === 'br' || preferred?.encoding === 'gzip'
+		? preferred.encoding
+		: undefined;
+};
+
 const cachedPageResponse = async (
 	response: Response,
 	request: Request | undefined,
@@ -150,8 +180,11 @@ const cachedPageResponse = async (
 	if ((isStreaming && !options?.bufferStreamForEtag) || !response.body) {
 		response.headers.delete(STREAMING_PAGE_HEADER);
 		response.headers.set('cache-control', 'no-cache');
+		const encoding = streamEncodingFor(response, request);
 
-		return response;
+		// Compressed as it streams, and flushed after each chunk, so
+		// the first byte is not held back (compressPageStream.ts).
+		return encoding ? compressedPage(response, encoding) : response;
 	}
 
 	// Buffer the body (for a streamed page this consumes the stream, forfeiting
@@ -169,7 +202,7 @@ const cachedPageResponse = async (
 	 * body is left alone. */
 	const personalised = awaitsActionFlash(request);
 	const encoding =
-		headers.has('content-encoding') || personalised
+		headers.has('content-encoding') || personalised || !compressesPages()
 			? undefined
 			: chosenHtmlEncoding({ body: html, request });
 	const etag =

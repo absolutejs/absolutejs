@@ -5,6 +5,22 @@
 		{
 			"changes": [
 				{
+					"detail": "A page rendered as a stream — every React, Svelte and Vue page — was sent uncompressed: the page compressor needed the whole body, and buffering a stream to compress it would forfeit its first byte. Measured on a production server asking for `br, gzip`, a 5 KB React page and a 12 KB page with a streamed slot both left with no `content-encoding`. A streamed page is now compressed as it streams, brotli or gzip by what the client accepts, and flushed after every chunk the page writes, so the shell still leaves when it is rendered and a slot's content when it resolves; with a slot that takes 600 ms the first chunk still arrives at once. It is sent as it is to a client that accepts neither, when the handler encoded the body itself, for a request carrying a form result, and for the pre-renderer's own request. The compressed body is made only when something reads it, and until then the page can be had back uncompressed, which the streaming-slot wrappers (`withStreamingSlots`, `wrapPageHandlerWithStreamingSlots`) now do before appending to a handler's response; a response they produce is sent uncompressed. New config key: `compression: { pages: false }` turns page compression off, buffered and streamed, for a server behind something that compresses for it. Not yet compressed: pre-rendered pages, API responses, and the server's own text responses. See docs/COMPRESSION.md.",
+					"kind": "changed",
+					"summary": "Streamed pages are compressed as they stream",
+					"symbols": [
+						"CompressionConfig",
+						"BaseBuildConfig",
+						"BuildConfig"
+					]
+				}
+			],
+			"date": "2026-11-28",
+			"version": "0.20.0-beta.453"
+		},
+		{
+			"changes": [
+				{
 					"detail": "React and Svelte have `useResource`, which Vue has had: a value one component loads for itself in the browser, in place of an effect that fetches into state. `useResource((signal) => api.profile.get({ signal }))` gives `data`, `error` and `loading` — as values in React (`@absolutejs/absolute/react/hooks`), as a store in Svelte (`$profile.data`, from `@absolutejs/absolute/svelte`) — with `refresh()`, `cancel()` and `mutate()`. The load is stopped when the component unmounts, or in Svelte when the store's last subscriber leaves; a load another one overtook is dropped whatever it answers; `mutate()` sets the value by hand and stops a load in flight; `start: 'pending' | 'idle'` waits for the first `refresh()`. It loads in the browser only: on the server `loading` is true and `data` is null, which is what the browser starts from. It is a loader and not a cache. Both are built on one small store (`src/client/resource.ts`), so they behave alike. Svelte also has `usePrefetch`, as an action, the counterpart of React's and Vue's for an element that is not a `<Link>`: `const prefetch = usePrefetch({ mode: 'hover' })` and `<a href=\"/pricing\" use:prefetch>`; the address is the element's `href` or the action's parameter. See docs/DATA_LOADING.md.",
 					"kind": "added",
 					"summary": "useResource for React and Svelte, and usePrefetch for Svelte",

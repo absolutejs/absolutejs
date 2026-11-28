@@ -2,6 +2,7 @@ import { build } from '../src/core/build';
 import { devBuild } from '../src/core/devBuild';
 import type { BuildConfig as BunBuildConfig } from 'bun';
 import type { ClusterConfig } from './cluster';
+import type { CompressionConfig } from './compression';
 import type { FileRoutesConfig } from './fileRoutes';
 import type { FontsConfig } from './fonts';
 import type { HealthConfig } from './health';
@@ -980,6 +981,9 @@ export type BaseBuildConfig = {
 	 *  Off by default: writing to a project's stdout uninvited is not the
 	 *  framework's call. See docs/LOGGING.md. */
 	logging?: LoggingConfig;
+	/** What the running server compresses. Pages are compressed by
+	 *  default; `{ pages: false }` turns that off. */
+	compression?: CompressionConfig;
 	/** The app's locale routing: which locales there are and how a
 	 *  request's is chosen. Declared here, the build and the CLI know
 	 *  it too — the sitemap lists every page once per locale without

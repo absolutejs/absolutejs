@@ -201,17 +201,20 @@ describe('withPageCacheHeaders', () => {
 		expect(repeat.headers.get('content-encoding')).toBe('br');
 	});
 
-	/* Compressing a stream through this path would buffer it, forfeiting
-	 * the fast first byte that is the whole point of streaming. Skipped
-	 * rather than silently de-streamed. */
-	test('leaves a streaming page alone', async () => {
+	/* Compressing a stream through THIS path would buffer it, forfeiting
+	 * the fast first byte that is the whole point of streaming. It was
+	 * once skipped for that reason, and is now compressed as it streams
+	 * instead (compressPageStream.ts): encoded, and with no ETag, since
+	 * its headers leave before its body exists to be hashed. */
+	test('compresses a streaming page as it streams, without an ETag', async () => {
 		const response = await withPageCacheHeaders(
 			page(BIG_PAGE, { [STREAMING_PAGE_HEADER]: '1' }),
 			asking('br')
 		);
 
-		expect(response.headers.get('content-encoding')).toBeNull();
+		expect(response.headers.get('content-encoding')).toBe('br');
 		expect(response.headers.get('cache-control')).toBe('no-cache');
+		expect(response.headers.get('etag')).toBeNull();
 	});
 
 	test('leaves a body that is already encoded alone', async () => {
