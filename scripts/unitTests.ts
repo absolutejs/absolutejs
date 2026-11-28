@@ -27,7 +27,9 @@ const UNIT_DIR = 'tests/unit';
  *  entry: an isolated file is slower and easy to add by reflex. */
 const ISOLATED_TEST_FILES = new Set([
 	// Registers happy-dom and mounts React through react-dom/client.
-	'tests/unit/react/useFormAction.test.ts'
+	'tests/unit/react/useFormAction.test.ts',
+	// The same: happy-dom, and React mounted through react-dom/client.
+	'tests/unit/react/useResource.test.ts'
 ]);
 
 const collectTestFiles = async () => {
