@@ -1,3 +1,5 @@
+import { devServerReport } from './devServerDiagnostics';
+
 type HMRMessage = { type: string; timestamp?: number; [key: string]: unknown };
 
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -14,6 +16,19 @@ export type HMRClient = {
 	ws: WebSocket;
 };
 
+const SOCKET_STATES = ['connecting', 'open', 'closing', 'closed'];
+
+const socketState = (
+	socket: WebSocket,
+	closed: { code?: number; reason?: string }
+) => {
+	const state = SOCKET_STATES[socket.readyState] ?? String(socket.readyState);
+
+	return closed.code === undefined
+		? state
+		: `${state} (code ${closed.code}${closed.reason ? `, ${closed.reason}` : ''})`;
+};
+
 export const connectHMR = (
 	port: number,
 	options?: { protocol?: 'ws' | 'wss' }
@@ -27,6 +42,13 @@ export const connectHMR = (
 			tls: { rejectUnauthorized: false }
 		} as unknown as undefined);
 		const messages: HMRMessage[] = [];
+		// A socket that closed under a waiting test looks, from the
+		// test, exactly like a server that sent nothing.
+		const closed: { code?: number; reason?: string } = {};
+		ws.onclose = (event) => {
+			closed.code = event.code;
+			closed.reason = event.reason;
+		};
 		const waiters: Array<{
 			type: string;
 			resolve: (msg: HMRMessage) => void;
@@ -73,9 +95,19 @@ export const connectHMR = (
 								(w) => w.resolve === _resolve
 							);
 							if (waiterIdx !== -1) waiters.splice(waiterIdx, 1);
-							_reject(
-								new Error(
-									`Timed out waiting for "${type}" after ${timeoutMs}ms. Received: [${messages.map((m) => m.type).join(', ')}]`
+							const received = messages
+								.map((m) => m.type)
+								.join(', ');
+							// Why nothing came is the server's to say: whether
+							// it saw the edit, and what it has queued.
+							void devServerReport(
+								port,
+								protocol === 'wss' ? 'https' : 'http'
+							).then((report) =>
+								_reject(
+									new Error(
+										`Timed out waiting for "${type}" after ${timeoutMs}ms. Received: [${received}]\nThe test's socket is ${socketState(ws, closed)}.\n${report}`
+									)
 								)
 							);
 						}, timeoutMs);
