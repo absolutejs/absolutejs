@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "The dev test for editing a Vue page's `defineRoutes` failed twice in one nightly run. Read with the dev server's own log: after a route was removed, the edited page reached the server's renderer a moment before the route table logged the change, so the request the test waited on was answered 404 by Vue Router finding no match, and the `routes update … -/app/two` line was written just after the test had checked for it. The next test then failed only because its `No match found` check read the whole log, including the warning the removal had left. The status was right both times. The tests now wait for a log line rather than expecting it to be there already, and check for `No match found` only in what the server said after their own edit. No change to the framework.",
+					"kind": "internal",
+					"summary": "The Vue defineRoutes dev test no longer races the server’s log"
+				}
+			],
+			"date": "2026-11-28",
+			"version": "0.20.0-beta.458"
+		},
+		{
+			"changes": [
+				{
 					"detail": "`compressResponses()` compresses what the app's own routes return — JSON, text, XML — for the client that asked, brotli or gzip. It is opt-in and mounted by the app: `.use(absolutejs).use(compressResponses()).get('/api/items', …)`, or inside a group to cover that group alone. It reaches only the routes, plugins and groups registered after it, and in development it says which of the app's routes it was mounted after; the app's own response hooks belong before it, because a hook that replaces a response stops the hooks after it from running. The replacement keeps the route's status, headers and cookies. A plain object, array or string is compressed whole; a `Response` is compressed as it streams. Never compressed: an event stream or a route written as a generator (replacing its response would end the stream), a page (`text/html`, the page path's), a body already encoded or marked `cache-control: no-transform`, a HEAD or range request or a 206, a body under 1 KB, one that would not shrink by a tenth, and anything that is not text. See docs/COMPRESSION.md.",
 					"kind": "added",
 					"summary": "compressResponses() compresses what the app’s own routes return, opt-in",
