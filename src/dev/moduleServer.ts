@@ -392,6 +392,24 @@ const resolveAbsoluteSpecifier = (specifier: string, projectRoot: string) => {
 	}
 };
 
+/* A bare import that resolves to nothing is served as an empty stub (right
+ * for server-only packages a client file reaches by accident). But a
+ * package that just isn't installed where the dev server runs looks the
+ * same, and then the page fails later with a confusing error. Say so once
+ * per package: what was stubbed, from where, and the likely reason. */
+const warnedStubs = new Set<string>();
+const warnStubbedImport = (
+	specifier: string,
+	filePath: string,
+	projectRoot: string
+) => {
+	if (NODE_BUILTIN_RE.test(specifier) || warnedStubs.has(specifier)) return;
+	warnedStubs.add(specifier);
+	logWarn(
+		`"${specifier}" (imported by ${relative(projectRoot, filePath)}) could not be resolved, so the browser gets an empty stub. If it is a package, is it installed where the dev server runs? Restart the dev server after installing it.`
+	);
+};
+
 const rewriteImports = (
 	code: string,
 	filePath: string,
@@ -446,6 +464,8 @@ const rewriteImports = (
 		if (resolved) {
 			return `${prefix}${srcUrl(resolved, projectRoot)}${suffix}`;
 		}
+
+		warnStubbedImport(specifier, filePath, projectRoot);
 
 		// Carry the names this import asked for. A stub that cannot satisfy
 		// them is not a fallback: the browser rejects the whole module with

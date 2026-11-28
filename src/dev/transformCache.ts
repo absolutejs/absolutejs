@@ -70,6 +70,11 @@ const processParents = (parents: Set<string>, queue: string[]) => {
 	return undefined;
 };
 
+/** The modules that import `file` directly. */
+export const directImporters = (file: string) => [
+	...(importers.get(file) ?? [])
+];
+
 export const findNearestComponent = (filePath: string) => {
 	const visited = new Set<string>();
 	const queue = [filePath];

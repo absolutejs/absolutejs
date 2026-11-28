@@ -5,6 +5,22 @@
 		{
 			"changes": [
 				{
+					"detail": "A bare import that resolves to nothing is still served as an empty stub (right for a server-only package a client file reaches by accident), but the dev server now warns once per package: what was stubbed, which file imported it, and that a package installed after the dev server started (or not installed where it runs) needs a restart. Before, the page failed later with an unrelated-looking error.",
+					"kind": "changed",
+					"summary": "An import the dev server cannot resolve says so instead of failing silently"
+				},
+				{
+					"detail": "A hot update re-imported every edited file in a React source folder that existed, so a font, a license or a README there was sent to the browser as a module, and import() failed with \"Failed to load module script ... MIME type\". Only script modules (.ts, .tsx, .js, .jsx, .mjs, .cjs, .mts, .cts) are re-imported now; a data file a script imports (JSON) updates through the scripts that import it, and a file nothing imports is left alone.",
+					"kind": "fixed",
+					"summary": "Hot updates no longer import fonts, licenses or other non-code files as modules"
+				}
+			],
+			"date": "2026-11-28",
+			"version": "0.20.0-beta.459"
+		},
+		{
+			"changes": [
+				{
 					"detail": "The dev test for editing a Vue page's `defineRoutes` failed twice in one nightly run. Read with the dev server's own log: after a route was removed, the edited page reached the server's renderer a moment before the route table logged the change, so the request the test waited on was answered 404 by Vue Router finding no match, and the `routes update … -/app/two` line was written just after the test had checked for it. The next test then failed only because its `No match found` check read the whole log, including the warning the removal had left. The status was right both times. The tests now wait for a log line rather than expecting it to be there already, and check for `No match found` only in what the server said after their own edit. No change to the framework.",
 					"kind": "internal",
 					"summary": "The Vue defineRoutes dev test no longer races the server’s log"
