@@ -16,6 +16,7 @@ export { registerHealthCheck } from './healthChecks';
 export { onServerError } from './errorReporter';
 export { ABS_RENDER_ATTRS, registerTracer } from './renderTracing';
 export * from './renderIslandMarkup';
+export { uncompressedPage } from './compressPageStream';
 export * from './responseEnhancers';
 export * from './staticFileRoute';
 export * from './wrapPageHandlerWithStreamingSlots';

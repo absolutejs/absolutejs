@@ -5,6 +5,21 @@
 		{
 			"changes": [
 				{
+					"detail": "beta.453 compressed every streamed page — every React, Svelte and Vue page — as it streamed, for everyone. That changed what a page handler returns: the body of its response became compressed bytes, so a route that reads that response read them as HTML. `new Response(await response.text(), { headers: response.headers })` around `handleReactPageRequest` sent garbage on under a `content-encoding: br` it no longer matched, and the page did not load. The nightly's browser tests for `invalidate()` (8) and for React hydration recovery (2) failed on exactly that; both serve a page through such a route. Streamed-page compression is now off unless the config asks: `compression: { streaming: true }`. Without it a streamed page is sent as it was rendered, as before beta.453. With it, a route that reads a page handler's response can take the page back first with `uncompressedPage(response)`, now exported; the framework's own streaming-slot wrappers already do. Pages rendered in one piece are compressed by default as they have been since beta.307, and `compression: { pages: false }` still turns everything off. If you are on beta.453 and any route wraps a page handler's response, upgrade.",
+					"kind": "fixed",
+					"summary": "Streamed-page compression is opt-in: on by default it broke routes that read a page handler’s response",
+					"symbols": [
+						"uncompressedPage",
+						"CompressionConfig"
+					]
+				}
+			],
+			"date": "2026-11-28",
+			"version": "0.20.0-beta.454"
+		},
+		{
+			"changes": [
+				{
 					"detail": "A page rendered as a stream — every React, Svelte and Vue page — was sent uncompressed: the page compressor needed the whole body, and buffering a stream to compress it would forfeit its first byte. Measured on a production server asking for `br, gzip`, a 5 KB React page and a 12 KB page with a streamed slot both left with no `content-encoding`. A streamed page is now compressed as it streams, brotli or gzip by what the client accepts, and flushed after every chunk the page writes, so the shell still leaves when it is rendered and a slot's content when it resolves; with a slot that takes 600 ms the first chunk still arrives at once. It is sent as it is to a client that accepts neither, when the handler encoded the body itself, for a request carrying a form result, and for the pre-renderer's own request. The compressed body is made only when something reads it, and until then the page can be had back uncompressed, which the streaming-slot wrappers (`withStreamingSlots`, `wrapPageHandlerWithStreamingSlots`) now do before appending to a handler's response; a response they produce is sent uncompressed. New config key: `compression: { pages: false }` turns page compression off, buffered and streamed, for a server behind something that compresses for it. Not yet compressed: pre-rendered pages, API responses, and the server's own text responses. See docs/COMPRESSION.md.",
 					"kind": "changed",
 					"summary": "Streamed pages are compressed as they stream",
