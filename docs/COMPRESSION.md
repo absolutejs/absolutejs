@@ -58,11 +58,36 @@ do; a response they produce is sent uncompressed.
 The server's own requests for a page — for its Markdown, for
 `llms-full.txt` — ask for it uncompressed.
 
+## Pre-rendered pages
+
+A pre-rendered page is a file, and was sent as the file. It is now
+compressed the first time it is asked for in an encoding, and that copy is
+kept in memory and sent to everyone after: a page is the same for every
+visitor until it is rendered again, so the work is done once per page per
+encoding, at the buffered compressor's quality.
+
+The copy is kept under the file's size and the time it was last written. It
+is not written beside the page on disk: a page is rewritten in several
+places — revalidation, a page store filling the directory, another worker —
+and a compressed file left beside one of them would be served as the page
+after the page had changed. A copy that names the version it was made from
+cannot outlive it.
+
+- The kept copies add up to at most 64 MB per server process. Past that the
+  oldest go, and are compressed again when next asked for.
+- A pre-rendered shell with dynamic parts is streamed, and is compressed as
+  it streams, like a page rendered for the request.
+- `compression: { pages: false }` turns this off too.
+
+Sent as the file: a page under 1 KB, a `HEAD` request, a page served with
+`static.cache` (its validators are for the file as it is; a CDN in front
+compresses it), and a page rewritten for the request's CSP nonce under
+`secureHeaders()`.
+
 ## Not yet
 
-- A pre-rendered page, which is a file on disk and is sent as it is.
-- A pre-rendered shell with dynamic parts, which is streamed by the
-  pre-render plugin and not by a page handler.
+- A pre-rendered page under `static.cache` or under a per-request CSP
+  nonce, as above.
 - An API route's response, and the server's own text responses (a page as
   Markdown, `llms-full.txt`).
 - zstd.

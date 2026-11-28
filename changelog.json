@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "A pre-rendered page is a file, and was sent as the file: measured on a production server asking for `br, gzip`, a 5 KB pre-rendered page left with no `content-encoding`, while the same page rendered per request is compressed. It is now compressed the first time it is asked for in an encoding, brotli or gzip, and that copy is kept in memory and sent to everyone after, so the work is done once per page per encoding. The copy is kept under the file's size and the time it was last written and is not written beside the page on disk, because a page is rewritten in several places — revalidation, a page store, another worker — and a compressed file left beside one would be served after the page had changed; a copy that names the version it was made from cannot outlive it. The kept copies add up to at most 64 MB per server process, the oldest going first. A pre-rendered shell with dynamic parts, which is streamed, is compressed as it streams. `compression: { pages: false }` turns both off. Still sent as the file: a page under 1 KB, a HEAD request, a page served with `static.cache`, and a page rewritten for a per-request CSP nonce. See docs/COMPRESSION.md.",
+					"kind": "changed",
+					"summary": "Pre-rendered pages are sent compressed, from a copy made once"
+				}
+			],
+			"date": "2026-11-28",
+			"version": "0.20.0-beta.454"
+		},
+		{
+			"changes": [
+				{
 					"detail": "A page rendered as a stream — every React, Svelte and Vue page — was sent uncompressed: the page compressor needed the whole body, and buffering a stream to compress it would forfeit its first byte. Measured on a production server asking for `br, gzip`, a 5 KB React page and a 12 KB page with a streamed slot both left with no `content-encoding`. A streamed page is now compressed as it streams, brotli or gzip by what the client accepts, and flushed after every chunk the page writes, so the shell still leaves when it is rendered and a slot's content when it resolves; with a slot that takes 600 ms the first chunk still arrives at once. It is sent as it is to a client that accepts neither, when the handler encoded the body itself, for a request carrying a form result, and for the pre-renderer's own request. The compressed body is made only when something reads it, and until then the page can be had back uncompressed, which the streaming-slot wrappers (`withStreamingSlots`, `wrapPageHandlerWithStreamingSlots`) now do before appending to a handler's response; a response they produce is sent uncompressed. New config key: `compression: { pages: false }` turns page compression off, buffered and streamed, for a server behind something that compresses for it. Not yet compressed: pre-rendered pages, API responses, and the server's own text responses. See docs/COMPRESSION.md.",
 					"kind": "changed",
 					"summary": "Streamed pages are compressed as they stream",
