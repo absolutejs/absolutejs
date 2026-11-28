@@ -58,7 +58,7 @@ export default defineConfig({
 	fileRoutes: { output: './routes.gen.ts' },
 	llms: { full: true, summary: 'An example site.', title: 'Acme' },
 	markdown: true,
-	static: { routes: ['/account'] },
+	static: { routes: ['/account', '/big'], revalidate: 1 },
 	reactDirectory: './react',
 	sitemap: { baseUrl: 'https://acme.test' }
 });
@@ -331,5 +331,36 @@ describe('what reads a page inside the server is still handed HTML', () => {
 		expect(sent.status).toBe(200);
 		expect(html).toContain('<h1>Account</h1>');
 		expect(html).toContain('hello ada');
+	});
+});
+
+/* `/big` is pre-rendered: a file, sent as a kept compressed copy. */
+describe('a pre-rendered page', () => {
+	test('is sent compressed, and decodes to the page', async () => {
+		const sent = await wire('/big');
+
+		expect(sent.encoding).toBe('br');
+		expect(sent.vary).toContain('accept-encoding');
+		expect(decoded(sent)).toBe(await identity('/big'));
+		expect(decoded(sent)).toContain('<h1>Big</h1>');
+	});
+
+	test('is sent the same bytes the second time, and gzip when asked', async () => {
+		const first = await wire('/big');
+		const second = await wire('/big');
+		const gzip = await wire('/big', { 'accept-encoding': 'gzip' });
+
+		expect(Buffer.from(second.bytes).equals(Buffer.from(first.bytes))).toBe(
+			true
+		);
+		expect(gzip.encoding).toBe('gzip');
+		expect(decoded(gzip)).toBe(decoded(first));
+	});
+
+	test('with a part of the visitor’s own is compressed as it streams', async () => {
+		const sent = await wire('/account', { 'x-user': 'ada' });
+
+		expect(sent.encoding).toBe('br');
+		expect(decoded(sent)).toContain('hello ada');
 	});
 });

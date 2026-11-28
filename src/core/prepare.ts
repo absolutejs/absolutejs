@@ -1187,6 +1187,8 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 		const edgeSetting = config.static?.partial?.edge;
 		const { asksForSharedCaching, serveValidated, warnCacheUnderNonces } =
 			await import('./prerenderValidators');
+		const { compressedPrerendered, compressedShell } =
+			await import('./prerenderCompression');
 		const cachePolicy = config.static?.cache;
 		let appHandle: ((request: Request) => Promise<Response>) | undefined;
 
@@ -1263,7 +1265,9 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 						for (const name of dropHeaders)
 							delete set.headers[name];
 
-						return response;
+						// Compressed as it streams, like a page
+						// rendered for the request.
+						return compressedShell(response, request);
 					}
 				);
 			}
@@ -1293,10 +1297,16 @@ const runPrepare = async (configOrPath?: string): Promise<PrepareResult> => {
 					request
 				});
 
-			// Serve the cached page immediately (even if stale)
-			return new Response(Bun.file(filePath), {
-				headers: { 'content-type': 'text/html; charset=utf-8' }
-			});
+			// Serve the cached page immediately (even if stale):
+			// compressed, from a copy kept since it was first asked
+			// for (prerenderCompression.ts), or as the file.
+			return compressedPrerendered(filePath, request).then(
+				(compressed) =>
+					compressed ??
+					new Response(Bun.file(filePath), {
+						headers: { 'content-type': 'text/html; charset=utf-8' }
+					})
+			);
 		});
 		prerenderPlugin.onStart((app) => {
 			appHandle = (request) => app.handle(request);

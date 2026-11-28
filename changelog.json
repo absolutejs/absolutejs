@@ -5,6 +5,17 @@
 		{
 			"changes": [
 				{
+					"detail": "A pre-rendered page is a file, and was sent as the file: measured on a production server asking for `br, gzip`, a 5 KB pre-rendered page left with no `content-encoding`, while the same page rendered per request is compressed. It is now compressed the first time it is asked for in an encoding, brotli or gzip, and that copy is kept in memory and sent to everyone after, so the work is done once per page per encoding. The copy is kept under the file's size and the time it was last written and is not written beside the page on disk, because a page is rewritten in several places — revalidation, a page store, another worker — and a compressed file left beside one would be served after the page had changed; a copy that names the version it was made from cannot outlive it. The kept copies add up to at most 64 MB per server process, the oldest going first. A pre-rendered shell with dynamic parts, which is streamed, is compressed as it streams. `compression: { pages: false }` turns both off. Still sent as the file: a page under 1 KB, a HEAD request, a page served with `static.cache`, and a page rewritten for a per-request CSP nonce. See docs/COMPRESSION.md.",
+					"kind": "changed",
+					"summary": "Pre-rendered pages are sent compressed, from a copy made once"
+				}
+			],
+			"date": "2026-11-28",
+			"version": "0.20.0-beta.455"
+		},
+		{
+			"changes": [
+				{
 					"detail": "beta.453 compressed every streamed page — every React, Svelte and Vue page — as it streamed, for everyone. That changed what a page handler returns: the body of its response became compressed bytes, so a route that reads that response read them as HTML. `new Response(await response.text(), { headers: response.headers })` around `handleReactPageRequest` sent garbage on under a `content-encoding: br` it no longer matched, and the page did not load. The nightly's browser tests for `invalidate()` (8) and for React hydration recovery (2) failed on exactly that; both serve a page through such a route. Streamed-page compression is now off unless the config asks: `compression: { streaming: true }`. Without it a streamed page is sent as it was rendered, as before beta.453. With it, a route that reads a page handler's response can take the page back first with `uncompressedPage(response)`, now exported; the framework's own streaming-slot wrappers already do. Pages rendered in one piece are compressed by default as they have been since beta.307, and `compression: { pages: false }` still turns everything off. If you are on beta.453 and any route wraps a page handler's response, upgrade.",
 					"kind": "fixed",
 					"summary": "Streamed-page compression is opt-in: on by default it broke routes that read a page handler’s response",
