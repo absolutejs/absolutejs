@@ -24,6 +24,7 @@ export * from './requestHelpers';
 export * from './pageStore';
 export * from './pageStores';
 export * from './pageAction';
+export * from './resource';
 export * from './revalidate';
 export * from './llms';
 export * from './robots';

@@ -4,6 +4,8 @@ export { useIslandStore } from './useIslandStore';
 export { UserAgentProvider, useMediaQuery } from './useMediaQuery';
 export { usePrefetch } from './usePrefetch';
 export type { UsePrefetchOptions } from './usePrefetch';
+export { useResource } from './useResource';
+export type { UseResourceResult } from './useResource';
 export type { PrefetchKind, PrefetchMode } from '../../../types/prefetch';
 export { createFormActionClient } from './formActionClient';
 export { useFormAction } from './useFormAction';

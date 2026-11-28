@@ -403,3 +403,65 @@ Two things to know:
   named.
 - A `<Link>` that has already prefetched the destination's document is
   left to the ordinary swap, which has the document in hand.
+
+## `useResource`: a value a component loads for itself
+
+Everything above is about data a page is rendered with. `useResource` is
+for the other kind: something one component fetches in the browser, after
+it mounts.
+
+```tsx
+// React
+const profile = useResource((signal) => api.profile.me.get({ signal }));
+
+if (profile.loading) return <Spinner />;
+if (profile.error) return <Retry onClick={profile.refresh} />;
+return <h1>{profile.data?.name}</h1>;
+```
+
+```svelte
+<!-- Svelte: a store -->
+<script lang="ts">
+	import { useResource } from '@absolutejs/absolute/svelte';
+
+	const profile = useResource((signal) => api.profile.me.get({ signal }));
+</script>
+
+{#if $profile.loading}<Spinner />
+{:else if $profile.error}<button onclick={profile.refresh}>Retry</button>
+{:else}<h1>{$profile.data?.name}</h1>{/if}
+```
+
+Vue has had it, with refs (`profile.data.value`); Angular has `resource()`
+of its own. It replaces an effect that fetches into state:
+
+- The load is stopped when the component goes away, and `signal` is what
+  stops it; hand it to `fetch`.
+- `refresh()` loads again. A load that another one overtook says nothing,
+  whatever it answers: the later call is what the component asked for last.
+- `mutate(value)` sets the value by hand, after an edit returned the new
+  one, and stops a load in flight so a slower answer cannot overwrite it.
+- `start: 'pending'` waits for the first `refresh()` and shows as loading
+  meanwhile; `start: 'idle'` waits and does not.
+
+It loads in the browser only. On the server `loading` is `true` and `data`
+is `null`, which is what the browser starts from. Data a page should be
+rendered with belongs in the route's `load`.
+
+It is a loader and not a cache. Every call owns its state, and a component
+mounted twice loads twice. Data that should outlive a component, or be
+shared by two, wants a cache.
+
+Svelte also has `usePrefetch` now, as an action, for an element that is not
+a `<Link>`:
+
+```svelte
+<script lang="ts">
+	import { usePrefetch } from '@absolutejs/absolute/svelte';
+
+	const prefetch = usePrefetch({ mode: 'hover' });
+</script>
+
+<a href="/pricing" use:prefetch>Pricing</a>
+<button use:prefetch={'/checkout'}>Buy</button>
+```
