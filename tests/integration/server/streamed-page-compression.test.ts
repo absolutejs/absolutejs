@@ -364,3 +364,41 @@ describe('a pre-rendered page', () => {
 		expect(decoded(sent)).toContain('hello ada');
 	});
 });
+
+/* Answered by the framework's own plugins before any route runs, so no
+ * route of the app holds them: compressed by default. */
+describe('the framework’s own text responses', () => {
+	test('a page as Markdown is sent compressed, and decodes to the Markdown', async () => {
+		const sent = await wire('/big.md');
+
+		expect(sent.encoding).toBe('br');
+		expect(sent.vary).toContain('Accept');
+		expect(sent.vary).toContain('Accept-Encoding');
+		expect(decoded(sent)).toStartWith('# Big\n\nThe quick brown fox');
+		expect(decoded(sent)).toBe(
+			decoded(await wire('/big.md', { 'accept-encoding': 'identity' }))
+		);
+	});
+
+	test('llms-full.txt is sent compressed, gzip when brotli is not accepted', async () => {
+		const brotli = await wire('/llms-full.txt');
+		const gzip = await wire('/llms-full.txt', {
+			'accept-encoding': 'gzip'
+		});
+
+		expect(brotli.encoding).toBe('br');
+		expect(gzip.encoding).toBe('gzip');
+		expect(decoded(gzip)).toBe(decoded(brotli));
+		expect(decoded(brotli)).toContain('# Big');
+	}, 30_000);
+
+	test('neither is compressed for a client that accepts no encoding', async () => {
+		expect(
+			(await wire('/big.md', { 'accept-encoding': 'identity' })).encoding
+		).toBeNull();
+		expect(
+			(await wire('/llms-full.txt', { 'accept-encoding': 'identity' }))
+				.encoding
+		).toBeNull();
+	}, 30_000);
+});

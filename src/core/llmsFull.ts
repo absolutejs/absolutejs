@@ -6,6 +6,7 @@ import {
 	type LlmsFullManifest
 } from '../utils/llmsFullManifest';
 import { logWarn } from '../utils/logger';
+import { compressedText } from './compressText';
 import { type AppHandle, readPageMarkdown } from './pageMarkdown';
 
 /* `llms-full.txt`: every page's text, in one Markdown file.
@@ -170,11 +171,11 @@ export const llmsFull = (buildDir: string) => {
 			const url = new URL(request.url);
 			if (url.pathname !== LLMS_FULL_PATH) return undefined;
 
-			return current(handle, url.origin).then(
-				({ text }) =>
-					new Response(text, {
-						headers: { 'content-type': 'text/plain; charset=utf-8' }
-					})
+			// Compressed for the client that asked (compressText.ts).
+			return current(handle, url.origin).then(({ text }) =>
+				compressedText(text, request, {
+					'content-type': 'text/plain; charset=utf-8'
+				})
 			);
 		}
 	);
