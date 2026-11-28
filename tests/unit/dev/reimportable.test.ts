@@ -1,11 +1,29 @@
 import { describe, expect, test } from 'bun:test';
-import { isScriptModule, reimportableFiles } from '../../../src/dev/reimportable';
+import {
+	isScriptModule,
+	reimportableFiles
+} from '../../../src/dev/reimportable';
 
 describe('what a hot update re-imports', () => {
 	test('script modules only', () => {
-		for (const file of ['a.ts', 'a.tsx', 'a.js', 'a.jsx', 'a.mjs', 'a.cjs', 'a.mts', 'a.cts'])
+		for (const file of [
+			'a.ts',
+			'a.tsx',
+			'a.js',
+			'a.jsx',
+			'a.mjs',
+			'a.cjs',
+			'a.mts',
+			'a.cts'
+		])
 			expect(isScriptModule(file)).toBe(true);
-		for (const file of ['seti.woff', 'LICENSE.md', 'NOTICE.txt', 'theme.json', 'logo.svg'])
+		for (const file of [
+			'seti.woff',
+			'LICENSE.md',
+			'NOTICE.txt',
+			'theme.json',
+			'logo.svg'
+		])
 			expect(isScriptModule(file)).toBe(false);
 	});
 
@@ -14,7 +32,13 @@ describe('what a hot update re-imports', () => {
 			'/p/src/theme.json': ['/p/src/useTheme.ts', '/p/src/notes.md']
 		};
 		const files = reimportableFiles(
-			['/p/src/Page.tsx', '/p/src/seti.woff', '/p/src/LICENSE.md', '/p/src/theme.json', '/p/src/Gone.tsx'],
+			[
+				'/p/src/Page.tsx',
+				'/p/src/seti.woff',
+				'/p/src/LICENSE.md',
+				'/p/src/theme.json',
+				'/p/src/Gone.tsx'
+			],
 			(file) => importers[file] ?? [],
 			(file) => file !== '/p/src/Gone.tsx'
 		);
