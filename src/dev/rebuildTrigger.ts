@@ -50,7 +50,9 @@ import {
 	hasFileChanged,
 	predatesProcess
 } from './fileHashTracker';
+import { isScriptModule, reimportableFiles } from './reimportable';
 import {
+	directImporters,
 	findNearestComponent,
 	getTransformed,
 	invalidate as invalidateTransformCache
@@ -2465,13 +2467,18 @@ const isReactPagePath = (file: string) =>
  * `mkdir`) and deleted paths alongside real edits. Neither is a module the
  * browser can import: a directory URL fails to load and the client falls
  * back to a full reload. */
-const isImportableModule = (file: string) => {
+const existingFile = (file: string) => {
 	try {
 		return statSync(file).isFile();
 	} catch {
 		return false;
 	}
 };
+
+/* A script module that exists: only those can be re-imported (a font or
+ * a README in a source folder is not a module; see reimportable.ts). */
+const isImportableModule = (file: string) =>
+	isScriptModule(file) && existingFile(file);
 
 /* A non-component module (a hook, a utility, a context file) has no
  * component of its own for React Fast Refresh to swap: re-importing just
@@ -2550,7 +2557,11 @@ const refreshBoundaryUrls = async (targets: string[]) => {
  * re-run the page too, or the page keeps rendering without it. Children
  * come first so the primary URL stays the most specific component. */
 const resolveReactUpdateTargets = (state: HMRState, reactFiles: string[]) => {
-	const importable = reactFiles.filter(isImportableModule);
+	const importable = reimportableFiles(
+		reactFiles,
+		(file) => directImporters(resolvePath(file)),
+		existingFile
+	);
 	const userEdited = importable.filter((file) =>
 		state.lastUserEditedFiles?.has(resolvePath(file))
 	);
