@@ -1,3 +1,4 @@
+export { compressResponses } from './compressResponses';
 export * from './networking';
 export * from './devtoolsJson';
 export * from './lazyPlugin';

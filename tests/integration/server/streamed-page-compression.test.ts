@@ -110,14 +110,27 @@ export default defineConfig({
 		"import { StreamSlot } from '@absolutejs/absolute/react/components';\n"
 	),
 	'server.ts': `import { Elysia } from 'elysia';
-import { fileRoutes, networking, prepare } from '${fromSource('index.ts')}';
+import { compressResponses, fileRoutes, networking, prepare } from '${fromSource('index.ts')}';
 import { routeTree } from './routes.gen';
 
 const { absolutejs, manifest } = await prepare();
 
 export const server = new Elysia()
 	.use(absolutejs)
+	// Before the routes it covers: the pages and the API alike.
+	.use(compressResponses())
 	.use(fileRoutes(routeTree, manifest))
+	.get('/api/items', ({ cookie }) => {
+		const { visit } = cookie;
+		if (visit) visit.value = 'counted';
+
+		return Array.from({ length: 80 }, (_, id) => ({ id, name: 'item number ' + id }));
+	})
+	.get('/api/tiny', () => ({ ok: true }))
+	.get('/api/events', function* () {
+		yield 'first ';
+		yield 'plain text line. '.repeat(120);
+	})
 	.get('/ready', () => 'ready')
 	.use(networking);
 `,
@@ -401,4 +414,51 @@ describe('the framework’s own text responses', () => {
 				.encoding
 		).toBeNull();
 	}, 30_000);
+});
+
+/* `compressResponses()`, mounted after the framework and before the
+ * routes. Every response below passes through it. */
+describe('the app’s own routes, with compressResponses()', () => {
+	test('JSON is compressed, with the route’s cookie', async () => {
+		const response = await fetch(url('/api/items'), {
+			decompress: false,
+			headers: { 'accept-encoding': 'br, gzip' }
+		} as RequestInit);
+		const bytes = Buffer.from(await response.arrayBuffer());
+		const items: unknown = JSON.parse(
+			brotliDecompressSync(bytes).toString()
+		);
+
+		expect(response.headers.get('content-encoding')).toBe('br');
+		expect(response.headers.get('set-cookie')).toContain('visit=counted');
+		expect(Array.isArray(items) && items.length).toBe(80);
+	});
+
+	test('a small answer and a generator’s stream are sent as they are', async () => {
+		const tiny = await wire('/api/tiny');
+		const events = await wire('/api/events');
+
+		expect(tiny.encoding).toBeNull();
+		expect(JSON.parse(decoded(tiny))).toEqual({ ok: true });
+		expect(events.encoding).toBeNull();
+		expect(decoded(events)).toStartWith('first plain text line.');
+	});
+
+	/* A page is the page path's to compress. Here it already is, and the
+	 * plugin leaves it be; one it would not compress, it does not touch. */
+	test('pages are left to the page path, and still decode to the page', async () => {
+		const compressed = await wire('/big');
+		const plain = await wire('/big', { 'accept-encoding': 'identity' });
+
+		expect(compressed.encoding).toBe('br');
+		expect(decoded(compressed)).toBe(decoded(plain));
+		expect(plain.encoding).toBeNull();
+	});
+
+	test('the framework’s own text responses are compressed once, not twice', async () => {
+		const markdown = await wire('/big.md');
+
+		expect(markdown.encoding).toBe('br');
+		expect(decoded(markdown)).toStartWith('# Big');
+	});
 });
