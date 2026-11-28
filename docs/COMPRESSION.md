@@ -112,11 +112,23 @@ Sent as the file: a page under 1 KB, a `HEAD` request, a page served with
 compresses it), and a page rewritten for the request's CSP nonce under
 `secureHeaders()`.
 
+## The framework's own text responses
+
+A page as Markdown (`markdown: true`) and `llms-full.txt` are compressed
+for the client that asked, brotli or gzip, with `Accept-Encoding` added to
+their `vary`. Both are answered by the framework's own plugins before any
+route runs, so no route of the app ever holds the response, and compressing
+it changes nothing the app can see — the reason it is safe by default. A
+response under 1 KB, and a `HEAD` request, are sent as they are.
+`compression: { pages: false }` turns this off with the pages.
+
+Before this, measured on a production server: a page as Markdown (3.7 KB)
+and `llms-full.txt` (13.8 KB) both left with no `content-encoding`.
+
 ## Not yet
 
 - Streamed pages by default, as above.
 - A pre-rendered page under `static.cache` or under a per-request CSP
   nonce, as above.
-- An API route's response, and the server's own text responses (a page as
-  Markdown, `llms-full.txt`).
+- An API route's response.
 - zstd.

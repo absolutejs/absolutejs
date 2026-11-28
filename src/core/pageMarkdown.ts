@@ -1,4 +1,5 @@
 import { Elysia } from 'elysia';
+import { compressedText } from './compressText';
 import { htmlToMarkdown, inlineStreamedSlots } from '../utils/htmlToMarkdown';
 import {
 	enablePageMarkdown,
@@ -103,15 +104,14 @@ const answer = async (request: Request, handle: Handle | undefined) => {
 	// the answer.
 	if (read.response) return read.response;
 
-	return new Response(read.markdown, {
-		headers: {
-			'content-type': `${MARKDOWN_TYPE}; charset=utf-8`,
-			// The page is the thing to cite; this is a rendering of it.
-			...(bySuffix
-				? { link: `<${url.pathname}${url.search}>; rel="canonical"` }
-				: {}),
-			vary: 'Accept'
-		}
+	// Compressed for the client that asked (compressText.ts).
+	return compressedText(read.markdown, request, {
+		'content-type': `${MARKDOWN_TYPE}; charset=utf-8`,
+		// The page is the thing to cite; this is a rendering of it.
+		...(bySuffix
+			? { link: `<${url.pathname}${url.search}>; rel="canonical"` }
+			: {}),
+		vary: 'Accept'
 	});
 };
 
