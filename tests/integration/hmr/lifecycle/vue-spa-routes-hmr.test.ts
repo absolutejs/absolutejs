@@ -287,6 +287,18 @@ describe('dev: editing a Vue page’s defineRoutes', () => {
 		await writeFile(path, edit(await readFile(path, 'utf-8')));
 	};
 	const logText = () => stripAnsi(app?.log.join('') ?? '');
+	/* What the server has said since `mark` (a `logText().length` taken
+	 * before an edit): an earlier test's warning is not this test's. */
+	const logSince = (mark: number) => logText().slice(mark);
+	/* The log line for an edit, once the server has written it. A
+	 * request can see an edit a moment before the line reporting it is
+	 * written, so the status a test waits on is no promise that the line
+	 * is there yet. */
+	const logLine = (pattern: RegExp) =>
+		waitFor(
+			async () => logText(),
+			(text) => pattern.test(text)
+		);
 
 	beforeAll(async () => {
 		await ensureDistBuild();
@@ -336,9 +348,9 @@ describe('dev: editing a Vue page’s defineRoutes', () => {
 			(result) => result.status === 200
 		);
 		expect(three.status).toBe(200);
-		expect(logText()).toMatch(
-			/routes update \/\S*RoutedShell\.vue \+\/app\/three/
-		);
+		expect(
+			await logLine(/routes update \/\S*RoutedShell\.vue \+\/app\/three/)
+		).toMatch(/routes update \/\S*RoutedShell\.vue \+\/app\/three/);
 		expect(logText()).not.toContain('No match found');
 		/* The answer carries the NEW route's own rendered content. This
 		 * replaces a byte-equality check against `/app/one`'s body, which
@@ -377,9 +389,13 @@ describe('dev: editing a Vue page’s defineRoutes', () => {
 			(result) => result.status === 404
 		);
 		expect(two.status).toBe(404);
-		expect(logText()).toMatch(
-			/routes update \/\S*RoutedShell\.vue -\/app\/two/
-		);
+		/* Seen on CI: the edited page reached the server's renderer just
+		 * before the route table logged the change, so this request was
+		 * answered 404 by Vue Router finding no match, and the line below
+		 * was written a moment after. Both say the route is gone. */
+		expect(
+			await logLine(/routes update \/\S*RoutedShell\.vue -\/app\/two/)
+		).toMatch(/routes update \/\S*RoutedShell\.vue -\/app\/two/);
 		expect((await fetchStatus(url('/app/one'))).status).toBe(200);
 		expect((await fetchStatus(url('/app/three'))).status).toBe(200);
 
@@ -399,6 +415,7 @@ describe('dev: editing a Vue page’s defineRoutes', () => {
 	test('a <script setup> shell picks up an added route', async () => {
 		expect((await fetchStatus(url('/alt/one'))).status).toBe(200);
 		expect((await fetchStatus(url('/alt/three'))).status).toBe(404);
+		const mark = logText().length;
 		await editPage('SetupShell', (source) =>
 			source.replace(
 				'defineRoutes([\n\t',
@@ -410,10 +427,11 @@ describe('dev: editing a Vue page’s defineRoutes', () => {
 			(result) => result.status === 200
 		);
 		expect(three.status).toBe(200);
-		expect(logText()).toMatch(
-			/routes update \/\S*SetupShell\.vue \+\/alt\/three/
-		);
-		expect(logText()).not.toContain('No match found');
+		expect(
+			await logLine(/routes update \/\S*SetupShell\.vue \+\/alt\/three/)
+		).toMatch(/routes update \/\S*SetupShell\.vue \+\/alt\/three/);
+		// This edit's own: the removal above may have left one of these.
+		expect(logSince(mark)).not.toContain('No match found');
 		// Its own content, inside this shell's own markup.
 		expect(three.body).toContain('ROUTE_THREE');
 		expect(three.body).toContain('SETUP_SHELL');
