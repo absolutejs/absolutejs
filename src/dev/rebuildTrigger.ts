@@ -145,9 +145,8 @@ const recompileTailwindForFastPath = async (
 
 	const startedAt = performance.now();
 	try {
-		const { computeFrameworkTailwindSources } = await import(
-			'../build/compileTailwind'
-		);
+		const { computeFrameworkTailwindSources } =
+			await import('../build/compileTailwind');
 		const { cssChanged } = await incrementalTailwindBuild(
 			config.tailwind,
 			state.resolvedPaths.buildDir,
@@ -872,9 +871,8 @@ export const queueFileChange = async (
 				buildDir,
 				urlPrefix ? `${urlPrefix}/${relFromDir}` : relFromDir
 			);
-			const { mkdir, copyFile, readFile } = await import(
-				'node:fs/promises'
-			);
+			const { mkdir, copyFile, readFile } =
+				await import('node:fs/promises');
 			await mkdir(dirname(destPath), { recursive: true });
 			await copyFile(absSource, destPath);
 			const bytes = await readFile(destPath);
@@ -1024,9 +1022,8 @@ export const queueFileChange = async (
 			// stale URL and gets the pre-edit body — defeating the
 			// rebootstrap.
 			try {
-				const { getFrameworkGeneratedDir } = await import(
-					'../utils/generatedDir'
-				);
+				const { getFrameworkGeneratedDir } =
+					await import('../utils/generatedDir');
 				const { invalidateModule: invalidateModuleServer } =
 					await import('./moduleServer');
 				const generatedAngularRoot =
@@ -1317,9 +1314,8 @@ export const getAngularClientBundlePlugins = async (
 	config: BuildConfig,
 	userAngularRoot: string
 ) => {
-	const { createAngularHmrInjectionPlugin } = await import(
-		'./angular/hmrInjectionPlugin'
-	);
+	const { createAngularHmrInjectionPlugin } =
+		await import('./angular/hmrInjectionPlugin');
 
 	return [
 		createStylePreprocessorPlugin(getStyleTransformConfig(config)),
@@ -1346,12 +1342,10 @@ const bundleAngularClient = async (
 
 	let angVendorPaths = getAngularVendorPaths();
 	if (!angVendorPaths) {
-		const { computeAngularVendorPaths } = await import(
-			'../build/buildAngularVendor'
-		);
-		const { setAngularVendorPaths } = await import(
-			'../core/devVendorPaths'
-		);
+		const { computeAngularVendorPaths } =
+			await import('../build/buildAngularVendor');
+		const { setAngularVendorPaths } =
+			await import('../core/devVendorPaths');
 		angVendorPaths = computeAngularVendorPaths(
 			globalThis.__angularVendorSpecifiers
 		);
@@ -1402,9 +1396,8 @@ const bundleAngularClient = async (
 
 	// Compose compileAngular's per-intermediate inline map with
 	// Bun.build's output map post-build (docs/BUN_SOURCEMAP_CHAIN_BUG.md).
-	const { chainBundleInlineSourcemap } = await import(
-		'../build/chainInlineSourcemaps'
-	);
+	const { chainBundleInlineSourcemap } =
+		await import('../build/chainInlineSourcemaps');
 	for (const out of clientResult.outputs) {
 		if (out.path.endsWith('.js')) chainBundleInlineSourcemap(out.path);
 	}
@@ -1614,9 +1607,8 @@ const decideAngularTier = async (
 	let totalResolveMs = 0;
 	let totalCompileMs = 0;
 
-	const { resolveDescendantsOfParent } = await import(
-		'./angular/resolveOwningComponents'
-	);
+	const { resolveDescendantsOfParent } =
+		await import('./angular/resolveOwningComponents');
 
 	for (const editedFile of userEdited) {
 		const resolveStart = performance.now();
@@ -1839,9 +1831,8 @@ const broadcastRebootstrap = async (state: HMRState, reason: string) => {
 	// Tier 1 fingerprint invalidation — the running app's structure
 	// is now whatever the rebuilt bundle has, so the next surgical
 	// attempt should re-baseline from the post-rebootstrap source.
-	const { invalidateFingerprintCache } = await import(
-		'./angular/fastHmrCompiler'
-	);
+	const { invalidateFingerprintCache } =
+		await import('./angular/fastHmrCompiler');
 	invalidateFingerprintCache();
 };
 
@@ -2106,9 +2097,8 @@ const compileAndBundleAngular = async (
 	pageEntries: string[],
 	angularDir: string
 ) => {
-	const { compileAngular, compileAngularFileJIT } = await import(
-		'../build/compileAngular'
-	);
+	const { compileAngular, compileAngularFileJIT } =
+		await import('../build/compileAngular');
 	const { getFrameworkGeneratedDir } = await import('../utils/generatedDir');
 	// Re-run the providers scan so `compileAngular`'s per-page injection
 	// step sees the current `absolute.config.ts > angular.providers`
@@ -2118,12 +2108,10 @@ const compileAndBundleAngular = async (
 	// ...appProviders, provideRouter(routes), { APP_BASE_HREF } ]`
 	// declaration that gets appended to each page's compiled server
 	// output, leaving the rebuilt page with no DI graph at SSR.
-	const { runAngularHandlerScan } = await import(
-		'../build/runAngularHandlerScan'
-	);
-	const { parseAngularProvidersImport } = await import(
-		'../build/parseAngularConfigImports'
-	);
+	const { runAngularHandlerScan } =
+		await import('../build/runAngularHandlerScan');
+	const { parseAngularProvidersImport } =
+		await import('../build/parseAngularConfigImports');
 	const projectRoot = process.cwd();
 	// `runAngularHandlerScan` resolves page paths against the angularDir
 	// it's handed; passing a relative `angularDir` leaves the scan
@@ -2195,9 +2183,8 @@ const compileAndBundleAngular = async (
 	// through Tier 0 because there's no baseline to compare against.
 	const primeFingerprints = async () => {
 		try {
-			const { primeComponentFingerprint } = await import(
-				'./angular/fastHmrCompiler'
-			);
+			const { primeComponentFingerprint } =
+				await import('./angular/fastHmrCompiler');
 			const { readdir } = await import('node:fs/promises');
 			const walk = async (dir: string): Promise<string[]> => {
 				const entries = await readdir(dir, { withFileTypes: true });
@@ -2241,9 +2228,8 @@ const compileAndBundleAngular = async (
 	// different copy, producing NG0203 on hydration. So write SSR-rewritten
 	// content to a sibling `.ssr.js` and point the manifest at it; the
 	// original file stays bare-specifier for the client bundle.
-	const { getAngularServerVendorPaths } = await import(
-		'../core/devVendorPaths'
-	);
+	const { getAngularServerVendorPaths } =
+		await import('../core/devVendorPaths');
 	const angServerVendorPaths = getAngularServerVendorPaths();
 	const ssrPaths = angServerVendorPaths
 		? serverPaths.map((serverPath) =>
@@ -2347,9 +2333,8 @@ const handleAngularFastPath = async (
 	// or any of its transitive `.component.ts` deps — actually re-run
 	// the per-page injection and re-emit the bundles.
 	const projectRoot = process.cwd();
-	const { parseAngularProvidersImport } = await import(
-		'../build/parseAngularConfigImports'
-	);
+	const { parseAngularProvidersImport } =
+		await import('../build/parseAngularConfigImports');
 	const providersImport = parseAngularProvidersImport(projectRoot);
 	const editedProvidersChain =
 		providersImport &&
@@ -2456,9 +2441,8 @@ const handleAngularFastPath = async (
 // and return the /@src/ URL. Pre-warming ensures the browser fetch
 // hits a warm cache. Used by React and Vue (component-level swap).
 const getModuleUrl = async (pageFile: string) => {
-	const { invalidateModule, warmCache, SRC_URL_PREFIX } = await import(
-		'../dev/moduleServer'
-	);
+	const { invalidateModule, warmCache, SRC_URL_PREFIX } =
+		await import('../dev/moduleServer');
 	invalidateModule(pageFile);
 	const { encodeSrcPath } = await import('../dev/srcPath');
 	const url = `${SRC_URL_PREFIX}${encodeSrcPath(relative(process.cwd(), pageFile))}`;
@@ -2838,9 +2822,8 @@ const getServerBundleExternals = async () => {
  * same plugin the initial build uses (src/build/serverExternals.ts), so an
  * edited page doesn't balloon back to an inline-everything bundle. */
 const getServerBundleExternalsPlugins = async (config: BuildConfig) => {
-	const { createDevServerExternalsPlugin } = await import(
-		'../build/serverExternals'
-	);
+	const { createDevServerExternalsPlugin } =
+		await import('../build/serverExternals');
 
 	return [
 		createDevServerExternalsPlugin({
@@ -3214,9 +3197,8 @@ const runSvelteBundleRebuild = async (
 	// Compose Svelte's per-intermediate inline map with Bun.build's
 	// output map post-build (docs/BUN_SOURCEMAP_CHAIN_BUG.md).
 	if (serverResult?.success || clientResult?.success) {
-		const { chainBundleInlineSourcemap } = await import(
-			'../build/chainInlineSourcemaps'
-		);
+		const { chainBundleInlineSourcemap } =
+			await import('../build/chainInlineSourcemaps');
 		for (const out of serverResult?.outputs ?? []) {
 			if (out.path.endsWith('.js')) chainBundleInlineSourcemap(out.path);
 		}
@@ -3711,17 +3693,15 @@ const runVueBundleRebuild = async (
 	// `Bun.build` emits a map to those intermediates but stops
 	// there. Post-process every Vue server bundle to walk the chain.
 	if (serverResult?.success) {
-		const { chainBundleInlineSourcemap } = await import(
-			'../build/chainInlineSourcemaps'
-		);
+		const { chainBundleInlineSourcemap } =
+			await import('../build/chainInlineSourcemaps');
 		for (const out of serverResult.outputs) {
 			if (out.path.endsWith('.js')) chainBundleInlineSourcemap(out.path);
 		}
 	}
 	if (clientResult?.success) {
-		const { chainBundleInlineSourcemap } = await import(
-			'../build/chainInlineSourcemaps'
-		);
+		const { chainBundleInlineSourcemap } =
+			await import('../build/chainInlineSourcemaps');
 		for (const out of clientResult.outputs) {
 			if (out.path.endsWith('.js')) chainBundleInlineSourcemap(out.path);
 		}
@@ -4388,9 +4368,8 @@ const resolveStaticPageTargets = async (
 	);
 	if (partials.size === 0) return pages;
 
-	const { collectHtmlIncludeDependencies } = await import(
-		'../build/htmlIncludes'
-	);
+	const { collectHtmlIncludeDependencies } =
+		await import('../build/htmlIncludes');
 	const including = (await scanEntryPoints(pagesDir, '*.html')).filter(
 		(page) =>
 			collectHtmlIncludeDependencies(page).some((dependency) =>
@@ -5352,9 +5331,8 @@ const runMarkupFastPath = async (
 		framework === 'html'
 			? (await import('./simpleHTMLHMR')).handleHTMLUpdate
 			: (await import('./simpleHTMXHMR')).handleHTMXUpdate;
-	const { readFileSync: readFs, writeFileSync: writeFs } = await import(
-		'node:fs'
-	);
+	const { readFileSync: readFs, writeFileSync: writeFs } =
+		await import('node:fs');
 
 	const processMarkupFiles = async (files: string[]) => {
 		const [markupFile, ...remaining] = files;
@@ -5990,9 +5968,8 @@ const hasAngularOwnedStyleEdit = async (
 		if (STYLE_FILE_EXT_RE.test(file)) styleEdits.push(file);
 	}
 	if (styleEdits.length === 0) return false;
-	const { resolveOwningComponents } = await import(
-		'./angular/resolveOwningComponents'
-	);
+	const { resolveOwningComponents } =
+		await import('./angular/resolveOwningComponents');
 	for (const file of styleEdits) {
 		const owners = resolveOwningComponents({
 			changedFilePath: file,

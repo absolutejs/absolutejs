@@ -1664,9 +1664,8 @@ const transformAndCache = async (
 			};
 			let sourcePath = filePath;
 			if (!(await fileExists(sourcePath))) {
-				const { getFrameworkGeneratedDir } = await import(
-					'../utils/generatedDir'
-				);
+				const { getFrameworkGeneratedDir } =
+					await import('../utils/generatedDir');
 				const generatedAngularRoot = getFrameworkGeneratedDir(
 					'angular'
 				).replace(/\\/g, '/');
@@ -1695,9 +1694,8 @@ const transformAndCache = async (
 						resolve(projectRoot, tail)
 					];
 					try {
-						const { loadConfig } = await import(
-							'../utils/loadConfig'
-						);
+						const { loadConfig } =
+							await import('../utils/loadConfig');
 						const cfg = await loadConfig();
 						const angularDir =
 							cfg.angularDirectory &&
@@ -1785,12 +1783,10 @@ const transformAndCache = async (
 	if (isAngularGeneratedJs) {
 		const userAngularRoot = await getAngularUserRoot(projectRoot);
 		if (userAngularRoot) {
-			const { applyAngularHmrInjection } = await import(
-				'./angular/hmrInjectionPlugin'
-			);
-			const { getFrameworkGeneratedDir } = await import(
-				'../utils/generatedDir'
-			);
+			const { applyAngularHmrInjection } =
+				await import('./angular/hmrInjectionPlugin');
+			const { getFrameworkGeneratedDir } =
+				await import('../utils/generatedDir');
 			const generatedAngularRoot = getFrameworkGeneratedDir('angular');
 			const transformed = applyAngularHmrInjection(content, filePath, {
 				generatedAngularRoot,
