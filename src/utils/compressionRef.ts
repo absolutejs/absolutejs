@@ -16,6 +16,14 @@ export const compressesPages = () => {
 	return !isConfig(config) || config.pages !== false;
 };
 
+/** Whether a page rendered as a stream is compressed as it streams.
+ *  Only when the config asks: `compression: { streaming: true }`. */
+export const compressesStreamedPages = () => {
+	const config: unknown = Reflect.get(globalThis, COMPRESSION);
+
+	return isConfig(config) && config.streaming === true && compressesPages();
+};
+
 export const setCompression = (config: CompressionConfig | undefined) => {
 	Reflect.set(globalThis, COMPRESSION, config);
 };

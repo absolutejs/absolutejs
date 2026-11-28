@@ -74,15 +74,16 @@ describe('page response compression', () => {
 	}, 120_000);
 
 	/* Compressing through the buffered path would forfeit the fast first
-	 * byte that is the whole point of streaming, so these pages were
-	 * once left uncompressed. They are now compressed as they stream
-	 * (compressPageStream.ts); streamed-page-compression.test.ts checks
-	 * that the first byte still leaves early. */
-	test('a streaming page is compressed as it streams', async () => {
+	 * byte that is the whole point of streaming, so these pages are left
+	 * as they were rendered. A streamed page is compressed as it streams
+	 * only when the config asks (`compression: { streaming: true }`),
+	 * which this app does not; streamed-page-compression.test.ts covers
+	 * that. */
+	test('a streaming page is left uncompressed', async () => {
 		const response = await fetchPage('/react', 'br, gzip');
 
 		expect(response.status).toBe(200);
-		expect(response.headers.get('content-encoding')).toBe('br');
+		expect(response.headers.get('content-encoding')).toBeNull();
 	}, 120_000);
 
 	/* The encoded body is a different representation, so it carries its

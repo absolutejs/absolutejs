@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { brotliDecompressSync, gunzipSync } from 'node:zlib';
 import {
 	compressedPage,
@@ -111,7 +111,38 @@ describe('compressStream', () => {
 	});
 });
 
-describe('a streamed page through the funnel', () => {
+/* Off unless asked for: it changes what a page handler returns, and a
+ * route that reads that response would read compressed bytes as HTML. */
+describe('a streamed page through the funnel, by default', () => {
+	test('is sent as it was rendered, whatever the client accepts', async () => {
+		const response = await withPageCacheHeaders(page(), asking());
+
+		expect(response.headers.get('content-encoding')).toBeNull();
+		expect(await response.text()).toContain('<h1>Page</h1>');
+	});
+
+	/* What broke: a route that wraps a page handler's response. */
+	test('can be read and wrapped by a route, headers and all', async () => {
+		const handled = await withPageCacheHeaders(page(), asking());
+		const wrapped = new Response(await handled.text(), {
+			headers: handled.headers
+		});
+
+		expect(wrapped.headers.get('content-encoding')).toBeNull();
+		expect(await wrapped.text()).toContain('<h1>Page</h1>');
+	});
+
+	test('stays so with pages on and streaming not asked for', async () => {
+		setCompression({ pages: true });
+		const response = await withPageCacheHeaders(page(), asking());
+
+		expect(response.headers.get('content-encoding')).toBeNull();
+	});
+});
+
+describe('a streamed page through the funnel, with compression.streaming', () => {
+	beforeEach(() => setCompression({ streaming: true }));
+
 	test('is compressed for a client that accepts it', async () => {
 		const response = await withPageCacheHeaders(page(), asking());
 
@@ -155,7 +186,7 @@ describe('a streamed page through the funnel', () => {
 	});
 
 	test('is sent as it is when the config turns page compression off', async () => {
-		setCompression({ pages: false });
+		setCompression({ pages: false, streaming: true });
 		const streamed = await withPageCacheHeaders(page(), asking());
 		const buffered = await withPageCacheHeaders(
 			new Response(`<html>${'<p>padding</p>'.repeat(200)}</html>`, {
@@ -199,6 +230,7 @@ describe('a page taken back before it is sent', () => {
 	});
 
 	test('so a slot appended by a wrapper lands in HTML, not in compressed bytes', async () => {
+		setCompression({ streaming: true });
 		const compressed = await withPageCacheHeaders(
 			page(
 				'<html><body><div id="slot" data-absolute-slot="true">loading</div></body></html>'

@@ -14,7 +14,10 @@ import { markdownAlternateLink } from '../utils/pageMarkdownRef';
 import { compressedPage } from './compressPageStream';
 import { PARTIAL_SHELL_HEADER } from './partialPrerender';
 import { acceptedEncodings } from './precompressed';
-import { compressesPages } from '../utils/compressionRef';
+import {
+	compressesPages,
+	compressesStreamedPages
+} from '../utils/compressionRef';
 import { withRenderSpan } from './renderTracing';
 
 // The SPA cache policy, applied to every framework's HTML page response.
@@ -143,7 +146,15 @@ const awaitsActionFlash = (request: Request | undefined) =>
 
 /* The encoding to stream a page in, or nothing to send it as it is.
  *
- * As it is: when the config turns page compression off, when the
+ * As it is unless the config asks (`compression: { streaming: true }`).
+ * It was on for everyone for one release, and broke every route that
+ * calls a page handler and reads its response: `new Response(await
+ * response.text(), { headers })` read compressed bytes as HTML and sent
+ * them on under a `content-encoding` they no longer matched. A handler's
+ * response is the app's to read, so its body is not changed unless the
+ * app says it never does.
+ *
+ * Also as it is when the
  * handler encoded the body itself, when there is nothing to read
  * `accept-encoding` from, and for a request carrying a form result,
  * which is written into the page after this (see `awaitsActionFlash`).
@@ -154,7 +165,7 @@ const streamEncodingFor = (
 	request: Request | undefined
 ) => {
 	if (!request || !response.body || !response.ok) return undefined;
-	if (!compressesPages() || response.headers.has('content-encoding'))
+	if (!compressesStreamedPages() || response.headers.has('content-encoding'))
 		return undefined;
 	if (awaitsActionFlash(request)) return undefined;
 	if (request.headers.has(PARTIAL_SHELL_HEADER)) return undefined;

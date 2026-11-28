@@ -11,7 +11,8 @@ import {
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
-/* Streamed pages, compressed, under `absolute start`.
+/* Streamed pages, compressed (`compression: { streaming: true }`), under
+ * `absolute start`.
  *
  * Every React, Svelte and Vue page is rendered as a stream, and was sent
  * with no `content-encoding`: the compressor for a buffered page needs
@@ -53,6 +54,7 @@ const FILES: Record<string, string> = {
 
 export default defineConfig({
 	buildDirectory: './build',
+	compression: { streaming: true },
 	fileRoutes: { output: './routes.gen.ts' },
 	llms: { full: true, summary: 'An example site.', title: 'Acme' },
 	markdown: true,
